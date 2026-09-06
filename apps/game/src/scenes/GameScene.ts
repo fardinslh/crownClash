@@ -73,7 +73,7 @@ export class GameScene extends Phaser.Scene {
     this.armyVisuals.clear();
     this.selectedSourceId = null;
     this.hoveredTargetId = null;
-    this.aiTimer = 0.5; // first AI check after 0.5s
+    this.aiTimer = 1.6; // give player a fair 1.6s reaction window at match start
 
     // 1. Draw Arena Background & Connecting Lanes
     this.createArenaBackground();
@@ -273,7 +273,7 @@ export class GameScene extends Phaser.Scene {
 
     this.enemyBar = this.add
       .rectangle(LOGICAL_WIDTH / 2 + barWidth / 2, barY, 80, barHeight, THEME.teams.enemy.primary)
-      .setOrigin(1, 0.5)
+      .setOrigin(0, 0.5)
       .setDepth(100);
 
     // Bottom Tactical Control Hint
@@ -887,7 +887,7 @@ export class GameScene extends Phaser.Scene {
     this.selectedSourceId = null;
     this.hoveredTargetId = null;
     this.dragBadgeContainer.setVisible(false);
-    this.aiTimer = 0.5;
+    this.aiTimer = 1.6;
 
     // Reset territory objects
     this.updateTerritoryVisuals();
