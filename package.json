@@ -9,9 +9,9 @@
   ],
   "scripts": {
     "dev": "npm --workspace=apps/game run dev",
-    "build": "npm --workspace=packages/game-core run build && npm --workspace=apps/game run build",
-    "test": "npm --workspace=packages/game-core run test",
-    "typecheck": "npm --workspace=packages/game-core run typecheck && npm --workspace=apps/game run typecheck"
+    "build": "npm --workspace=packages/game-core run build && npm --workspace=packages/platform run build && npm --workspace=apps/game run build",
+    "test": "npm --workspace=packages/game-core run test && npm --workspace=packages/platform run test",
+    "typecheck": "npm --workspace=packages/game-core run typecheck && npm --workspace=packages/platform run typecheck && npm --workspace=apps/game run typecheck"
   },
   "devDependencies": {
     "typescript": "^5.7.3"

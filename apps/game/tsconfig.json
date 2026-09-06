@@ -16,7 +16,8 @@
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
-      "@crown-clash/game-core": ["../../packages/game-core/src/index.ts"]
+      "@crown-clash/game-core": ["../../packages/game-core/src/index.ts"],
+      "@crown-clash/platform": ["../../packages/platform/src/index.ts"]
     }
   },
   "include": ["src/**/*"]

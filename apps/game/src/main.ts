@@ -1,6 +1,14 @@
 import Phaser from 'phaser';
 import { LOGICAL_HEIGHT, LOGICAL_WIDTH } from '@crown-clash/game-core';
+import { createPlatformAdapter } from '@crown-clash/platform';
 import { GameScene } from './scenes/GameScene.js';
+
+// 1. Initialize Platform Adapter (Bale -> Eitaa -> Telegram -> Browser)
+const platform = createPlatformAdapter();
+platform.initialize().catch((err: unknown) => {
+  console.warn('[Platform] Async init warning:', err);
+});
+platform.ready();
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -22,6 +30,12 @@ const config: Phaser.Types.Core.GameConfig = {
     target: 60,
     forceSetTimeOut: true,
   },
+  callbacks: {
+    postBoot: (bootedGame) => {
+      bootedGame.registry.set('platform', platform);
+    },
+  },
 };
 
 export const game = new Phaser.Game(config);
+

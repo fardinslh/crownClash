@@ -4,7 +4,8 @@ import path from 'path';
 export default defineConfig({
   resolve: {
     alias: {
-      '@crown-clash/game-core': path.resolve(__dirname, '../../packages/game-core/src/index.ts')
+      '@crown-clash/game-core': path.resolve(__dirname, '../../packages/game-core/src/index.ts'),
+      '@crown-clash/platform': path.resolve(__dirname, '../../packages/platform/src/index.ts')
     }
   },
   server: {

@@ -14,7 +14,7 @@ import {
 } from '@crown-clash/game-core';
 import { sounds } from '../audio/SoundEffects.js';
 import { THEME } from '../theme.js';
-import { triggerHaptic } from '../utils/haptics.js';
+import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
 
 interface TerritoryVisual {
   territory: Territory;
@@ -64,11 +64,15 @@ export class GameScene extends Phaser.Scene {
   // Result Modal
   private resultModalContainer?: Phaser.GameObjects.Container;
 
+  // Platform Adapter
+  private platform!: PlatformAdapter;
+
   constructor() {
     super({ key: 'GameScene' });
   }
 
   create(): void {
+    this.platform = (this.registry.get('platform') as PlatformAdapter) || createPlatformAdapter();
     this.gameState = createInitialGameState();
     this.accumulators = {};
     this.territoryVisuals.clear();
@@ -229,6 +233,30 @@ export class GameScene extends Phaser.Scene {
   private createHud(): void {
     const hudY = 24;
 
+    // Platform Identity Badge & Player Name
+    const user = this.platform.getUser();
+    const platformName = this.platform.platform.toUpperCase();
+
+    this.add
+      .text(16, hudY, `🛡 ${user.username || 'Commander'}`, {
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        fontSize: '11px',
+        fontStyle: 'bold',
+        color: '#93c5fd',
+      })
+      .setOrigin(0, 0.5)
+      .setDepth(100);
+
+    this.add
+      .text(LOGICAL_WIDTH - 16, hudY, `[${platformName}]`, {
+        fontFamily: 'monospace, -apple-system',
+        fontSize: '10px',
+        fontStyle: 'bold',
+        color: '#64748b',
+      })
+      .setOrigin(1, 0.5)
+      .setDepth(100);
+
     // Top Title
     this.add
       .text(LOGICAL_WIDTH / 2, hudY, 'CROWN CLASH', {
@@ -331,7 +359,7 @@ export class GameScene extends Phaser.Scene {
           this.selectedSourceIds.push(prevFriendly.id);
           this.highlightSelectedTerritory(prevFriendly.id);
           sounds.playReinforce();
-          triggerHaptic('light');
+          this.platform.hapticImpact('light');
         }
         this.lastHoveredFriendlyId = null;
       }
@@ -372,7 +400,7 @@ export class GameScene extends Phaser.Scene {
       this.hoveredTargetId = null;
       this.highlightSelectedTerritory(territoryId);
       sounds.playDispatch();
-      triggerHaptic('light');
+      this.platform.hapticImpact('light');
     }
   }
 
@@ -561,7 +589,7 @@ export class GameScene extends Phaser.Scene {
           } else {
             sounds.playDispatch();
           }
-          triggerHaptic(multiDispatch.armies.length > 1 ? 'heavy' : 'medium');
+          this.platform.hapticImpact(multiDispatch.armies.length > 1 ? 'heavy' : 'medium');
         }
       }
     }
@@ -638,7 +666,7 @@ export class GameScene extends Phaser.Scene {
     if (arrival.captured) {
       // Capture Feedback!
       sounds.playCapture();
-      triggerHaptic('heavy');
+      this.platform.hapticImpact('heavy');
       this.cameras.main.shake(120, 0.005);
 
       // Shake & scale pop
@@ -674,7 +702,7 @@ export class GameScene extends Phaser.Scene {
     } else if (arrival.reinforced) {
       // Friendly Reinforcement Feedback
       sounds.playReinforce();
-      triggerHaptic('light');
+      this.platform.hapticImpact('light');
 
       this.tweens.add({
         targets: vis.container,
@@ -692,7 +720,7 @@ export class GameScene extends Phaser.Scene {
     } else {
       // Attack defended / repelled
       sounds.playCombatHit();
-      triggerHaptic('medium');
+      this.platform.hapticImpact('medium');
 
       this.tweens.add({
         targets: vis.container,
@@ -853,11 +881,11 @@ export class GameScene extends Phaser.Scene {
 
     if (status === 'victory') {
       sounds.playVictory();
-      triggerHaptic('success');
+      this.platform.hapticNotification('success');
       this.cameras.main.flash(300, 37, 99, 235);
     } else {
       sounds.playDefeat();
-      triggerHaptic('warning');
+      this.platform.hapticNotification('warning');
     }
 
     const isWin = status === 'victory';
@@ -876,11 +904,11 @@ export class GameScene extends Phaser.Scene {
 
     // Modal Card
     const card = this.add
-      .rectangle(0, 0, 320, 360, 0x111827, 0.98)
+      .rectangle(0, 0, 320, 380, 0x111827, 0.98)
       .setStrokeStyle(2, isWin ? 0xf59e0b : 0xef4444, 0.9);
 
     const title = this.add
-      .text(0, -120, titleText, {
+      .text(0, -130, titleText, {
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
         fontSize: '34px',
         fontStyle: '900',
@@ -889,7 +917,7 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     const subtitle = this.add
-      .text(0, -78, subText, {
+      .text(0, -90, subText, {
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
         fontSize: '13px',
         color: '#94a3b8',
@@ -901,7 +929,7 @@ export class GameScene extends Phaser.Scene {
     const statsText = this.add
       .text(
         0,
-        -15,
+        -25,
         `⏱ Match Time: ${duration}s\n\n🏰 Territories Captured: ${this.gameState.stats.territoriesCapturedByPlayer}\n\n⚔ Units Dispatched: ${this.gameState.stats.playerUnitsDispatched}`,
         {
           fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
@@ -914,16 +942,16 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     // Play Again Button
-    const btnY = 95;
+    const btnY = 65;
     const btnBg = this.add
-      .rectangle(0, btnY, 220, 52, isWin ? 0x2563eb : 0x374151, 1)
+      .rectangle(0, btnY, 220, 48, isWin ? 0x2563eb : 0x374151, 1)
       .setStrokeStyle(2, isWin ? 0x60a5fa : 0x9ca3af, 1)
       .setInteractive({ useHandCursor: true });
 
     const btnText = this.add
       .text(0, btnY, 'PLAY AGAIN ⚔', {
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        fontSize: '17px',
+        fontSize: '16px',
         fontStyle: 'bold',
         color: '#ffffff',
       })
@@ -941,10 +969,45 @@ export class GameScene extends Phaser.Scene {
 
     btnBg.on('pointerdown', () => {
       sounds.playDispatch();
+      this.platform.hapticSelection();
       this.restartMatch();
     });
 
-    modal.add([backdrop, card, title, subtitle, statsText, btnBg, btnText]);
+    // Native Messenger Share Button (Social Loop)
+    const shareY = 125;
+    const shareBg = this.add
+      .rectangle(0, shareY, 220, 42, 0x1e293b, 1)
+      .setStrokeStyle(1.5, 0x475569, 1)
+      .setInteractive({ useHandCursor: true });
+
+    const shareText = this.add
+      .text(0, shareY, 'SHARE RESULT 📢', {
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        fontSize: '14px',
+        fontStyle: 'bold',
+        color: '#94a3b8',
+      })
+      .setOrigin(0.5);
+
+    shareBg.on('pointerover', () => {
+      shareBg.setScale(1.03);
+      shareText.setScale(1.03);
+    });
+
+    shareBg.on('pointerout', () => {
+      shareBg.setScale(1.0);
+      shareText.setScale(1.0);
+    });
+
+    shareBg.on('pointerdown', async () => {
+      this.platform.hapticSelection();
+      const shareMsg = isWin
+        ? `👑 I conquered the battlefield in Crown Clash in ${duration}s! Can you defeat my armies?`
+        : `⚔ I fought for the Crown in Crown Clash! Challenge my realm!`;
+      await this.platform.share({ text: shareMsg });
+    });
+
+    modal.add([backdrop, card, title, subtitle, statsText, btnBg, btnText, shareBg, shareText]);
 
     // Modal Entrance Animation
     modal.setScale(0.8);
