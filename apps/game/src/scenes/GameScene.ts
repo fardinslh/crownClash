@@ -67,6 +67,9 @@ export class GameScene extends Phaser.Scene {
   // Platform Adapter
   private platform!: PlatformAdapter;
 
+  // Audio Atmosphere Tension
+  private lastHeartbeatSecond: number = -1;
+
   constructor() {
     super({ key: 'GameScene' });
   }
@@ -82,6 +85,10 @@ export class GameScene extends Phaser.Scene {
     this.lastHoveredFriendlyId = null;
     this.selectionRings.clear();
     this.aiTimer = 1.6; // give player a fair 1.6s reaction window at match start
+    this.lastHeartbeatSecond = -1;
+
+    // Start atmospheric battle music
+    sounds.startBattleMusic();
 
     // 1. Draw Arena Background & Connecting Lanes
     this.createArenaBackground();
@@ -256,6 +263,22 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(1, 0.5)
       .setDepth(100);
+
+    // Audio Mute Toggle Button
+    const muteIcon = sounds.isMuted() ? '🔇' : '🔊';
+    const muteBtn = this.add
+      .text(LOGICAL_WIDTH - 82, hudY, muteIcon, {
+        fontSize: '13px',
+      })
+      .setOrigin(1, 0.5)
+      .setDepth(100)
+      .setInteractive({ useHandCursor: true });
+
+    muteBtn.on('pointerdown', () => {
+      const isMuted = sounds.toggleMute();
+      muteBtn.setText(isMuted ? '🔇' : '🔊');
+      this.platform.hapticSelection();
+    });
 
     // Top Title
     this.add
@@ -665,9 +688,14 @@ export class GameScene extends Phaser.Scene {
 
     if (arrival.captured) {
       // Capture Feedback!
-      sounds.playCapture();
+      if (arrival.targetId === 'n_center') {
+        sounds.playCrownCapture();
+        this.cameras.main.shake(180, 0.008);
+      } else {
+        sounds.playCapture();
+        this.cameras.main.shake(120, 0.005);
+      }
       this.platform.hapticImpact('heavy');
-      this.cameras.main.shake(120, 0.005);
 
       // Shake & scale pop
       this.tweens.add({
@@ -848,14 +876,31 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateHud(): void {
-    // 1. Timer
+    // 1. Timer & Dynamic Tension Loop
     const remaining = Math.max(0, this.gameState.timeLimitSeconds - this.gameState.elapsedTimeSeconds);
     const mins = Math.floor(remaining / 60);
     const secs = Math.floor(remaining % 60);
     this.timerText.setText(`${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
 
-    if (remaining <= 10) {
-      this.timerText.setColor('#ef4444');
+    if (remaining <= 15 && this.gameState.status === 'playing') {
+      const currentSec = Math.floor(remaining);
+      if (currentSec !== this.lastHeartbeatSecond) {
+        this.lastHeartbeatSecond = currentSec;
+        const urgency = remaining <= 5 ? 'high' : 'medium';
+        sounds.playHeartbeat(urgency);
+        this.platform.hapticImpact(remaining <= 5 ? 'medium' : 'light');
+
+        this.timerText.setColor(remaining <= 5 ? '#ef4444' : '#f59e0b');
+        this.tweens.add({
+          targets: this.timerText,
+          scale: 1.2,
+          duration: 90,
+          yoyo: true,
+          ease: 'Sine.easeOut',
+        });
+      }
+    } else {
+      this.timerText.setColor('#fbbf24');
     }
 
     // 2. Dominance Bar
@@ -1047,6 +1092,10 @@ export class GameScene extends Phaser.Scene {
     this.dragGraphics.clear();
     this.dragBadgeContainer.setVisible(false);
     this.aiTimer = 1.6;
+    this.lastHeartbeatSecond = -1;
+
+    // Restart atmospheric battle music
+    sounds.startBattleMusic();
 
     // Reset territory objects
     this.updateTerritoryVisuals();
