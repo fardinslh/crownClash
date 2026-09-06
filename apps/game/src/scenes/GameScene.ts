@@ -19,9 +19,9 @@ import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
 interface TerritoryVisual {
   territory: Territory;
   container: Phaser.GameObjects.Container;
-  bgCircle: Phaser.GameObjects.Arc;
+  sprite: Phaser.GameObjects.Image;
   ring: Phaser.GameObjects.Arc;
-  crownIcon?: Phaser.GameObjects.Text;
+  unitBadge: Phaser.GameObjects.Rectangle;
   unitText: Phaser.GameObjects.Text;
   nameText: Phaser.GameObjects.Text;
 }
@@ -72,6 +72,18 @@ export class GameScene extends Phaser.Scene {
 
   constructor() {
     super({ key: 'GameScene' });
+  }
+
+  preload(): void {
+    // Load 2.5D Rendered Territory Sprites
+    this.load.image('outpost_neutral', 'assets/territories/outpost_neutral.png');
+    this.load.image('outpost_player', 'assets/territories/outpost_player.png');
+    this.load.image('outpost_enemy', 'assets/territories/outpost_enemy.png');
+    this.load.image('crown_keep_neutral', 'assets/territories/crown_keep_neutral.png');
+    this.load.image('crown_keep_player', 'assets/territories/crown_keep_player.png');
+    this.load.image('crown_keep_enemy', 'assets/territories/crown_keep_enemy.png');
+    this.load.image('citadel_player', 'assets/territories/citadel_player.png');
+    this.load.image('citadel_enemy', 'assets/territories/citadel_enemy.png');
   }
 
   create(): void {
@@ -176,31 +188,27 @@ export class GameScene extends Phaser.Scene {
 
       const teamStyle = THEME.teams[territory.owner];
 
-      // Outer glow / border ring
+      // Ground glow / base ring
       const ring = this.add
-        .circle(0, 0, territory.radius + 4, teamStyle.glow, 0.25)
+        .circle(0, 4, territory.radius + 6, teamStyle.glow, 0.25)
         .setStrokeStyle(3, teamStyle.primary, 1);
 
-      // Core territory body
-      const bgCircle = this.add.circle(0, 0, territory.radius, teamStyle.dark, 1);
+      // 2.5D Rendered Fortress Sprite
+      const textureKey = this.getTerritoryTextureKey(territory);
+      const spriteSize = territory.tier === 3 ? 90 : territory.tier === 2 ? 80 : 66;
+      const sprite = this.add.image(0, -6, textureKey).setDisplaySize(spriteSize, spriteSize);
 
-      // Crown icon for bases
-      let crownIcon: Phaser.GameObjects.Text | undefined;
-      if (territory.id === 'p_base' || territory.id === 'e_base' || territory.id === 'n_center') {
-        const symbol = territory.id === 'n_center' ? '👑' : '🏰';
-        crownIcon = this.add
-          .text(0, -territory.radius * 0.42, symbol, {
-            fontSize: territory.id === 'n_center' ? '15px' : '14px',
-          })
-          .setOrigin(0.5);
-        container.add(crownIcon);
-      }
+      // Unit Count Badge Pill
+      const badgeY = territory.tier === 3 ? 24 : territory.tier === 2 ? 20 : 16;
+      const unitBadge = this.add
+        .rectangle(0, badgeY, 36, 19, 0x0a0f1d, 0.94)
+        .setStrokeStyle(1.5, teamStyle.primary, 1);
 
       // Unit Count Text
       const unitText = this.add
-        .text(0, crownIcon ? 4 : 0, territory.units.toString(), {
+        .text(0, badgeY, territory.units.toString(), {
           fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-          fontSize: territory.tier === 3 ? '22px' : '18px',
+          fontSize: territory.tier === 3 ? '14px' : '12px',
           fontStyle: 'bold',
           color: '#ffffff',
         })
@@ -208,17 +216,17 @@ export class GameScene extends Phaser.Scene {
 
       // Subtitle / Name Text
       const nameText = this.add
-        .text(0, territory.radius + 12, territory.name, {
+        .text(0, territory.radius + 18, territory.name, {
           fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
           fontSize: '10px',
           color: THEME.textMuted,
         })
         .setOrigin(0.5);
 
-      container.add([ring, bgCircle, unitText, nameText]);
+      container.add([ring, sprite, unitBadge, unitText, nameText]);
 
       // Make interactive for touch / click
-      container.setSize(territory.radius * 2.4, territory.radius * 2.4);
+      container.setSize(territory.radius * 2.5, territory.radius * 2.5);
       container.setInteractive({ useHandCursor: true });
 
       container.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
@@ -228,9 +236,9 @@ export class GameScene extends Phaser.Scene {
       this.territoryVisuals.set(territory.id, {
         territory,
         container,
-        bgCircle,
+        sprite,
         ring,
-        crownIcon,
+        unitBadge,
         unitText,
         nameText,
       });
@@ -791,6 +799,19 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private getTerritoryTextureKey(territory: Territory): string {
+    if (territory.id === 'p_base') {
+      return territory.owner === 'player' ? 'citadel_player' : 'citadel_enemy';
+    }
+    if (territory.id === 'e_base') {
+      return territory.owner === 'enemy' ? 'citadel_enemy' : 'citadel_player';
+    }
+    if (territory.id === 'n_center') {
+      return `crown_keep_${territory.owner}`;
+    }
+    return `outpost_${territory.owner}`;
+  }
+
   private updateTerritoryVisuals(): void {
     for (const [id, vis] of this.territoryVisuals.entries()) {
       const stateTerritory = this.gameState.territories[id];
@@ -800,9 +821,14 @@ export class GameScene extends Phaser.Scene {
       vis.unitText.setText(stateTerritory.units.toString());
 
       const teamStyle = THEME.teams[stateTerritory.owner];
-      vis.bgCircle.setFillStyle(teamStyle.dark);
       vis.ring.setStrokeStyle(3, teamStyle.primary);
       vis.ring.setFillStyle(teamStyle.glow, 0.25);
+      vis.unitBadge.setStrokeStyle(1.5, teamStyle.primary);
+
+      const targetTexture = this.getTerritoryTextureKey(stateTerritory);
+      if (vis.sprite.texture.key !== targetTexture) {
+        vis.sprite.setTexture(targetTexture);
+      }
     }
   }
 
