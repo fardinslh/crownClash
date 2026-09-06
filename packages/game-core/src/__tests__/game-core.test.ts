@@ -198,6 +198,30 @@ describe('Crown Clash - Domain Logic Tests', () => {
       expect(result.armies[0].targetId).toBe('e_base');
       expect(result.armies[1].targetId).toBe('e_base');
     });
+
+    it('successfully reinforces a friendly captured territory from player fortress', () => {
+      const territories = createDefaultTerritories();
+      const pBase = territories['p_base']; // 20 units
+      const capturedFriendlyOutpost: Territory = {
+        ...territories['n_bot_left'],
+        owner: 'player',
+        units: 2,
+      };
+
+      // Dispatch reinforcement from Fortress to Outpost
+      const result = dispatchMultipleArmies([pBase], capturedFriendlyOutpost, 'player', 0.5);
+
+      expect(result.armies.length).toBe(1);
+      expect(result.armies[0].units).toBe(10);
+      expect(result.armies[0].targetId).toBe('n_bot_left');
+
+      // Resolve arrival as reinforcement
+      const combat = resolveArrival(capturedFriendlyOutpost, result.armies[0].units, result.armies[0].owner);
+      expect(combat.captured).toBe(false);
+      expect(combat.reinforced).toBe(true);
+      expect(combat.newOwner).toBe('player');
+      expect(combat.remainingUnits).toBe(12); // 2 + 10 = 12
+    });
   });
 
   describe('Unit Generation (tickUnitGeneration)', () => {

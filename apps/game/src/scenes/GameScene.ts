@@ -44,6 +44,7 @@ export class GameScene extends Phaser.Scene {
   // Interaction / Multi-Select Dragging
   private selectedSourceIds: string[] = [];
   private hoveredTargetId: string | null = null;
+  private lastHoveredFriendlyId: string | null = null;
   private dragGraphics!: Phaser.GameObjects.Graphics;
   private selectionRings: Map<string, Phaser.GameObjects.Arc> = new Map();
   private dragBadgeContainer!: Phaser.GameObjects.Container;
@@ -74,6 +75,7 @@ export class GameScene extends Phaser.Scene {
     this.armyVisuals.clear();
     this.selectedSourceIds = [];
     this.hoveredTargetId = null;
+    this.lastHoveredFriendlyId = null;
     this.selectionRings.clear();
     this.aiTimer = 1.6; // give player a fair 1.6s reaction window at match start
 
@@ -284,51 +286,71 @@ export class GameScene extends Phaser.Scene {
       .setDepth(100);
   }
 
+  private getTerritoryUnderPointer(pointer: Phaser.Input.Pointer): Territory | null {
+    let closest: Territory | null = null;
+    let minDistance = Infinity;
+
+    for (const t of Object.values(this.gameState.territories)) {
+      const dist = Phaser.Math.Distance.Between(pointer.x, pointer.y, t.x, t.y);
+      const hitRadius = t.radius + 18;
+      if (dist <= hitRadius && dist < minDistance) {
+        minDistance = dist;
+        closest = t;
+      }
+    }
+    return closest;
+  }
+
   private setupInputs(): void {
     // Global scene pointerdown for responsive touch targets
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (this.gameState.status !== 'playing' || this.selectedSourceIds.length > 0) return;
 
-      for (const t of Object.values(this.gameState.territories)) {
-        const dist = Phaser.Math.Distance.Between(pointer.x, pointer.y, t.x, t.y);
-        if (dist <= t.radius + 16) {
-          this.startDragFromTerritory(t.id, pointer);
-          break;
-        }
+      const territory = this.getTerritoryUnderPointer(pointer);
+      if (territory) {
+        this.startDragFromTerritory(territory.id, pointer);
       }
     });
 
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
       if (this.selectedSourceIds.length === 0) return;
 
-      // 1. Sweep check: naturally add friendly player territories into the attack chain
-      for (const t of Object.values(this.gameState.territories)) {
-        if (this.selectedSourceIds.includes(t.id)) continue;
+      const hoveredTerritory = this.getTerritoryUnderPointer(pointer);
 
-        const dist = Phaser.Math.Distance.Between(pointer.x, pointer.y, t.x, t.y);
-
-        // If sweeping over another owned base with units > 1, add it to the coordinated strike
-        if (t.owner === 'player' && t.units > 1 && dist <= t.radius + 16) {
-          this.selectedSourceIds.push(t.id);
-          this.highlightSelectedTerritory(t.id);
+      // Check if we just left a previously hovered friendly territory.
+      // If the player dragged onto a friendly territory and then moved away without releasing,
+      // that means they swiped through it to link it into a coordinated multi-base strike!
+      if (this.lastHoveredFriendlyId && (!hoveredTerritory || hoveredTerritory.id !== this.lastHoveredFriendlyId)) {
+        const prevFriendly = this.gameState.territories[this.lastHoveredFriendlyId];
+        if (
+          prevFriendly &&
+          prevFriendly.owner === 'player' &&
+          prevFriendly.units > 1 &&
+          !this.selectedSourceIds.includes(prevFriendly.id)
+        ) {
+          this.selectedSourceIds.push(prevFriendly.id);
+          this.highlightSelectedTerritory(prevFriendly.id);
           sounds.playReinforce();
           triggerHaptic('light');
-          break;
         }
+        this.lastHoveredFriendlyId = null;
       }
 
-      // 2. Target check: any territory NOT in our current selection chain
-      let foundTarget: Territory | null = null;
-      for (const t of Object.values(this.gameState.territories)) {
-        if (this.selectedSourceIds.includes(t.id)) continue;
-
-        const dist = Phaser.Math.Distance.Between(pointer.x, pointer.y, t.x, t.y);
-        if (dist <= t.radius + 18) {
-          foundTarget = t;
-          break;
+      // Now update hovered target or potential friendly candidate
+      if (hoveredTerritory) {
+        if (this.selectedSourceIds.includes(hoveredTerritory.id)) {
+          // Already one of the dispatch sources, cannot target itself
+          this.hoveredTargetId = null;
+        } else {
+          // Valid target: either enemy/neutral to attack, OR friendly to reinforce!
+          this.hoveredTargetId = hoveredTerritory.id;
+          if (hoveredTerritory.owner === 'player') {
+            this.lastHoveredFriendlyId = hoveredTerritory.id;
+          }
         }
+      } else {
+        this.hoveredTargetId = null;
       }
-      this.hoveredTargetId = foundTarget ? foundTarget.id : null;
 
       this.renderDragTrajectory(pointer);
     });
@@ -346,6 +368,8 @@ export class GameScene extends Phaser.Scene {
 
     if (territory.owner === 'player' && territory.units > 1) {
       this.selectedSourceIds = [territoryId];
+      this.lastHoveredFriendlyId = null;
+      this.hoveredTargetId = null;
       this.highlightSelectedTerritory(territoryId);
       sounds.playDispatch();
       triggerHaptic('light');
@@ -512,6 +536,7 @@ export class GameScene extends Phaser.Scene {
 
     this.selectedSourceIds = [];
     this.hoveredTargetId = null;
+    this.lastHoveredFriendlyId = null;
     this.dragGraphics.clear();
     this.dragBadgeContainer.setVisible(false);
 
@@ -522,7 +547,7 @@ export class GameScene extends Phaser.Scene {
         .filter((t): t is Territory => Boolean(t));
 
       if (target && sources.length > 0) {
-        // Execute Coordinated Multi-Dispatch
+        // Execute Coordinated Multi-Dispatch (or Reinforcement)
         const multiDispatch = dispatchMultipleArmies(sources, target, 'player', 0.5);
 
         if (multiDispatch.armies.length > 0) {
@@ -531,7 +556,11 @@ export class GameScene extends Phaser.Scene {
           this.gameState.armies.push(...multiDispatch.armies);
           this.gameState.stats.playerUnitsDispatched += multiDispatch.totalUnitsDispatched;
 
-          sounds.playDispatch();
+          if (target.owner === 'player') {
+            sounds.playReinforce();
+          } else {
+            sounds.playDispatch();
+          }
           triggerHaptic(multiDispatch.armies.length > 1 ? 'heavy' : 'medium');
         }
       }
@@ -945,8 +974,10 @@ export class GameScene extends Phaser.Scene {
 
     // Reset state & restart scene cleanly
     this.gameState = createInitialGameState();
+    this.accumulators = {};
     this.selectedSourceIds = [];
     this.hoveredTargetId = null;
+    this.lastHoveredFriendlyId = null;
     for (const ring of this.selectionRings.values()) {
       ring.setVisible(false);
     }
