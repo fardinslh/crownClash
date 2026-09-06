@@ -4,6 +4,7 @@ import {
   createDefaultTerritories,
   createInitialGameState,
   dispatchArmy,
+  dispatchMultipleArmies,
   evaluateAiMove,
   resolveArrival,
   stepSimulation,
@@ -175,6 +176,27 @@ describe('Crown Clash - Domain Logic Tests', () => {
       expect(dispatchFromCaptured.army!.owner).toBe('player');
       expect(dispatchFromCaptured.army!.sourceId).toBe('n_bot_left');
       expect(dispatchFromCaptured.army!.targetId).toBe('n_center');
+    });
+
+    it('successfully dispatches from multiple sources toward a single target', () => {
+      const territories = createDefaultTerritories();
+      // Setup player with base (20 units) and bottom-left outpost (10 units)
+      const pBase = territories['p_base'];
+      const pOutpost: Territory = {
+        ...territories['n_bot_left'],
+        owner: 'player',
+        units: 10,
+      };
+      const enemyTarget = territories['e_base'];
+
+      const result = dispatchMultipleArmies([pBase, pOutpost], enemyTarget, 'player', 0.5);
+
+      expect(result.armies.length).toBe(2);
+      expect(result.totalUnitsDispatched).toBe(15); // floor(20*0.5)=10 + floor(10*0.5)=5
+      expect(result.updatedSources['p_base'].units).toBe(10);
+      expect(result.updatedSources['n_bot_left'].units).toBe(5);
+      expect(result.armies[0].targetId).toBe('e_base');
+      expect(result.armies[1].targetId).toBe('e_base');
     });
   });
 

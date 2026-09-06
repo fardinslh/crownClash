@@ -7,6 +7,13 @@ export interface DispatchResult {
   army?: MarchingArmy;
 }
 
+export interface MultiDispatchResult {
+  successes: DispatchResult[];
+  armies: MarchingArmy[];
+  updatedSources: Record<string, Territory>;
+  totalUnitsDispatched: number;
+}
+
 export const BASE_ARMY_TRAVEL_SPEED = 140; // logical pixels per second
 
 /**
@@ -20,7 +27,7 @@ export function calculateDispatchUnits(currentUnits: number, ratio: number = 0.5
 }
 
 /**
- * Attempts to dispatch an army from source to target.
+ * Attempts to dispatch an army from a single source to a target.
  */
 export function dispatchArmy(
   source: Territory,
@@ -71,5 +78,38 @@ export function dispatchArmy(
     success: true,
     sourceTerritory: updatedSource,
     army,
+  };
+}
+
+/**
+ * Dispatches armies from multiple source territories toward a single target (Coordinated Attack).
+ */
+export function dispatchMultipleArmies(
+  sources: Territory[],
+  target: Territory,
+  expectedOwner: Team,
+  dispatchRatio: number = 0.5
+): MultiDispatchResult {
+  const successes: DispatchResult[] = [];
+  const armies: MarchingArmy[] = [];
+  const updatedSources: Record<string, Territory> = {};
+  let totalUnitsDispatched = 0;
+
+  for (const source of sources) {
+    if (source.id === target.id) continue;
+    const res = dispatchArmy(source, target, expectedOwner, dispatchRatio);
+    if (res.success && res.army && res.sourceTerritory) {
+      successes.push(res);
+      armies.push(res.army);
+      updatedSources[source.id] = res.sourceTerritory;
+      totalUnitsDispatched += res.army.units;
+    }
+  }
+
+  return {
+    successes,
+    armies,
+    updatedSources,
+    totalUnitsDispatched,
   };
 }

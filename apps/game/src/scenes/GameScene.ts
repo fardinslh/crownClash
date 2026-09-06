@@ -4,6 +4,7 @@ import {
   CombatResult,
   createInitialGameState,
   dispatchArmy,
+  dispatchMultipleArmies,
   evaluateAiMove,
   GameState,
   LOGICAL_HEIGHT,
@@ -40,11 +41,11 @@ export class GameScene extends Phaser.Scene {
   private territoryVisuals: Map<string, TerritoryVisual> = new Map();
   private armyVisuals: Map<string, ArmyVisual> = new Map();
 
-  // Interaction / Dragging
-  private selectedSourceId: string | null = null;
+  // Interaction / Multi-Select Dragging
+  private selectedSourceIds: string[] = [];
   private hoveredTargetId: string | null = null;
   private dragGraphics!: Phaser.GameObjects.Graphics;
-  private selectionRing!: Phaser.GameObjects.Arc;
+  private selectionRings: Map<string, Phaser.GameObjects.Arc> = new Map();
   private dragBadgeContainer!: Phaser.GameObjects.Container;
   private dragBadgeBg!: Phaser.GameObjects.Rectangle;
   private dragBadgeText!: Phaser.GameObjects.Text;
@@ -71,8 +72,9 @@ export class GameScene extends Phaser.Scene {
     this.accumulators = {};
     this.territoryVisuals.clear();
     this.armyVisuals.clear();
-    this.selectedSourceId = null;
+    this.selectedSourceIds = [];
     this.hoveredTargetId = null;
+    this.selectionRings.clear();
     this.aiTimer = 1.6; // give player a fair 1.6s reaction window at match start
 
     // 1. Draw Arena Background & Connecting Lanes
@@ -80,11 +82,6 @@ export class GameScene extends Phaser.Scene {
 
     // 2. Drag & selection graphics
     this.dragGraphics = this.add.graphics().setDepth(50);
-    this.selectionRing = this.add
-      .circle(0, 0, 40, 0xffffff, 0)
-      .setStrokeStyle(3, 0xffffff, 0.9)
-      .setVisible(false)
-      .setDepth(45);
 
     // Live Drag Badge preview
     this.dragBadgeContainer = this.add.container(0, 0).setDepth(55).setVisible(false);
@@ -290,7 +287,7 @@ export class GameScene extends Phaser.Scene {
   private setupInputs(): void {
     // Global scene pointerdown for responsive touch targets
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (this.gameState.status !== 'playing' || this.selectedSourceId) return;
+      if (this.gameState.status !== 'playing' || this.selectedSourceIds.length > 0) return;
 
       for (const t of Object.values(this.gameState.territories)) {
         const dist = Phaser.Math.Distance.Between(pointer.x, pointer.y, t.x, t.y);
@@ -302,19 +299,36 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
-      if (!this.selectedSourceId) return;
+      if (this.selectedSourceIds.length === 0) return;
 
-      // Find hovered territory
-      let found: Territory | null = null;
+      // 1. Sweep check: naturally add friendly player territories into the attack chain
       for (const t of Object.values(this.gameState.territories)) {
-        if (t.id === this.selectedSourceId) continue;
+        if (this.selectedSourceIds.includes(t.id)) continue;
+
         const dist = Phaser.Math.Distance.Between(pointer.x, pointer.y, t.x, t.y);
-        if (dist <= t.radius + 18) {
-          found = t;
+
+        // If sweeping over another owned base with units > 1, add it to the coordinated strike
+        if (t.owner === 'player' && t.units > 1 && dist <= t.radius + 16) {
+          this.selectedSourceIds.push(t.id);
+          this.highlightSelectedTerritory(t.id);
+          sounds.playReinforce();
+          triggerHaptic('light');
           break;
         }
       }
-      this.hoveredTargetId = found ? found.id : null;
+
+      // 2. Target check: any territory NOT in our current selection chain
+      let foundTarget: Territory | null = null;
+      for (const t of Object.values(this.gameState.territories)) {
+        if (this.selectedSourceIds.includes(t.id)) continue;
+
+        const dist = Phaser.Math.Distance.Between(pointer.x, pointer.y, t.x, t.y);
+        if (dist <= t.radius + 18) {
+          foundTarget = t;
+          break;
+        }
+      }
+      this.hoveredTargetId = foundTarget ? foundTarget.id : null;
 
       this.renderDragTrajectory(pointer);
     });
@@ -327,38 +341,54 @@ export class GameScene extends Phaser.Scene {
   private startDragFromTerritory(territoryId: string, _pointer?: Phaser.Input.Pointer): void {
     if (this.gameState.status !== 'playing') return;
 
-    // Always inspect live gameState so any captured territory can dispatch immediately
     const territory = this.gameState.territories[territoryId];
     if (!territory) return;
 
     if (territory.owner === 'player' && territory.units > 1) {
-      this.selectedSourceId = territoryId;
-      this.selectionRing.setPosition(territory.x, territory.y).setVisible(true);
-
-      const vis = this.territoryVisuals.get(territoryId);
-      if (vis) {
-        this.tweens.add({
-          targets: vis.container,
-          scale: 1.12,
-          duration: 100,
-          ease: 'Sine.easeOut',
-        });
-      }
-
+      this.selectedSourceIds = [territoryId];
+      this.highlightSelectedTerritory(territoryId);
       sounds.playDispatch();
       triggerHaptic('light');
     }
   }
 
+  private highlightSelectedTerritory(territoryId: string): void {
+    const territory = this.gameState.territories[territoryId];
+    if (!territory) return;
+
+    let ring = this.selectionRings.get(territoryId);
+    if (!ring) {
+      ring = this.add
+        .circle(0, 0, territory.radius + 6, 0xffffff, 0)
+        .setStrokeStyle(3, 0xffffff, 0.95)
+        .setDepth(45);
+      this.selectionRings.set(territoryId, ring);
+    }
+    ring.setPosition(territory.x, territory.y).setVisible(true);
+
+    const vis = this.territoryVisuals.get(territoryId);
+    if (vis) {
+      this.tweens.add({
+        targets: vis.container,
+        scale: 1.14,
+        duration: 100,
+        ease: 'Sine.easeOut',
+      });
+    }
+  }
+
   private renderDragTrajectory(pointer: Phaser.Input.Pointer): void {
     this.dragGraphics.clear();
-    if (!this.selectedSourceId) {
+    if (this.selectedSourceIds.length === 0) {
       this.dragBadgeContainer.setVisible(false);
       return;
     }
 
-    const src = this.gameState.territories[this.selectedSourceId];
-    if (!src) {
+    const selectedTerritories = this.selectedSourceIds
+      .map((id) => this.gameState.territories[id])
+      .filter((t): t is Territory => Boolean(t));
+
+    if (selectedTerritories.length === 0) {
       this.dragBadgeContainer.setVisible(false);
       return;
     }
@@ -376,11 +406,26 @@ export class GameScene extends Phaser.Scene {
         : 0xf59e0b
       : THEME.teams.player.light;
 
-    // Draw trajectory line with glow
-    this.dragGraphics.lineStyle(5, color, 0.9);
-    this.dragGraphics.lineBetween(src.x, src.y, targetX, targetY);
+    // Draw trajectory lines from EACH selected source territory converging on target
+    this.dragGraphics.lineStyle(4, color, 0.88);
+    selectedTerritories.forEach((src) => {
+      this.dragGraphics.lineBetween(src.x, src.y, targetX, targetY);
+    });
 
-    // Arrowhead / target circle indicator
+    // If multiple sources, draw a visual connection chain between the selected sources
+    if (selectedTerritories.length > 1) {
+      this.dragGraphics.lineStyle(2, 0x60a5fa, 0.5);
+      for (let i = 0; i < selectedTerritories.length - 1; i++) {
+        this.dragGraphics.lineBetween(
+          selectedTerritories[i].x,
+          selectedTerritories[i].y,
+          selectedTerritories[i + 1].x,
+          selectedTerritories[i + 1].y
+        );
+      }
+    }
+
+    // Target reticle or end dot
     if (isHoveringTarget && target) {
       this.dragGraphics.lineStyle(3, color, 1);
       this.dragGraphics.strokeCircle(target.x, target.y, target.radius + 8);
@@ -389,88 +434,105 @@ export class GameScene extends Phaser.Scene {
       this.dragGraphics.fillCircle(targetX, targetY, 6);
     }
 
-    // Live Tactical Dispatch Badge in the center of the drag trajectory
-    const unitsToSend = calculateDispatchUnits(src.units, 0.5);
-    const midX = (src.x + targetX) / 2;
-    const midY = (src.y + targetY) / 2;
+    // Live Tactical Dispatch Badge in the center of the drag group
+    const totalUnitsToSend = selectedTerritories.reduce(
+      (sum, src) => sum + calculateDispatchUnits(src.units, 0.5),
+      0
+    );
+
+    const centroidX = selectedTerritories.reduce((sum, src) => sum + src.x, 0) / selectedTerritories.length;
+    const centroidY = selectedTerritories.reduce((sum, src) => sum + src.y, 0) / selectedTerritories.length;
+
+    const midX = (centroidX + targetX) / 2;
+    const midY = (centroidY + targetY) / 2;
 
     this.dragBadgeContainer.setPosition(midX, midY).setVisible(true);
 
+    const sourceCountLabel = selectedTerritories.length > 1 ? ` (${selectedTerritories.length} bases)` : '';
+
     if (isHoveringTarget && target) {
       if (isFriendly) {
-        this.dragBadgeText.setText(`+${unitsToSend} REINFORCE`);
+        this.dragBadgeText.setText(`+${totalUnitsToSend} REINFORCE${sourceCountLabel}`);
         this.dragBadgeText.setColor('#10b981');
         this.dragBadgeBg.setStrokeStyle(2, 0x10b981, 1);
-        this.dragBadgeBg.setSize(106, 26);
+        this.dragBadgeBg.setSize(selectedTerritories.length > 1 ? 160 : 106, 26);
       } else {
-        if (unitsToSend > target.units) {
-          const rem = unitsToSend - target.units;
-          this.dragBadgeText.setText(`⚔ ${unitsToSend} (WIN +${rem})`);
+        if (totalUnitsToSend > target.units) {
+          const rem = totalUnitsToSend - target.units;
+          this.dragBadgeText.setText(`⚔ ${totalUnitsToSend} (WIN +${rem})${sourceCountLabel}`);
           this.dragBadgeText.setColor('#f59e0b');
           this.dragBadgeBg.setStrokeStyle(2, 0xf59e0b, 1);
-          this.dragBadgeBg.setSize(116, 26);
-        } else if (unitsToSend === target.units) {
-          this.dragBadgeText.setText(`⚔ ${unitsToSend} (TIE)`);
+          this.dragBadgeBg.setSize(selectedTerritories.length > 1 ? 172 : 116, 26);
+        } else if (totalUnitsToSend === target.units) {
+          this.dragBadgeText.setText(`⚔ ${totalUnitsToSend} (TIE)${sourceCountLabel}`);
           this.dragBadgeText.setColor('#fb923c');
           this.dragBadgeBg.setStrokeStyle(2, 0xfb923c, 1);
-          this.dragBadgeBg.setSize(96, 26);
+          this.dragBadgeBg.setSize(selectedTerritories.length > 1 ? 150 : 96, 26);
         } else {
-          const needed = target.units - unitsToSend;
-          this.dragBadgeText.setText(`⚔ ${unitsToSend} (-${needed})`);
+          const needed = target.units - totalUnitsToSend;
+          this.dragBadgeText.setText(`⚔ ${totalUnitsToSend} (-${needed})${sourceCountLabel}`);
           this.dragBadgeText.setColor('#ef4444');
           this.dragBadgeBg.setStrokeStyle(2, 0xef4444, 1);
-          this.dragBadgeBg.setSize(96, 26);
+          this.dragBadgeBg.setSize(selectedTerritories.length > 1 ? 150 : 96, 26);
         }
       }
     } else {
-      this.dragBadgeText.setText(`⚔ SEND ${unitsToSend}`);
+      this.dragBadgeText.setText(`⚔ SEND ${totalUnitsToSend}${sourceCountLabel}`);
       this.dragBadgeText.setColor('#ffffff');
       this.dragBadgeBg.setStrokeStyle(2, THEME.teams.player.primary, 0.95);
-      this.dragBadgeBg.setSize(90, 26);
+      this.dragBadgeBg.setSize(selectedTerritories.length > 1 ? 140 : 90, 26);
     }
   }
 
   private handlePointerRelease(): void {
-    if (!this.selectedSourceId) {
+    if (this.selectedSourceIds.length === 0) {
       this.dragBadgeContainer.setVisible(false);
       return;
     }
 
-    const sourceId = this.selectedSourceId;
+    const sourceIds = [...this.selectedSourceIds];
     const targetId = this.hoveredTargetId;
 
-    // Reset visuals
-    const vis = this.territoryVisuals.get(sourceId);
-    if (vis) {
-      this.tweens.add({
-        targets: vis.container,
-        scale: 1.0,
-        duration: 120,
-        ease: 'Sine.easeOut',
-      });
+    // Reset visuals on all selected territories
+    for (const id of sourceIds) {
+      const vis = this.territoryVisuals.get(id);
+      if (vis) {
+        this.tweens.add({
+          targets: vis.container,
+          scale: 1.0,
+          duration: 120,
+          ease: 'Sine.easeOut',
+        });
+      }
     }
 
-    this.selectedSourceId = null;
+    for (const ring of this.selectionRings.values()) {
+      ring.setVisible(false);
+    }
+
+    this.selectedSourceIds = [];
     this.hoveredTargetId = null;
-    this.selectionRing.setVisible(false);
     this.dragGraphics.clear();
     this.dragBadgeContainer.setVisible(false);
 
-    if (targetId && targetId !== sourceId) {
-      const src = this.gameState.territories[sourceId];
+    if (targetId && !sourceIds.includes(targetId)) {
       const target = this.gameState.territories[targetId];
+      const sources = sourceIds
+        .map((id) => this.gameState.territories[id])
+        .filter((t): t is Territory => Boolean(t));
 
-      if (src && target) {
-        // Execute Player Dispatch
-        const dispatch = dispatchArmy(src, target, 'player', 0.5);
-        if (dispatch.success && dispatch.army && dispatch.sourceTerritory) {
-          // Update territory units in state
-          this.gameState.territories[sourceId] = dispatch.sourceTerritory;
-          this.gameState.armies.push(dispatch.army);
-          this.gameState.stats.playerUnitsDispatched += dispatch.army.units;
+      if (target && sources.length > 0) {
+        // Execute Coordinated Multi-Dispatch
+        const multiDispatch = dispatchMultipleArmies(sources, target, 'player', 0.5);
+
+        if (multiDispatch.armies.length > 0) {
+          // Update all source territories in state
+          Object.assign(this.gameState.territories, multiDispatch.updatedSources);
+          this.gameState.armies.push(...multiDispatch.armies);
+          this.gameState.stats.playerUnitsDispatched += multiDispatch.totalUnitsDispatched;
 
           sounds.playDispatch();
-          triggerHaptic('medium');
+          triggerHaptic(multiDispatch.armies.length > 1 ? 'heavy' : 'medium');
         }
       }
     }
@@ -883,9 +945,12 @@ export class GameScene extends Phaser.Scene {
 
     // Reset state & restart scene cleanly
     this.gameState = createInitialGameState();
-    this.accumulators = {};
-    this.selectedSourceId = null;
+    this.selectedSourceIds = [];
     this.hoveredTargetId = null;
+    for (const ring of this.selectionRings.values()) {
+      ring.setVisible(false);
+    }
+    this.dragGraphics.clear();
     this.dragBadgeContainer.setVisible(false);
     this.aiTimer = 1.6;
 
