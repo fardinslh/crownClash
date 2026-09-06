@@ -146,6 +146,36 @@ describe('Crown Clash - Domain Logic Tests', () => {
       const result = dispatchArmy(pBase, pBase, 'player', 0.5);
       expect(result.success).toBe(false);
     });
+
+    it('successfully dispatches from newly captured territory after ownership transfer', () => {
+      const territories = createDefaultTerritories();
+      const neutralOutpost = territories['n_bot_left'];
+      expect(neutralOutpost.owner).toBe('neutral');
+
+      // Player captures the neutral outpost with 15 units (against 8 defenders)
+      const captureResult = resolveArrival(neutralOutpost, 15, 'player');
+      expect(captureResult.captured).toBe(true);
+      expect(captureResult.newOwner).toBe('player');
+      expect(captureResult.remainingUnits).toBe(7);
+
+      // Update territory to captured state
+      const capturedTerritory: Territory = {
+        ...neutralOutpost,
+        owner: captureResult.newOwner,
+        units: captureResult.remainingUnits,
+      };
+
+      // Player should now be able to dispatch from this newly captured outpost!
+      const nextTarget = territories['n_center'];
+      const dispatchFromCaptured = dispatchArmy(capturedTerritory, nextTarget, 'player', 0.5);
+
+      expect(dispatchFromCaptured.success).toBe(true);
+      expect(dispatchFromCaptured.sourceTerritory!.units).toBe(4); // 7 - 3 = 4
+      expect(dispatchFromCaptured.army!.units).toBe(3); // floor(7 * 0.5) = 3
+      expect(dispatchFromCaptured.army!.owner).toBe('player');
+      expect(dispatchFromCaptured.army!.sourceId).toBe('n_bot_left');
+      expect(dispatchFromCaptured.army!.targetId).toBe('n_center');
+    });
   });
 
   describe('Unit Generation (tickUnitGeneration)', () => {

@@ -37,8 +37,8 @@ export class GameScene extends Phaser.Scene {
   private armyVisuals: Map<string, ArmyVisual> = new Map();
 
   // Interaction / Dragging
-  private selectedSource: Territory | null = null;
-  private hoveredTarget: Territory | null = null;
+  private selectedSourceId: string | null = null;
+  private hoveredTargetId: string | null = null;
   private dragGraphics!: Phaser.GameObjects.Graphics;
   private selectionRing!: Phaser.GameObjects.Arc;
 
@@ -64,8 +64,8 @@ export class GameScene extends Phaser.Scene {
     this.accumulators = {};
     this.territoryVisuals.clear();
     this.armyVisuals.clear();
-    this.selectedSource = null;
-    this.hoveredTarget = null;
+    this.selectedSourceId = null;
+    this.hoveredTargetId = null;
     this.aiTimer = 0.5; // first AI check after 0.5s
 
     // 1. Draw Arena Background & Connecting Lanes
@@ -190,7 +190,7 @@ export class GameScene extends Phaser.Scene {
       container.setInteractive({ useHandCursor: true });
 
       container.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-        this.onTerritoryPointerDown(territory, pointer);
+        this.startDragFromTerritory(territory.id, pointer);
       });
 
       this.territoryVisuals.set(territory.id, {
@@ -266,20 +266,33 @@ export class GameScene extends Phaser.Scene {
   }
 
   private setupInputs(): void {
+    // Global scene pointerdown for responsive touch targets
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (this.gameState.status !== 'playing' || this.selectedSourceId) return;
+
+      for (const t of Object.values(this.gameState.territories)) {
+        const dist = Phaser.Math.Distance.Between(pointer.x, pointer.y, t.x, t.y);
+        if (dist <= t.radius + 16) {
+          this.startDragFromTerritory(t.id, pointer);
+          break;
+        }
+      }
+    });
+
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
-      if (!this.selectedSource) return;
+      if (!this.selectedSourceId) return;
 
       // Find hovered territory
       let found: Territory | null = null;
       for (const t of Object.values(this.gameState.territories)) {
-        if (t.id === this.selectedSource.id) continue;
+        if (t.id === this.selectedSourceId) continue;
         const dist = Phaser.Math.Distance.Between(pointer.x, pointer.y, t.x, t.y);
-        if (dist <= t.radius + 14) {
+        if (dist <= t.radius + 18) {
           found = t;
           break;
         }
       }
-      this.hoveredTarget = found;
+      this.hoveredTargetId = found ? found.id : null;
 
       this.renderDragTrajectory(pointer);
     });
@@ -289,14 +302,18 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private onTerritoryPointerDown(territory: Territory, _pointer: Phaser.Input.Pointer): void {
+  private startDragFromTerritory(territoryId: string, _pointer?: Phaser.Input.Pointer): void {
     if (this.gameState.status !== 'playing') return;
 
+    // Always inspect live gameState so any captured territory can dispatch immediately
+    const territory = this.gameState.territories[territoryId];
+    if (!territory) return;
+
     if (territory.owner === 'player' && territory.units > 1) {
-      this.selectedSource = territory;
+      this.selectedSourceId = territoryId;
       this.selectionRing.setPosition(territory.x, territory.y).setVisible(true);
 
-      const vis = this.territoryVisuals.get(territory.id);
+      const vis = this.territoryVisuals.get(territoryId);
       if (vis) {
         this.tweens.add({
           targets: vis.container,
@@ -312,14 +329,17 @@ export class GameScene extends Phaser.Scene {
 
   private renderDragTrajectory(pointer: Phaser.Input.Pointer): void {
     this.dragGraphics.clear();
-    if (!this.selectedSource) return;
+    if (!this.selectedSourceId) return;
 
-    const src = this.selectedSource;
-    const targetX = this.hoveredTarget ? this.hoveredTarget.x : pointer.x;
-    const targetY = this.hoveredTarget ? this.hoveredTarget.y : pointer.y;
+    const src = this.gameState.territories[this.selectedSourceId];
+    if (!src) return;
 
-    const isHoveringTarget = !!this.hoveredTarget;
-    const isFriendly = this.hoveredTarget && this.hoveredTarget.owner === 'player';
+    const target = this.hoveredTargetId ? this.gameState.territories[this.hoveredTargetId] : null;
+    const targetX = target ? target.x : pointer.x;
+    const targetY = target ? target.y : pointer.y;
+
+    const isHoveringTarget = !!target;
+    const isFriendly = target && target.owner === 'player';
 
     const color = isHoveringTarget
       ? isFriendly
@@ -332,9 +352,9 @@ export class GameScene extends Phaser.Scene {
     this.dragGraphics.lineBetween(src.x, src.y, targetX, targetY);
 
     // Arrowhead / target circle indicator
-    if (isHoveringTarget && this.hoveredTarget) {
+    if (isHoveringTarget && target) {
       this.dragGraphics.lineStyle(3, color, 1);
-      this.dragGraphics.strokeCircle(this.hoveredTarget.x, this.hoveredTarget.y, this.hoveredTarget.radius + 8);
+      this.dragGraphics.strokeCircle(target.x, target.y, target.radius + 8);
     } else {
       this.dragGraphics.fillStyle(color, 0.9);
       this.dragGraphics.fillCircle(targetX, targetY, 6);
@@ -342,13 +362,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handlePointerRelease(): void {
-    if (!this.selectedSource) return;
+    if (!this.selectedSourceId) return;
 
-    const src = this.selectedSource;
-    const target = this.hoveredTarget;
+    const sourceId = this.selectedSourceId;
+    const targetId = this.hoveredTargetId;
 
     // Reset visuals
-    const vis = this.territoryVisuals.get(src.id);
+    const vis = this.territoryVisuals.get(sourceId);
     if (vis) {
       this.tweens.add({
         targets: vis.container,
@@ -358,21 +378,26 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
-    this.selectedSource = null;
-    this.hoveredTarget = null;
+    this.selectedSourceId = null;
+    this.hoveredTargetId = null;
     this.selectionRing.setVisible(false);
     this.dragGraphics.clear();
 
-    if (target && target.id !== src.id) {
-      // Execute Player Dispatch
-      const dispatch = dispatchArmy(src, target, 'player', 0.5);
-      if (dispatch.success && dispatch.army && dispatch.sourceTerritory) {
-        // Update territory units in state
-        this.gameState.territories[src.id] = dispatch.sourceTerritory;
-        this.gameState.armies.push(dispatch.army);
-        this.gameState.stats.playerUnitsDispatched += dispatch.army.units;
+    if (targetId && targetId !== sourceId) {
+      const src = this.gameState.territories[sourceId];
+      const target = this.gameState.territories[targetId];
 
-        sounds.playDispatch();
+      if (src && target) {
+        // Execute Player Dispatch
+        const dispatch = dispatchArmy(src, target, 'player', 0.5);
+        if (dispatch.success && dispatch.army && dispatch.sourceTerritory) {
+          // Update territory units in state
+          this.gameState.territories[sourceId] = dispatch.sourceTerritory;
+          this.gameState.armies.push(dispatch.army);
+          this.gameState.stats.playerUnitsDispatched += dispatch.army.units;
+
+          sounds.playDispatch();
+        }
       }
     }
   }
@@ -754,8 +779,8 @@ export class GameScene extends Phaser.Scene {
     // Reset state & restart scene cleanly
     this.gameState = createInitialGameState();
     this.accumulators = {};
-    this.selectedSource = null;
-    this.hoveredTarget = null;
+    this.selectedSourceId = null;
+    this.hoveredTargetId = null;
     this.aiTimer = 0.5;
 
     // Reset territory objects
