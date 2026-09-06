@@ -9,9 +9,11 @@ import {
   GameState,
   LOGICAL_HEIGHT,
   LOGICAL_WIDTH,
+  MatchStats,
   stepSimulation,
   Territory,
 } from '@crown-clash/game-core';
+import { CareerManager } from '../career/CareerManager.js';
 import { sounds } from '../audio/SoundEffects.js';
 import { THEME } from '../theme.js';
 import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
@@ -76,6 +78,11 @@ export class GameScene extends Phaser.Scene {
   private enemyDomText!: Phaser.GameObjects.Text;
   private tugCrown!: Phaser.GameObjects.Text;
   private bottomHintText!: Phaser.GameObjects.Text;
+  private hudCoinsText!: Phaser.GameObjects.Text;
+  private hudTrophiesText!: Phaser.GameObjects.Text;
+
+  // Career & Economy
+  private careerManager!: CareerManager;
 
   // Result Modal
   private resultModalContainer?: Phaser.GameObjects.Container;
@@ -110,6 +117,8 @@ export class GameScene extends Phaser.Scene {
 
   create(): void {
     this.platform = (this.registry.get('platform') as PlatformAdapter) || createPlatformAdapter();
+    const user = this.platform.getUser();
+    this.careerManager = CareerManager.getInstance(user.id);
     this.gameState = createInitialGameState();
     this.accumulators = {};
     for (const vis of this.territoryVisuals.values()) {
@@ -307,16 +316,16 @@ export class GameScene extends Phaser.Scene {
       .rectangle(LOGICAL_WIDTH / 2, 70, LOGICAL_WIDTH, 1.5, 0x1e293b, 1)
       .setDepth(91);
 
-    // 2. Top Row (y: 20)
+    // 2. Top Row (y: 20): Profile, Trophies, Coins, Clock, and Audio
     const user = this.platform.getUser();
-    const platformName = this.platform.platform.toUpperCase();
+    const career = this.careerManager.getCareer();
 
-    // Left: Player Profile Pill with dynamic sizing so text NEVER overflows
+    // Left: Player Profile Pill with dynamic sizing
     let rawName = user.username || 'Commander';
     if (rawName.startsWith('Commander_')) {
       rawName = 'Cmdr ' + rawName.slice(10);
-    } else if (rawName.length > 9) {
-      rawName = rawName.slice(0, 8) + '…';
+    } else if (rawName.length > 8) {
+      rawName = rawName.slice(0, 7) + '…';
     }
     const playerLabel = `🔵 ${rawName}`;
 
@@ -334,26 +343,70 @@ export class GameScene extends Phaser.Scene {
       .setDepth(96);
 
     const textWidth = Math.ceil(playerText.width);
-    const pillWidth = Math.min(138, Math.max(78, textWidth + 18));
-    const pillCenterX = 12 + pillWidth / 2;
+    const playerPillWidth = Math.min(100, Math.max(74, textWidth + 14));
+    const playerPillCenterX = 10 + playerPillWidth / 2;
 
     this.add
-      .rectangle(pillCenterX, 20, pillWidth, 24, 0x0f172a, 0.95)
+      .rectangle(playerPillCenterX, 20, playerPillWidth, 24, 0x0f172a, 0.95)
       .setStrokeStyle(1.5, 0x3b82f6, 0.9)
       .setDepth(95);
 
-    playerText.setPosition(pillCenterX, 20);
+    playerText.setPosition(playerPillCenterX, 20);
 
-    // Center: Royal Match Clock Pill
+    // Trophies Pill
+    const trophyPillWidth = 56;
+    const trophyPillX = playerPillCenterX + playerPillWidth / 2 + 5 + trophyPillWidth / 2;
     this.add
-      .rectangle(LOGICAL_WIDTH / 2, 20, 86, 24, 0x111827, 0.95)
+      .rectangle(trophyPillX, 20, trophyPillWidth, 24, 0x0f172a, 0.95)
+      .setStrokeStyle(1.5, 0x818cf8, 0.9)
+      .setDepth(95);
+
+    this.hudTrophiesText = this.add
+      .text(trophyPillX, 20, `🏆 ${career.trophies}`, {
+        fontFamily: FONT_FAMILY,
+        fontSize: '11px',
+        fontStyle: 'bold',
+        color: '#c7d2fe',
+        stroke: '#030712',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5)
+      .setDepth(96);
+
+    // Gold Coins Pill
+    const coinPillWidth = 60;
+    const coinPillX = trophyPillX + trophyPillWidth / 2 + 5 + coinPillWidth / 2;
+    this.add
+      .rectangle(coinPillX, 20, coinPillWidth, 24, 0x0f172a, 0.95)
+      .setStrokeStyle(1.5, 0xf59e0b, 0.9)
+      .setDepth(95);
+
+    this.hudCoinsText = this.add
+      .text(coinPillX, 20, `🪙 ${career.coins}`, {
+        fontFamily: FONT_FAMILY,
+        fontSize: '11px',
+        fontStyle: 'bold',
+        color: '#fef08a',
+        stroke: '#030712',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5)
+      .setDepth(96);
+
+    // Royal Match Clock Pill
+    const clockPillWidth = 72;
+    const clockPillX = coinPillX + coinPillWidth / 2 + 5 + clockPillWidth / 2;
+    this.add
+      .rectangle(clockPillX, 20, clockPillWidth, 24, 0x111827, 0.95)
       .setStrokeStyle(1.5, 0xf59e0b, 0.9)
       .setDepth(95);
 
     this.timerText = this.add
-      .text(LOGICAL_WIDTH / 2, 20, '⏱ 01:30', {
+      .text(clockPillX, 20, '⏱ 01:30', {
         fontFamily: MONO_FONT_FAMILY,
-        fontSize: '13px',
+        fontSize: '12px',
         fontStyle: 'bold',
         color: '#fbbf24',
         stroke: '#030712',
@@ -363,16 +416,17 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(96);
 
-    // Right: Audio Toggle & Platform Badge Pill
+    // Right: Audio Toggle Pill
+    const rightPillX = LOGICAL_WIDTH - 22;
     this.add
-      .rectangle(LOGICAL_WIDTH - 50, 20, 80, 24, 0x0f172a, 0.95)
+      .rectangle(rightPillX, 20, 32, 24, 0x0f172a, 0.95)
       .setStrokeStyle(1.5, 0x334155, 0.8)
       .setDepth(95);
 
     const muteIcon = sounds.isMuted() ? '🔇' : '🔊';
     const muteBtn = this.add
-      .text(LOGICAL_WIDTH - 74, 20, muteIcon, {
-        fontSize: '14px',
+      .text(rightPillX, 20, muteIcon, {
+        fontSize: '13px',
         resolution: 2,
       })
       .setOrigin(0.5)
@@ -385,18 +439,15 @@ export class GameScene extends Phaser.Scene {
       this.platform.hapticSelection();
     });
 
-    this.add
-      .text(LOGICAL_WIDTH - 36, 20, platformName, {
-        fontFamily: MONO_FONT_FAMILY,
-        fontSize: '10px',
-        fontStyle: 'bold',
-        color: '#94a3b8',
-        stroke: '#030712',
-        strokeThickness: 1.5,
-        resolution: 2,
-      })
-      .setOrigin(0.5)
-      .setDepth(96);
+    // Auto-update HUD when career balance changes
+    this.careerManager.subscribe((updatedCareer) => {
+      if (this.hudCoinsText && this.hudCoinsText.active) {
+        this.hudCoinsText.setText(`🪙 ${updatedCareer.coins}`);
+      }
+      if (this.hudTrophiesText && this.hudTrophiesText.active) {
+        this.hudTrophiesText.setText(`🏆 ${updatedCareer.trophies}`);
+      }
+    });
 
     // 3. Row 2 (y: 48): The Dynamic Tug-of-War Dominance Bar
     const barTotalWidth = 350;
@@ -1217,38 +1268,54 @@ export class GameScene extends Phaser.Scene {
   private showResultModal(status: 'victory' | 'defeat' | 'draw'): void {
     if (this.resultModalContainer) return;
 
-    if (status === 'victory') {
+    sounds.stopBattleMusic();
+
+    const duration = Math.floor(this.gameState.elapsedTimeSeconds);
+    const stats: MatchStats = {
+      matchDurationSeconds: duration,
+      playerUnitsDispatched: this.gameState.stats.playerUnitsDispatched,
+      enemyUnitsDispatched: this.gameState.stats.enemyUnitsDispatched,
+      territoriesCapturedByPlayer: this.gameState.stats.territoriesCapturedByPlayer,
+      territoriesCapturedByEnemy: this.gameState.stats.territoriesCapturedByEnemy,
+    };
+
+    const settlement = this.careerManager.recordMatchResult(status, stats);
+    const isWin = status === 'victory';
+
+    if (isWin) {
       sounds.playVictory();
       this.platform.hapticNotification('success');
-      this.cameras.main.flash(300, 37, 99, 235);
+      this.cameras.main.flash(350, 37, 99, 235);
     } else {
       sounds.playDefeat();
       this.platform.hapticNotification('warning');
     }
 
-    const isWin = status === 'victory';
-    const titleText = isWin ? 'VICTORY!' : 'DEFEAT';
-    const titleColor = isWin ? '#fbbf24' : '#ef4444';
-    const subText = isWin
-      ? 'All enemy fortresses captured!'
-      : 'Your defenses have fallen!';
-
     const modal = this.add.container(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2).setDepth(200);
+    this.resultModalContainer = modal;
+    modal.setScale(0.8);
+    modal.setAlpha(0);
 
     // Dark backdrop overlay
     const backdrop = this.add
-      .rectangle(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT, 0x000000, 0.75)
+      .rectangle(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT, 0x000000, 0.78)
       .setInteractive();
 
     // Modal Card
+    const cardHeight = 440;
     const card = this.add
-      .rectangle(0, 0, 320, 380, 0x111827, 0.98)
-      .setStrokeStyle(2, isWin ? 0xf59e0b : 0xef4444, 0.9);
+      .rectangle(0, 0, 330, cardHeight, 0x0c1322, 0.98)
+      .setStrokeStyle(2, isWin ? 0xf59e0b : 0xef4444, 0.95);
+
+    // Header Title & Subtitle
+    const titleText = isWin ? 'VICTORY!' : 'DEFEAT';
+    const titleColor = isWin ? '#fbbf24' : '#ef4444';
+    const subText = isWin ? '👑 ALL ENEMY BASES CAPTURED!' : '⚔️ YOUR DEFENSES HAVE FALLEN';
 
     const title = this.add
-      .text(0, -130, titleText, {
+      .text(0, -170, titleText, {
         fontFamily: FONT_FAMILY,
-        fontSize: '34px',
+        fontSize: '32px',
         fontStyle: '900',
         color: titleColor,
         stroke: '#000000',
@@ -1258,29 +1325,136 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     const subtitle = this.add
-      .text(0, -90, subText, {
+      .text(0, -136, subText, {
         fontFamily: FONT_FAMILY,
-        fontSize: '14px',
+        fontSize: '11px',
         fontStyle: 'bold',
-        color: '#94a3b8',
+        color: isWin ? '#93c5fd' : '#f87171',
         stroke: '#000000',
         strokeThickness: 2,
         resolution: 2,
       })
       .setOrigin(0.5);
 
-    // Stats Section
-    const duration = Math.floor(this.gameState.elapsedTimeSeconds);
-    const statsText = this.add
+    // Rank Tier Banner (e.g. ⚔️ SOLDIER RANK • 🏆 120)
+    const rankTier = settlement.newRank;
+    const rankBanner = this.add
+      .rectangle(0, -104, 280, 26, 0x111c33, 0.95)
+      .setStrokeStyle(1.5, rankTier.color, 0.9);
+
+    const rankText = this.add
+      .text(0, -104, `${rankTier.badge} ${rankTier.name.toUpperCase()} (🏆 ${settlement.newCareer.trophies})`, {
+        fontFamily: FONT_FAMILY,
+        fontSize: '11px',
+        fontStyle: 'bold',
+        color: '#f8fafc',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+
+    // Two Big Reward Cards: Trophies Card and Gold Card
+    const trophyCardX = -72;
+    const trophyCardY = -46;
+    const trophyDeltaStr =
+      settlement.breakdown.trophyDelta > 0
+        ? `+${settlement.breakdown.trophyDelta}`
+        : `${settlement.breakdown.trophyDelta}`;
+    const trophyColor = settlement.breakdown.trophyDelta >= 0 ? '#fbbf24' : '#f87171';
+
+    const trophyCardBg = this.add
+      .rectangle(trophyCardX, trophyCardY, 130, 64, 0x111827, 0.95)
+      .setStrokeStyle(1.5, isWin ? 0xf59e0b : 0x374151, 0.85);
+
+    const trophyLabel = this.add
+      .text(trophyCardX, trophyCardY - 17, 'TROPHIES', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '10px',
+        fontStyle: 'bold',
+        color: '#94a3b8',
+        stroke: '#000000',
+        strokeThickness: 1.5,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+
+    const trophyValue = this.add
+      .text(trophyCardX, trophyCardY + 10, `${trophyDeltaStr} 🏆`, {
+        fontFamily: FONT_FAMILY,
+        fontSize: '19px',
+        fontStyle: '900',
+        color: trophyColor,
+        stroke: '#000000',
+        strokeThickness: 3,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+
+    // Gold Card (right)
+    const goldCardX = 72;
+    const goldCardY = -46;
+    const goldCardBg = this.add
+      .rectangle(goldCardX, goldCardY, 130, 64, 0x111827, 0.95)
+      .setStrokeStyle(1.5, 0xf59e0b, 0.85);
+
+    const goldLabel = this.add
+      .text(goldCardX, goldCardY - 17, 'GOLD REWARD', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '10px',
+        fontStyle: 'bold',
+        color: '#94a3b8',
+        stroke: '#000000',
+        strokeThickness: 1.5,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+
+    const goldValue = this.add
+      .text(goldCardX, goldCardY + 10, `+${settlement.breakdown.totalCoins} 🪙`, {
+        fontFamily: FONT_FAMILY,
+        fontSize: '19px',
+        fontStyle: '900',
+        color: '#f59e0b',
+        stroke: '#000000',
+        strokeThickness: 3,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+
+    // Bonus Breakdown Chip
+    const breakdownParts: string[] = [`Base: ${settlement.breakdown.baseCoins}`];
+    if (settlement.breakdown.speedBonus > 0) breakdownParts.push(`Speed: +${settlement.breakdown.speedBonus}`);
+    if (settlement.breakdown.dominationBonus > 0) breakdownParts.push(`Dominance: +${settlement.breakdown.dominationBonus}`);
+    if (settlement.breakdown.streakBonus > 0) breakdownParts.push(`Streak: +${settlement.breakdown.streakBonus}`);
+
+    const bonusChipText = this.add
+      .text(0, 4, breakdownParts.join('  •  '), {
+        fontFamily: FONT_FAMILY,
+        fontSize: '10px',
+        fontStyle: 'bold',
+        color: '#38bdf8',
+        stroke: '#000000',
+        strokeThickness: 1.5,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+
+    // Match Stats Summary Section
+    const statsBox = this.add
+      .rectangle(0, 50, 280, 52, 0x0f172a, 0.9)
+      .setStrokeStyle(1, 0x1e293b, 1);
+
+    const matchStatsText = this.add
       .text(
         0,
-        -25,
-        `⏱ Match Time: ${duration}s\n\n🏰 Territories Captured: ${this.gameState.stats.territoriesCapturedByPlayer}\n\n⚔ Units Dispatched: ${this.gameState.stats.playerUnitsDispatched}`,
+        50,
+        `⏱ Time: ${duration}s    🏰 Captured: ${stats.territoriesCapturedByPlayer}    ⚔ Dispatched: ${stats.playerUnitsDispatched}\n🔥 Win Streak: ${settlement.newCareer.currentStreak}    👑 Total Wins: ${settlement.newCareer.matchesWon}`,
         {
           fontFamily: FONT_FAMILY,
-          fontSize: '14px',
+          fontSize: '11px',
           fontStyle: 'bold',
-          color: '#e2e8f0',
+          color: '#cbd5e1',
           stroke: '#000000',
           strokeThickness: 2,
           align: 'center',
@@ -1290,17 +1464,45 @@ export class GameScene extends Phaser.Scene {
       )
       .setOrigin(0.5);
 
+    // Rank Promotion Banner (if promoted)
+    let promoContainer: Phaser.GameObjects.Container | null = null;
+    if (settlement.rankPromoted) {
+      promoContainer = this.add.container(0, -104);
+      const promoGlow = this.add
+        .rectangle(0, 0, 284, 28, 0xf59e0b, 0.3)
+        .setStrokeStyle(2, 0xfde047, 1);
+      const promoText = this.add
+        .text(0, 0, `🎉 PROMOTED TO ${rankTier.name.toUpperCase()}!`, {
+          fontFamily: FONT_FAMILY,
+          fontSize: '11px',
+          fontStyle: '900',
+          color: '#fef08a',
+          stroke: '#000000',
+          strokeThickness: 2.5,
+          resolution: 2,
+        })
+        .setOrigin(0.5);
+      promoContainer.add([promoGlow, promoText]);
+      this.tweens.add({
+        targets: promoGlow,
+        alpha: 0.8,
+        duration: 350,
+        yoyo: true,
+        repeat: -1,
+      });
+    }
+
     // Play Again Button
-    const btnY = 65;
+    const btnY = 118;
     const btnBg = this.add
-      .rectangle(0, btnY, 220, 48, isWin ? 0x2563eb : 0x374151, 1)
+      .rectangle(0, btnY, 240, 44, isWin ? 0x2563eb : 0x374151, 1)
       .setStrokeStyle(2, isWin ? 0x60a5fa : 0x9ca3af, 1)
       .setInteractive({ useHandCursor: true });
 
     const btnText = this.add
       .text(0, btnY, 'PLAY AGAIN ⚔', {
         fontFamily: FONT_FAMILY,
-        fontSize: '16px',
+        fontSize: '15px',
         fontStyle: 'bold',
         color: '#ffffff',
         stroke: '#000000',
@@ -1310,32 +1512,30 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     btnBg.on('pointerover', () => {
-      btnBg.setScale(1.04);
-      btnText.setScale(1.04);
+      btnBg.setScale(1.03);
+      btnText.setScale(1.03);
     });
-
     btnBg.on('pointerout', () => {
       btnBg.setScale(1.0);
       btnText.setScale(1.0);
     });
-
     btnBg.on('pointerdown', () => {
       sounds.playDispatch();
       this.platform.hapticSelection();
       this.restartMatch();
     });
 
-    // Native Messenger Share Button (Social Loop)
-    const shareY = 125;
+    // Native Messenger Share Button
+    const shareY = 172;
     const shareBg = this.add
-      .rectangle(0, shareY, 220, 42, 0x1e293b, 1)
+      .rectangle(0, shareY, 240, 38, 0x1e293b, 1)
       .setStrokeStyle(1.5, 0x475569, 1)
       .setInteractive({ useHandCursor: true });
 
     const shareText = this.add
       .text(0, shareY, 'SHARE RESULT 📢', {
         fontFamily: FONT_FAMILY,
-        fontSize: '14px',
+        fontSize: '13px',
         fontStyle: 'bold',
         color: '#94a3b8',
         stroke: '#000000',
@@ -1345,34 +1545,62 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     shareBg.on('pointerover', () => {
-      shareBg.setScale(1.03);
-      shareText.setScale(1.03);
+      shareBg.setScale(1.02);
+      shareText.setScale(1.02);
     });
-
     shareBg.on('pointerout', () => {
       shareBg.setScale(1.0);
       shareText.setScale(1.0);
     });
-
     shareBg.on('pointerdown', async () => {
       this.platform.hapticSelection();
       const shareMsg = isWin
-        ? `👑 I conquered the battlefield in Crown Clash in ${duration}s! Can you defeat my armies?`
+        ? `👑 I conquered Crown Clash in ${duration}s! 🏆 Trophies: ${settlement.newCareer.trophies} ⚔️ Challenge my realm!`
         : `⚔ I fought for the Crown in Crown Clash! Challenge my realm!`;
       await this.platform.share({ text: shareMsg });
     });
 
-    modal.add([backdrop, card, title, subtitle, statsText, btnBg, btnText, shareBg, shareText]);
+    modal.add([
+      backdrop,
+      card,
+      title,
+      subtitle,
+      rankBanner,
+      rankText,
+      trophyCardBg,
+      trophyLabel,
+      trophyValue,
+      goldCardBg,
+      goldLabel,
+      goldValue,
+      bonusChipText,
+      statsBox,
+      matchStatsText,
+      btnBg,
+      btnText,
+      shareBg,
+      shareText,
+    ]);
+
+    if (promoContainer) {
+      modal.add(promoContainer);
+    }
 
     // Modal Entrance Animation
-    modal.setScale(0.8);
-    modal.setAlpha(0);
     this.tweens.add({
       targets: modal,
       scale: 1.0,
       alpha: 1.0,
-      duration: 220,
+      duration: 260,
       ease: 'Back.easeOut',
+      onComplete: () => {
+        if (settlement.rankPromoted) {
+          sounds.playRankUp();
+        } else if (isWin) {
+          sounds.playCoin();
+          this.time.delayedCall(220, () => sounds.playTrophy());
+        }
+      },
     });
 
     this.resultModalContainer = modal;

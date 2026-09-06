@@ -358,6 +358,93 @@ export class SoundEffects {
       });
     } catch {}
   }
+
+  public playCoin(): void {
+    const ctx = this.getContext();
+    if (!ctx || !this.enabled) return;
+
+    try {
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+
+      osc.frequency.setValueAtTime(987.77, now); // B5
+      osc.frequency.exponentialRampToValueAtTime(1318.51, now + 0.08); // E6
+
+      gain.gain.setValueAtTime(0.14, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.13);
+    } catch {}
+  }
+
+  public playTrophy(): void {
+    const ctx = this.getContext();
+    if (!ctx || !this.enabled) return;
+
+    try {
+      const now = ctx.currentTime;
+      const chords = [
+        { f: 587.33, t: 0.0, d: 0.1 }, // D5
+        { f: 880.0, t: 0.08, d: 0.22 }, // A5
+      ];
+
+      chords.forEach((n) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+
+        const st = now + n.t;
+        osc.frequency.setValueAtTime(n.f, st);
+        gain.gain.setValueAtTime(0.16, st);
+        gain.gain.exponentialRampToValueAtTime(0.001, st + n.d);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(st);
+        osc.stop(st + n.d + 0.02);
+      });
+    } catch {}
+  }
+
+  public playRankUp(): void {
+    const ctx = this.getContext();
+    if (!ctx || !this.enabled) return;
+
+    try {
+      const now = ctx.currentTime;
+      const notes = [
+        { f: 523.25, t: 0.0, d: 0.12 }, // C5
+        { f: 659.25, t: 0.1, d: 0.12 }, // E5
+        { f: 783.99, t: 0.2, d: 0.14 }, // G5
+        { f: 987.77, t: 0.32, d: 0.16 }, // B5
+        { f: 1046.5, t: 0.46, d: 0.45 }, // C6
+      ];
+
+      notes.forEach((n) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+
+        const st = now + n.t;
+        osc.frequency.setValueAtTime(n.f, st);
+        gain.gain.setValueAtTime(0.22, st);
+        gain.gain.exponentialRampToValueAtTime(0.001, st + n.d);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(st);
+        osc.stop(st + n.d + 0.02);
+      });
+    } catch {}
+  }
 }
 
 export const sounds = new SoundEffects();

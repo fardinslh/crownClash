@@ -5,3 +5,4 @@ export * from './dispatch.js';
 export * from './map.js';
 export * from './ai.js';
 export * from './simulation.js';
+export * from './progression.js';
