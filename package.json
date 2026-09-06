@@ -1,0 +1,19 @@
+{
+  "name": "crown-clash",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Crown Clash - Casual competitive territory-control game for messenger mini-apps",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm --workspace=apps/game run dev",
+    "build": "npm --workspace=packages/game-core run build && npm --workspace=apps/game run build",
+    "test": "npm --workspace=packages/game-core run test",
+    "typecheck": "npm --workspace=packages/game-core run typecheck && npm --workspace=apps/game run typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}
