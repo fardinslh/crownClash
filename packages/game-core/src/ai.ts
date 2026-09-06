@@ -8,7 +8,7 @@ export interface AiMove {
 
 /**
  * Evaluates the board state and decides an action for the AI team.
- * Simple, reactive, deterministic heuristic suitable for casual prototype pacing.
+ * Evaluates all ready AI territories to find the highest tactical leverage opportunity.
  */
 export function evaluateAiMove(
   territories: Record<string, Territory>,
@@ -23,73 +23,64 @@ export function evaluateAiMove(
   const readySources = myTerritories.filter((t) => t.units >= minDispatchThreshold);
   if (readySources.length === 0) return null;
 
-  // Pick source with the most units
-  readySources.sort((a, b) => b.units - a.units);
-  const source = readySources[0];
-  const dispatchAmount = calculateDispatchUnits(source.units, 0.5);
-  if (dispatchAmount <= 0) return null;
-
-  // Potential targets (not the source itself)
-  const targets = territoryList.filter((t) => t.id !== source.id);
-  if (targets.length === 0) return null;
-
-  let bestTarget: Territory | null = null;
+  let bestMove: AiMove | null = null;
   let bestScore = -Infinity;
 
-  for (const target of targets) {
-    const dist = Math.hypot(target.x - source.x, target.y - source.y);
-    const distancePenalty = dist * 0.05;
+  for (const source of readySources) {
+    const dispatchAmount = calculateDispatchUnits(source.units, 0.5);
+    if (dispatchAmount <= 0) continue;
 
-    let score = 0;
+    const targets = territoryList.filter((t) => t.id !== source.id);
 
-    if (target.owner !== aiTeam) {
-      // Hostile territory (Neutral or Player)
-      const canCapture = dispatchAmount > target.units;
-      const unitAdvantage = dispatchAmount - target.units;
+    for (const target of targets) {
+      const dist = Math.hypot(target.x - source.x, target.y - source.y);
+      const distancePenalty = dist * 0.06;
 
-      if (target.owner === 'player') {
-        // High reward for taking player territory
-        if (canCapture) {
-          score = 100 + unitAdvantage * 2 - distancePenalty;
-        } else {
-          // Attacking player even if not capturing right away (harassment)
-          score = 20 - target.units - distancePenalty;
-        }
-      } else {
-        // Neutral territory
-        if (canCapture) {
-          // Capturing neutral territory expands economy
-          score = 60 + (10 - target.units) * 2 - distancePenalty;
-          // Center keep bonus
-          if (target.id === 'n_center') {
-            score += 25;
+      let score = 0;
+
+      if (target.owner !== aiTeam) {
+        // Hostile territory (Neutral or Player)
+        const canCapture = dispatchAmount > target.units;
+        const unitAdvantage = dispatchAmount - target.units;
+
+        if (target.owner === 'player') {
+          // Priority on capturing player holdings or contesting them
+          if (canCapture) {
+            score = 110 + unitAdvantage * 3 - distancePenalty;
+          } else {
+            score = 25 - target.units - distancePenalty;
           }
         } else {
-          // Don't suicide on strong neutrals if we can't capture them
-          score = -50;
+          // Neutral territory
+          if (canCapture) {
+            score = 65 + (12 - target.units) * 2 - distancePenalty;
+            // High strategic value for the Crown Keep (center)
+            if (target.id === 'n_center') {
+              score += 35;
+            }
+          } else {
+            // Avoid suicide attacks on high-density neutral keeps
+            score = -50;
+          }
+        }
+      } else {
+        // Friendly reinforcement
+        if (target.units < 8 && source.units >= 16) {
+          score = 35 + (15 - target.units) * 1.5 - distancePenalty;
+        } else {
+          score = -20;
         }
       }
-    } else {
-      // Friendly reinforcement
-      if (target.units < 10 && source.units > 20) {
-        score = 30 + (20 - target.units) - distancePenalty;
-      } else {
-        score = -20;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestMove = {
+          fromId: source.id,
+          toId: target.id,
+        };
       }
     }
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestTarget = target;
-    }
   }
 
-  if (bestTarget && bestScore > 0) {
-    return {
-      fromId: source.id,
-      toId: bestTarget.id,
-    };
-  }
-
-  return null;
+  return bestScore > 0 ? bestMove : null;
 }

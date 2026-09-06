@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import {
+  calculateDispatchUnits,
   CombatResult,
   createInitialGameState,
   dispatchArmy,
@@ -12,6 +13,7 @@ import {
 } from '@crown-clash/game-core';
 import { sounds } from '../audio/SoundEffects.js';
 import { THEME } from '../theme.js';
+import { triggerHaptic } from '../utils/haptics.js';
 
 interface TerritoryVisual {
   territory: Territory;
@@ -28,6 +30,8 @@ interface ArmyVisual {
   container: Phaser.GameObjects.Container;
   circle: Phaser.GameObjects.Arc;
   text: Phaser.GameObjects.Text;
+  trail1: Phaser.GameObjects.Arc;
+  trail2: Phaser.GameObjects.Arc;
 }
 
 export class GameScene extends Phaser.Scene {
@@ -41,6 +45,9 @@ export class GameScene extends Phaser.Scene {
   private hoveredTargetId: string | null = null;
   private dragGraphics!: Phaser.GameObjects.Graphics;
   private selectionRing!: Phaser.GameObjects.Arc;
+  private dragBadgeContainer!: Phaser.GameObjects.Container;
+  private dragBadgeBg!: Phaser.GameObjects.Rectangle;
+  private dragBadgeText!: Phaser.GameObjects.Text;
 
   // AI Timer
   private aiTimer: number = 0;
@@ -78,6 +85,21 @@ export class GameScene extends Phaser.Scene {
       .setStrokeStyle(3, 0xffffff, 0.9)
       .setVisible(false)
       .setDepth(45);
+
+    // Live Drag Badge preview
+    this.dragBadgeContainer = this.add.container(0, 0).setDepth(55).setVisible(false);
+    this.dragBadgeBg = this.add
+      .rectangle(0, 0, 96, 26, 0x0a0f1d, 0.96)
+      .setStrokeStyle(2, THEME.teams.player.primary, 1);
+    this.dragBadgeText = this.add
+      .text(0, 0, '⚔ 10', {
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        fontSize: '11px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5);
+    this.dragBadgeContainer.add([this.dragBadgeBg, this.dragBadgeText]);
 
     // 3. Build Territory Visuals
     this.createTerritoryObjects();
@@ -324,15 +346,22 @@ export class GameScene extends Phaser.Scene {
       }
 
       sounds.playDispatch();
+      triggerHaptic('light');
     }
   }
 
   private renderDragTrajectory(pointer: Phaser.Input.Pointer): void {
     this.dragGraphics.clear();
-    if (!this.selectedSourceId) return;
+    if (!this.selectedSourceId) {
+      this.dragBadgeContainer.setVisible(false);
+      return;
+    }
 
     const src = this.gameState.territories[this.selectedSourceId];
-    if (!src) return;
+    if (!src) {
+      this.dragBadgeContainer.setVisible(false);
+      return;
+    }
 
     const target = this.hoveredTargetId ? this.gameState.territories[this.hoveredTargetId] : null;
     const targetX = target ? target.x : pointer.x;
@@ -359,10 +388,53 @@ export class GameScene extends Phaser.Scene {
       this.dragGraphics.fillStyle(color, 0.9);
       this.dragGraphics.fillCircle(targetX, targetY, 6);
     }
+
+    // Live Tactical Dispatch Badge in the center of the drag trajectory
+    const unitsToSend = calculateDispatchUnits(src.units, 0.5);
+    const midX = (src.x + targetX) / 2;
+    const midY = (src.y + targetY) / 2;
+
+    this.dragBadgeContainer.setPosition(midX, midY).setVisible(true);
+
+    if (isHoveringTarget && target) {
+      if (isFriendly) {
+        this.dragBadgeText.setText(`+${unitsToSend} REINFORCE`);
+        this.dragBadgeText.setColor('#10b981');
+        this.dragBadgeBg.setStrokeStyle(2, 0x10b981, 1);
+        this.dragBadgeBg.setSize(106, 26);
+      } else {
+        if (unitsToSend > target.units) {
+          const rem = unitsToSend - target.units;
+          this.dragBadgeText.setText(`⚔ ${unitsToSend} (WIN +${rem})`);
+          this.dragBadgeText.setColor('#f59e0b');
+          this.dragBadgeBg.setStrokeStyle(2, 0xf59e0b, 1);
+          this.dragBadgeBg.setSize(116, 26);
+        } else if (unitsToSend === target.units) {
+          this.dragBadgeText.setText(`⚔ ${unitsToSend} (TIE)`);
+          this.dragBadgeText.setColor('#fb923c');
+          this.dragBadgeBg.setStrokeStyle(2, 0xfb923c, 1);
+          this.dragBadgeBg.setSize(96, 26);
+        } else {
+          const needed = target.units - unitsToSend;
+          this.dragBadgeText.setText(`⚔ ${unitsToSend} (-${needed})`);
+          this.dragBadgeText.setColor('#ef4444');
+          this.dragBadgeBg.setStrokeStyle(2, 0xef4444, 1);
+          this.dragBadgeBg.setSize(96, 26);
+        }
+      }
+    } else {
+      this.dragBadgeText.setText(`⚔ SEND ${unitsToSend}`);
+      this.dragBadgeText.setColor('#ffffff');
+      this.dragBadgeBg.setStrokeStyle(2, THEME.teams.player.primary, 0.95);
+      this.dragBadgeBg.setSize(90, 26);
+    }
   }
 
   private handlePointerRelease(): void {
-    if (!this.selectedSourceId) return;
+    if (!this.selectedSourceId) {
+      this.dragBadgeContainer.setVisible(false);
+      return;
+    }
 
     const sourceId = this.selectedSourceId;
     const targetId = this.hoveredTargetId;
@@ -382,6 +454,7 @@ export class GameScene extends Phaser.Scene {
     this.hoveredTargetId = null;
     this.selectionRing.setVisible(false);
     this.dragGraphics.clear();
+    this.dragBadgeContainer.setVisible(false);
 
     if (targetId && targetId !== sourceId) {
       const src = this.gameState.territories[sourceId];
@@ -397,6 +470,7 @@ export class GameScene extends Phaser.Scene {
           this.gameState.stats.playerUnitsDispatched += dispatch.army.units;
 
           sounds.playDispatch();
+          triggerHaptic('medium');
         }
       }
     }
@@ -473,6 +547,8 @@ export class GameScene extends Phaser.Scene {
     if (arrival.captured) {
       // Capture Feedback!
       sounds.playCapture();
+      triggerHaptic('heavy');
+      this.cameras.main.shake(120, 0.005);
 
       // Shake & scale pop
       this.tweens.add({
@@ -507,6 +583,7 @@ export class GameScene extends Phaser.Scene {
     } else if (arrival.reinforced) {
       // Friendly Reinforcement Feedback
       sounds.playReinforce();
+      triggerHaptic('light');
 
       this.tweens.add({
         targets: vis.container,
@@ -524,6 +601,7 @@ export class GameScene extends Phaser.Scene {
     } else {
       // Attack defended / repelled
       sounds.playCombatHit();
+      triggerHaptic('medium');
 
       this.tweens.add({
         targets: vis.container,
@@ -603,6 +681,19 @@ export class GameScene extends Phaser.Scene {
         const teamStyle = THEME.teams[army.owner];
         const container = this.add.container(currentX, currentY).setDepth(35);
 
+        // Calculate travel angle for convoy trail positioning
+        const angle = Phaser.Math.Angle.Between(army.startX, army.startY, army.targetX, army.targetY);
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+
+        // Trailing convoy micro-dots
+        const trail1 = this.add
+          .circle(-14 * cos, -14 * sin, 6, teamStyle.primary, 0.75)
+          .setStrokeStyle(1.5, 0xffffff, 0.85);
+
+        const trail2 = this.add
+          .circle(-25 * cos, -25 * sin, 4, teamStyle.primary, 0.45);
+
         const circle = this.add
           .circle(0, 0, 13, teamStyle.primary, 1)
           .setStrokeStyle(2, 0xffffff, 0.95);
@@ -616,8 +707,19 @@ export class GameScene extends Phaser.Scene {
           })
           .setOrigin(0.5);
 
-        container.add([circle, text]);
-        visual = { id: army.id, container, circle, text };
+        // Marching rhythmic pulse
+        this.tweens.add({
+          targets: circle,
+          scaleX: 1.08,
+          scaleY: 0.94,
+          duration: 180,
+          yoyo: true,
+          repeat: -1,
+          ease: 'Sine.easeInOut',
+        });
+
+        container.add([trail2, trail1, circle, text]);
+        visual = { id: army.id, container, circle, text, trail1, trail2 };
         this.armyVisuals.set(army.id, visual);
       } else {
         visual.container.setPosition(currentX, currentY);
@@ -660,8 +762,11 @@ export class GameScene extends Phaser.Scene {
 
     if (status === 'victory') {
       sounds.playVictory();
+      triggerHaptic('success');
+      this.cameras.main.flash(300, 37, 99, 235);
     } else {
       sounds.playDefeat();
+      triggerHaptic('warning');
     }
 
     const isWin = status === 'victory';
@@ -781,6 +886,7 @@ export class GameScene extends Phaser.Scene {
     this.accumulators = {};
     this.selectedSourceId = null;
     this.hoveredTargetId = null;
+    this.dragBadgeContainer.setVisible(false);
     this.aiTimer = 0.5;
 
     // Reset territory objects
