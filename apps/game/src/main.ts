@@ -26,7 +26,7 @@ const config: Phaser.Types.Core.GameConfig = {
   render: {
     antialias: true,
     antialiasGL: true,
-    roundPixels: true,
+    roundPixels: false,
     powerPreference: 'high-performance',
   },
   fps: {
