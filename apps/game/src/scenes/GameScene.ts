@@ -26,13 +26,23 @@ interface TerritoryVisual {
   nameText: Phaser.GameObjects.Text;
 }
 
+interface ArmyFollower {
+  shadow: Phaser.GameObjects.Ellipse;
+  sprite: Phaser.GameObjects.Image;
+  relX: number;
+  relY: number;
+}
+
 interface ArmyVisual {
   id: string;
   container: Phaser.GameObjects.Container;
-  circle: Phaser.GameObjects.Arc;
-  text: Phaser.GameObjects.Text;
-  trail1: Phaser.GameObjects.Arc;
-  trail2: Phaser.GameObjects.Arc;
+  leaderSprite: Phaser.GameObjects.Image;
+  leaderShadow: Phaser.GameObjects.Ellipse;
+  badgeBg: Phaser.GameObjects.Rectangle;
+  badgeText: Phaser.GameObjects.Text;
+  followers: ArmyFollower[];
+  rearOffset: { x: number; y: number };
+  dustTimer: number;
 }
 
 export class GameScene extends Phaser.Scene {
@@ -84,13 +94,25 @@ export class GameScene extends Phaser.Scene {
     this.load.image('crown_keep_enemy', 'assets/territories/crown_keep_enemy.png');
     this.load.image('citadel_player', 'assets/territories/citadel_player.png');
     this.load.image('citadel_enemy', 'assets/territories/citadel_enemy.png');
+
+    // Load 2.5D Rendered Army Unit Sprites
+    this.load.image('unit_leader_player', 'assets/units/unit_leader_player.png');
+    this.load.image('unit_leader_enemy', 'assets/units/unit_leader_enemy.png');
+    this.load.image('unit_follower_player', 'assets/units/unit_follower_player.png');
+    this.load.image('unit_follower_enemy', 'assets/units/unit_follower_enemy.png');
   }
 
   create(): void {
     this.platform = (this.registry.get('platform') as PlatformAdapter) || createPlatformAdapter();
     this.gameState = createInitialGameState();
     this.accumulators = {};
+    for (const vis of this.territoryVisuals.values()) {
+      vis.container.destroy();
+    }
     this.territoryVisuals.clear();
+    for (const vis of this.armyVisuals.values()) {
+      vis.container.destroy();
+    }
     this.armyVisuals.clear();
     this.selectedSourceIds = [];
     this.hoveredTargetId = null;
@@ -658,7 +680,7 @@ export class GameScene extends Phaser.Scene {
 
     // 6. Update Visuals
     this.updateTerritoryVisuals();
-    this.updateArmyVisuals();
+    this.updateArmyVisuals(deltaSeconds);
   }
 
   private executeAiTurn(): void {
@@ -832,7 +854,25 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private updateArmyVisuals(): void {
+  private spawnDustPuff(x: number, y: number): void {
+    const jitterX = Math.random() * 4 - 2;
+    const jitterY = Math.random() * 3 - 1.5;
+    const dust = this.add
+      .circle(x + jitterX, y + 6 + jitterY, 3, 0x94a3b8, 0.45)
+      .setDepth(33);
+
+    this.tweens.add({
+      targets: dust,
+      scale: 1.8,
+      alpha: 0,
+      y: dust.y - 4,
+      duration: 220,
+      ease: 'Quad.easeOut',
+      onComplete: () => dust.destroy(),
+    });
+  }
+
+  private updateArmyVisuals(deltaSeconds: number): void {
     const activeArmyIds = new Set(this.gameState.armies.map((a) => a.id));
 
     // Destroy visuals for finished armies
@@ -854,49 +894,128 @@ export class GameScene extends Phaser.Scene {
         const teamStyle = THEME.teams[army.owner];
         const container = this.add.container(currentX, currentY).setDepth(35);
 
-        // Calculate travel angle for convoy trail positioning
+        // Calculate travel angle and direction vectors
         const angle = Phaser.Math.Angle.Between(army.startX, army.startY, army.targetX, army.targetY);
         const cos = Math.cos(angle);
         const sin = Math.sin(angle);
+        const perpX = -sin;
+        const perpY = cos;
+        const isFacingLeft = cos < -0.05;
 
-        // Trailing convoy micro-dots
-        const trail1 = this.add
-          .circle(-14 * cos, -14 * sin, 6, teamStyle.primary, 0.75)
-          .setStrokeStyle(1.5, 0xffffff, 0.85);
+        // Determine follower formation based on army size
+        const followerOffsets: Array<{ x: number; y: number; delay: number }> = [];
+        if (army.units >= 15) {
+          followerOffsets.push(
+            { x: -14 * cos + 7 * perpX, y: -14 * sin + 7 * perpY, delay: 45 },
+            { x: -22 * cos - 7 * perpX, y: -22 * sin - 7 * perpY, delay: 90 },
+            { x: -30 * cos, y: -30 * sin, delay: 135 }
+          );
+        } else if (army.units >= 6) {
+          followerOffsets.push(
+            { x: -15 * cos + 6 * perpX, y: -15 * sin + 6 * perpY, delay: 50 },
+            { x: -24 * cos - 6 * perpX, y: -24 * sin - 6 * perpY, delay: 100 }
+          );
+        } else {
+          followerOffsets.push({ x: -16 * cos, y: -16 * sin, delay: 60 });
+        }
 
-        const trail2 = this.add
-          .circle(-25 * cos, -25 * sin, 4, teamStyle.primary, 0.45);
+        const followers: ArmyFollower[] = [];
+        const followerTexture = army.owner === 'player' ? 'unit_follower_player' : 'unit_follower_enemy';
 
-        const circle = this.add
-          .circle(0, 0, 13, teamStyle.primary, 1)
-          .setStrokeStyle(2, 0xffffff, 0.95);
+        for (const f of followerOffsets) {
+          const shadow = this.add.ellipse(f.x, f.y + 7, 13, 6, 0x000000, 0.32);
+          const sprite = this.add
+            .image(f.x, f.y, followerTexture)
+            .setScale(0.19)
+            .setFlipX(isFacingLeft);
 
-        const text = this.add
-          .text(0, 0, army.units.toString(), {
-            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-            fontSize: '11px',
-            fontStyle: 'bold',
-            color: '#ffffff',
-          })
-          .setOrigin(0.5);
+          // Alternating rhythmic stride bounce
+          this.tweens.add({
+            targets: sprite,
+            y: f.y - 2.5,
+            scaleX: 0.175,
+            scaleY: 0.205,
+            duration: 130,
+            delay: f.delay,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut',
+          });
 
-        // Marching rhythmic pulse
+          container.add([shadow, sprite]);
+          followers.push({ shadow, sprite, relX: f.x, relY: f.y });
+        }
+
+        // Commander / Leader Unit
+        const leaderShadow = this.add.ellipse(0, 9, 18, 7, 0x000000, 0.38);
+        const leaderTexture = army.owner === 'player' ? 'unit_leader_player' : 'unit_leader_enemy';
+        const leaderSprite = this.add
+          .image(0, 0, leaderTexture)
+          .setScale(0.25)
+          .setFlipX(isFacingLeft);
+
+        // Leader stride bounce + squash/stretch
         this.tweens.add({
-          targets: circle,
-          scaleX: 1.08,
-          scaleY: 0.94,
-          duration: 180,
+          targets: leaderSprite,
+          y: -3.5,
+          scaleX: 0.23,
+          scaleY: 0.27,
+          duration: 130,
           yoyo: true,
           repeat: -1,
           ease: 'Sine.easeInOut',
         });
 
-        container.add([trail2, trail1, circle, text]);
-        visual = { id: army.id, container, circle, text, trail1, trail2 };
+        // High-contrast Troop Count Pill Badge
+        const badgeY = -18;
+        const initialUnits = army.units.toString();
+        const badgeWidth = Math.max(24, initialUnits.length * 8 + 12);
+        const badgeBg = this.add
+          .rectangle(0, badgeY, badgeWidth, 15, 0x090d16, 0.92)
+          .setStrokeStyle(1.5, teamStyle.primary, 1);
+
+        const badgeText = this.add
+          .text(0, badgeY, initialUnits, {
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+            fontSize: '10px',
+            fontStyle: 'bold',
+            color: '#ffffff',
+          })
+          .setOrigin(0.5);
+
+        container.add([leaderShadow, leaderSprite, badgeBg, badgeText]);
+
+        const lastOffset = followerOffsets[followerOffsets.length - 1] ?? { x: 0, y: 0 };
+        visual = {
+          id: army.id,
+          container,
+          leaderSprite,
+          leaderShadow,
+          badgeBg,
+          badgeText,
+          followers,
+          rearOffset: { x: lastOffset.x, y: lastOffset.y },
+          dustTimer: 0.05,
+        };
         this.armyVisuals.set(army.id, visual);
       } else {
         visual.container.setPosition(currentX, currentY);
-        visual.text.setText(army.units.toString());
+        const unitsStr = army.units.toString();
+        if (visual.badgeText.text !== unitsStr) {
+          visual.badgeText.setText(unitsStr);
+          const newWidth = Math.max(24, unitsStr.length * 8 + 12);
+          visual.badgeBg.setSize(newWidth, 15);
+        }
+
+        // Emit rhythmic dust puff behind rearmost follower
+        visual.dustTimer -= deltaSeconds;
+        if (visual.dustTimer <= 0) {
+          visual.dustTimer = 0.14;
+          this.spawnDustPuff(
+            currentX + visual.rearOffset.x,
+            currentY + visual.rearOffset.y
+          );
+        }
       }
     }
   }
