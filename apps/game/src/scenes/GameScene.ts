@@ -23,7 +23,6 @@ interface TerritoryVisual {
   ring: Phaser.GameObjects.Arc;
   unitBadge: Phaser.GameObjects.Rectangle;
   unitText: Phaser.GameObjects.Text;
-  nameText: Phaser.GameObjects.Text;
 }
 
 interface ArmyFollower {
@@ -65,11 +64,15 @@ export class GameScene extends Phaser.Scene {
   private aiTimer: number = 0;
   private aiInterval: number = 1.8; // seconds between AI decisions
 
-  // UI HUD Elements
+  // UI HUD Elements (Clean Glassmorphic Command Console)
   private timerText!: Phaser.GameObjects.Text;
   private playerBar!: Phaser.GameObjects.Rectangle;
   private enemyBar!: Phaser.GameObjects.Rectangle;
   private neutralBar!: Phaser.GameObjects.Rectangle;
+  private playerDomText!: Phaser.GameObjects.Text;
+  private enemyDomText!: Phaser.GameObjects.Text;
+  private tugCrown!: Phaser.GameObjects.Text;
+  private bottomHintText!: Phaser.GameObjects.Text;
 
   // Result Modal
   private resultModalContainer?: Phaser.GameObjects.Container;
@@ -133,7 +136,7 @@ export class GameScene extends Phaser.Scene {
     // Live Drag Badge preview
     this.dragBadgeContainer = this.add.container(0, 0).setDepth(55).setVisible(false);
     this.dragBadgeBg = this.add
-      .rectangle(0, 0, 96, 26, 0x0a0f1d, 0.96)
+      .rectangle(0, 0, 96, 26, 0x070d1a, 0.96)
       .setStrokeStyle(2, THEME.teams.player.primary, 1);
     this.dragBadgeText = this.add
       .text(0, 0, '⚔ 10', {
@@ -141,6 +144,7 @@ export class GameScene extends Phaser.Scene {
         fontSize: '11px',
         fontStyle: 'bold',
         color: '#ffffff',
+        resolution: 2,
       })
       .setOrigin(0.5);
     this.dragBadgeContainer.add([this.dragBadgeBg, this.dragBadgeText]);
@@ -156,19 +160,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createArenaBackground(): void {
-    // Subtle gradient-like arena background
+    // Deep rich tactical battlefield background
     const bg = this.add.rectangle(
       LOGICAL_WIDTH / 2,
       LOGICAL_HEIGHT / 2,
       LOGICAL_WIDTH,
       LOGICAL_HEIGHT,
-      THEME.background
+      0x070b14
     );
     bg.setDepth(0);
 
-    // Tactical subtle lane connections between strategic territories
+    // Strategic Cobblestone Roadways & Tactical Conduits
     const lanesGraphics = this.add.graphics().setDepth(1);
-    lanesGraphics.lineStyle(2, THEME.arenaGrid, 0.7);
 
     const connections: [string, string][] = [
       ['p_base', 'n_bot_left'],
@@ -190,6 +193,9 @@ export class GameScene extends Phaser.Scene {
     ];
 
     const terrs = this.gameState.territories;
+
+    // 1. Road Underlay (Dark stone cobblestone paths)
+    lanesGraphics.lineStyle(14, 0x0f172a, 0.95);
     connections.forEach(([idA, idB]) => {
       const a = terrs[idA];
       const b = terrs[idB];
@@ -198,10 +204,35 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    // Subtle arena perimeter glow
+    // 2. Road Border Rails (Tactical slate trim)
+    lanesGraphics.lineStyle(2, 0x1e293b, 0.75);
+    connections.forEach(([idA, idB]) => {
+      const a = terrs[idA];
+      const b = terrs[idB];
+      if (a && b) {
+        lanesGraphics.lineBetween(a.x, a.y, b.x, b.y);
+      }
+    });
+
+    // 3. Central Tactical Conduit Hubs under territories
+    Object.values(terrs).forEach((t) => {
+      lanesGraphics.fillStyle(0x0f172a, 0.95);
+      lanesGraphics.fillCircle(t.x, t.y, t.radius + 6);
+      lanesGraphics.lineStyle(1.5, 0x1e293b, 0.85);
+      lanesGraphics.strokeCircle(t.x, t.y, t.radius + 6);
+    });
+
+    // 4. Strategic Center Keep Tactical Rings
+    const centerTerr = terrs['n_center'];
+    if (centerTerr) {
+      lanesGraphics.lineStyle(1, 0x334155, 0.35);
+      lanesGraphics.strokeCircle(centerTerr.x, centerTerr.y, 58);
+    }
+
+    // 5. Arena Perimeter Border
     const border = this.add.graphics().setDepth(2);
-    border.lineStyle(2, THEME.arenaBorder, 0.5);
-    border.strokeRoundedRect(8, 8, LOGICAL_WIDTH - 16, LOGICAL_HEIGHT - 16, 16);
+    border.lineStyle(1.5, 0x1e293b, 0.65);
+    border.strokeRoundedRect(8, 76, LOGICAL_WIDTH - 16, LOGICAL_HEIGHT - 128, 16);
   }
 
   private createTerritoryObjects(): void {
@@ -212,40 +243,32 @@ export class GameScene extends Phaser.Scene {
 
       // Ground glow / base ring
       const ring = this.add
-        .circle(0, 4, territory.radius + 6, teamStyle.glow, 0.25)
-        .setStrokeStyle(3, teamStyle.primary, 1);
+        .circle(0, 4, territory.radius + 5, teamStyle.glow, 0.22)
+        .setStrokeStyle(3, teamStyle.primary, 0.95);
 
       // 2.5D Rendered Fortress Sprite
       const textureKey = this.getTerritoryTextureKey(territory);
-      const spriteSize = territory.tier === 3 ? 90 : territory.tier === 2 ? 80 : 66;
+      const spriteSize = territory.tier === 3 ? 92 : territory.tier === 2 ? 80 : 66;
       const sprite = this.add.image(0, -6, textureKey).setDisplaySize(spriteSize, spriteSize);
 
       // Unit Count Badge Pill
       const badgeY = territory.tier === 3 ? 24 : territory.tier === 2 ? 20 : 16;
       const unitBadge = this.add
-        .rectangle(0, badgeY, 36, 19, 0x0a0f1d, 0.94)
+        .rectangle(0, badgeY, 40, 20, 0x070d1a, 0.96)
         .setStrokeStyle(1.5, teamStyle.primary, 1);
 
-      // Unit Count Text
+      // Unit Count Text with resolution: 2 for retina sharpness
       const unitText = this.add
         .text(0, badgeY, territory.units.toString(), {
           fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-          fontSize: territory.tier === 3 ? '14px' : '12px',
+          fontSize: territory.tier === 3 ? '13px' : '12px',
           fontStyle: 'bold',
           color: '#ffffff',
+          resolution: 2,
         })
         .setOrigin(0.5);
 
-      // Subtitle / Name Text
-      const nameText = this.add
-        .text(0, territory.radius + 18, territory.name, {
-          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-          fontSize: '10px',
-          color: THEME.textMuted,
-        })
-        .setOrigin(0.5);
-
-      container.add([ring, sprite, unitBadge, unitText, nameText]);
+      container.add([ring, sprite, unitBadge, unitText]);
 
       // Make interactive for touch / click
       container.setSize(territory.radius * 2.5, territory.radius * 2.5);
@@ -262,46 +285,72 @@ export class GameScene extends Phaser.Scene {
         ring,
         unitBadge,
         unitText,
-        nameText,
       });
     });
   }
 
   private createHud(): void {
-    const hudY = 24;
+    // 1. Header Glass Panel Bar (y: 0 to 70)
+    this.add
+      .rectangle(LOGICAL_WIDTH / 2, 35, LOGICAL_WIDTH, 70, 0x090f1d, 0.96)
+      .setDepth(90);
 
-    // Platform Identity Badge & Player Name
+    this.add
+      .rectangle(LOGICAL_WIDTH / 2, 70, LOGICAL_WIDTH, 1.5, 0x1e293b, 1)
+      .setDepth(91);
+
+    // 2. Top Row (y: 20)
     const user = this.platform.getUser();
     const platformName = this.platform.platform.toUpperCase();
 
+    // Left: Player Profile Pill
     this.add
-      .text(16, hudY, `🛡 ${user.username || 'Commander'}`, {
+      .rectangle(68, 20, 104, 22, 0x0f172a, 0.95)
+      .setStrokeStyle(1.5, 0x3b82f6, 0.9)
+      .setDepth(95);
+
+    this.add
+      .text(68, 20, `🔵 ${user.username || 'Commander'}`, {
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
         fontSize: '11px',
         fontStyle: 'bold',
         color: '#93c5fd',
+        resolution: 2,
       })
-      .setOrigin(0, 0.5)
-      .setDepth(100);
+      .setOrigin(0.5)
+      .setDepth(96);
 
+    // Center: Royal Match Clock Pill
     this.add
-      .text(LOGICAL_WIDTH - 16, hudY, `[${platformName}]`, {
-        fontFamily: 'monospace, -apple-system',
-        fontSize: '10px',
-        fontStyle: 'bold',
-        color: '#64748b',
-      })
-      .setOrigin(1, 0.5)
-      .setDepth(100);
+      .rectangle(LOGICAL_WIDTH / 2, 20, 92, 24, 0x111827, 0.95)
+      .setStrokeStyle(1.5, 0xf59e0b, 0.9)
+      .setDepth(95);
 
-    // Audio Mute Toggle Button
+    this.timerText = this.add
+      .text(LOGICAL_WIDTH / 2, 20, '⏱ 01:30', {
+        fontFamily: 'monospace, -apple-system',
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: '#fbbf24',
+        resolution: 2,
+      })
+      .setOrigin(0.5)
+      .setDepth(96);
+
+    // Right: Audio Toggle & Platform Badge Pill
+    this.add
+      .rectangle(LOGICAL_WIDTH - 64, 20, 96, 22, 0x0f172a, 0.95)
+      .setStrokeStyle(1.5, 0x334155, 0.8)
+      .setDepth(95);
+
     const muteIcon = sounds.isMuted() ? '🔇' : '🔊';
     const muteBtn = this.add
-      .text(LOGICAL_WIDTH - 82, hudY, muteIcon, {
+      .text(LOGICAL_WIDTH - 92, 20, muteIcon, {
         fontSize: '13px',
+        resolution: 2,
       })
-      .setOrigin(1, 0.5)
-      .setDepth(100)
+      .setOrigin(0.5)
+      .setDepth(96)
       .setInteractive({ useHandCursor: true });
 
     muteBtn.on('pointerdown', () => {
@@ -310,61 +359,92 @@ export class GameScene extends Phaser.Scene {
       this.platform.hapticSelection();
     });
 
-    // Top Title
     this.add
-      .text(LOGICAL_WIDTH / 2, hudY, 'CROWN CLASH', {
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        fontSize: '15px',
-        fontStyle: '900',
-        color: THEME.textLight,
-      })
-      .setOrigin(0.5)
-      .setDepth(100);
-
-    // Match Timer
-    this.timerText = this.add
-      .text(LOGICAL_WIDTH / 2, hudY + 22, '01:30', {
+      .text(LOGICAL_WIDTH - 48, 20, `[${platformName}]`, {
         fontFamily: 'monospace, -apple-system',
-        fontSize: '16px',
+        fontSize: '9px',
         fontStyle: 'bold',
-        color: '#fbbf24',
+        color: '#64748b',
+        resolution: 2,
       })
       .setOrigin(0.5)
-      .setDepth(100);
+      .setDepth(96);
 
-    // Territory Dominance Balance Bar
-    const barWidth = 240;
-    const barHeight = 8;
-    const barY = hudY + 42;
+    // 3. Row 2 (y: 48): The Dynamic Tug-of-War Dominance Bar
+    const barTotalWidth = 350;
+    const barHeight = 12;
+    const barY = 48;
+    const barStartX = LOGICAL_WIDTH / 2 - barTotalWidth / 2;
 
+    // Dominance Bar Track Background
     this.add
-      .rectangle(LOGICAL_WIDTH / 2, barY, barWidth, barHeight, 0x1e293b)
-      .setDepth(99);
+      .rectangle(LOGICAL_WIDTH / 2, barY, barTotalWidth, barHeight, 0x0b1120, 1)
+      .setStrokeStyle(1, 0x1e293b, 1)
+      .setDepth(92);
 
     this.playerBar = this.add
-      .rectangle(LOGICAL_WIDTH / 2 - barWidth / 2, barY, 80, barHeight, THEME.teams.player.primary)
+      .rectangle(barStartX, barY, barTotalWidth / 3, barHeight - 2, THEME.teams.player.primary, 0.95)
       .setOrigin(0, 0.5)
-      .setDepth(100);
+      .setDepth(93);
 
     this.neutralBar = this.add
-      .rectangle(LOGICAL_WIDTH / 2, barY, 80, barHeight, THEME.teams.neutral.primary)
+      .rectangle(barStartX + barTotalWidth / 3, barY, barTotalWidth / 3, barHeight - 2, 0x334155, 0.8)
       .setOrigin(0, 0.5)
-      .setDepth(100);
+      .setDepth(93);
 
     this.enemyBar = this.add
-      .rectangle(LOGICAL_WIDTH / 2 + barWidth / 2, barY, 80, barHeight, THEME.teams.enemy.primary)
+      .rectangle(barStartX + (barTotalWidth / 3) * 2, barY, barTotalWidth / 3, barHeight - 2, THEME.teams.enemy.primary, 0.95)
       .setOrigin(0, 0.5)
-      .setDepth(100);
+      .setDepth(93);
 
-    // Bottom Tactical Control Hint
-    this.add
-      .text(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT - 24, 'Drag from your Blue territory to attack or reinforce', {
+    // Live Score Badges at Left & Right of Dominance Bar
+    this.playerDomText = this.add
+      .text(barStartX + 8, barY, '🔵 33%', {
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        fontSize: '11px',
-        color: '#64748b',
+        fontSize: '9px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+        resolution: 2,
+      })
+      .setOrigin(0, 0.5)
+      .setDepth(96);
+
+    this.enemyDomText = this.add
+      .text(barStartX + barTotalWidth - 8, barY, '33% 🔴', {
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        fontSize: '9px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+        resolution: 2,
+      })
+      .setOrigin(1, 0.5)
+      .setDepth(96);
+
+    // The Tug-of-War Crown Needle!
+    this.tugCrown = this.add
+      .text(LOGICAL_WIDTH / 2, barY - 1, '👑', {
+        fontSize: '13px',
+        resolution: 2,
       })
       .setOrigin(0.5)
-      .setDepth(100);
+      .setDepth(98);
+
+    // 4. Bottom Tactical Control Hint Bar (y: 692)
+    this.add
+      .rectangle(LOGICAL_WIDTH / 2, 692, 360, 26, 0x090f1d, 0.94)
+      .setStrokeStyle(1.5, 0x1e293b, 1)
+      .setDepth(95);
+
+    this.bottomHintText = this.add
+      .text(LOGICAL_WIDTH / 2, 692, '⚔ Drag across towers to attack or reinforce', {
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        fontSize: '11px',
+        fontStyle: 'bold',
+        color: '#94a3b8',
+        resolution: 2,
+      })
+      .setOrigin(0.5)
+      .setDepth(96);
   }
 
   private getTerritoryUnderPointer(pointer: Phaser.Input.Pointer): Territory | null {
@@ -587,9 +667,18 @@ export class GameScene extends Phaser.Scene {
       this.dragBadgeBg.setStrokeStyle(2, THEME.teams.player.primary, 0.95);
       this.dragBadgeBg.setSize(selectedTerritories.length > 1 ? 140 : 90, 26);
     }
+
+    // Dynamic Bottom Action Bar Update
+    this.bottomHintText
+      .setText(`⚔ Swiping from ${selectedTerritories.length} towers -> ${totalUnitsToSend} troops ready`)
+      .setColor('#60a5fa');
   }
 
   private handlePointerRelease(): void {
+    this.bottomHintText
+      .setText('⚔ Drag across towers to attack or reinforce')
+      .setColor('#94a3b8');
+
     if (this.selectedSourceIds.length === 0) {
       this.dragBadgeContainer.setVisible(false);
       return;
@@ -807,6 +896,7 @@ export class GameScene extends Phaser.Scene {
         fontSize: '16px',
         fontStyle: 'bold',
         color,
+        resolution: 2,
       })
       .setOrigin(0.5)
       .setDepth(60);
@@ -980,6 +1070,7 @@ export class GameScene extends Phaser.Scene {
             fontSize: '10px',
             fontStyle: 'bold',
             color: '#ffffff',
+            resolution: 2,
           })
           .setOrigin(0.5);
 
@@ -1025,7 +1116,7 @@ export class GameScene extends Phaser.Scene {
     const remaining = Math.max(0, this.gameState.timeLimitSeconds - this.gameState.elapsedTimeSeconds);
     const mins = Math.floor(remaining / 60);
     const secs = Math.floor(remaining % 60);
-    this.timerText.setText(`${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
+    this.timerText.setText(`⏱ ${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
 
     if (remaining <= 15 && this.gameState.status === 'playing') {
       const currentSec = Math.floor(remaining);
@@ -1038,7 +1129,7 @@ export class GameScene extends Phaser.Scene {
         this.timerText.setColor(remaining <= 5 ? '#ef4444' : '#f59e0b');
         this.tweens.add({
           targets: this.timerText,
-          scale: 1.2,
+          scale: 1.15,
           duration: 90,
           yoyo: true,
           ease: 'Sine.easeOut',
@@ -1048,22 +1139,45 @@ export class GameScene extends Phaser.Scene {
       this.timerText.setColor('#fbbf24');
     }
 
-    // 2. Dominance Bar
+    // 2. Dynamic Tug-of-War Dominance Bar
+    // Combines territorial ownership and active field armies for live tactical responsiveness
     const territories = Object.values(this.gameState.territories);
-    const total = territories.length;
-    const playerCount = territories.filter((t) => t.owner === 'player').length;
-    const enemyCount = territories.filter((t) => t.owner === 'enemy').length;
-    const neutralCount = total - playerCount - enemyCount;
+    let playerStrength = 0;
+    let enemyStrength = 0;
+    let neutralStrength = 0;
 
-    const barTotalWidth = 240;
-    const playerWidth = (playerCount / total) * barTotalWidth;
-    const neutralWidth = (neutralCount / total) * barTotalWidth;
-    const enemyWidth = (enemyCount / total) * barTotalWidth;
+    territories.forEach((t) => {
+      if (t.owner === 'player') playerStrength += 35 + t.units;
+      else if (t.owner === 'enemy') enemyStrength += 35 + t.units;
+      else neutralStrength += 15 + t.units;
+    });
 
-    const startX = LOGICAL_WIDTH / 2 - barTotalWidth / 2;
-    this.playerBar.setPosition(startX, this.playerBar.y).setDisplaySize(playerWidth, 8);
-    this.neutralBar.setPosition(startX + playerWidth, this.neutralBar.y).setDisplaySize(neutralWidth, 8);
-    this.enemyBar.setPosition(startX + playerWidth + neutralWidth, this.enemyBar.y).setDisplaySize(enemyWidth, 8);
+    this.gameState.armies.forEach((a) => {
+      if (a.owner === 'player') playerStrength += a.units;
+      else if (a.owner === 'enemy') enemyStrength += a.units;
+    });
+
+    const totalStrength = Math.max(1, playerStrength + enemyStrength + neutralStrength);
+    const playerPct = Math.round((playerStrength / totalStrength) * 100);
+    const enemyPct = Math.round((enemyStrength / totalStrength) * 100);
+    const neutralPct = Math.max(0, 100 - playerPct - enemyPct);
+
+    const barTotalWidth = 350;
+    const playerWidth = Math.max(14, (playerPct / 100) * barTotalWidth);
+    const neutralWidth = Math.max(8, (neutralPct / 100) * barTotalWidth);
+    const enemyWidth = Math.max(14, barTotalWidth - playerWidth - neutralWidth);
+
+    const barStartX = LOGICAL_WIDTH / 2 - barTotalWidth / 2;
+    this.playerBar.setPosition(barStartX, this.playerBar.y).setDisplaySize(playerWidth, 10);
+    this.neutralBar.setPosition(barStartX + playerWidth, this.neutralBar.y).setDisplaySize(neutralWidth, 10);
+    this.enemyBar.setPosition(barStartX + playerWidth + neutralWidth, this.enemyBar.y).setDisplaySize(enemyWidth, 10);
+
+    this.playerDomText.setText(`🔵 ${playerPct}%`);
+    this.enemyDomText.setText(`${enemyPct}% 🔴`);
+
+    // Smooth Tug-of-War Crown Needle glide towards the leading front
+    const targetCrownX = barStartX + playerWidth + neutralWidth / 2;
+    this.tugCrown.x = Phaser.Math.Linear(this.tugCrown.x, targetCrownX, 0.12);
   }
 
   private showResultModal(status: 'victory' | 'defeat' | 'draw'): void {
@@ -1103,6 +1217,7 @@ export class GameScene extends Phaser.Scene {
         fontSize: '34px',
         fontStyle: '900',
         color: titleColor,
+        resolution: 2,
       })
       .setOrigin(0.5);
 
@@ -1111,6 +1226,7 @@ export class GameScene extends Phaser.Scene {
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
         fontSize: '13px',
         color: '#94a3b8',
+        resolution: 2,
       })
       .setOrigin(0.5);
 
@@ -1127,6 +1243,7 @@ export class GameScene extends Phaser.Scene {
           color: '#e2e8f0',
           align: 'center',
           lineSpacing: 4,
+          resolution: 2,
         }
       )
       .setOrigin(0.5);
@@ -1144,6 +1261,7 @@ export class GameScene extends Phaser.Scene {
         fontSize: '16px',
         fontStyle: 'bold',
         color: '#ffffff',
+        resolution: 2,
       })
       .setOrigin(0.5);
 
@@ -1176,6 +1294,7 @@ export class GameScene extends Phaser.Scene {
         fontSize: '14px',
         fontStyle: 'bold',
         color: '#94a3b8',
+        resolution: 2,
       })
       .setOrigin(0.5);
 

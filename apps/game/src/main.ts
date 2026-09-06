@@ -10,6 +10,7 @@ platform.initialize().catch((err: unknown) => {
 });
 platform.ready();
 
+
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   parent: 'game-container',
@@ -18,12 +19,14 @@ const config: Phaser.Types.Core.GameConfig = {
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
+    autoRound: true,
   },
-  backgroundColor: '#0a0e17',
+  backgroundColor: '#070b14',
   scene: [GameScene],
   render: {
     antialias: true,
-    pixelArt: false,
+    antialiasGL: true,
+    roundPixels: true,
     powerPreference: 'high-performance',
   },
   fps: {
