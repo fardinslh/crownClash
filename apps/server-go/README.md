@@ -27,8 +27,7 @@ Required production variables:
 - `TELEGRAM_BOT_TOKEN` and/or `BALE_BOT_TOKEN`
 
 The service runs migrations on startup and shuts down gracefully on `SIGTERM`.
-The existing TypeScript service remains available as a rollback reference while
-the Go service is validated.
+The Go service is the only production backend.
 
 ## Validation
 
