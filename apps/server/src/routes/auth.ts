@@ -61,6 +61,7 @@ export function createAuthRouter(repo: PlayerRepository, config: AppConfig): Rou
 
       const playerId = `${platform}:${externalId}`;
       const career = await repo.getOrCreateCareer(playerId, platform, username);
+      await repo.publishDefense(playerId, username ?? playerId, career);
       const token = signSessionToken({ sub: playerId, platform }, config.jwtSecret);
 
       res.json({ token, career, rank: getRankTier(career.trophies) });

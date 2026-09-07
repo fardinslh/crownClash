@@ -27,7 +27,16 @@ export type AnalyticsEvent =
   | UpgradeAnalyticsEvent
   | { name: 'session_start'; playerId: string }
   | { name: 'menu_viewed'; coins: number; trophies: number; rankId: string }
-  | { name: 'match_start'; source: 'menu' | 'rematch' };
+  | { name: 'match_start'; source: 'menu' | 'rematch' }
+  | { name: 'pvp_opponents_viewed'; count: number }
+  | { name: 'pvp_attack_start'; defenderId: string; isRevenge: boolean }
+  | {
+      name: 'pvp_attack_end';
+      defenderId: string;
+      status: 'victory' | 'defeat' | 'draw';
+      isRevenge: boolean;
+    }
+  | { name: 'pvp_attack_failed'; defenderId: string; reason: string };
 
 export function trackEvent(event: AnalyticsEvent): void {
   if (typeof window === 'undefined' || typeof CustomEvent === 'undefined') return;

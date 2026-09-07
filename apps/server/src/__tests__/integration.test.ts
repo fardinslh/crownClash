@@ -182,4 +182,56 @@ describe.skipIf(!DATABASE_URL)('server integration', () => {
     expect(careerBody.career.coins).toBe(50);
     expect(careerBody.career.productionLevel).toBe(1);
   });
+
+  it('lists PvP opponents and settles a repeated attack only once', async () => {
+    const attacker = await loginGuest();
+    const defender = await loginGuest();
+
+    const opponentsResponse = await fetch(`${baseUrl}/pvp/opponents`, {
+      headers: { authorization: `Bearer ${attacker.token}` },
+    });
+    expect(opponentsResponse.status).toBe(200);
+    const opponentsBody = await readJson(opponentsResponse);
+    expect(opponentsBody.opponents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ playerId: defender.playerId }),
+      ])
+    );
+
+    const attackPayload = {
+      attackId: `attack_${randomUUID()}`,
+      defenderId: defender.playerId,
+      actions: [],
+    };
+    const first = await fetch(`${baseUrl}/pvp/attacks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${attacker.token}` },
+      body: JSON.stringify(attackPayload),
+    });
+    expect(first.status).toBe(200);
+    const firstBody = await readJson(first);
+    expect(firstBody.result.attackId).toBe(attackPayload.attackId);
+    expect(firstBody.result.settlement.newCareer.matchesPlayed).toBe(1);
+
+    const second = await fetch(`${baseUrl}/pvp/attacks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${attacker.token}` },
+      body: JSON.stringify(attackPayload),
+    });
+    expect(second.status).toBe(200);
+    const secondBody = await readJson(second);
+    expect(secondBody.result).toEqual(firstBody.result);
+
+    const selfAttack = await fetch(`${baseUrl}/pvp/attacks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${attacker.token}` },
+      body: JSON.stringify({
+        attackId: `attack_self_${randomUUID()}`,
+        defenderId: attacker.playerId,
+        actions: [],
+      }),
+    });
+    expect(selfAttack.status).toBe(400);
+    expect((await readJson(selfAttack)).error).toBe('pvp_cannot_attack_self');
+  });
 });

@@ -1,8 +1,16 @@
 import type { Pool, PoolClient } from 'pg';
 import {
   createDefaultCareer,
+  getPlayerUpgradeModifiers,
+  getRankTier,
   purchaseUpgrade as purchaseUpgradeDomain,
+  simulatePvpBattle,
   settleMatch,
+  type PvpAction,
+  type PvpAttackHistoryEntry,
+  type PvpAttackResult,
+  type PvpDefenseSnapshot,
+  type PvpOpponent,
   type EconomyLedgerEntry,
   type MatchSettlement,
   type MatchStats,
@@ -39,6 +47,16 @@ interface LedgerRow {
   previous_balance: number;
   resulting_balance: number;
   timestamp: string | number;
+}
+
+interface DefenseRow {
+  player_id: string;
+  display_name: string;
+  trophies: number;
+  matches_won: number;
+  modifiers: PvpDefenseSnapshot['modifiers'];
+  published_at: string | number;
+  is_revenge?: boolean;
 }
 
 function rowToCareer(row: PlayerRow): PlayerCareer {
@@ -78,6 +96,24 @@ export class PlayerNotFoundError extends Error {
   }
 }
 
+export class PvpDefenseNotFoundError extends Error {
+  constructor(playerId: string) {
+    super(`pvp_defense_not_found:${playerId}`);
+  }
+}
+
+export class PvpSelfAttackError extends Error {
+  constructor() {
+    super('pvp_cannot_attack_self');
+  }
+}
+
+export class PvpAttackOwnershipError extends Error {
+  constructor() {
+    super('pvp_attack_id_owned_by_another_player');
+  }
+}
+
 export class PlayerRepository {
   constructor(private readonly pool: Pool) {}
 
@@ -106,6 +142,14 @@ export class PlayerRepository {
       [playerId, limit]
     );
     return result.rows.map(rowToLedgerEntry);
+  }
+
+  async getPlayerDisplayName(playerId: string): Promise<string> {
+    const result = await this.pool.query<{ username: string | null }>(
+      'SELECT username FROM players WHERE id = $1',
+      [playerId]
+    );
+    return result.rows[0]?.username || playerId;
   }
 
   async settleMatch(
@@ -188,6 +232,219 @@ export class PlayerRepository {
          VALUES ($1, $2, $3, $4)
          ON CONFLICT (purchase_id) DO NOTHING`,
         [purchaseId, playerId, type, JSON.stringify(result)]
+      );
+
+      await client.query('COMMIT');
+      return result;
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  async publishDefense(
+    playerId: string,
+    displayName: string,
+    career: PlayerCareer,
+    publishedAt = Date.now()
+  ): Promise<PvpDefenseSnapshot> {
+    const snapshot: PvpDefenseSnapshot = {
+      playerId,
+      displayName: displayName.slice(0, 40) || playerId,
+      trophies: career.trophies,
+      matchesWon: career.matchesWon,
+      modifiers: getPlayerUpgradeModifiers(career),
+      publishedAt,
+    };
+
+    await this.pool.query(
+      `INSERT INTO pvp_defenses
+         (player_id, display_name, trophies, matches_won, modifiers, published_at)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (player_id) DO UPDATE SET
+         display_name = EXCLUDED.display_name,
+         trophies = EXCLUDED.trophies,
+         matches_won = EXCLUDED.matches_won,
+         modifiers = EXCLUDED.modifiers,
+         published_at = EXCLUDED.published_at,
+         updated_at = now()`,
+      [
+        snapshot.playerId,
+        snapshot.displayName,
+        snapshot.trophies,
+        snapshot.matchesWon,
+        JSON.stringify(snapshot.modifiers),
+        snapshot.publishedAt,
+      ]
+    );
+
+    return snapshot;
+  }
+
+  async getPvpOpponents(playerId: string, playerTrophies: number, limit: number): Promise<PvpOpponent[]> {
+    const result = await this.pool.query<DefenseRow>(
+      `SELECT
+         d.player_id,
+         d.display_name,
+         d.trophies,
+         d.matches_won,
+         d.published_at,
+         d.modifiers,
+         EXISTS (
+           SELECT 1
+           FROM pvp_attacks revenge_check
+           WHERE revenge_check.attacker_id = d.player_id
+             AND revenge_check.defender_id = $1
+         ) AS is_revenge
+       FROM pvp_defenses d
+       WHERE d.player_id <> $1
+       ORDER BY ABS(d.trophies - $2), d.published_at DESC
+       LIMIT $3`,
+      [playerId, playerTrophies, limit]
+    );
+
+    return result.rows.map((row) => ({
+      playerId: row.player_id,
+      displayName: row.display_name,
+      trophies: row.trophies,
+      matchesWon: row.matches_won,
+      rankId: getRankTier(row.trophies).id,
+      defensePublishedAt: Number(row.published_at),
+      isRevenge: Boolean(row.is_revenge),
+    }));
+  }
+
+  async getPvpHistory(playerId: string, limit: number): Promise<PvpAttackHistoryEntry[]> {
+    const result = await this.pool.query<{
+      attack_id: string;
+      attacker_id: string;
+      defender_id: string;
+      status: PvpAttackResult['summary']['status'];
+      is_revenge: boolean;
+      duration_seconds: number;
+      created_at: string | number;
+    }>(
+      `SELECT
+         attack_id,
+         attacker_id,
+         defender_id,
+         summary->>'status' AS status,
+         is_revenge,
+         (summary->>'durationSeconds')::integer AS duration_seconds,
+         created_at
+       FROM pvp_attacks
+       WHERE attacker_id = $1 OR defender_id = $1
+       ORDER BY created_at DESC
+       LIMIT $2`,
+      [playerId, limit]
+    );
+
+    return result.rows.map((row) => ({
+      attackId: row.attack_id,
+      attackerId: row.attacker_id,
+      defenderId: row.defender_id,
+      status: row.status,
+      isRevenge: row.is_revenge,
+      durationSeconds: row.duration_seconds,
+      createdAt: Number(row.created_at),
+    }));
+  }
+
+  async settlePvpAttack(
+    attackerId: string,
+    defenderId: string,
+    attackId: string,
+    actions: readonly PvpAction[]
+  ): Promise<PvpAttackResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const existing = await client.query<{ result: PvpAttackResult }>(
+        `SELECT jsonb_build_object(
+           'attackId', attack_id,
+           'attackerId', attacker_id,
+           'defenderId', defender_id,
+           'isRevenge', is_revenge,
+           'summary', summary,
+           'settlement', settlement
+         ) AS result
+         FROM pvp_attacks
+         WHERE attack_id = $1`,
+        [attackId]
+      );
+      if (existing.rows.length > 0) {
+        if (existing.rows[0].result.attackerId !== attackerId) {
+          throw new PvpAttackOwnershipError();
+        }
+        await client.query('COMMIT');
+        return existing.rows[0].result;
+      }
+
+      if (attackerId === defenderId) {
+        throw new PvpSelfAttackError();
+      }
+
+      const attackerRes = await client.query<PlayerRow>(
+        'SELECT * FROM players WHERE id = $1 FOR UPDATE',
+        [attackerId]
+      );
+      if (attackerRes.rows.length === 0) {
+        throw new PlayerNotFoundError(attackerId);
+      }
+
+      const defenseRes = await client.query<DefenseRow>(
+        'SELECT player_id, display_name, trophies, matches_won, modifiers, published_at FROM pvp_defenses WHERE player_id = $1 FOR SHARE',
+        [defenderId]
+      );
+      if (defenseRes.rows.length === 0) {
+        throw new PvpDefenseNotFoundError(defenderId);
+      }
+
+      const career = rowToCareer(attackerRes.rows[0]);
+      const defense = defenseRes.rows[0];
+      const isRevengeRes = await client.query<{ is_revenge: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM pvp_attacks
+           WHERE attacker_id = $1 AND defender_id = $2
+         ) AS is_revenge`,
+        [defenderId, attackerId]
+      );
+      const isRevenge = Boolean(isRevengeRes.rows[0].is_revenge);
+      const simulation = simulatePvpBattle({
+        actions,
+        playerModifiers: getPlayerUpgradeModifiers(career),
+        enemyModifiers: defense.modifiers,
+      });
+      const summary = simulation.summary;
+      const settlement = settleMatch(career, summary.status, summary.stats, attackId, Date.now());
+      const result: PvpAttackResult = {
+        attackId,
+        attackerId,
+        defenderId,
+        isRevenge,
+        summary,
+        settlement,
+      };
+
+      await this.persistCareer(client, settlement.newCareer);
+      await this.insertLedgerEntries(client, settlement.ledgerEntries);
+      await client.query(
+        `INSERT INTO pvp_attacks
+           (attack_id, attacker_id, defender_id, is_revenge, actions, summary, settlement, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          attackId,
+          attackerId,
+          defenderId,
+          isRevenge,
+          JSON.stringify(actions),
+          JSON.stringify(summary),
+          JSON.stringify(settlement),
+          settlement.newCareer.lastMatchTimestamp,
+        ]
       );
 
       await client.query('COMMIT');

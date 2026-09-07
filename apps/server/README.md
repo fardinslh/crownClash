@@ -53,18 +53,28 @@ All endpoints except `/health` and `/auth/login` require `Authorization: Bearer 
   re-applying rewards.
 - `POST /upgrades/purchase` — body `{ type, purchaseId }`. Idempotent on
   `purchaseId`. `type` is one of `starting_garrison | production | army_speed`.
+- `POST /pvp/defense/publish` — refreshes the authenticated player's
+  deterministic defensive snapshot.
+- `GET /pvp/opponents?limit=8` — returns nearby-rank defensive snapshots,
+  including opponents eligible for Revenge.
+- `POST /pvp/attacks` — body `{ attackId, defenderId, actions }`. The server
+  replays timestamped dispatch intents against deterministic AI defense and
+  settles the result through the economy ledger. Idempotent on `attackId`.
+- `GET /pvp/history?limit=20` — returns the player's recent attacks and
+  defenses.
 
 ## Known limitations
 
 - **Eitaa auth is unverified.** No documented signature scheme was found for
   Eitaa Mini Apps, so its login trusts the client-declared id, same as the
   browser/dev guest path. Revisit if/when Eitaa publishes a spec.
-- **Match stats are still client-reported.** The server now owns the reward
-  *math* and the ledger, closing the "edit localStorage" exploit, but a
-  client could still lie about `territoriesCapturedByPlayer` etc. Verifying
-  that requires replaying the deterministic simulation server-side from a
-  recorded input log, which is planned as part of the async PvP work (where
-  it actually matters, since an opponent's outcome is at stake).
+- **The original bot-match endpoint still accepts client-reported stats.**
+  Async PvP uses the safer replay path: the client submits only bounded,
+  timestamped dispatch intents and the server derives combat, stats, status,
+  rewards, and the ledger. Move the remaining bot flow to the same replay path
+  before treating it as competitive.
+- **Defenses are deterministic AI snapshots.** Custom defensive choreography
+  and real-time multiplayer are intentionally deferred.
 - **Runtime execution uses `tsx`, not a bundled `dist/`.** `npm run build`
   type-checks and compiles for CI parity with the other packages, but the
   compiled output still imports workspace packages by their `main` field

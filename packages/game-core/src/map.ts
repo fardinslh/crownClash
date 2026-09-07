@@ -13,6 +13,11 @@ export function createDefaultTerritories(
     startingUnits: 20,
     productionRateMultiplier: 1,
     armySpeedMultiplier: 1,
+  },
+  enemyModifiers: PlayerUpgradeModifiers = {
+    startingUnits: 20,
+    productionRateMultiplier: 1,
+    armySpeedMultiplier: 1,
   }
 ): Record<string, Territory> {
   return {
@@ -35,9 +40,9 @@ export function createDefaultTerritories(
       y: 110,
       radius: 36,
       owner: 'enemy',
-      units: 20,
+      units: enemyModifiers.startingUnits,
       maxUnits: 65,
-      productionRate: 1.2,
+      productionRate: 1.2 * enemyModifiers.productionRateMultiplier,
       tier: 3,
     },
     'n_bot_left': {

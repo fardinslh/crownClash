@@ -4,6 +4,8 @@ import {
   parseIdempotencyKey,
   parseMatchStats,
   parseMatchStatus,
+  parsePvpActions,
+  parsePvpTargetId,
   parseUpgradeType,
 } from '../validation.js';
 
@@ -66,5 +68,25 @@ describe('parseIdempotencyKey', () => {
     expect(() => parseIdempotencyKey('', 'matchId')).toThrow(ValidationError);
     expect(() => parseIdempotencyKey('x'.repeat(200), 'matchId')).toThrow(ValidationError);
     expect(() => parseIdempotencyKey(42, 'matchId')).toThrow(ValidationError);
+  });
+});
+
+describe('parsePvpActions', () => {
+  it('accepts ordered timestamped dispatch intents', () => {
+    expect(
+      parsePvpActions([
+        { sequence: 0, atSeconds: 1.5, sourceId: 'p_base', targetId: 'n_center' },
+      ])
+    ).toEqual([
+      { sequence: 0, atSeconds: 1.5, sourceId: 'p_base', targetId: 'n_center' },
+    ]);
+  });
+
+  it('rejects malformed action logs and invalid target ids', () => {
+    expect(() =>
+      parsePvpActions([{ sequence: 1, atSeconds: 1, sourceId: 'p_base', targetId: 'n_center' }])
+    ).toThrow(ValidationError);
+    expect(() => parsePvpActions('not-an-array')).toThrow(ValidationError);
+    expect(() => parsePvpTargetId('')).toThrow(ValidationError);
   });
 });

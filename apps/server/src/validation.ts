@@ -1,4 +1,8 @@
-import type { MatchStats } from '@crown-clash/game-core';
+import {
+  MAX_PVP_ACTIONS,
+  type MatchStats,
+  type PvpAction,
+} from '@crown-clash/game-core';
 
 export class ValidationError extends Error {}
 
@@ -54,4 +58,39 @@ export function parseUpgradeType(value: unknown): UpgradeTypeInput {
     throw new ValidationError('invalid_upgrade_type');
   }
   return value as UpgradeTypeInput;
+}
+
+export function parsePvpTargetId(value: unknown): string {
+  if (typeof value !== 'string' || value.length < 1 || value.length > 128) {
+    throw new ValidationError('invalid_defender_id');
+  }
+  return value;
+}
+
+export function parsePvpActions(value: unknown): PvpAction[] {
+  if (!Array.isArray(value) || value.length > MAX_PVP_ACTIONS) {
+    throw new ValidationError('invalid_actions');
+  }
+
+  return value.map((item, index) => {
+    if (typeof item !== 'object' || item === null) {
+      throw new ValidationError('invalid_action');
+    }
+    const action = item as Record<string, unknown>;
+    if (
+      action.sequence !== index ||
+      typeof action.atSeconds !== 'number' ||
+      !Number.isFinite(action.atSeconds) ||
+      typeof action.sourceId !== 'string' ||
+      typeof action.targetId !== 'string'
+    ) {
+      throw new ValidationError('invalid_action');
+    }
+    return {
+      sequence: index,
+      atSeconds: action.atSeconds,
+      sourceId: action.sourceId,
+      targetId: action.targetId,
+    };
+  });
 }

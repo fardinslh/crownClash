@@ -3,6 +3,11 @@ import type {
   MatchSettlement,
   MatchStats,
   PlayerCareer,
+  PvpAction,
+  PvpAttackHistoryEntry,
+  PvpAttackResult,
+  PvpDefenseSnapshot,
+  PvpOpponent,
   UpgradePurchaseResult,
   UpgradeType,
 } from '@crown-clash/game-core';
@@ -29,6 +34,22 @@ interface UpgradeResponse {
   result: UpgradePurchaseResult;
 }
 
+interface PvpOpponentsResponse {
+  opponents: PvpOpponent[];
+}
+
+interface PvpDefenseResponse {
+  defense: PvpDefenseSnapshot;
+}
+
+interface PvpAttackResponse {
+  result: PvpAttackResult;
+}
+
+interface PvpHistoryResponse {
+  history: PvpAttackHistoryEntry[];
+}
+
 export interface CareerApi {
   login(platform: PlatformAdapter): Promise<PlayerCareer>;
   getLedger(limit?: number): Promise<EconomyLedgerEntry[]>;
@@ -38,6 +59,14 @@ export interface CareerApi {
     stats: MatchStats
   ): Promise<MatchSettlement>;
   purchaseUpgrade(type: UpgradeType, purchaseId: string): Promise<UpgradePurchaseResult>;
+  getPvpOpponents(limit?: number): Promise<PvpOpponent[]>;
+  publishDefense(): Promise<PvpDefenseSnapshot>;
+  submitPvpAttack(
+    defenderId: string,
+    attackId: string,
+    actions: readonly PvpAction[]
+  ): Promise<PvpAttackResult>;
+  getPvpHistory(limit?: number): Promise<PvpAttackHistoryEntry[]>;
 }
 
 export class GameApiError extends Error {
@@ -116,6 +145,36 @@ export class GameApiClient implements CareerApi {
         body: { type, purchaseId },
       })
     ).result;
+  }
+
+  public async getPvpOpponents(limit = 8): Promise<PvpOpponent[]> {
+    return (await this.request<PvpOpponentsResponse>(`/pvp/opponents?limit=${limit}`)).opponents;
+  }
+
+  public async publishDefense(): Promise<PvpDefenseSnapshot> {
+    return (
+      await this.request<PvpDefenseResponse>('/pvp/defense/publish', {
+        method: 'POST',
+        body: {},
+      })
+    ).defense;
+  }
+
+  public async submitPvpAttack(
+    defenderId: string,
+    attackId: string,
+    actions: readonly PvpAction[]
+  ): Promise<PvpAttackResult> {
+    return (
+      await this.request<PvpAttackResponse>('/pvp/attacks', {
+        method: 'POST',
+        body: { defenderId, attackId, actions },
+      })
+    ).result;
+  }
+
+  public async getPvpHistory(limit = 20): Promise<PvpAttackHistoryEntry[]> {
+    return (await this.request<PvpHistoryResponse>(`/pvp/history?limit=${limit}`)).history;
   }
 
   private async request<T>(
