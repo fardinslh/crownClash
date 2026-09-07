@@ -1,9 +1,8 @@
-# @crown-clash/server
+# @crown-clash/server (TypeScript reference)
 
-Server-authoritative backend for Crown Clash: player career/economy storage,
-match settlement, and upgrade purchases. Replaces the client-only
-`CareerManager` as the source of truth for anything involving currency,
-rank, or progression.
+The production backend is now the Dockerized Go service in `apps/server-go`.
+This TypeScript service remains as a reference implementation and rollback
+option while the Go service is validated.
 
 ## Why this exists
 
@@ -14,18 +13,28 @@ ledger, applies the same pure domain logic already used client-side
 results in Postgres with idempotency keys so retried requests can't double
 pay a player.
 
-## Setup
+## Production setup
+
+Use the Go backend through Docker Compose:
 
 ```bash
-# from repo root
-npm run db:up                 # starts Postgres in Docker on localhost:5433
+# from repository root
+docker compose up --build -d
+```
+
+The Go service listens on port `8787` and runs database migrations on startup.
+See `apps/server-go/README.md` for environment and deployment details.
+
+## TypeScript reference setup
+
+The reference service can still be run locally when needed:
+
+```bash
+npm run db:up
 cp apps/server/.env.example apps/server/.env
 npm --workspace=apps/server run migrate
 npm --workspace=apps/server run dev
 ```
-
-`npm run db:down` stops the container (data persists in the `crownclash_pg_data`
-Docker volume; remove it manually to reset).
 
 The game client reads its backend URL from `apps/game/.env`:
 
@@ -75,11 +84,9 @@ All endpoints except `/health` and `/auth/login` require `Authorization: Bearer 
   before treating it as competitive.
 - **Defenses are deterministic AI snapshots.** Custom defensive choreography
   and real-time multiplayer are intentionally deferred.
-- **Runtime execution uses `tsx`, not a bundled `dist/`.** `npm run build`
-  type-checks and compiles for CI parity with the other packages, but the
-  compiled output still imports workspace packages by their `main` field
-  (raw `.ts`), which plain `node` can't execute. Run the service via
-  `npm start` (`tsx src/index.ts`) until a real bundling/deploy step exists.
+- **The TypeScript service is not the production runtime.** Use
+  `apps/server-go` and Docker Compose for deployment. Keep this service for
+  rollback and contract comparison until the Go migration soak period ends.
 
 ## Tests
 
@@ -91,4 +98,11 @@ Unit tests (`validation.test.ts`, `verifyInitData.test.ts`) always run.
 npm run db:up
 $env:DATABASE_URL = 'postgresql://crownclash:crownclash@127.0.0.1:5433/crownclash'
 npm --workspace=apps/server run test
+```
+
+The Go service tests and Docker image are validated with:
+
+```bash
+docker run --rm -v "$PWD/apps/server-go:/src" -w /src golang:1.23-alpine go test ./...
+docker build -f apps/server-go/Dockerfile -t crown-clash-server .
 ```
