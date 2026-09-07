@@ -21,6 +21,7 @@ import {
 } from '@crown-clash/game-core';
 import type { PlatformAdapter } from '@crown-clash/platform';
 import { GameApiClient, type CareerApi } from '../api/GameApiClient.js';
+import { LiveMatchClient } from '../api/LiveMatchClient.js';
 
 export class CareerManager {
   private static instance: CareerManager | null = null;
@@ -78,7 +79,6 @@ export class CareerManager {
       console.warn('[CareerManager] Failed to hydrate economy ledger:', error);
     }
 
-    await this.refreshRemoteDefense();
     this.saveCareer();
     this.saveLedger();
     this.emitChange();
@@ -96,7 +96,6 @@ export class CareerManager {
   ): Promise<MatchSettlement> {
     const settlement = await this.requireRemoteApi().settleMatch(matchId, status, stats);
     this.applyRemoteState(settlement.newCareer, settlement.ledgerEntries);
-    await this.refreshRemoteDefense();
     return settlement;
   }
 
@@ -106,7 +105,6 @@ export class CareerManager {
 
     if (result.success) {
       this.applyRemoteState(result.newCareer, [result.ledgerEntry]);
-      await this.refreshRemoteDefense();
     }
 
     return result;
@@ -123,12 +121,19 @@ export class CareerManager {
   ): Promise<PvpAttackResult> {
     const result = await this.requireRemoteApi().submitPvpAttack(defenderId, attackId, actions);
     this.applyRemoteState(result.settlement.newCareer, result.settlement.ledgerEntries);
-    await this.refreshRemoteDefense();
     return result;
   }
 
   public async getPvpHistoryRemote(limit = 20): Promise<PvpAttackHistoryEntry[]> {
     return this.requireRemoteApi().getPvpHistory(limit);
+  }
+
+  public openLiveMatchRemote(): LiveMatchClient {
+    return this.requireRemoteApi().openLiveMatch();
+  }
+
+  public applyLiveMatchSettlement(settlement: MatchSettlement): void {
+    this.applyRemoteState(settlement.newCareer, settlement.ledgerEntries);
   }
 
   /**
@@ -216,14 +221,6 @@ export class CareerManager {
       throw new Error('career_remote_not_connected');
     }
     return this.remoteApi;
-  }
-
-  private async refreshRemoteDefense(): Promise<void> {
-    try {
-      await this.requireRemoteApi().publishDefense();
-    } catch (error) {
-      console.warn('[CareerManager] Failed to publish PvP defense:', error);
-    }
   }
 
   private applyRemoteState(career: PlayerCareer, entries: EconomyLedgerEntry[]): void {

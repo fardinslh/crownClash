@@ -226,6 +226,9 @@ describe('CareerManager', () => {
         throw new Error('not_used_in_test');
       },
       getPvpHistory: async () => [],
+      openLiveMatch: () => {
+        throw new Error('not_used_in_test');
+      },
     };
     const adapter = {
       platform: 'browser',

@@ -21,10 +21,11 @@ const (
 type Server struct {
 	config Config
 	repo   *PlayerRepository
+	live   *LiveMatchManager
 }
 
 func NewServer(config Config, repo *PlayerRepository) *Server {
-	return &Server{config: config, repo: repo}
+	return &Server{config: config, repo: repo, live: NewLiveMatchManager(repo)}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -46,6 +47,7 @@ func (s *Server) Handler() http.Handler {
 	root.Handle("/", s.withAuth(private))
 	root.Handle("/health", public)
 	root.Handle("/auth/login", public)
+	root.HandleFunc("GET /pvp/live", s.liveWebSocket)
 	return s.withCORS(root)
 }
 
