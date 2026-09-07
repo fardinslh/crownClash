@@ -10,6 +10,38 @@ services:
       - '5433:5432'
     volumes:
       - crownclash_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U crownclash -d crownclash']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: apps/server-go/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 8787
+      DATABASE_URL: postgresql://crownclash:crownclash@db:5432/crownclash
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      CLIENT_ORIGINS: ${CLIENT_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      ALLOW_GUEST_AUTH: ${ALLOW_GUEST_AUTH:-false}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      BALE_BOT_TOKEN: ${BALE_BOT_TOKEN:-}
+      INIT_DATA_MAX_AGE_SECONDS: ${INIT_DATA_MAX_AGE_SECONDS:-86400}
+    ports:
+      - '8787:8787'
+    healthcheck:
+      test: ['CMD', '/crown-clash-server', 'healthcheck']
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   crownclash_pg_data:
