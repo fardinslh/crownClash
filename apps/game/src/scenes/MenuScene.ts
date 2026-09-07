@@ -1,5 +1,10 @@
 import Phaser from 'phaser';
-import { getRankTier, LOGICAL_HEIGHT, LOGICAL_WIDTH } from '@crown-clash/game-core';
+import {
+  getRankTier,
+  LOGICAL_HEIGHT,
+  LOGICAL_WIDTH,
+  PvpOpponent,
+} from '@crown-clash/game-core';
 import { trackEvent } from '../analytics/Analytics.js';
 import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { CareerManager } from '../career/CareerManager.js';
@@ -205,8 +210,38 @@ export class MenuScene extends Phaser.Scene {
       this.scene.start('GameScene', { source: 'menu' });
     });
 
+    const raidBg = this.add
+      .rectangle(LOGICAL_WIDTH / 2, 590, 250, 42, careerManager.isRemoteConnected() ? 0x111c33 : 0x273449, 1)
+      .setStrokeStyle(1.5, careerManager.isRemoteConnected() ? 0x60a5fa : 0x475569, 1)
+      .setInteractive({ useHandCursor: true });
+    const raidText = this.add
+      .text(
+        LOGICAL_WIDTH / 2,
+        590,
+        careerManager.isRemoteConnected() ? 'RAID A REALM  🏰' : 'RAID OFFLINE',
+        {
+          fontFamily: FONT_FAMILY,
+          fontSize: '14px',
+          fontStyle: '900',
+          color: careerManager.isRemoteConnected() ? '#bfdbfe' : '#94a3b8',
+          stroke: '#000000',
+          strokeThickness: 2,
+          resolution: 2,
+        }
+      )
+      .setOrigin(0.5);
+
+    if (!careerManager.isRemoteConnected()) {
+      raidBg.disableInteractive();
+    } else {
+      raidBg.on('pointerdown', () => {
+        raidBg.disableInteractive();
+        void this.openPvpLobby(careerManager, raidBg, raidText);
+      });
+    }
+
     this.add
-      .text(LOGICAL_WIDTH / 2, 572, 'Drag across towers to attack or reinforce', {
+      .text(LOGICAL_WIDTH / 2, 640, 'Drag across towers to attack or reinforce', {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: 'bold',
@@ -232,6 +267,127 @@ export class MenuScene extends Phaser.Scene {
       const muted = sounds.toggleMute();
       muteBtn.setText(muted ? '🔇' : '🔊');
       platform.hapticSelection();
+    });
+  }
+
+  private async openPvpLobby(
+    careerManager: CareerManager,
+    raidButton: Phaser.GameObjects.Rectangle,
+    raidText: Phaser.GameObjects.Text
+  ): Promise<void> {
+    const overlay = this.add.container(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2).setDepth(150);
+    const backdrop = this.add
+      .rectangle(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT, 0x000000, 0.76)
+      .setInteractive();
+    const card = this.add
+      .rectangle(0, 0, 330, 430, 0x0c1322, 0.99)
+      .setStrokeStyle(2, 0x60a5fa, 0.95);
+    const title = this.add
+      .text(0, -180, 'RAID A REALM', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '24px',
+        fontStyle: '900',
+        color: '#bfdbfe',
+        stroke: '#000000',
+        strokeThickness: 3,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    const subtitle = this.add
+      .text(0, -145, 'Choose an opponent near your rank', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '11px',
+        fontStyle: 'bold',
+        color: '#94a3b8',
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    const status = this.add
+      .text(0, -70, 'SCOUTING REALMS...', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: '#60a5fa',
+        align: 'center',
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    const close = this.add
+      .text(140, -190, '✕', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '20px',
+        color: '#94a3b8',
+        resolution: 2,
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+
+    const closeLobby = (): void => {
+      overlay.destroy();
+      raidButton.setInteractive({ useHandCursor: true });
+      raidText.setText('RAID A REALM  🏰');
+    };
+    close.on('pointerdown', closeLobby);
+    overlay.add([backdrop, card, title, subtitle, status, close]);
+
+    try {
+      const opponents = await careerManager.getPvpOpponentsRemote();
+      trackEvent({ name: 'pvp_opponents_viewed', count: opponents.length });
+      status.setText(opponents.length > 0 ? '' : 'No realms found yet.\nTry again after more players join.');
+      this.renderOpponentRows(overlay, opponents, closeLobby);
+    } catch (error) {
+      console.warn('[MenuScene] Failed to load PvP opponents:', error);
+      status.setText('Could not scout realms.\nPlease try again.');
+      raidButton.setInteractive({ useHandCursor: true });
+      raidText.setText('RAID A REALM  🏰');
+    }
+  }
+
+  private renderOpponentRows(
+    overlay: Phaser.GameObjects.Container,
+    opponents: PvpOpponent[],
+    closeLobby: () => void
+  ): void {
+    opponents.slice(0, 5).forEach((opponent, index) => {
+      const y = -80 + index * 58;
+      const row = this.add
+        .rectangle(0, y, 280, 48, 0x111827, 0.98)
+        .setStrokeStyle(1, opponent.isRevenge ? 0xf59e0b : 0x334155, 1)
+        .setInteractive({ useHandCursor: true });
+      const label = this.add
+        .text(-125, y, `${opponent.isRevenge ? '⚔' : '🏰'} ${opponent.displayName}`, {
+          fontFamily: FONT_FAMILY,
+          fontSize: '11px',
+          fontStyle: 'bold',
+          color: '#f8fafc',
+          resolution: 2,
+        })
+        .setOrigin(0, 0.5);
+      const meta = this.add
+        .text(125, y, `${opponent.trophies} 🏆`, {
+          fontFamily: FONT_FAMILY,
+          fontSize: '10px',
+          fontStyle: 'bold',
+          color: opponent.isRevenge ? '#fbbf24' : '#93c5fd',
+          align: 'right',
+          resolution: 2,
+        })
+        .setOrigin(1, 0.5);
+
+      row.on('pointerdown', () => {
+        trackEvent({
+          name: 'pvp_attack_start',
+          defenderId: opponent.playerId,
+          isRevenge: opponent.isRevenge,
+        });
+        closeLobby();
+        this.scene.start('GameScene', {
+          source: 'menu',
+          mode: 'pvp',
+          opponent,
+        });
+      });
+      overlay.add([row, label, meta]);
     });
   }
 

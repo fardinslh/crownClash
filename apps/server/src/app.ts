@@ -7,6 +7,7 @@ import { createAuthRouter } from './routes/auth.js';
 import { createCareerRouter } from './routes/career.js';
 import { createMatchesRouter } from './routes/matches.js';
 import { createUpgradesRouter } from './routes/upgrades.js';
+import { createPvpRouter } from './routes/pvp.js';
 
 export function createApp(pool: Pool, config: AppConfig): Express {
   const app = express();
@@ -38,6 +39,7 @@ export function createApp(pool: Pool, config: AppConfig): Express {
   app.use(auth, createCareerRouter(repo));
   app.use(auth, createMatchesRouter(repo));
   app.use(auth, createUpgradesRouter(repo));
+  app.use(auth, createPvpRouter(repo));
 
   return app;
 }

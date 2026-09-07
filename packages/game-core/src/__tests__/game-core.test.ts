@@ -9,6 +9,8 @@ import {
   resolveArrival,
   stepSimulation,
   tickUnitGeneration,
+  simulatePvpBattle,
+  PvpSimulationError,
   Territory,
 } from '../index.js';
 
@@ -364,6 +366,60 @@ describe('Crown Clash - Domain Logic Tests', () => {
       territories['e_base'].units = 3; // Below min threshold 8
       const move = evaluateAiMove(territories, 'enemy', 8);
       expect(move).toBeNull();
+    });
+  });
+
+  describe('Async PvP replay (simulatePvpBattle)', () => {
+    it('replays the same attack deterministically', () => {
+      const actions = [
+        { sequence: 0, atSeconds: 0.1, sourceId: 'p_base', targetId: 'n_bot_left' },
+        { sequence: 1, atSeconds: 4, sourceId: 'p_base', targetId: 'n_bot_right' },
+      ];
+
+      const first = simulatePvpBattle({ actions });
+      const second = simulatePvpBattle({ actions });
+
+      expect(second.summary).toEqual(first.summary);
+      expect(second.finalState).toEqual(first.finalState);
+      expect(first.summary.actionsProcessed).toBe(2);
+    });
+
+    it('applies attacker and defender modifiers to the replay board', () => {
+      const result = simulatePvpBattle({
+        actions: [],
+        playerModifiers: {
+          startingUnits: 29,
+          productionRateMultiplier: 1.08,
+          armySpeedMultiplier: 1.06,
+        },
+        enemyModifiers: {
+          startingUnits: 31,
+          productionRateMultiplier: 1.16,
+          armySpeedMultiplier: 1.12,
+        },
+      });
+
+      expect(result.finalState.territories.p_base.units).toBeGreaterThanOrEqual(29);
+      expect(result.finalState.territories.e_base.units).toBeGreaterThanOrEqual(31);
+    });
+
+    it('rejects malformed or impossible action logs', () => {
+      expect(() =>
+        simulatePvpBattle({
+          actions: [{ sequence: 1, atSeconds: 0, sourceId: 'p_base', targetId: 'e_base' }],
+        })
+      ).toThrowError(new PvpSimulationError('invalid_sequence'));
+
+      expect(() =>
+        simulatePvpBattle({
+          actions: Array.from({ length: 121 }, (_, sequence) => ({
+            sequence,
+            atSeconds: 0,
+            sourceId: 'p_base',
+            targetId: 'e_base',
+          })),
+        })
+      ).toThrowError(new PvpSimulationError('too_many_actions'));
     });
   });
 });

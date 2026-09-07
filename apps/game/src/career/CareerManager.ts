@@ -10,6 +10,10 @@ import {
   MatchStats,
   normalizeUpgradeLevel,
   PlayerCareer,
+  PvpAction,
+  PvpAttackHistoryEntry,
+  PvpAttackResult,
+  PvpOpponent,
   purchaseUpgrade as purchaseCareerUpgrade,
   settleMatch,
   UpgradePurchaseResult,
@@ -74,6 +78,7 @@ export class CareerManager {
       console.warn('[CareerManager] Failed to hydrate economy ledger:', error);
     }
 
+    await this.refreshRemoteDefense();
     this.saveCareer();
     this.saveLedger();
     this.emitChange();
@@ -91,6 +96,7 @@ export class CareerManager {
   ): Promise<MatchSettlement> {
     const settlement = await this.requireRemoteApi().settleMatch(matchId, status, stats);
     this.applyRemoteState(settlement.newCareer, settlement.ledgerEntries);
+    await this.refreshRemoteDefense();
     return settlement;
   }
 
@@ -100,9 +106,29 @@ export class CareerManager {
 
     if (result.success) {
       this.applyRemoteState(result.newCareer, [result.ledgerEntry]);
+      await this.refreshRemoteDefense();
     }
 
     return result;
+  }
+
+  public async getPvpOpponentsRemote(limit = 8): Promise<PvpOpponent[]> {
+    return this.requireRemoteApi().getPvpOpponents(limit);
+  }
+
+  public async submitPvpAttackRemote(
+    defenderId: string,
+    attackId: string,
+    actions: readonly PvpAction[]
+  ): Promise<PvpAttackResult> {
+    const result = await this.requireRemoteApi().submitPvpAttack(defenderId, attackId, actions);
+    this.applyRemoteState(result.settlement.newCareer, result.settlement.ledgerEntries);
+    await this.refreshRemoteDefense();
+    return result;
+  }
+
+  public async getPvpHistoryRemote(limit = 20): Promise<PvpAttackHistoryEntry[]> {
+    return this.requireRemoteApi().getPvpHistory(limit);
   }
 
   /**
@@ -190,6 +216,14 @@ export class CareerManager {
       throw new Error('career_remote_not_connected');
     }
     return this.remoteApi;
+  }
+
+  private async refreshRemoteDefense(): Promise<void> {
+    try {
+      await this.requireRemoteApi().publishDefense();
+    } catch (error) {
+      console.warn('[CareerManager] Failed to publish PvP defense:', error);
+    }
   }
 
   private applyRemoteState(career: PlayerCareer, entries: EconomyLedgerEntry[]): void {

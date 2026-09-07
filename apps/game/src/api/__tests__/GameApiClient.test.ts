@@ -47,4 +47,52 @@ describe('GameApiClient', () => {
       status: 400,
     });
   });
+
+  it('calls PvP endpoints with the authenticated session', async () => {
+    const career = createDefaultCareer('browser:client_test');
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/auth/login')) {
+        return new Response(JSON.stringify({ token: 'session-token', career }), { status: 200 });
+      }
+      expect(init?.headers).toMatchObject({ authorization: 'Bearer session-token' });
+      if (url.includes('/pvp/opponents')) {
+        return new Response(JSON.stringify({ opponents: [] }), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify({
+          result: {
+            attackId: 'attack_1',
+            attackerId: 'browser:client_test',
+            defenderId: 'browser:defender',
+            isRevenge: false,
+            summary: {
+              status: 'victory',
+              stats: {
+                matchDurationSeconds: 20,
+                playerUnitsDispatched: 10,
+                enemyUnitsDispatched: 10,
+                territoriesCapturedByPlayer: 3,
+                territoriesCapturedByEnemy: 0,
+              },
+              durationSeconds: 20,
+              actionsProcessed: 1,
+            },
+            settlement: {} as unknown,
+          },
+        }),
+        { status: 200 }
+      );
+    });
+
+    const client = new GameApiClient('http://api.test');
+    await client.login(platform);
+    await expect(client.getPvpOpponents()).resolves.toEqual([]);
+    await expect(
+      client.submitPvpAttack('browser:defender', 'attack_1', [
+        { sequence: 0, atSeconds: 1, sourceId: 'p_base', targetId: 'n_center' },
+      ])
+    ).resolves.toMatchObject({ attackId: 'attack_1' });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
 });

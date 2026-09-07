@@ -13,6 +13,8 @@ import {
   LOGICAL_HEIGHT,
   LOGICAL_WIDTH,
   MatchStats,
+  PvpAction,
+  PvpOpponent,
   stepSimulation,
   Territory,
   UPGRADE_DEFINITIONS,
@@ -94,6 +96,9 @@ export class GameScene extends Phaser.Scene {
   private activeMatchId = '';
   private backendConnectPromise: Promise<void> | null = null;
   private resultPending = false;
+  private pvpMode = false;
+  private pvpOpponent?: PvpOpponent;
+  private pvpActions: PvpAction[] = [];
 
   // Result Modal
   private resultModalContainer?: Phaser.GameObjects.Container;
@@ -130,6 +135,14 @@ export class GameScene extends Phaser.Scene {
     this.platform = (this.registry.get('platform') as PlatformAdapter) || createPlatformAdapter();
     const user = this.platform.getUser();
     this.careerManager = CareerManager.getInstance(user.id);
+    const launchData = this.scene.settings.data as {
+      source?: 'menu' | 'rematch';
+      mode?: 'bot' | 'pvp';
+      opponent?: PvpOpponent;
+    } | undefined;
+    this.pvpMode = launchData?.mode === 'pvp';
+    this.pvpOpponent = launchData?.opponent;
+    this.pvpActions = [];
     this.activeMatchId = this.createMatchId();
     this.backendConnectPromise = this.careerManager
       .connect(this.platform)
@@ -137,7 +150,6 @@ export class GameScene extends Phaser.Scene {
       .catch((error: unknown) => {
         console.warn('[GameScene] Backend unavailable, using local career cache:', error);
       });
-    const launchData = this.scene.settings.data as { source?: 'menu' | 'rematch' } | undefined;
     trackEvent({ name: 'match_start', source: launchData?.source ?? 'menu' });
     this.createUpgradedMatchState();
     this.accumulators = {};
@@ -832,6 +844,16 @@ export class GameScene extends Phaser.Scene {
           Object.assign(this.gameState.territories, multiDispatch.updatedSources);
           this.gameState.armies.push(...multiDispatch.armies);
           this.gameState.stats.playerUnitsDispatched += multiDispatch.totalUnitsDispatched;
+          if (this.pvpMode) {
+            for (const army of multiDispatch.armies) {
+              this.pvpActions.push({
+                sequence: this.pvpActions.length,
+                atSeconds: this.gameState.elapsedTimeSeconds,
+                sourceId: army.sourceId,
+                targetId: army.targetId,
+              });
+            }
+          }
 
           if (target.owner === 'player') {
             sounds.playReinforce();
@@ -1312,18 +1334,52 @@ export class GameScene extends Phaser.Scene {
   private async finalizeMatch(status: 'victory' | 'defeat' | 'draw', stats: MatchStats): Promise<void> {
     try {
       await this.backendConnectPromise;
-      const settlement = this.careerManager.isRemoteConnected()
-        ? await this.careerManager.recordMatchResultRemote(status, stats, this.activeMatchId)
-        : isLocalCareerFallbackAllowed()
-          ? this.careerManager.recordMatchResult(status, stats, this.activeMatchId)
-          : (() => {
-              throw new Error('backend_required_for_match_settlement');
-            })();
+      let authoritativeStatus = status;
+      let authoritativeStats = stats;
+      let settlement;
+
+      if (this.pvpMode) {
+        if (!this.pvpOpponent) {
+          throw new Error('pvp_opponent_missing');
+        }
+        if (!this.careerManager.isRemoteConnected()) {
+          throw new Error('backend_required_for_pvp');
+        }
+        const result = await this.careerManager.submitPvpAttackRemote(
+          this.pvpOpponent.playerId,
+          this.activeMatchId,
+          this.pvpActions
+        );
+        authoritativeStatus = result.summary.status;
+        authoritativeStats = result.summary.stats;
+        settlement = result.settlement;
+        trackEvent({
+          name: 'pvp_attack_end',
+          defenderId: this.pvpOpponent.playerId,
+          status: authoritativeStatus,
+          isRevenge: result.isRevenge,
+        });
+      } else {
+        settlement = this.careerManager.isRemoteConnected()
+          ? await this.careerManager.recordMatchResultRemote(status, stats, this.activeMatchId)
+          : isLocalCareerFallbackAllowed()
+            ? this.careerManager.recordMatchResult(status, stats, this.activeMatchId)
+            : (() => {
+                throw new Error('backend_required_for_match_settlement');
+              })();
+      }
 
       this.resultPending = false;
-      this.renderResultModal(status, stats, settlement);
+      this.renderResultModal(authoritativeStatus, authoritativeStats, settlement);
     } catch (error) {
       this.resultPending = false;
+      if (this.pvpMode && this.pvpOpponent) {
+        trackEvent({
+          name: 'pvp_attack_failed',
+          defenderId: this.pvpOpponent.playerId,
+          reason: error instanceof Error ? error.message : 'unknown_error',
+        });
+      }
       this.showSettlementError(status, stats, error);
     }
   }
@@ -1882,6 +1938,7 @@ export class GameScene extends Phaser.Scene {
 
     // Reset state & restart scene cleanly
     this.activeMatchId = this.createMatchId();
+    this.pvpActions = [];
     trackEvent({ name: 'match_start', source: 'rematch' });
     this.createUpgradedMatchState();
     this.accumulators = {};

@@ -15,14 +15,16 @@ export const DEFAULT_MATCH_TIME_LIMIT = 90; // 90 seconds maximum match duration
 export interface InitialGameOptions {
   timeLimit?: number;
   playerModifiers?: PlayerUpgradeModifiers;
+  enemyModifiers?: PlayerUpgradeModifiers;
 }
 
 export function createInitialGameState(options: number | InitialGameOptions = DEFAULT_MATCH_TIME_LIMIT): GameState {
   const timeLimit = typeof options === 'number' ? options : (options.timeLimit ?? DEFAULT_MATCH_TIME_LIMIT);
   const playerModifiers = typeof options === 'number' ? undefined : options.playerModifiers;
+  const enemyModifiers = typeof options === 'number' ? undefined : options.enemyModifiers;
 
   return {
-    territories: createDefaultTerritories(playerModifiers),
+    territories: createDefaultTerritories(playerModifiers, enemyModifiers),
     armies: [],
     status: 'playing',
     elapsedTimeSeconds: 0,

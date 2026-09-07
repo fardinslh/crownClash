@@ -209,6 +209,23 @@ describe('CareerManager', () => {
           timestamp: 2,
         },
       }),
+      getPvpOpponents: async () => [],
+      publishDefense: async () => ({
+        playerId: 'remote_player',
+        displayName: 'Remote Player',
+        trophies: 0,
+        matchesWon: 0,
+        modifiers: {
+          startingUnits: 20,
+          productionRateMultiplier: 1,
+          armySpeedMultiplier: 1,
+        },
+        publishedAt: 1,
+      }),
+      submitPvpAttack: async () => {
+        throw new Error('not_used_in_test');
+      },
+      getPvpHistory: async () => [],
     };
     const adapter = {
       platform: 'browser',
