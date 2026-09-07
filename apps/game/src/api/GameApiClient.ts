@@ -1,7 +1,6 @@
 import type {
   EconomyLedgerEntry,
   MatchSettlement,
-  MatchStats,
   PlayerCareer,
   PvpAction,
   PvpAttackHistoryEntry,
@@ -51,15 +50,18 @@ interface PvpHistoryResponse {
   history: PvpAttackHistoryEntry[];
 }
 
+export interface TrackedAnalyticsEvent {
+  name: string;
+  props?: Record<string, string | number | boolean>;
+}
+
 export interface CareerApi {
   login(platform: PlatformAdapter): Promise<PlayerCareer>;
+  getCareer(): Promise<PlayerCareer>;
   getLedger(limit?: number): Promise<EconomyLedgerEntry[]>;
-  settleMatch(
-    matchId: string,
-    status: 'victory' | 'defeat' | 'draw',
-    stats: MatchStats
-  ): Promise<MatchSettlement>;
+  settleMatch(matchId: string, actions: readonly PvpAction[]): Promise<MatchSettlement>;
   purchaseUpgrade(type: UpgradeType, purchaseId: string): Promise<UpgradePurchaseResult>;
+  trackEvents(events: readonly TrackedAnalyticsEvent[]): Promise<void>;
   getPvpOpponents(limit?: number): Promise<PvpOpponent[]>;
   publishDefense(): Promise<PvpDefenseSnapshot>;
   submitPvpAttack(
@@ -124,17 +126,26 @@ export class GameApiClient implements CareerApi {
     return (await this.request<LedgerResponse>(`/ledger?limit=${limit}`)).entries;
   }
 
+  /**
+   * Settles a single-player match by submitting the recorded dispatch
+   * actions. The server replays them through its own simulation and derives
+   * the outcome, stats, and rewards; the client never decides them.
+   */
   public async settleMatch(
     matchId: string,
-    status: 'victory' | 'defeat' | 'draw',
-    stats: MatchStats
+    actions: readonly PvpAction[]
   ): Promise<MatchSettlement> {
     return (
       await this.request<SettlementResponse>('/matches/settle', {
         method: 'POST',
-        body: { matchId, status, stats },
+        body: { matchId, actions },
       })
     ).settlement;
+  }
+
+  public async trackEvents(events: readonly TrackedAnalyticsEvent[]): Promise<void> {
+    if (events.length === 0) return;
+    await this.request('/analytics/events', { method: 'POST', body: { events } });
   }
 
   public async purchaseUpgrade(
@@ -184,6 +195,10 @@ export class GameApiClient implements CareerApi {
       throw new GameApiError('missing_session_token', 401);
     }
     return new LiveMatchClient(this.baseUrl, this.sessionToken);
+  }
+
+  public isAuthenticated(): boolean {
+    return this.sessionToken !== null;
   }
 
   private async request<T>(

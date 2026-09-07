@@ -6,6 +6,8 @@ import type {
 
 export type LiveMatchMode = 'queue' | 'create' | 'join';
 
+const LIVE_CONNECT_TIMEOUT_MS = 10_000;
+
 export interface LiveMatchResult {
   matchId: string;
   status: 'victory' | 'defeat' | 'draw';
@@ -93,12 +95,23 @@ export class LiveMatchClient {
       const socket = new WebSocket(url);
       this.socket = socket;
 
+      const connectTimeout = setTimeout(() => {
+        socket.close();
+        reject(new Error('live_connection_timeout'));
+      }, LIVE_CONNECT_TIMEOUT_MS);
+
       socket.onopen = () => {
         socket.send(JSON.stringify({ type: 'auth', token: this.sessionToken }));
       };
       socket.onmessage = (event) => {
-        const message = JSON.parse(event.data as string) as LiveServerPayload;
+        let message: LiveServerPayload;
+        try {
+          message = JSON.parse(event.data as string) as LiveServerPayload;
+        } catch {
+          return;
+        }
         if (message.type === 'ready') {
+          clearTimeout(connectTimeout);
           socket.send(JSON.stringify({ type: 'join', mode, roomCode }));
           resolve();
         }
@@ -106,10 +119,12 @@ export class LiveMatchClient {
       };
       socket.onerror = () => {
         if (this.socket === socket) {
+          clearTimeout(connectTimeout);
           reject(new Error('live_connection_failed'));
         }
       };
       socket.onclose = () => {
+        clearTimeout(connectTimeout);
         if (!this.intentionallyClosed) {
           this.emit({ type: 'closed' });
         }

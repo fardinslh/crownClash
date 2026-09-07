@@ -92,6 +92,20 @@ CREATE INDEX IF NOT EXISTS idx_pvp_attacks_attacker ON pvp_attacks (attacker_id,
 CREATE INDEX IF NOT EXISTS idx_pvp_attacks_defender ON pvp_attacks (defender_id, created_at DESC);
 `,
 	},
+	{
+		name: "003_analytics_events",
+		sql: `
+CREATE TABLE IF NOT EXISTS analytics_events (
+  id BIGSERIAL PRIMARY KEY,
+  player_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  props JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_analytics_events_player ON analytics_events (player_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_analytics_events_name ON analytics_events (name, created_at DESC);
+`,
+	},
 }
 
 func RunMigrations(ctx context.Context, pool *pgxpool.Pool) error {

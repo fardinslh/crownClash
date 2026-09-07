@@ -28,6 +28,7 @@ export type AnalyticsEvent =
   | { name: 'session_start'; playerId: string }
   | { name: 'menu_viewed'; coins: number; trophies: number; rankId: string }
   | { name: 'match_start'; source: 'menu' | 'rematch' }
+  | { name: 'match_end'; status: 'victory' | 'defeat' | 'draw'; matchId: string }
   | { name: 'pvp_opponents_viewed'; count: number }
   | { name: 'pvp_attack_start'; defenderId: string; isRevenge: boolean }
   | {

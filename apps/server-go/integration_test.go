@@ -124,6 +124,57 @@ func TestPostgresAPIIntegration(t *testing.T) {
 	if history.StatusCode != http.StatusOK {
 		t.Fatalf("history status: %d", history.StatusCode)
 	}
+
+	settlePayload := map[string]any{
+		"matchId": "settle_" + suffix,
+		"actions": []PvpAction{
+			{Sequence: 0, AtSeconds: 0, SourceID: "p_base", TargetID: "n_center"},
+		},
+	}
+	settleResponse := doIntegrationRequest(t, server.URL+"/matches/settle", first.token, http.MethodPost, settlePayload)
+	if settleResponse.StatusCode != http.StatusOK {
+		t.Fatalf("settle status: %d", settleResponse.StatusCode)
+	}
+	var settleBody struct {
+		Settlement MatchSettlement `json:"settlement"`
+	}
+	decodeIntegration(t, settleResponse, &settleBody)
+	switch settleBody.Settlement.Status {
+	case "victory", "defeat", "draw":
+	default:
+		t.Fatalf("settlement derived unexpected status: %q", settleBody.Settlement.Status)
+	}
+	if settleBody.Settlement.Stats.MatchDurationSeconds <= 0 {
+		t.Fatal("settlement did not include replayed stats")
+	}
+	retryResponse := doIntegrationRequest(t, server.URL+"/matches/settle", first.token, http.MethodPost, settlePayload)
+	if retryResponse.StatusCode != http.StatusOK {
+		t.Fatalf("idempotent settle status: %d", retryResponse.StatusCode)
+	}
+	var retryBody struct {
+		Settlement MatchSettlement `json:"settlement"`
+	}
+	decodeIntegration(t, retryResponse, &retryBody)
+	if settleBody.Settlement.NewCareer.Coins != retryBody.Settlement.NewCareer.Coins {
+		t.Fatal("idempotent settle returned a different settlement")
+	}
+
+	forgedPayload := map[string]any{
+		"matchId": "forged_" + suffix,
+		"status":  "victory",
+		"stats": map[string]any{
+			"matchDurationSeconds":        10,
+			"playerUnitsDispatched":       999,
+			"enemyUnitsDispatched":        0,
+			"territoriesCapturedByPlayer": 9,
+			"territoriesCapturedByEnemy":  0,
+		},
+	}
+	forgedResponse := doIntegrationRequest(t, server.URL+"/matches/settle", first.token, http.MethodPost, forgedPayload)
+	if forgedResponse.StatusCode == http.StatusOK {
+		t.Fatal("client-supplied status/stats must not settle a match")
+	}
+	_ = forgedResponse.Body.Close()
 }
 
 type integrationPlayer struct {

@@ -12,7 +12,12 @@ import {
   getUpgradeLevel,
   LOGICAL_HEIGHT,
   LOGICAL_WIDTH,
+  MarchingArmy,
+  MatchSettlement,
   MatchStats,
+  MAX_PVP_ACTIONS,
+  PVP_AI_TICK_SECONDS,
+  PvpAction,
   stepSimulation,
   Territory,
   UPGRADE_DEFINITIONS,
@@ -73,12 +78,16 @@ export class GameScene extends Phaser.Scene {
   private dragBadgeBg!: Phaser.GameObjects.Rectangle;
   private dragBadgeText!: Phaser.GameObjects.Text;
 
-  // Local AI Timer
-  private aiTimer: number = 0;
-  private aiInterval: number = 1.8; // seconds between AI decisions
+  // Local AI: fixed match-time tick grid so the client prediction stays as
+  // close as possible to the server's authoritative bot replay.
+  private aiNextTick = PVP_AI_TICK_SECONDS;
+
+  // Recorded dispatch intents replayed server-side for settlement.
+  private matchActions: PvpAction[] = [];
 
   // UI HUD Elements (Clean Glassmorphic Command Console)
   private timerText!: Phaser.GameObjects.Text;
+  private hudPlayerText!: Phaser.GameObjects.Text;
   private playerBar!: Phaser.GameObjects.Rectangle;
   private enemyBar!: Phaser.GameObjects.Rectangle;
   private neutralBar!: Phaser.GameObjects.Rectangle;
@@ -91,6 +100,7 @@ export class GameScene extends Phaser.Scene {
 
   // Career & Economy
   private careerManager!: CareerManager;
+  private careerSubscription?: () => void;
   private playerArmySpeedMultiplier = 1;
   private activeMatchId = '';
   private backendConnectPromise: Promise<void> | null = null;
@@ -98,6 +108,7 @@ export class GameScene extends Phaser.Scene {
   private liveMode = false;
   private liveClient?: LiveMatchClient;
   private liveOpponentName = 'Opponent';
+  private liveUnsubscribers: Array<() => void> = [];
 
   // Result Modal
   private resultModalContainer?: Phaser.GameObjects.Container;
@@ -144,6 +155,9 @@ export class GameScene extends Phaser.Scene {
     this.liveClient = launchData?.liveClient;
     this.liveOpponentName = launchData?.liveMatch?.opponentName || 'Opponent';
     this.activeMatchId = this.createMatchId();
+    this.matchActions = [];
+    this.liveUnsubscribers = [];
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.cleanup());
     this.backendConnectPromise = this.careerManager
       .connect(this.platform)
       .then(() => undefined)
@@ -170,7 +184,7 @@ export class GameScene extends Phaser.Scene {
     this.hoveredTargetId = null;
     this.lastHoveredFriendlyId = null;
     this.selectionRings.clear();
-    this.aiTimer = 1.6; // give the bot a fair reaction window at match start
+    this.aiNextTick = PVP_AI_TICK_SECONDS;
     this.lastHeartbeatSecond = -1;
 
     // Start atmospheric battle music
@@ -354,20 +368,10 @@ export class GameScene extends Phaser.Scene {
       .setDepth(91);
 
     // 2. Top Row (y: 20): Profile, Trophies, Coins, Clock, and Audio
-    const user = this.platform.getUser();
     const career = this.careerManager.getCareer();
 
     // Left: Player Profile Pill with dynamic sizing
-    let rawName = user.username || 'Commander';
-    if (this.liveMode) {
-      rawName = `LIVE vs ${this.liveOpponentName}`;
-    }
-    if (rawName.startsWith('Commander_')) {
-      rawName = 'Cmdr ' + rawName.slice(10);
-    } else if (rawName.length > 8) {
-      rawName = rawName.slice(0, 7) + '…';
-    }
-    const playerLabel = `🔵 ${rawName}`;
+    const playerLabel = this.computePlayerHudLabel();
 
     const playerText = this.add
       .text(0, 0, playerLabel, {
@@ -381,6 +385,8 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setDepth(96);
+
+    this.hudPlayerText = playerText;
 
     const textWidth = Math.ceil(playerText.width);
     const playerPillWidth = Math.min(100, Math.max(74, textWidth + 14));
@@ -481,7 +487,7 @@ export class GameScene extends Phaser.Scene {
     this.bindPressFeedback(muteBg, muteBtn);
 
     // Auto-update HUD when career balance changes
-    this.careerManager.subscribe((updatedCareer) => {
+    this.careerSubscription = this.careerManager.subscribe((updatedCareer) => {
       if (this.hudCoinsText && this.hudCoinsText.active) {
         this.hudCoinsText.setText(`🪙 ${updatedCareer.coins}`);
       }
@@ -571,6 +577,19 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setDepth(96);
+  }
+
+  private computePlayerHudLabel(): string {
+    let rawName = this.platform.getUser().username || 'Commander';
+    if (this.liveMode) {
+      rawName = `LIVE vs ${this.liveOpponentName}`;
+    }
+    if (rawName.startsWith('Commander_')) {
+      rawName = 'Cmdr ' + rawName.slice(10);
+    } else if (rawName.length > 8) {
+      rawName = rawName.slice(0, 7) + '…';
+    }
+    return `🔵 ${rawName}`;
   }
 
   private getTerritoryUnderPointer(pointer: Phaser.Input.Pointer): Territory | null {
@@ -854,6 +873,15 @@ export class GameScene extends Phaser.Scene {
             console.warn('[GameScene] Live dispatch failed:', error);
             this.showLiveConnectionError();
           }
+        } else if (this.matchActions.length + sources.length > MAX_PVP_ACTIONS) {
+          // The server replay only accepts a bounded action list; stop
+          // dispatching before the cap so the settlement replay stays valid.
+          this.spawnFloatingText(
+            LOGICAL_WIDTH / 2,
+            96,
+            'command limit reached',
+            '#f87171'
+          );
         } else {
           // Execute Coordinated Multi-Dispatch (or Reinforcement)
           const multiDispatch = dispatchMultipleArmies(
@@ -868,6 +896,7 @@ export class GameScene extends Phaser.Scene {
             Object.assign(this.gameState.territories, multiDispatch.updatedSources);
             this.gameState.armies.push(...multiDispatch.armies);
             this.gameState.stats.playerUnitsDispatched += multiDispatch.totalUnitsDispatched;
+            this.recordDispatchActions(multiDispatch.armies);
 
             if (target.owner === 'player') {
               sounds.playReinforce();
@@ -885,29 +914,14 @@ export class GameScene extends Phaser.Scene {
     const deltaSeconds = delta / 1000;
 
     if (this.gameState.status === 'playing' && !this.liveMode) {
-      // 1. AI Decision Ticker
-      this.aiTimer -= deltaSeconds;
-      if (this.aiTimer <= 0) {
-        this.aiTimer = this.aiInterval + (Math.random() * 0.6 - 0.3); // add slight organic jitter
-        this.executeAiTurn();
-      }
+      this.stepBotMatch(deltaSeconds);
 
-      // 2. Step Core Simulation
-      const step = stepSimulation(this.gameState, this.accumulators, deltaSeconds);
-      this.gameState = step.state;
-      this.accumulators = step.accumulators;
-
-      // 3. Process combat arrivals & trigger punchy feedback
-      step.resolvedArrivals.forEach((arrival) => {
-        this.onCombatArrival(arrival);
-      });
-
-      // 4. Update HUD
+      // Update HUD
       this.updateHud();
 
-      // 5. Check Game Over
+      // Check Game Over
       if (this.gameState.status !== 'playing') {
-        this.showResultModal(this.gameState.status);
+        this.endMatch();
       }
     }
     if (this.liveMode && this.gameState.status === 'playing') {
@@ -917,6 +931,61 @@ export class GameScene extends Phaser.Scene {
     // 6. Update Visuals
     this.updateTerritoryVisuals();
     this.updateArmyVisuals(deltaSeconds);
+  }
+
+  /**
+   * Steps the local bot-match prediction, clipping each step at the AI's
+   * fixed tick grid (every PVP_AI_TICK_SECONDS of match time) so the client
+   * prediction matches the server's authoritative replay as closely as
+   * possible.
+   */
+  private stepBotMatch(deltaSeconds: number): void {
+    let remaining = deltaSeconds;
+    // Guards against pathological float states producing a spinning loop.
+    let iterations = 0;
+    while (
+      remaining > 0 &&
+      this.gameState.status === 'playing' &&
+      iterations < 128
+    ) {
+      iterations++;
+      const untilAiTick = this.aiNextTick - this.gameState.elapsedTimeSeconds;
+      const step = Math.min(remaining, Math.max(0, untilAiTick));
+      if (step > 0) {
+        const result = stepSimulation(this.gameState, this.accumulators, step);
+        this.gameState = result.state;
+        this.accumulators = result.accumulators;
+        result.resolvedArrivals.forEach((arrival) => {
+          this.onCombatArrival(arrival);
+        });
+        remaining -= step;
+      }
+      if (
+        this.gameState.status === 'playing' &&
+        this.gameState.elapsedTimeSeconds >= this.aiNextTick - 1e-9
+      ) {
+        this.executeAiTurn();
+        this.aiNextTick += PVP_AI_TICK_SECONDS;
+      }
+      if (step <= 0 && remaining > 0 && this.gameState.status === 'playing') {
+        break;
+      }
+    }
+  }
+
+  private recordDispatchActions(armies: readonly MarchingArmy[]): void {
+    if (this.liveMode) return;
+    const atSeconds =
+      Math.round(this.gameState.elapsedTimeSeconds * 1000) / 1000;
+    for (const army of armies) {
+      if (this.matchActions.length >= MAX_PVP_ACTIONS) return;
+      this.matchActions.push({
+        sequence: this.matchActions.length,
+        atSeconds,
+        sourceId: army.sourceId,
+        targetId: army.targetId,
+      });
+    }
   }
 
   private executeAiTurn(): void {
@@ -1331,40 +1400,58 @@ export class GameScene extends Phaser.Scene {
     this.tugCrown.x = Phaser.Math.Linear(this.tugCrown.x, targetCrownX, 0.12);
   }
 
-  private showResultModal(status: 'victory' | 'defeat' | 'draw'): void {
+  private endMatch(): void {
     if (this.resultModalContainer || this.resultPending) return;
 
     sounds.stopBattleMusic();
+    this.resultPending = true;
+    void this.finalizeMatch();
+  }
 
-    const duration = Math.floor(this.gameState.elapsedTimeSeconds);
-    const stats: MatchStats = {
-      matchDurationSeconds: duration,
+  private localMatchStats(): MatchStats {
+    return {
+      matchDurationSeconds: Math.floor(this.gameState.elapsedTimeSeconds),
       playerUnitsDispatched: this.gameState.stats.playerUnitsDispatched,
       enemyUnitsDispatched: this.gameState.stats.enemyUnitsDispatched,
       territoriesCapturedByPlayer: this.gameState.stats.territoriesCapturedByPlayer,
       territoriesCapturedByEnemy: this.gameState.stats.territoriesCapturedByEnemy,
     };
-
-    this.resultPending = true;
-    void this.finalizeMatch(status, stats);
   }
 
-  private async finalizeMatch(status: 'victory' | 'defeat' | 'draw', stats: MatchStats): Promise<void> {
+  private async finalizeMatch(): Promise<void> {
     try {
       await this.backendConnectPromise;
-      const settlement = this.careerManager.isRemoteConnected()
-        ? await this.careerManager.recordMatchResultRemote(status, stats, this.activeMatchId)
-        : isLocalCareerFallbackAllowed()
-          ? this.careerManager.recordMatchResult(status, stats, this.activeMatchId)
-          : (() => {
-              throw new Error('backend_required_for_match_settlement');
-            })();
+      let settlement: MatchSettlement;
+      if (this.careerManager.isRemoteConnected()) {
+        // Server replays the recorded actions and derives the outcome.
+        settlement = await this.careerManager.recordMatchResultRemote(
+          this.matchActions,
+          this.activeMatchId
+        );
+      } else if (isLocalCareerFallbackAllowed()) {
+        settlement = this.careerManager.recordMatchResult(
+          this.gameState.status as 'victory' | 'defeat' | 'draw',
+          this.localMatchStats(),
+          this.activeMatchId
+        );
+      } else {
+        throw new Error('backend_required_for_match_settlement');
+      }
 
       this.resultPending = false;
-      this.renderResultModal(status, stats, settlement);
+      const stats =
+        settlement.stats && settlement.stats.matchDurationSeconds > 0
+          ? settlement.stats
+          : this.localMatchStats();
+      trackEvent({
+        name: 'match_end',
+        status: settlement.status,
+        matchId: settlement.matchId,
+      });
+      this.renderResultModal(settlement.status, stats, settlement);
     } catch (error) {
       this.resultPending = false;
-      this.showSettlementError(status, stats, error);
+      this.showSettlementError(error);
     }
   }
 
@@ -1838,11 +1925,7 @@ export class GameScene extends Phaser.Scene {
     this.resultModalContainer = modal;
   }
 
-  private showSettlementError(
-    status: 'victory' | 'defeat' | 'draw',
-    stats: MatchStats,
-    error: unknown
-  ): void {
+  private showSettlementError(error: unknown): void {
     console.error('[GameScene] Match settlement failed:', error);
 
     const modal = this.add.container(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2).setDepth(220);
@@ -1905,7 +1988,7 @@ export class GameScene extends Phaser.Scene {
         this.returnToMenu();
       } else {
         this.resultPending = true;
-        void this.finalizeMatch(status, stats);
+        void this.finalizeMatch();
       }
     });
 
@@ -2017,6 +2100,14 @@ export class GameScene extends Phaser.Scene {
       this.resultModalContainer = undefined;
     }
 
+    // Leave any finished live session behind and start a fresh bot match.
+    this.liveClient?.close();
+    this.liveClient = undefined;
+    this.liveMode = false;
+    this.liveOpponentName = 'Opponent';
+    this.resultPending = false;
+    this.hudPlayerText.setText(this.computePlayerHudLabel());
+
     // Destroy all army visuals
     for (const visual of this.armyVisuals.values()) {
       visual.container.destroy();
@@ -2025,6 +2116,7 @@ export class GameScene extends Phaser.Scene {
 
     // Reset state & restart scene cleanly
     this.activeMatchId = this.createMatchId();
+    this.matchActions = [];
     trackEvent({ name: 'match_start', source: 'rematch' });
     this.createUpgradedMatchState();
     this.accumulators = {};
@@ -2036,7 +2128,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.dragGraphics.clear();
     this.dragBadgeContainer.setVisible(false);
-    this.aiTimer = 1.6;
+    this.aiNextTick = PVP_AI_TICK_SECONDS;
     this.lastHeartbeatSecond = -1;
 
     // Restart atmospheric battle music
@@ -2060,32 +2152,34 @@ export class GameScene extends Phaser.Scene {
       this.showLiveConnectionError();
       return;
     }
-    client.on('state', (state) => {
-      if (this.resultModalContainer) return;
-      this.gameState = state;
-    });
-    client.on('command_rejected', ({ code }) => {
-      this.spawnFloatingText(LOGICAL_WIDTH / 2, 96, code.replaceAll('_', ' '), '#f87171');
-    });
-    client.on('match_result', (result) => {
-      this.gameState.status = result.status;
-      this.resultPending = false;
-      this.careerManager.applyLiveMatchSettlement(result.settlement);
-      trackEvent({ name: 'live_match_ended', status: result.status });
-      this.renderResultModal(result.status, result.stats, result.settlement);
-      client.close();
-    });
-    client.on('closed', () => {
-      if (!this.resultModalContainer && this.gameState.status === 'playing') {
-        trackEvent({ name: 'live_match_disconnected' });
-        this.showLiveConnectionError();
-      }
-    });
-    client.on('error', ({ code }) => {
-      if (code === 'settlement_failed') {
-        this.showLiveConnectionError();
-      }
-    });
+    this.liveUnsubscribers.push(
+      client.on('state', (state) => {
+        if (this.resultModalContainer) return;
+        this.gameState = state;
+      }),
+      client.on('command_rejected', ({ code }) => {
+        this.spawnFloatingText(LOGICAL_WIDTH / 2, 96, code.replaceAll('_', ' '), '#f87171');
+      }),
+      client.on('match_result', (result) => {
+        this.gameState.status = result.status;
+        this.resultPending = false;
+        this.careerManager.applyLiveMatchSettlement(result.settlement);
+        trackEvent({ name: 'live_match_ended', status: result.status });
+        this.renderResultModal(result.status, result.stats, result.settlement);
+        client.close();
+      }),
+      client.on('closed', () => {
+        if (!this.resultModalContainer && this.gameState.status === 'playing') {
+          trackEvent({ name: 'live_match_disconnected' });
+          this.showLiveConnectionError();
+        }
+      }),
+      client.on('error', ({ code }) => {
+        if (code === 'settlement_failed') {
+          this.showLiveConnectionError();
+        }
+      })
+    );
   }
 
   private showLiveConnectionError(): void {
@@ -2093,13 +2187,22 @@ export class GameScene extends Phaser.Scene {
     this.liveClient?.close();
     this.liveClient = undefined;
     this.gameState.status = 'defeat';
-    const stats: MatchStats = {
-      matchDurationSeconds: Math.floor(this.gameState.elapsedTimeSeconds),
-      playerUnitsDispatched: this.gameState.stats.playerUnitsDispatched,
-      enemyUnitsDispatched: this.gameState.stats.enemyUnitsDispatched,
-      territoriesCapturedByPlayer: this.gameState.stats.territoriesCapturedByPlayer,
-      territoriesCapturedByEnemy: this.gameState.stats.territoriesCapturedByEnemy,
-    };
-    this.showSettlementError('defeat', stats, new Error('live_connection_closed'));
+    // The server settles the disconnect result on its side; refresh the
+    // local career cache so balances reflect that authoritative settlement.
+    if (this.careerManager.isRemoteConnected()) {
+      void this.careerManager.refreshRemoteCareer().catch(() => undefined);
+    }
+    this.showSettlementError(new Error('live_connection_closed'));
+  }
+
+  private cleanup(): void {
+    this.careerSubscription?.();
+    this.careerSubscription = undefined;
+    for (const unsubscribe of this.liveUnsubscribers) {
+      unsubscribe();
+    }
+    this.liveUnsubscribers = [];
+    this.liveClient?.close();
+    this.liveClient = undefined;
   }
 }

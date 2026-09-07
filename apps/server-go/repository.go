@@ -118,6 +118,26 @@ func (r *PlayerRepository) GetLedger(ctx context.Context, playerID string, limit
 	return entries, rows.Err()
 }
 
+func (r *PlayerRepository) InsertAnalyticsEvents(ctx context.Context, playerID string, events []AnalyticsEventRecord) error {
+	for _, event := range events {
+		props := event.Props
+		if props == nil {
+			props = map[string]any{}
+		}
+		encoded, err := json.Marshal(props)
+		if err != nil {
+			return err
+		}
+		if _, err := r.pool.Exec(ctx, `
+			INSERT INTO analytics_events (player_id, name, props)
+			VALUES ($1, $2, $3)
+		`, playerID, event.Name, encoded); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *PlayerRepository) GetPlayerDisplayName(ctx context.Context, playerID string) (string, error) {
 	var username *string
 	if err := r.pool.QueryRow(ctx, `SELECT username FROM players WHERE id = $1`, playerID).Scan(&username); err != nil {
@@ -129,44 +149,23 @@ func (r *PlayerRepository) GetPlayerDisplayName(ctx context.Context, playerID st
 	return playerID, nil
 }
 
-func (r *PlayerRepository) SettleMatch(ctx context.Context, playerID, status string, stats MatchStats, matchID string) (MatchSettlement, error) {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return MatchSettlement{}, err
-	}
-	defer tx.Rollback(ctx)
-
+func findStoredSettlement(ctx context.Context, tx pgx.Tx, matchID string) (*MatchSettlement, error) {
 	var stored []byte
-	err = tx.QueryRow(ctx, `SELECT settlement FROM match_settlements WHERE match_id = $1`, matchID).Scan(&stored)
-	if err == nil {
-		var settlement MatchSettlement
-		if unmarshalJSON(stored, &settlement) != nil {
-			return MatchSettlement{}, errors.New("invalid_stored_settlement")
-		}
-		return settlement, nil
+	err := tx.QueryRow(ctx, `SELECT settlement FROM match_settlements WHERE match_id = $1`, matchID).Scan(&stored)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return MatchSettlement{}, err
-	}
-
-	career, err := r.getCareerForUpdate(ctx, tx, playerID)
 	if err != nil {
-		return MatchSettlement{}, err
+		return nil, err
 	}
-	// A concurrent request may have committed while this transaction waited
-	// for the player's row lock.
-	err = tx.QueryRow(ctx, `SELECT settlement FROM match_settlements WHERE match_id = $1`, matchID).Scan(&stored)
-	if err == nil {
-		var settlement MatchSettlement
-		if unmarshalJSON(stored, &settlement) != nil {
-			return MatchSettlement{}, errors.New("invalid_stored_settlement")
-		}
-		return settlement, nil
+	var settlement MatchSettlement
+	if err := json.Unmarshal(stored, &settlement); err != nil {
+		return nil, errors.New("invalid_stored_settlement")
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return MatchSettlement{}, err
-	}
+	return &settlement, nil
+}
 
+func (r *PlayerRepository) persistSettlement(ctx context.Context, tx pgx.Tx, career PlayerCareer, status string, stats MatchStats, matchID string) (MatchSettlement, error) {
 	settlement := SettleMatch(career, status, stats, matchID, nowMillis())
 	if err := r.persistCareer(ctx, tx, settlement.NewCareer); err != nil {
 		return MatchSettlement{}, err
@@ -179,7 +178,84 @@ func (r *PlayerRepository) SettleMatch(ctx context.Context, playerID, status str
 		INSERT INTO match_settlements (match_id, player_id, status, settlement)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (match_id) DO NOTHING
-	`, matchID, playerID, status, payload); err != nil {
+	`, matchID, career.PlayerID, status, payload); err != nil {
+		return MatchSettlement{}, err
+	}
+	return settlement, nil
+}
+
+// SettleMatch settles a match whose status and stats were produced by a
+// server-authoritative simulation (live WebSocket rooms).
+func (r *PlayerRepository) SettleMatch(ctx context.Context, playerID, status string, stats MatchStats, matchID string) (MatchSettlement, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return MatchSettlement{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	if existing, err := findStoredSettlement(ctx, tx, matchID); err != nil {
+		return MatchSettlement{}, err
+	} else if existing != nil {
+		return *existing, nil
+	}
+
+	career, err := r.getCareerForUpdate(ctx, tx, playerID)
+	if err != nil {
+		return MatchSettlement{}, err
+	}
+	// A concurrent request may have committed while this transaction waited
+	// for the player's row lock.
+	if existing, err := findStoredSettlement(ctx, tx, matchID); err != nil {
+		return MatchSettlement{}, err
+	} else if existing != nil {
+		return *existing, nil
+	}
+
+	settlement, err := r.persistSettlement(ctx, tx, career, status, stats, matchID)
+	if err != nil {
+		return MatchSettlement{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return MatchSettlement{}, err
+	}
+	return settlement, nil
+}
+
+// SettleMatchVerified settles a single-player bot match by replaying the
+// recorded player actions through the authoritative simulation. The client
+// supplies only dispatch intents; status, stats, and rewards are derived
+// server-side and cannot be forged.
+func (r *PlayerRepository) SettleMatchVerified(ctx context.Context, playerID, matchID string, actions []PvpAction) (MatchSettlement, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return MatchSettlement{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	if existing, err := findStoredSettlement(ctx, tx, matchID); err != nil {
+		return MatchSettlement{}, err
+	} else if existing != nil {
+		return *existing, nil
+	}
+
+	career, err := r.getCareerForUpdate(ctx, tx, playerID)
+	if err != nil {
+		return MatchSettlement{}, err
+	}
+	// A concurrent request may have committed while this transaction waited
+	// for the player's row lock.
+	if existing, err := findStoredSettlement(ctx, tx, matchID); err != nil {
+		return MatchSettlement{}, err
+	} else if existing != nil {
+		return *existing, nil
+	}
+
+	_, summary, err := SimulateBotBattle(actions, UpgradeModifiers(career))
+	if err != nil {
+		return MatchSettlement{}, err
+	}
+	settlement, err := r.persistSettlement(ctx, tx, career, summary.Status, summary.Stats, matchID)
+	if err != nil {
 		return MatchSettlement{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {

@@ -38,6 +38,7 @@ func (s *Server) Handler() http.Handler {
 	private.HandleFunc("GET /ledger", s.getLedger)
 	private.HandleFunc("POST /matches/settle", s.settleMatch)
 	private.HandleFunc("POST /upgrades/purchase", s.purchaseUpgrade)
+	private.HandleFunc("POST /analytics/events", s.trackAnalyticsEvents)
 	private.HandleFunc("POST /pvp/defense/publish", s.publishDefense)
 	private.HandleFunc("GET /pvp/opponents", s.getOpponents)
 	private.HandleFunc("POST /pvp/attacks", s.submitAttack)
@@ -157,12 +158,14 @@ func (s *Server) getLedger(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
 }
 
+// settleMatch settles a single-player bot match. The client submits only the
+// recorded dispatch actions; the server replays them through the authoritative
+// simulation and derives status, stats, and rewards itself.
 func (s *Server) settleMatch(w http.ResponseWriter, r *http.Request) {
 	playerID, _ := authValues(r)
 	var request struct {
 		MatchID string             `json:"matchId"`
-		Status  string             `json:"status"`
-		Stats   *matchStatsPayload `json:"stats"`
+		Actions *[]json.RawMessage `json:"actions"`
 	}
 	if err := decodeJSON(w, r, &request); err != nil {
 		return
@@ -172,21 +175,68 @@ func (s *Server) settleMatch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if request.Status != "victory" && request.Status != "defeat" && request.Status != "draw" {
-		writeError(w, http.StatusBadRequest, "invalid_status")
+	if request.Actions == nil {
+		writeError(w, http.StatusBadRequest, "invalid_actions")
 		return
 	}
-	stats, err := parseMatchStats(request.Stats)
+	actions, err := parsePvpActions(*request.Actions)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	settlement, err := s.repo.SettleMatch(r.Context(), playerID, request.Status, stats, matchID)
+	settlement, err := s.repo.SettleMatchVerified(r.Context(), playerID, matchID, actions)
 	if err != nil {
-		writeRepoError(w, err)
+		if isPvpSimulationError(err) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		log.Printf("[matches/settle] failed: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal_error")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"settlement": settlement})
+}
+
+func (s *Server) trackAnalyticsEvents(w http.ResponseWriter, r *http.Request) {
+	playerID, _ := authValues(r)
+	var request struct {
+		Events []AnalyticsEventRecord `json:"events"`
+	}
+	if err := decodeJSON(w, r, &request); err != nil {
+		return
+	}
+	if len(request.Events) == 0 || len(request.Events) > 50 {
+		writeError(w, http.StatusBadRequest, "invalid_events")
+		return
+	}
+	for _, event := range request.Events {
+		if len(event.Name) < 1 || len(event.Name) > 64 {
+			writeError(w, http.StatusBadRequest, "invalid_event_name")
+			return
+		}
+		if len(event.Props) > 16 {
+			writeError(w, http.StatusBadRequest, "invalid_event_props")
+			return
+		}
+		for key, value := range event.Props {
+			if len(key) > 64 {
+				writeError(w, http.StatusBadRequest, "invalid_event_props")
+				return
+			}
+			switch value.(type) {
+			case string, float64, bool, nil:
+			default:
+				writeError(w, http.StatusBadRequest, "invalid_event_props")
+				return
+			}
+		}
+	}
+	if err := s.repo.InsertAnalyticsEvents(r.Context(), playerID, request.Events); err != nil {
+		log.Printf("[analytics/events] failed: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal_error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"accepted": len(request.Events)})
 }
 
 func (s *Server) purchaseUpgrade(w http.ResponseWriter, r *http.Request) {
@@ -309,40 +359,6 @@ func (s *Server) submitAttack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"result": result})
-}
-
-type matchStatsPayload struct {
-	MatchDurationSeconds        *float64 `json:"matchDurationSeconds"`
-	PlayerUnitsDispatched       *float64 `json:"playerUnitsDispatched"`
-	EnemyUnitsDispatched        *float64 `json:"enemyUnitsDispatched"`
-	TerritoriesCapturedByPlayer *float64 `json:"territoriesCapturedByPlayer"`
-	TerritoriesCapturedByEnemy  *float64 `json:"territoriesCapturedByEnemy"`
-}
-
-func parseMatchStats(value *matchStatsPayload) (MatchStats, error) {
-	if value == nil {
-		return MatchStats{}, errors.New("invalid_stats")
-	}
-	values := []*float64{
-		value.MatchDurationSeconds, value.PlayerUnitsDispatched, value.EnemyUnitsDispatched,
-		value.TerritoriesCapturedByPlayer, value.TerritoriesCapturedByEnemy,
-	}
-	names := []string{
-		"matchDurationSeconds", "playerUnitsDispatched", "enemyUnitsDispatched",
-		"territoriesCapturedByPlayer", "territoriesCapturedByEnemy",
-	}
-	for index, number := range values {
-		if number == nil || !isFinite(*number) || *number < 0 {
-			return MatchStats{}, errors.New("invalid_" + names[index])
-		}
-	}
-	return MatchStats{
-		MatchDurationSeconds:        *value.MatchDurationSeconds,
-		PlayerUnitsDispatched:       *value.PlayerUnitsDispatched,
-		EnemyUnitsDispatched:        *value.EnemyUnitsDispatched,
-		TerritoriesCapturedByPlayer: *value.TerritoriesCapturedByPlayer,
-		TerritoriesCapturedByEnemy:  *value.TerritoriesCapturedByEnemy,
-	}, nil
 }
 
 func parsePvpActions(items []json.RawMessage) ([]PvpAction, error) {

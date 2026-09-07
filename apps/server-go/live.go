@@ -93,6 +93,14 @@ func (c *liveConnection) enqueue(message liveServerMessage) {
 	select {
 	case c.send <- message:
 	case <-c.done:
+	default:
+		// The client stopped draining its socket. Drop disposable state
+		// snapshots; for critical control messages terminate the connection
+		// so the room (and the opponent) cannot be blocked indefinitely.
+		if message.Type != "state" {
+			c.close()
+			return
+		}
 	}
 }
 
