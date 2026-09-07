@@ -15,6 +15,8 @@ import {
   UpgradePurchaseResult,
   UpgradeType,
 } from '@crown-clash/game-core';
+import type { PlatformAdapter } from '@crown-clash/platform';
+import { GameApiClient, type CareerApi } from '../api/GameApiClient.js';
 
 export class CareerManager {
   private static instance: CareerManager | null = null;
@@ -23,6 +25,8 @@ export class CareerManager {
   private listeners: Set<(career: PlayerCareer) => void> = new Set();
   private readonly storageKey: string;
   private readonly ledgerStorageKey: string;
+  private remoteApi: CareerApi | null = null;
+  private remoteConnected = false;
 
   private constructor(playerId: string) {
     this.storageKey = `crown_clash_career_${playerId}`;
@@ -49,6 +53,56 @@ export class CareerManager {
   public subscribe(callback: (career: PlayerCareer) => void): () => void {
     this.listeners.add(callback);
     return () => this.listeners.delete(callback);
+  }
+
+  public async connect(
+    platform: PlatformAdapter,
+    api: CareerApi = new GameApiClient()
+  ): Promise<PlayerCareer> {
+    if (this.remoteConnected) {
+      return this.getCareer();
+    }
+
+    const career = await api.login(platform);
+    this.remoteApi = api;
+    this.remoteConnected = true;
+    this.career = career;
+
+    try {
+      this.ledger = await api.getLedger();
+    } catch (error) {
+      console.warn('[CareerManager] Failed to hydrate economy ledger:', error);
+    }
+
+    this.saveCareer();
+    this.saveLedger();
+    this.emitChange();
+    return this.getCareer();
+  }
+
+  public isRemoteConnected(): boolean {
+    return this.remoteConnected;
+  }
+
+  public async recordMatchResultRemote(
+    status: 'victory' | 'defeat' | 'draw',
+    stats: MatchStats,
+    matchId: string
+  ): Promise<MatchSettlement> {
+    const settlement = await this.requireRemoteApi().settleMatch(matchId, status, stats);
+    this.applyRemoteState(settlement.newCareer, settlement.ledgerEntries);
+    return settlement;
+  }
+
+  public async purchaseUpgradeRemote(type: UpgradeType): Promise<UpgradePurchaseResult> {
+    const purchaseId = `upgrade_${type}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const result = await this.requireRemoteApi().purchaseUpgrade(type, purchaseId);
+
+    if (result.success) {
+      this.applyRemoteState(result.newCareer, [result.ledgerEntry]);
+    }
+
+    return result;
   }
 
   /**
@@ -129,6 +183,22 @@ export class CareerManager {
     const initial = createDefaultCareer(playerId);
     this.saveCareerDirect(initial);
     return initial;
+  }
+
+  private requireRemoteApi(): CareerApi {
+    if (!this.remoteApi || !this.remoteConnected) {
+      throw new Error('career_remote_not_connected');
+    }
+    return this.remoteApi;
+  }
+
+  private applyRemoteState(career: PlayerCareer, entries: EconomyLedgerEntry[]): void {
+    this.career = career;
+    const knownEntryIds = new Set(this.ledger.map((entry) => entry.id));
+    this.ledger.push(...entries.filter((entry) => !knownEntryIds.has(entry.id)));
+    this.saveCareer();
+    this.saveLedger();
+    this.emitChange();
   }
 
   private loadLedger(): EconomyLedgerEntry[] {

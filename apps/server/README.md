@@ -27,6 +27,15 @@ npm --workspace=apps/server run dev
 `npm run db:down` stops the container (data persists in the `crownclash_pg_data`
 Docker volume; remove it manually to reset).
 
+The game client reads its backend URL from `apps/game/.env`:
+
+```bash
+VITE_API_URL=http://127.0.0.1:8787
+```
+
+Production builds require `VITE_API_URL`; the local URL is only a development
+default. Configure `CLIENT_ORIGINS` to include the deployed game origin.
+
 ## Endpoints
 
 All endpoints except `/health` and `/auth/login` require `Authorization: Bearer <token>`.

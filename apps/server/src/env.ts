@@ -3,6 +3,7 @@ export interface AppConfig {
   databaseUrl: string;
   jwtSecret: string;
   nodeEnv: string;
+  clientOrigins: string[];
   /** Allows unauthenticated browser/dev guest logins. Must stay false in production. */
   allowGuestAuth: boolean;
   telegramBotToken?: string;
@@ -26,12 +27,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
   const allowGuestAuth =
     env.ALLOW_GUEST_AUTH !== undefined ? env.ALLOW_GUEST_AUTH === 'true' : nodeEnv !== 'production';
+  const clientOrigins = (
+    env.CLIENT_ORIGINS ||
+    'http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173'
+  )
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
 
   return {
     port: Number(env.PORT) || 8787,
     databaseUrl,
     jwtSecret: jwtSecret || 'dev-insecure-secret-change-me',
     nodeEnv,
+    clientOrigins,
     allowGuestAuth,
     telegramBotToken: env.TELEGRAM_BOT_TOKEN,
     baleBotToken: env.BALE_BOT_TOKEN,
