@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { CareerManager } from '../CareerManager.js';
-import { MatchStats } from '@crown-clash/game-core';
+import { MatchStats, createDefaultCareer } from '@crown-clash/game-core';
+import type { PlatformAdapter } from '@crown-clash/platform';
+import type { CareerApi } from '../../api/GameApiClient.js';
 
 const storage = new Map<string, string>();
 const localStorageMock: Storage = {
@@ -144,5 +146,95 @@ describe('CareerManager', () => {
       productionLevel: 0,
       armySpeedLevel: 0,
     });
+  });
+
+  it('hydrates career and applies remote settlement and upgrade responses', async () => {
+    const remoteCareer = createDefaultCareer('remote_player');
+    const remoteApi: CareerApi = {
+      login: async () => remoteCareer,
+      getLedger: async () => [],
+      settleMatch: async (matchId) => ({
+        matchId,
+        status: 'victory',
+        breakdown: {
+          baseCoins: 40,
+          speedBonus: 0,
+          dominationBonus: 0,
+          streakBonus: 0,
+          totalCoins: 40,
+          trophyDelta: 30,
+        },
+        previousCareer: remoteCareer,
+        newCareer: { ...remoteCareer, coins: 140, trophies: 30, matchesPlayed: 1, matchesWon: 1 },
+        previousRank: {
+          id: 'recruit',
+          name: 'Recruit',
+          badge: '🛡️',
+          minTrophies: 0,
+          maxTrophies: 99,
+          color: 0x94a3b8,
+        },
+        newRank: {
+          id: 'recruit',
+          name: 'Recruit',
+          badge: '🛡️',
+          minTrophies: 0,
+          maxTrophies: 99,
+          color: 0x94a3b8,
+        },
+        rankPromoted: false,
+        ledgerEntries: [],
+      }),
+      purchaseUpgrade: async (_type, purchaseId) => ({
+        success: true,
+        cost: 50,
+        previousCareer: { ...remoteCareer, coins: 140, trophies: 30, matchesPlayed: 1, matchesWon: 1 },
+        newCareer: {
+          ...remoteCareer,
+          coins: 90,
+          trophies: 30,
+          matchesPlayed: 1,
+          matchesWon: 1,
+          productionLevel: 1,
+        },
+        ledgerEntry: {
+          id: purchaseId,
+          player: 'remote_player',
+          currency: 'coins',
+          amount: -50,
+          reason: 'upgrade_production',
+          source: 'upgrade_purchase',
+          previousBalance: 140,
+          resultingBalance: 90,
+          timestamp: 2,
+        },
+      }),
+    };
+    const adapter = {
+      platform: 'browser',
+      getInitDataRaw: () => 'user=remote_player',
+    } as PlatformAdapter;
+    const manager = CareerManager.getInstance('remote_player');
+
+    await expect(manager.connect(adapter, remoteApi)).resolves.toMatchObject({
+      coins: 100,
+      trophies: 0,
+    });
+
+    const stats: MatchStats = {
+      matchDurationSeconds: 45,
+      playerUnitsDispatched: 10,
+      enemyUnitsDispatched: 10,
+      territoriesCapturedByPlayer: 3,
+      territoriesCapturedByEnemy: 2,
+    };
+    const settlement = await manager.recordMatchResultRemote('victory', stats, 'remote_match_1');
+    expect(settlement.newCareer.coins).toBe(140);
+    expect(manager.getCareer().coins).toBe(140);
+
+    const purchase = await manager.purchaseUpgradeRemote('production');
+    expect(purchase.success).toBe(true);
+    expect(manager.getCareer().productionLevel).toBe(1);
+    expect(manager.getCareer().coins).toBe(90);
   });
 });

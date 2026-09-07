@@ -18,6 +18,7 @@ import {
   UPGRADE_DEFINITIONS,
   UpgradeType,
 } from '@crown-clash/game-core';
+import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { CareerManager } from '../career/CareerManager.js';
 import { trackEvent, trackUpgradeEvent } from '../analytics/Analytics.js';
 import { sounds } from '../audio/SoundEffects.js';
@@ -90,6 +91,9 @@ export class GameScene extends Phaser.Scene {
   // Career & Economy
   private careerManager!: CareerManager;
   private playerArmySpeedMultiplier = 1;
+  private activeMatchId = '';
+  private backendConnectPromise: Promise<void> | null = null;
+  private resultPending = false;
 
   // Result Modal
   private resultModalContainer?: Phaser.GameObjects.Container;
@@ -126,6 +130,13 @@ export class GameScene extends Phaser.Scene {
     this.platform = (this.registry.get('platform') as PlatformAdapter) || createPlatformAdapter();
     const user = this.platform.getUser();
     this.careerManager = CareerManager.getInstance(user.id);
+    this.activeMatchId = this.createMatchId();
+    this.backendConnectPromise = this.careerManager
+      .connect(this.platform)
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        console.warn('[GameScene] Backend unavailable, using local career cache:', error);
+      });
     const launchData = this.scene.settings.data as { source?: 'menu' | 'rematch' } | undefined;
     trackEvent({ name: 'match_start', source: launchData?.source ?? 'menu' });
     this.createUpgradedMatchState();
@@ -1281,7 +1292,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showResultModal(status: 'victory' | 'defeat' | 'draw'): void {
-    if (this.resultModalContainer) return;
+    if (this.resultModalContainer || this.resultPending) return;
 
     sounds.stopBattleMusic();
 
@@ -1294,7 +1305,35 @@ export class GameScene extends Phaser.Scene {
       territoriesCapturedByEnemy: this.gameState.stats.territoriesCapturedByEnemy,
     };
 
-    const settlement = this.careerManager.recordMatchResult(status, stats);
+    this.resultPending = true;
+    void this.finalizeMatch(status, stats);
+  }
+
+  private async finalizeMatch(status: 'victory' | 'defeat' | 'draw', stats: MatchStats): Promise<void> {
+    try {
+      await this.backendConnectPromise;
+      const settlement = this.careerManager.isRemoteConnected()
+        ? await this.careerManager.recordMatchResultRemote(status, stats, this.activeMatchId)
+        : isLocalCareerFallbackAllowed()
+          ? this.careerManager.recordMatchResult(status, stats, this.activeMatchId)
+          : (() => {
+              throw new Error('backend_required_for_match_settlement');
+            })();
+
+      this.resultPending = false;
+      this.renderResultModal(status, stats, settlement);
+    } catch (error) {
+      this.resultPending = false;
+      this.showSettlementError(status, stats, error);
+    }
+  }
+
+  private renderResultModal(
+    status: 'victory' | 'defeat' | 'draw',
+    stats: MatchStats,
+    settlement: ReturnType<CareerManager['recordMatchResult']>
+  ): void {
+    const duration = stats.matchDurationSeconds;
     const isWin = status === 'victory';
 
     if (isWin) {
@@ -1593,27 +1632,7 @@ export class GameScene extends Phaser.Scene {
 
       buyBg.on('pointerdown', () => {
         buyBg.disableInteractive();
-        const purchase = this.careerManager.purchaseUpgrade(row.type);
-        if (purchase.success) {
-          sounds.playCoin();
-          this.platform.hapticNotification('success');
-          trackUpgradeEvent({
-            name: 'upgrade_purchase_succeeded',
-            upgradeType: row.type,
-            level: getUpgradeLevel(purchase.newCareer, row.type),
-            cost: purchase.cost,
-            resultingCoins: purchase.newCareer.coins,
-          });
-        } else {
-          trackUpgradeEvent({
-            name: 'upgrade_purchase_failed',
-            upgradeType: row.type,
-            cost: purchase.cost,
-            reason: purchase.reason,
-            coins: purchase.newCareer.coins,
-          });
-        }
-        refreshUpgradeRows.forEach((refreshRow) => refreshRow());
+        void this.purchaseUpgrade(row.type, refreshUpgradeRows);
       });
 
       refreshUpgradeRows.push(refresh);
@@ -1743,6 +1762,112 @@ export class GameScene extends Phaser.Scene {
     this.resultModalContainer = modal;
   }
 
+  private showSettlementError(
+    status: 'victory' | 'defeat' | 'draw',
+    stats: MatchStats,
+    error: unknown
+  ): void {
+    console.error('[GameScene] Match settlement failed:', error);
+
+    const modal = this.add.container(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2).setDepth(220);
+    this.resultModalContainer = modal;
+
+    const card = this.add
+      .rectangle(0, 0, 300, 210, 0x0c1322, 0.99)
+      .setStrokeStyle(2, 0xef4444, 0.95);
+    const title = this.add
+      .text(0, -62, 'SYNC FAILED', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '24px',
+        fontStyle: '900',
+        color: '#f87171',
+        stroke: '#000000',
+        strokeThickness: 3,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    const message = this.add
+      .text(0, -20, 'Your result was not saved.\nRetry before leaving the battle.', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '12px',
+        fontStyle: 'bold',
+        color: '#cbd5e1',
+        align: 'center',
+        lineSpacing: 5,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    const retryBg = this.add
+      .rectangle(0, 55, 190, 42, 0x2563eb, 1)
+      .setStrokeStyle(2, 0x60a5fa, 1)
+      .setInteractive({ useHandCursor: true });
+    const retryText = this.add
+      .text(0, 55, 'RETRY SYNC', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '14px',
+        fontStyle: '900',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+
+    retryBg.on('pointerdown', () => {
+      modal.destroy();
+      this.resultModalContainer = undefined;
+      this.resultPending = true;
+      void this.finalizeMatch(status, stats);
+    });
+
+    modal.add([card, title, message, retryBg, retryText]);
+  }
+
+  private async purchaseUpgrade(
+    type: UpgradeType,
+    refreshUpgradeRows: Array<() => void>
+  ): Promise<void> {
+    try {
+      await this.backendConnectPromise;
+      const purchase = this.careerManager.isRemoteConnected()
+        ? await this.careerManager.purchaseUpgradeRemote(type)
+        : isLocalCareerFallbackAllowed()
+          ? this.careerManager.purchaseUpgrade(type)
+          : (() => {
+              throw new Error('backend_required_for_upgrade_purchase');
+            })();
+
+      if (purchase.success) {
+        sounds.playCoin();
+        this.platform.hapticNotification('success');
+        trackUpgradeEvent({
+          name: 'upgrade_purchase_succeeded',
+          upgradeType: type,
+          level: getUpgradeLevel(purchase.newCareer, type),
+          cost: purchase.cost,
+          resultingCoins: purchase.newCareer.coins,
+        });
+      } else {
+        trackUpgradeEvent({
+          name: 'upgrade_purchase_failed',
+          upgradeType: type,
+          cost: purchase.cost,
+          reason: purchase.reason,
+          coins: purchase.newCareer.coins,
+        });
+      }
+    } catch (error) {
+      console.error('[GameScene] Upgrade purchase failed:', error);
+      this.platform.hapticNotification('error');
+    } finally {
+      refreshUpgradeRows.forEach((refreshRow) => refreshRow());
+    }
+  }
+
+  private createMatchId(): string {
+    return `match_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  }
+
   private restartMatch(): void {
     if (this.resultModalContainer) {
       this.resultModalContainer.destroy();
@@ -1756,6 +1881,7 @@ export class GameScene extends Phaser.Scene {
     this.armyVisuals.clear();
 
     // Reset state & restart scene cleanly
+    this.activeMatchId = this.createMatchId();
     trackEvent({ name: 'match_start', source: 'rematch' });
     this.createUpgradedMatchState();
     this.accumulators = {};

@@ -10,6 +10,20 @@ import { createUpgradesRouter } from './routes/upgrades.js';
 
 export function createApp(pool: Pool, config: AppConfig): Express {
   const app = express();
+  app.use((req, res, next) => {
+    const origin = req.header('origin');
+    if (origin && config.clientOrigins.includes(origin)) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Vary', 'Origin');
+    }
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    if (req.method === 'OPTIONS') {
+      res.sendStatus(204);
+      return;
+    }
+    next();
+  });
   app.use(express.json());
 
   const repo = new PlayerRepository(pool);

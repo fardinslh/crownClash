@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { getRankTier, LOGICAL_HEIGHT, LOGICAL_WIDTH } from '@crown-clash/game-core';
 import { trackEvent } from '../analytics/Analytics.js';
+import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { CareerManager } from '../career/CareerManager.js';
 import { sounds } from '../audio/SoundEffects.js';
 import { THEME } from '../theme.js';
@@ -16,8 +17,28 @@ export class MenuScene extends Phaser.Scene {
   create(): void {
     const platform: PlatformAdapter =
       (this.registry.get('platform') as PlatformAdapter) || createPlatformAdapter();
+    const careerManager = CareerManager.getInstance(platform.getUser().id);
+
+    void this.initializeMenu(platform, careerManager);
+  }
+
+  private async initializeMenu(
+    platform: PlatformAdapter,
+    careerManager: CareerManager
+  ): Promise<void> {
+    try {
+      await careerManager.connect(platform);
+    } catch (error) {
+      console.warn('[MenuScene] Backend unavailable, using local career cache:', error);
+    }
+
+    if (!careerManager.isRemoteConnected() && !isLocalCareerFallbackAllowed()) {
+      this.showBackendUnavailable();
+      return;
+    }
+
     const user = platform.getUser();
-    const career = CareerManager.getInstance(user.id).getCareer();
+    const career = careerManager.getCareer();
     const rank = getRankTier(career.trophies);
 
     sounds.stopBattleMusic();
@@ -212,5 +233,52 @@ export class MenuScene extends Phaser.Scene {
       muteBtn.setText(muted ? '🔇' : '🔊');
       platform.hapticSelection();
     });
+  }
+
+  private showBackendUnavailable(): void {
+    this.add.rectangle(
+      LOGICAL_WIDTH / 2,
+      LOGICAL_HEIGHT / 2,
+      LOGICAL_WIDTH,
+      LOGICAL_HEIGHT,
+      0x070b14
+    );
+    this.add
+      .text(LOGICAL_WIDTH / 2, 250, 'CROWN CLASH', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '30px',
+        fontStyle: '900',
+        color: '#f8fafc',
+        stroke: '#000000',
+        strokeThickness: 4,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    this.add
+      .text(LOGICAL_WIDTH / 2, 330, 'Connection required to load your realm.', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: '#cbd5e1',
+        align: 'center',
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    const retryBg = this.add
+      .rectangle(LOGICAL_WIDTH / 2, 410, 190, 44, 0x2563eb, 1)
+      .setStrokeStyle(2, 0x60a5fa, 1)
+      .setInteractive({ useHandCursor: true });
+    this.add
+      .text(LOGICAL_WIDTH / 2, 410, 'RETRY', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '15px',
+        fontStyle: '900',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    retryBg.on('pointerdown', () => this.scene.restart());
   }
 }
