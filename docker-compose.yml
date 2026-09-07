@@ -26,7 +26,7 @@ services:
       PORT: 8787
       DATABASE_URL: postgresql://crownclash:crownclash@db:5432/crownclash
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
-      CLIENT_ORIGINS: ${CLIENT_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      CLIENT_ORIGINS: ${CLIENT_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://localhost:3002,http://127.0.0.1:3002}
       ALLOW_GUEST_AUTH: ${ALLOW_GUEST_AUTH:-false}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       BALE_BOT_TOKEN: ${BALE_BOT_TOKEN:-}
