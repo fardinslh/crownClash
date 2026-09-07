@@ -1771,6 +1771,36 @@ export class GameScene extends Phaser.Scene {
       await this.platform.share({ text: shareMsg });
     });
 
+    const menuY = 275;
+    const menuBg = this.add
+      .rectangle(0, menuY, 240, 38, 0x0f172a, 1)
+      .setStrokeStyle(1.5, 0x60a5fa, 1)
+      .setInteractive({ useHandCursor: true });
+    const menuText = this.add
+      .text(0, menuY, 'MAIN MENU', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: '#bfdbfe',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+
+    menuBg.on('pointerover', () => {
+      menuBg.setScale(1.02);
+      menuText.setScale(1.02);
+    });
+    menuBg.on('pointerout', () => {
+      menuBg.setScale(1);
+      menuText.setScale(1);
+    });
+    menuBg.on('pointerdown', () => {
+      this.platform.hapticSelection();
+      this.returnToMenu();
+    });
+
     modal.add([
       backdrop,
       card,
@@ -1792,6 +1822,8 @@ export class GameScene extends Phaser.Scene {
       btnText,
       shareBg,
       shareText,
+      menuBg,
+      menuText,
     ]);
 
     if (promoContainer) {
@@ -1829,7 +1861,7 @@ export class GameScene extends Phaser.Scene {
     this.resultModalContainer = modal;
 
     const card = this.add
-      .rectangle(0, 0, 300, 210, 0x0c1322, 0.99)
+      .rectangle(0, 0, 300, 270, 0x0c1322, 0.99)
       .setStrokeStyle(2, 0xef4444, 0.95);
     const title = this.add
       .text(0, -62, 'SYNC FAILED', {
@@ -1876,7 +1908,36 @@ export class GameScene extends Phaser.Scene {
       void this.finalizeMatch(status, stats);
     });
 
-    modal.add([card, title, message, retryBg, retryText]);
+    const menuBg = this.add
+      .rectangle(0, 105, 190, 38, 0x0f172a, 1)
+      .setStrokeStyle(1.5, 0x60a5fa, 1)
+      .setInteractive({ useHandCursor: true });
+    const menuText = this.add
+      .text(0, 105, 'MAIN MENU', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: '#bfdbfe',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    menuBg.on('pointerdown', () => {
+      this.platform.hapticSelection();
+      this.returnToMenu();
+    });
+
+    modal.add([card, title, message, retryBg, retryText, menuBg, menuText]);
+  }
+
+  private returnToMenu(): void {
+    sounds.stopBattleMusic();
+    this.resultPending = false;
+    this.input.enabled = false;
+    this.resultModalContainer?.destroy();
+    this.resultModalContainer = undefined;
+    this.scene.start('MenuScene');
   }
 
   private async purchaseUpgrade(
