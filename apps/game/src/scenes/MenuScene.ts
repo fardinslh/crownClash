@@ -194,6 +194,7 @@ export class MenuScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
+    this.bindPressFeedback(playBg, playText);
 
     playBg.on('pointerover', () => {
       playBg.setScale(1.03);
@@ -211,7 +212,7 @@ export class MenuScene extends Phaser.Scene {
     });
 
     const raidBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2, 590, 250, 42, careerManager.isRemoteConnected() ? 0x111c33 : 0x273449, 1)
+      .rectangle(LOGICAL_WIDTH / 2, 590, 250, 50, careerManager.isRemoteConnected() ? 0x111c33 : 0x273449, 1)
       .setStrokeStyle(1.5, careerManager.isRemoteConnected() ? 0x60a5fa : 0x475569, 1)
       .setInteractive({ useHandCursor: true });
     const raidText = this.add
@@ -230,6 +231,7 @@ export class MenuScene extends Phaser.Scene {
         }
       )
       .setOrigin(0.5);
+    this.bindPressFeedback(raidBg, raidText);
 
     if (!careerManager.isRemoteConnected()) {
       raidBg.disableInteractive();
@@ -253,8 +255,8 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     const muteX = LOGICAL_WIDTH - 28;
-    this.add
-      .rectangle(muteX, 28, 36, 28, 0x0f172a, 0.95)
+    const muteBg = this.add
+      .rectangle(muteX, 28, 40, 36, 0x0f172a, 0.95)
       .setStrokeStyle(1.5, 0x334155, 0.8);
     const muteBtn = this.add
       .text(muteX, 28, sounds.isMuted() ? '🔇' : '🔊', {
@@ -262,12 +264,29 @@ export class MenuScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true });
-    muteBtn.on('pointerdown', () => {
+    muteBg.setInteractive({ useHandCursor: true });
+    muteBg.on('pointerdown', () => {
       const muted = sounds.toggleMute();
       muteBtn.setText(muted ? '🔇' : '🔊');
       platform.hapticSelection();
     });
+    this.bindPressFeedback(muteBg, muteBtn);
+  }
+
+  private bindPressFeedback(
+    background: Phaser.GameObjects.Rectangle,
+    label: Phaser.GameObjects.Text
+  ): void {
+    const reset = (): void => {
+      background.setScale(1);
+      label.setScale(1);
+    };
+    background.on('pointerdown', () => {
+      background.setScale(0.96);
+      label.setScale(0.96);
+    });
+    background.on('pointerup', reset);
+    background.on('pointerout', reset);
   }
 
   private async openPvpLobby(
@@ -312,6 +331,9 @@ export class MenuScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
+    const closeBg = this.add
+      .rectangle(140, -190, 40, 40, 0x000000, 0)
+      .setInteractive({ useHandCursor: true });
     const close = this.add
       .text(140, -190, '✕', {
         fontFamily: FONT_FAMILY,
@@ -319,16 +341,16 @@ export class MenuScene extends Phaser.Scene {
         color: '#94a3b8',
         resolution: 2,
       })
-      .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true });
+      .setOrigin(0.5);
 
     const closeLobby = (): void => {
       overlay.destroy();
       raidButton.setInteractive({ useHandCursor: true });
       raidText.setText('RAID A REALM  🏰');
     };
-    close.on('pointerdown', closeLobby);
-    overlay.add([backdrop, card, title, subtitle, status, close]);
+    closeBg.on('pointerdown', closeLobby);
+    this.bindPressFeedback(closeBg, close);
+    overlay.add([backdrop, card, title, subtitle, status, closeBg, close]);
 
     try {
       const opponents = await careerManager.getPvpOpponentsRemote();
@@ -354,8 +376,12 @@ export class MenuScene extends Phaser.Scene {
         .rectangle(0, y, 280, 48, 0x111827, 0.98)
         .setStrokeStyle(1, opponent.isRevenge ? 0xf59e0b : 0x334155, 1)
         .setInteractive({ useHandCursor: true });
+      const displayName =
+        opponent.displayName.length > 18
+          ? `${opponent.displayName.slice(0, 17)}…`
+          : opponent.displayName;
       const label = this.add
-        .text(-125, y, `${opponent.isRevenge ? '⚔' : '🏰'} ${opponent.displayName}`, {
+        .text(-125, y, `${opponent.isRevenge ? '⚔' : '🏰'} ${displayName}`, {
           fontFamily: FONT_FAMILY,
           fontSize: '11px',
           fontStyle: 'bold',
@@ -421,10 +447,10 @@ export class MenuScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     const retryBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2, 410, 190, 44, 0x2563eb, 1)
+      .rectangle(LOGICAL_WIDTH / 2, 410, 190, 50, 0x2563eb, 1)
       .setStrokeStyle(2, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
-    this.add
+    const retryText = this.add
       .text(LOGICAL_WIDTH / 2, 410, 'RETRY', {
         fontFamily: FONT_FAMILY,
         fontSize: '15px',
@@ -435,6 +461,7 @@ export class MenuScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
+    this.bindPressFeedback(retryBg, retryText);
     retryBg.on('pointerdown', () => this.scene.restart());
   }
 }
