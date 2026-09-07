@@ -30,6 +30,9 @@ export interface PlayerCareer {
   coins: number;
   gems: number;
   trophies: number;
+  startingGarrisonLevel: number;
+  productionLevel: number;
+  armySpeedLevel: number;
   matchesPlayed: number;
   matchesWon: number;
   currentStreak: number;
@@ -76,6 +79,9 @@ export function createDefaultCareer(playerId: string): PlayerCareer {
     coins: 100, // Welcome starting capital
     gems: 10,
     trophies: 0,
+    startingGarrisonLevel: 0,
+    productionLevel: 0,
+    armySpeedLevel: 0,
     matchesPlayed: 0,
     matchesWon: 0,
     currentStreak: 0,

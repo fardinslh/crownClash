@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { LOGICAL_HEIGHT, LOGICAL_WIDTH } from '@crown-clash/game-core';
 import { createPlatformAdapter } from '@crown-clash/platform';
 import { GameScene } from './scenes/GameScene.js';
+import { MenuScene } from './scenes/MenuScene.js';
 
 // 1. Initialize Platform Adapter (Bale -> Eitaa -> Telegram -> Browser)
 const platform = createPlatformAdapter();
@@ -22,7 +23,7 @@ const config: Phaser.Types.Core.GameConfig = {
     autoRound: true,
   },
   backgroundColor: '#070b14',
-  scene: [GameScene],
+  scene: [MenuScene, GameScene],
   render: {
     antialias: true,
     antialiasGL: true,

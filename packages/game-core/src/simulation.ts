@@ -2,6 +2,7 @@ import { resolveArrival } from './combat.js';
 import { tickUnitGeneration } from './generation.js';
 import { createDefaultTerritories } from './map.js';
 import { CombatResult, GameState, MarchingArmy, MatchStatus, Territory } from './types.js';
+import type { PlayerUpgradeModifiers } from './upgrades.js';
 
 export interface StepResult {
   state: GameState;
@@ -11,9 +12,17 @@ export interface StepResult {
 
 export const DEFAULT_MATCH_TIME_LIMIT = 90; // 90 seconds maximum match duration
 
-export function createInitialGameState(timeLimit: number = DEFAULT_MATCH_TIME_LIMIT): GameState {
+export interface InitialGameOptions {
+  timeLimit?: number;
+  playerModifiers?: PlayerUpgradeModifiers;
+}
+
+export function createInitialGameState(options: number | InitialGameOptions = DEFAULT_MATCH_TIME_LIMIT): GameState {
+  const timeLimit = typeof options === 'number' ? options : (options.timeLimit ?? DEFAULT_MATCH_TIME_LIMIT);
+  const playerModifiers = typeof options === 'number' ? undefined : options.playerModifiers;
+
   return {
-    territories: createDefaultTerritories(),
+    territories: createDefaultTerritories(playerModifiers),
     armies: [],
     status: 'playing',
     elapsedTimeSeconds: 0,

@@ -1,4 +1,5 @@
 import { Territory } from './types.js';
+import type { PlayerUpgradeModifiers } from './upgrades.js';
 
 export const LOGICAL_WIDTH = 400;
 export const LOGICAL_HEIGHT = 720;
@@ -7,7 +8,13 @@ export const LOGICAL_HEIGHT = 720;
  * Creates the initial default map for Prototype v0.1.
  * 9 territories arranged in a 3-tier mobile-friendly portrait battlefield.
  */
-export function createDefaultTerritories(): Record<string, Territory> {
+export function createDefaultTerritories(
+  playerModifiers: PlayerUpgradeModifiers = {
+    startingUnits: 20,
+    productionRateMultiplier: 1,
+    armySpeedMultiplier: 1,
+  }
+): Record<string, Territory> {
   return {
     'p_base': {
       id: 'p_base',
@@ -16,9 +23,9 @@ export function createDefaultTerritories(): Record<string, Territory> {
       y: 610,
       radius: 36,
       owner: 'player',
-      units: 20,
+      units: playerModifiers.startingUnits,
       maxUnits: 65,
-      productionRate: 1.2,
+      productionRate: 1.2 * playerModifiers.productionRateMultiplier,
       tier: 3,
     },
     'e_base': {

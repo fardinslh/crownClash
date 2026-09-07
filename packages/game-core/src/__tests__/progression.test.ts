@@ -5,6 +5,7 @@ import {
   getRankTier,
   settleMatch,
 } from '../progression.js';
+import { getNextUpgradeCost, getPlayerUpgradeModifiers, purchaseUpgrade } from '../upgrades.js';
 import { MatchStats } from '../types.js';
 
 describe('Progression & Economy Engine', () => {
@@ -14,9 +15,75 @@ describe('Progression & Economy Engine', () => {
     expect(career.coins).toBe(100);
     expect(career.gems).toBe(10);
     expect(career.trophies).toBe(0);
+    expect(career.startingGarrisonLevel).toBe(0);
+    expect(career.productionLevel).toBe(0);
+    expect(career.armySpeedLevel).toBe(0);
     expect(career.matchesPlayed).toBe(0);
     expect(career.matchesWon).toBe(0);
     expect(career.currentStreak).toBe(0);
+  });
+
+  describe('Upgrade Purchases', () => {
+    it('deducts the configured cost and creates an auditable coin entry', () => {
+      const initial = createDefaultCareer('upgrader_1');
+      const result = purchaseUpgrade(initial, 'production', 'upgrade_001', 1700000000000);
+
+      expect(result.success).toBe(true);
+      if (!result.success) throw new Error('Expected upgrade purchase to succeed');
+      expect(result.cost).toBe(50);
+      expect(result.newCareer.productionLevel).toBe(1);
+      expect(result.newCareer.coins).toBe(50);
+      expect(initial.productionLevel).toBe(0);
+      expect(result.ledgerEntry).toMatchObject({
+        id: 'upgrade_001',
+        player: 'upgrader_1',
+        currency: 'coins',
+        amount: -50,
+        reason: 'upgrade_production',
+        source: 'upgrade_purchase',
+        previousBalance: 100,
+        resultingBalance: 50,
+        timestamp: 1700000000000,
+      });
+    });
+
+    it('rejects unaffordable and max-level upgrades without changing career', () => {
+      const poorCareer = { ...createDefaultCareer('upgrader_2'), coins: 49 };
+      const unaffordable = purchaseUpgrade(poorCareer, 'army_speed', 'upgrade_002');
+
+      expect(unaffordable.success).toBe(false);
+      if (unaffordable.success) throw new Error('Expected upgrade purchase to fail');
+      expect(unaffordable.reason).toBe('insufficient_coins');
+      expect(unaffordable.newCareer).toEqual(poorCareer);
+
+      const maxedCareer = {
+        ...createDefaultCareer('upgrader_3'),
+        startingGarrisonLevel: 5,
+        coins: 9999,
+      };
+      expect(getNextUpgradeCost(maxedCareer, 'starting_garrison')).toBeNull();
+
+      const maxed = purchaseUpgrade(maxedCareer, 'starting_garrison', 'upgrade_003');
+      expect(maxed.success).toBe(false);
+      if (maxed.success) throw new Error('Expected max-level purchase to fail');
+      expect(maxed.reason).toBe('max_level');
+      expect(maxed.newCareer).toEqual(maxedCareer);
+    });
+
+    it('calculates deterministic next-match modifiers from levels', () => {
+      const career = {
+        ...createDefaultCareer('upgrader_4'),
+        startingGarrisonLevel: 2,
+        productionLevel: 3,
+        armySpeedLevel: 4,
+      };
+
+      expect(getPlayerUpgradeModifiers(career)).toEqual({
+        startingUnits: 26,
+        productionRateMultiplier: 1.24,
+        armySpeedMultiplier: 1.24,
+      });
+    });
   });
 
   describe('Rank Tiers', () => {
@@ -122,6 +189,27 @@ describe('Progression & Economy Engine', () => {
       expect(trophyEntry.previousBalance).toBe(0);
       expect(trophyEntry.resultingBalance).toBe(30);
       expect(trophyEntry.amount).toBe(30);
+    });
+
+    it('preserves purchased upgrade levels during match settlement', () => {
+      const initial = {
+        ...createDefaultCareer('upgrader_5'),
+        startingGarrisonLevel: 1,
+        productionLevel: 2,
+        armySpeedLevel: 3,
+      };
+      const stats: MatchStats = {
+        matchDurationSeconds: 90,
+        playerUnitsDispatched: 20,
+        enemyUnitsDispatched: 20,
+        territoriesCapturedByPlayer: 2,
+        territoriesCapturedByEnemy: 2,
+      };
+
+      const settlement = settleMatch(initial, 'draw', stats, 'match_upgrades');
+      expect(settlement.newCareer.startingGarrisonLevel).toBe(1);
+      expect(settlement.newCareer.productionLevel).toBe(2);
+      expect(settlement.newCareer.armySpeedLevel).toBe(3);
     });
 
     it('prevents trophy balance from dropping below zero on defeat', () => {

@@ -1,0 +1,39 @@
+import type { UpgradeFailureReason, UpgradeType } from '@crown-clash/game-core';
+
+export type UpgradeAnalyticsEvent =
+  | {
+      name: 'upgrade_panel_viewed';
+      coins: number;
+      startingGarrisonLevel: number;
+      productionLevel: number;
+      armySpeedLevel: number;
+    }
+  | {
+      name: 'upgrade_purchase_succeeded';
+      upgradeType: UpgradeType;
+      level: number;
+      cost: number;
+      resultingCoins: number;
+    }
+  | {
+      name: 'upgrade_purchase_failed';
+      upgradeType: UpgradeType;
+      cost: number | null;
+      reason: UpgradeFailureReason;
+      coins: number;
+    };
+
+export type AnalyticsEvent =
+  | UpgradeAnalyticsEvent
+  | { name: 'session_start'; playerId: string }
+  | { name: 'menu_viewed'; coins: number; trophies: number; rankId: string }
+  | { name: 'match_start'; source: 'menu' | 'rematch' };
+
+export function trackEvent(event: AnalyticsEvent): void {
+  if (typeof window === 'undefined' || typeof CustomEvent === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('crown-clash:analytics', { detail: event }));
+}
+
+export function trackUpgradeEvent(event: UpgradeAnalyticsEvent): void {
+  trackEvent(event);
+}

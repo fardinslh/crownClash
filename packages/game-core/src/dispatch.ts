@@ -34,7 +34,8 @@ export function dispatchArmy(
   target: Territory,
   expectedOwner: Team,
   dispatchRatio: number = 0.5,
-  armyIdGenerator: () => string = () => `army_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+  armyIdGenerator: () => string = () => `army_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+  travelSpeedMultiplier: number = 1
 ): DispatchResult {
   if (source.id === target.id) {
     return { success: false, reason: 'Cannot dispatch to the same territory' };
@@ -56,7 +57,9 @@ export function dispatchArmy(
 
   const distance = Math.hypot(target.x - source.x, target.y - source.y);
   // Journey duration in seconds
-  const durationSeconds = Math.max(1.0, distance / BASE_ARMY_TRAVEL_SPEED);
+  const safeSpeedMultiplier =
+    Number.isFinite(travelSpeedMultiplier) && travelSpeedMultiplier > 0 ? travelSpeedMultiplier : 1;
+  const durationSeconds = Math.max(1.0, distance / (BASE_ARMY_TRAVEL_SPEED * safeSpeedMultiplier));
   const speed = 1 / durationSeconds; // progress increase per second
 
   const army: MarchingArmy = {
@@ -88,7 +91,8 @@ export function dispatchMultipleArmies(
   sources: Territory[],
   target: Territory,
   expectedOwner: Team,
-  dispatchRatio: number = 0.5
+  dispatchRatio: number = 0.5,
+  travelSpeedMultiplier: number = 1
 ): MultiDispatchResult {
   const successes: DispatchResult[] = [];
   const armies: MarchingArmy[] = [];
@@ -97,7 +101,14 @@ export function dispatchMultipleArmies(
 
   for (const source of sources) {
     if (source.id === target.id) continue;
-    const res = dispatchArmy(source, target, expectedOwner, dispatchRatio);
+    const res = dispatchArmy(
+      source,
+      target,
+      expectedOwner,
+      dispatchRatio,
+      undefined,
+      travelSpeedMultiplier
+    );
     if (res.success && res.army && res.sourceTerritory) {
       successes.push(res);
       armies.push(res.army);
