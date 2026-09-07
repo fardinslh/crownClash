@@ -2,7 +2,7 @@
 
 This is the Docker-deployed backend for Crown Clash. It preserves the API and
 PostgreSQL schema used by `apps/game`, including server-authoritative economy
-settlement and deterministic async PvP replay.
+settlement and live 1v1 PvP matches over WebSockets.
 
 ## Docker
 
@@ -28,6 +28,14 @@ Required production variables:
 
 The service runs migrations on startup and shuts down gracefully on `SIGTERM`.
 The Go service is the only production backend.
+
+## Live PvP
+
+`GET /pvp/live` upgrades to an authenticated WebSocket. The first client frame
+contains the session token, followed by `join` with `queue`, `create`, or
+`join` mode. The backend owns match ticks, command validation, disconnect
+surrenders, and transactional settlement. This first version requires one Go
+backend instance because queue and invite-room state are held in memory.
 
 ## Validation
 

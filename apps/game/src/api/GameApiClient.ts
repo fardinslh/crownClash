@@ -12,6 +12,7 @@ import type {
   UpgradeType,
 } from '@crown-clash/game-core';
 import type { PlatformAdapter } from '@crown-clash/platform';
+import { LiveMatchClient } from './LiveMatchClient.js';
 
 interface LoginResponse {
   token: string;
@@ -67,6 +68,7 @@ export interface CareerApi {
     actions: readonly PvpAction[]
   ): Promise<PvpAttackResult>;
   getPvpHistory(limit?: number): Promise<PvpAttackHistoryEntry[]>;
+  openLiveMatch(): LiveMatchClient;
 }
 
 export class GameApiError extends Error {
@@ -175,6 +177,13 @@ export class GameApiClient implements CareerApi {
 
   public async getPvpHistory(limit = 20): Promise<PvpAttackHistoryEntry[]> {
     return (await this.request<PvpHistoryResponse>(`/pvp/history?limit=${limit}`)).history;
+  }
+
+  public openLiveMatch(): LiveMatchClient {
+    if (!this.sessionToken) {
+      throw new GameApiError('missing_session_token', 401);
+    }
+    return new LiveMatchClient(this.baseUrl, this.sessionToken);
   }
 
   private async request<T>(

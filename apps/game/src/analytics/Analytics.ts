@@ -36,7 +36,13 @@ export type AnalyticsEvent =
       status: 'victory' | 'defeat' | 'draw';
       isRevenge: boolean;
     }
-  | { name: 'pvp_attack_failed'; defenderId: string; reason: string };
+  | { name: 'pvp_attack_failed'; defenderId: string; reason: string }
+  | { name: 'live_queue_joined' }
+  | { name: 'live_invite_created' }
+  | { name: 'live_invite_joined' }
+  | { name: 'live_match_started'; matchId: string }
+  | { name: 'live_match_ended'; status: 'victory' | 'defeat' | 'draw' }
+  | { name: 'live_match_disconnected' };
 
 export function trackEvent(event: AnalyticsEvent): void {
   if (typeof window === 'undefined' || typeof CustomEvent === 'undefined') return;

@@ -13,8 +13,6 @@ import {
   LOGICAL_HEIGHT,
   LOGICAL_WIDTH,
   MatchStats,
-  PvpAction,
-  PvpOpponent,
   stepSimulation,
   Territory,
   UPGRADE_DEFINITIONS,
@@ -26,6 +24,7 @@ import { trackEvent, trackUpgradeEvent } from '../analytics/Analytics.js';
 import { sounds } from '../audio/SoundEffects.js';
 import { THEME } from '../theme.js';
 import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
+import { LiveMatchClient, LiveMatchStarted } from '../api/LiveMatchClient.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 const MONO_FONT_FAMILY = '"Segoe UI", monospace, -apple-system, sans-serif';
@@ -74,7 +73,7 @@ export class GameScene extends Phaser.Scene {
   private dragBadgeBg!: Phaser.GameObjects.Rectangle;
   private dragBadgeText!: Phaser.GameObjects.Text;
 
-  // AI Timer
+  // Local AI Timer
   private aiTimer: number = 0;
   private aiInterval: number = 1.8; // seconds between AI decisions
 
@@ -96,9 +95,9 @@ export class GameScene extends Phaser.Scene {
   private activeMatchId = '';
   private backendConnectPromise: Promise<void> | null = null;
   private resultPending = false;
-  private pvpMode = false;
-  private pvpOpponent?: PvpOpponent;
-  private pvpActions: PvpAction[] = [];
+  private liveMode = false;
+  private liveClient?: LiveMatchClient;
+  private liveOpponentName = 'Opponent';
 
   // Result Modal
   private resultModalContainer?: Phaser.GameObjects.Container;
@@ -137,12 +136,13 @@ export class GameScene extends Phaser.Scene {
     this.careerManager = CareerManager.getInstance(user.id);
     const launchData = this.scene.settings.data as {
       source?: 'menu' | 'rematch';
-      mode?: 'bot' | 'pvp';
-      opponent?: PvpOpponent;
+      mode?: 'bot' | 'live';
+      liveClient?: LiveMatchClient;
+      liveMatch?: LiveMatchStarted;
     } | undefined;
-    this.pvpMode = launchData?.mode === 'pvp';
-    this.pvpOpponent = launchData?.opponent;
-    this.pvpActions = [];
+    this.liveMode = launchData?.mode === 'live';
+    this.liveClient = launchData?.liveClient;
+    this.liveOpponentName = launchData?.liveMatch?.opponentName || 'Opponent';
     this.activeMatchId = this.createMatchId();
     this.backendConnectPromise = this.careerManager
       .connect(this.platform)
@@ -152,6 +152,11 @@ export class GameScene extends Phaser.Scene {
       });
     trackEvent({ name: 'match_start', source: launchData?.source ?? 'menu' });
     this.createUpgradedMatchState();
+    if (this.liveMode && launchData?.liveMatch) {
+      this.gameState = launchData.liveMatch.state;
+      this.activeMatchId = launchData.liveMatch.matchId;
+      this.bindLiveMatch(this.liveClient);
+    }
     this.accumulators = {};
     for (const vis of this.territoryVisuals.values()) {
       vis.container.destroy();
@@ -165,7 +170,7 @@ export class GameScene extends Phaser.Scene {
     this.hoveredTargetId = null;
     this.lastHoveredFriendlyId = null;
     this.selectionRings.clear();
-    this.aiTimer = 1.6; // give player a fair 1.6s reaction window at match start
+    this.aiTimer = 1.6; // give the bot a fair reaction window at match start
     this.lastHeartbeatSecond = -1;
 
     // Start atmospheric battle music
@@ -354,6 +359,9 @@ export class GameScene extends Phaser.Scene {
 
     // Left: Player Profile Pill with dynamic sizing
     let rawName = user.username || 'Commander';
+    if (this.liveMode) {
+      rawName = `LIVE vs ${this.liveOpponentName}`;
+    }
     if (rawName.startsWith('Commander_')) {
       rawName = 'Cmdr ' + rawName.slice(10);
     } else if (rawName.length > 8) {
@@ -831,37 +839,43 @@ export class GameScene extends Phaser.Scene {
         .filter((t): t is Territory => Boolean(t));
 
       if (target && sources.length > 0) {
-        // Execute Coordinated Multi-Dispatch (or Reinforcement)
-        const multiDispatch = dispatchMultipleArmies(
-          sources,
-          target,
-          'player',
-          0.5,
-          this.playerArmySpeedMultiplier
-        );
-
-        if (multiDispatch.armies.length > 0) {
-          // Update all source territories in state
-          Object.assign(this.gameState.territories, multiDispatch.updatedSources);
-          this.gameState.armies.push(...multiDispatch.armies);
-          this.gameState.stats.playerUnitsDispatched += multiDispatch.totalUnitsDispatched;
-          if (this.pvpMode) {
-            for (const army of multiDispatch.armies) {
-              this.pvpActions.push({
-                sequence: this.pvpActions.length,
-                atSeconds: this.gameState.elapsedTimeSeconds,
-                sourceId: army.sourceId,
-                targetId: army.targetId,
-              });
+        if (this.liveMode) {
+          try {
+            for (const source of sources) {
+              this.liveClient?.sendDispatch(source.id, target.id);
             }
+            if (target.owner === 'player') {
+              sounds.playReinforce();
+            } else {
+              sounds.playDispatch();
+            }
+            this.platform.hapticImpact(sources.length > 1 ? 'heavy' : 'medium');
+          } catch (error) {
+            console.warn('[GameScene] Live dispatch failed:', error);
+            this.showLiveConnectionError();
           }
+        } else {
+          // Execute Coordinated Multi-Dispatch (or Reinforcement)
+          const multiDispatch = dispatchMultipleArmies(
+            sources,
+            target,
+            'player',
+            0.5,
+            this.playerArmySpeedMultiplier
+          );
 
-          if (target.owner === 'player') {
-            sounds.playReinforce();
-          } else {
-            sounds.playDispatch();
+          if (multiDispatch.armies.length > 0) {
+            Object.assign(this.gameState.territories, multiDispatch.updatedSources);
+            this.gameState.armies.push(...multiDispatch.armies);
+            this.gameState.stats.playerUnitsDispatched += multiDispatch.totalUnitsDispatched;
+
+            if (target.owner === 'player') {
+              sounds.playReinforce();
+            } else {
+              sounds.playDispatch();
+            }
+            this.platform.hapticImpact(multiDispatch.armies.length > 1 ? 'heavy' : 'medium');
           }
-          this.platform.hapticImpact(multiDispatch.armies.length > 1 ? 'heavy' : 'medium');
         }
       }
     }
@@ -870,7 +884,7 @@ export class GameScene extends Phaser.Scene {
   update(_time: number, delta: number): void {
     const deltaSeconds = delta / 1000;
 
-    if (this.gameState.status === 'playing') {
+    if (this.gameState.status === 'playing' && !this.liveMode) {
       // 1. AI Decision Ticker
       this.aiTimer -= deltaSeconds;
       if (this.aiTimer <= 0) {
@@ -895,6 +909,9 @@ export class GameScene extends Phaser.Scene {
       if (this.gameState.status !== 'playing') {
         this.showResultModal(this.gameState.status);
       }
+    }
+    if (this.liveMode && this.gameState.status === 'playing') {
+      this.updateHud();
     }
 
     // 6. Update Visuals
@@ -1335,52 +1352,18 @@ export class GameScene extends Phaser.Scene {
   private async finalizeMatch(status: 'victory' | 'defeat' | 'draw', stats: MatchStats): Promise<void> {
     try {
       await this.backendConnectPromise;
-      let authoritativeStatus = status;
-      let authoritativeStats = stats;
-      let settlement;
-
-      if (this.pvpMode) {
-        if (!this.pvpOpponent) {
-          throw new Error('pvp_opponent_missing');
-        }
-        if (!this.careerManager.isRemoteConnected()) {
-          throw new Error('backend_required_for_pvp');
-        }
-        const result = await this.careerManager.submitPvpAttackRemote(
-          this.pvpOpponent.playerId,
-          this.activeMatchId,
-          this.pvpActions
-        );
-        authoritativeStatus = result.summary.status;
-        authoritativeStats = result.summary.stats;
-        settlement = result.settlement;
-        trackEvent({
-          name: 'pvp_attack_end',
-          defenderId: this.pvpOpponent.playerId,
-          status: authoritativeStatus,
-          isRevenge: result.isRevenge,
-        });
-      } else {
-        settlement = this.careerManager.isRemoteConnected()
-          ? await this.careerManager.recordMatchResultRemote(status, stats, this.activeMatchId)
-          : isLocalCareerFallbackAllowed()
-            ? this.careerManager.recordMatchResult(status, stats, this.activeMatchId)
-            : (() => {
-                throw new Error('backend_required_for_match_settlement');
-              })();
-      }
+      const settlement = this.careerManager.isRemoteConnected()
+        ? await this.careerManager.recordMatchResultRemote(status, stats, this.activeMatchId)
+        : isLocalCareerFallbackAllowed()
+          ? this.careerManager.recordMatchResult(status, stats, this.activeMatchId)
+          : (() => {
+              throw new Error('backend_required_for_match_settlement');
+            })();
 
       this.resultPending = false;
-      this.renderResultModal(authoritativeStatus, authoritativeStats, settlement);
+      this.renderResultModal(status, stats, settlement);
     } catch (error) {
       this.resultPending = false;
-      if (this.pvpMode && this.pvpOpponent) {
-        trackEvent({
-          name: 'pvp_attack_failed',
-          defenderId: this.pvpOpponent.playerId,
-          reason: error instanceof Error ? error.message : 'unknown_error',
-        });
-      }
       this.showSettlementError(status, stats, error);
     }
   }
@@ -1868,8 +1851,9 @@ export class GameScene extends Phaser.Scene {
     const card = this.add
       .rectangle(0, 0, 300, 270, 0x0c1322, 0.99)
       .setStrokeStyle(2, 0xef4444, 0.95);
+    const liveConnectionLost = this.liveMode;
     const title = this.add
-      .text(0, -62, 'SYNC FAILED', {
+      .text(0, -62, liveConnectionLost ? 'CONNECTION LOST' : 'SYNC FAILED', {
         fontFamily: FONT_FAMILY,
         fontSize: '24px',
         fontStyle: '900',
@@ -1880,7 +1864,13 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     const message = this.add
-      .text(0, -20, 'Your result was not saved.\nRetry before leaving the battle.', {
+      .text(
+        0,
+        -20,
+        liveConnectionLost
+          ? 'The live match was surrendered.\nReturn to the main menu.'
+          : 'Your result was not saved.\nRetry before leaving the battle.',
+        {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: 'bold',
@@ -1888,14 +1878,15 @@ export class GameScene extends Phaser.Scene {
         align: 'center',
         lineSpacing: 5,
         resolution: 2,
-      })
+        }
+      )
       .setOrigin(0.5);
     const retryBg = this.add
       .rectangle(0, 55, 190, 50, 0x2563eb, 1)
       .setStrokeStyle(2, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
     const retryText = this.add
-      .text(0, 55, 'RETRY SYNC', {
+      .text(0, 55, liveConnectionLost ? 'MAIN MENU' : 'RETRY SYNC', {
         fontFamily: FONT_FAMILY,
         fontSize: '14px',
         fontStyle: '900',
@@ -1910,8 +1901,12 @@ export class GameScene extends Phaser.Scene {
     retryBg.on('pointerdown', () => {
       modal.destroy();
       this.resultModalContainer = undefined;
-      this.resultPending = true;
-      void this.finalizeMatch(status, stats);
+      if (liveConnectionLost) {
+        this.returnToMenu();
+      } else {
+        this.resultPending = true;
+        void this.finalizeMatch(status, stats);
+      }
     });
 
     const menuBg = this.add
@@ -2030,7 +2025,6 @@ export class GameScene extends Phaser.Scene {
 
     // Reset state & restart scene cleanly
     this.activeMatchId = this.createMatchId();
-    this.pvpActions = [];
     trackEvent({ name: 'match_start', source: 'rematch' });
     this.createUpgradedMatchState();
     this.accumulators = {};
@@ -2059,5 +2053,53 @@ export class GameScene extends Phaser.Scene {
     const modifiers = getPlayerUpgradeModifiers(this.careerManager.getCareer());
     this.playerArmySpeedMultiplier = modifiers.armySpeedMultiplier;
     this.gameState = createInitialGameState({ playerModifiers: modifiers });
+  }
+
+  private bindLiveMatch(client?: LiveMatchClient): void {
+    if (!client) {
+      this.showLiveConnectionError();
+      return;
+    }
+    client.on('state', (state) => {
+      if (this.resultModalContainer) return;
+      this.gameState = state;
+    });
+    client.on('command_rejected', ({ code }) => {
+      this.spawnFloatingText(LOGICAL_WIDTH / 2, 96, code.replaceAll('_', ' '), '#f87171');
+    });
+    client.on('match_result', (result) => {
+      this.gameState.status = result.status;
+      this.resultPending = false;
+      this.careerManager.applyLiveMatchSettlement(result.settlement);
+      trackEvent({ name: 'live_match_ended', status: result.status });
+      this.renderResultModal(result.status, result.stats, result.settlement);
+      client.close();
+    });
+    client.on('closed', () => {
+      if (!this.resultModalContainer && this.gameState.status === 'playing') {
+        trackEvent({ name: 'live_match_disconnected' });
+        this.showLiveConnectionError();
+      }
+    });
+    client.on('error', ({ code }) => {
+      if (code === 'settlement_failed') {
+        this.showLiveConnectionError();
+      }
+    });
+  }
+
+  private showLiveConnectionError(): void {
+    if (this.resultModalContainer) return;
+    this.liveClient?.close();
+    this.liveClient = undefined;
+    this.gameState.status = 'defeat';
+    const stats: MatchStats = {
+      matchDurationSeconds: Math.floor(this.gameState.elapsedTimeSeconds),
+      playerUnitsDispatched: this.gameState.stats.playerUnitsDispatched,
+      enemyUnitsDispatched: this.gameState.stats.enemyUnitsDispatched,
+      territoriesCapturedByPlayer: this.gameState.stats.territoriesCapturedByPlayer,
+      territoriesCapturedByEnemy: this.gameState.stats.territoriesCapturedByEnemy,
+    };
+    this.showSettlementError('defeat', stats, new Error('live_connection_closed'));
   }
 }

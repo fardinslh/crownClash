@@ -3,7 +3,6 @@ import {
   getRankTier,
   LOGICAL_HEIGHT,
   LOGICAL_WIDTH,
-  PvpOpponent,
 } from '@crown-clash/game-core';
 import { trackEvent } from '../analytics/Analytics.js';
 import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
@@ -11,10 +10,13 @@ import { CareerManager } from '../career/CareerManager.js';
 import { sounds } from '../audio/SoundEffects.js';
 import { THEME } from '../theme.js';
 import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
+import { LiveMatchClient } from '../api/LiveMatchClient.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 
 export class MenuScene extends Phaser.Scene {
+  private liveClient?: LiveMatchClient;
+
   constructor() {
     super({ key: 'MenuScene' });
   }
@@ -219,7 +221,7 @@ export class MenuScene extends Phaser.Scene {
       .text(
         LOGICAL_WIDTH / 2,
         590,
-        careerManager.isRemoteConnected() ? 'RAID A REALM  🏰' : 'RAID OFFLINE',
+        careerManager.isRemoteConnected() ? 'LIVE PVP  ⚔' : 'LIVE PVP OFFLINE',
         {
           fontFamily: FONT_FAMILY,
           fontSize: '14px',
@@ -238,7 +240,7 @@ export class MenuScene extends Phaser.Scene {
     } else {
       raidBg.on('pointerdown', () => {
         raidBg.disableInteractive();
-        void this.openPvpLobby(careerManager, raidBg, raidText);
+        this.openLivePvpLobby(platform, careerManager, raidBg, raidText);
       });
     }
 
@@ -289,11 +291,12 @@ export class MenuScene extends Phaser.Scene {
     background.on('pointerout', reset);
   }
 
-  private async openPvpLobby(
+  private openLivePvpLobby(
+    platform: PlatformAdapter,
     careerManager: CareerManager,
     raidButton: Phaser.GameObjects.Rectangle,
     raidText: Phaser.GameObjects.Text
-  ): Promise<void> {
+  ): void {
     const overlay = this.add.container(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2).setDepth(150);
     const backdrop = this.add
       .rectangle(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT, 0x000000, 0.76)
@@ -302,7 +305,7 @@ export class MenuScene extends Phaser.Scene {
       .rectangle(0, 0, 330, 430, 0x0c1322, 0.99)
       .setStrokeStyle(2, 0x60a5fa, 0.95);
     const title = this.add
-      .text(0, -180, 'RAID A REALM', {
+      .text(0, -190, 'LIVE PVP', {
         fontFamily: FONT_FAMILY,
         fontSize: '24px',
         fontStyle: '900',
@@ -313,7 +316,7 @@ export class MenuScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     const subtitle = this.add
-      .text(0, -145, 'Choose an opponent near your rank', {
+      .text(0, -155, 'Play against a commander in real time', {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -322,7 +325,7 @@ export class MenuScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     const status = this.add
-      .text(0, -70, 'SCOUTING REALMS...', {
+      .text(0, 125, 'Choose how to enter the battle', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -332,10 +335,10 @@ export class MenuScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     const closeBg = this.add
-      .rectangle(140, -190, 40, 40, 0x000000, 0)
+      .rectangle(140, -200, 40, 40, 0x000000, 0)
       .setInteractive({ useHandCursor: true });
     const close = this.add
-      .text(140, -190, '✕', {
+      .text(140, -200, '✕', {
         fontFamily: FONT_FAMILY,
         fontSize: '20px',
         color: '#94a3b8',
@@ -344,76 +347,147 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     const closeLobby = (): void => {
+      this.liveClient?.close();
+      this.liveClient = undefined;
       overlay.destroy();
       raidButton.setInteractive({ useHandCursor: true });
-      raidText.setText('RAID A REALM  🏰');
+      raidText.setText('LIVE PVP  ⚔');
     };
     closeBg.on('pointerdown', closeLobby);
     this.bindPressFeedback(closeBg, close);
-    overlay.add([backdrop, card, title, subtitle, status, closeBg, close]);
+    const queueBg = this.add
+      .rectangle(0, -95, 250, 50, 0x2563eb, 1)
+      .setStrokeStyle(2, 0x60a5fa, 1)
+      .setInteractive({ useHandCursor: true });
+    const queueText = this.add
+      .text(0, -95, 'FIND OPPONENT  ⚔', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '14px',
+        fontStyle: '900',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    const createBg = this.add
+      .rectangle(0, -35, 250, 50, 0x111c33, 1)
+      .setStrokeStyle(1.5, 0x60a5fa, 1)
+      .setInteractive({ useHandCursor: true });
+    const createText = this.add
+      .text(0, -35, 'CREATE INVITE  🔗', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '14px',
+        fontStyle: '900',
+        color: '#bfdbfe',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    const joinBg = this.add
+      .rectangle(0, 25, 250, 50, 0x111c33, 1)
+      .setStrokeStyle(1.5, 0x60a5fa, 1)
+      .setInteractive({ useHandCursor: true });
+    const joinText = this.add
+      .text(0, 25, 'JOIN INVITE  ↗', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '14px',
+        fontStyle: '900',
+        color: '#bfdbfe',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    this.bindPressFeedback(queueBg, queueText);
+    this.bindPressFeedback(createBg, createText);
+    this.bindPressFeedback(joinBg, joinText);
+    overlay.add([
+      backdrop,
+      card,
+      title,
+      subtitle,
+      status,
+      closeBg,
+      close,
+      queueBg,
+      queueText,
+      createBg,
+      createText,
+      joinBg,
+      joinText,
+    ]);
 
-    try {
-      const opponents = await careerManager.getPvpOpponentsRemote();
-      trackEvent({ name: 'pvp_opponents_viewed', count: opponents.length });
-      status.setText(opponents.length > 0 ? '' : 'No realms found yet.\nTry again after more players join.');
-      this.renderOpponentRows(overlay, opponents, closeLobby);
-    } catch (error) {
-      console.warn('[MenuScene] Failed to load PvP opponents:', error);
-      status.setText('Could not scout realms.\nPlease try again.');
-      raidButton.setInteractive({ useHandCursor: true });
-      raidText.setText('RAID A REALM  🏰');
-    }
-  }
-
-  private renderOpponentRows(
-    overlay: Phaser.GameObjects.Container,
-    opponents: PvpOpponent[],
-    closeLobby: () => void
-  ): void {
-    opponents.slice(0, 5).forEach((opponent, index) => {
-      const y = -80 + index * 58;
-      const row = this.add
-        .rectangle(0, y, 280, 48, 0x111827, 0.98)
-        .setStrokeStyle(1, opponent.isRevenge ? 0xf59e0b : 0x334155, 1)
-        .setInteractive({ useHandCursor: true });
-      const displayName =
-        opponent.displayName.length > 18
-          ? `${opponent.displayName.slice(0, 17)}…`
-          : opponent.displayName;
-      const label = this.add
-        .text(-125, y, `${opponent.isRevenge ? '⚔' : '🏰'} ${displayName}`, {
-          fontFamily: FONT_FAMILY,
-          fontSize: '11px',
-          fontStyle: 'bold',
-          color: '#f8fafc',
-          resolution: 2,
-        })
-        .setOrigin(0, 0.5);
-      const meta = this.add
-        .text(125, y, `${opponent.trophies} 🏆`, {
-          fontFamily: FONT_FAMILY,
-          fontSize: '10px',
-          fontStyle: 'bold',
-          color: opponent.isRevenge ? '#fbbf24' : '#93c5fd',
-          align: 'right',
-          resolution: 2,
-        })
-        .setOrigin(1, 0.5);
-
-      row.on('pointerdown', () => {
-        trackEvent({
-          name: 'pvp_attack_start',
-          defenderId: opponent.playerId,
-          isRevenge: opponent.isRevenge,
-        });
-        closeLobby();
-        this.scene.start('GameScene', {
-          source: 'menu',
-          mode: 'pvp',
-          opponent,
+    const startClient = (mode: 'queue' | 'create' | 'join', roomCode?: string): void => {
+      if (this.liveClient) return;
+      if (mode === 'queue') trackEvent({ name: 'live_queue_joined' });
+      if (mode === 'create') trackEvent({ name: 'live_invite_created' });
+      if (mode === 'join') trackEvent({ name: 'live_invite_joined' });
+      let client: LiveMatchClient;
+      try {
+        client = careerManager.openLiveMatchRemote();
+      } catch {
+        status.setText('COULD NOT CONNECT TO LIVE PVP');
+        raidButton.setInteractive({ useHandCursor: true });
+        raidText.setText('LIVE PVP  ⚔');
+        return;
+      }
+      this.liveClient = client;
+      let matchStarted = false;
+      client.on('queue_waiting', () => status.setText('WAITING FOR AN OPPONENT...'));
+      client.on('invite_waiting', () => status.setText('SHARE THE INVITE CODE WITH YOUR FRIEND'));
+      client.on('invite_created', ({ roomCode: createdCode }) => {
+        status.setText(`INVITE CODE: ${createdCode}\nWaiting for your friend...`);
+        const inviteUrl = new URL(window.location.href);
+        inviteUrl.searchParams.set('liveRoom', createdCode);
+        void platform.share({
+          text: `Join my live Crown Clash battle. Code: ${createdCode}`,
+          url: inviteUrl.toString(),
         });
       });
-      overlay.add([row, label, meta]);
+      client.on('match_started', (match) => {
+        matchStarted = true;
+        trackEvent({ name: 'live_match_started', matchId: match.matchId });
+        overlay.destroy();
+        this.liveClient = undefined;
+        this.scene.start('GameScene', {
+          source: 'menu',
+          mode: 'live',
+          liveClient: client,
+          liveMatch: match,
+        });
+      });
+      client.on('error', ({ code }) => {
+        if (matchStarted) return;
+        status.setText(`LIVE PVP ERROR\n${code}`);
+        client.close();
+        this.liveClient = undefined;
+        raidButton.setInteractive({ useHandCursor: true });
+        raidText.setText('LIVE PVP  ⚔');
+      });
+      client.on('closed', () => {
+        if (matchStarted) return;
+        status.setText('CONNECTION CLOSED');
+        this.liveClient = undefined;
+        raidButton.setInteractive({ useHandCursor: true });
+        raidText.setText('LIVE PVP  ⚔');
+      });
+      void client.connect(mode, roomCode).catch(() => {
+        status.setText('COULD NOT CONNECT TO LIVE PVP');
+        client.close();
+        this.liveClient = undefined;
+        raidButton.setInteractive({ useHandCursor: true });
+        raidText.setText('LIVE PVP  ⚔');
+      });
+    };
+
+    queueBg.on('pointerdown', () => startClient('queue'));
+    createBg.on('pointerdown', () => startClient('create'));
+    joinBg.on('pointerdown', () => {
+      const linkedRoomCode = new URLSearchParams(window.location.search).get('liveRoom');
+      const roomCode = linkedRoomCode || window.prompt('Enter the live invite code');
+      if (roomCode) startClient('join', roomCode);
     });
   }
 
