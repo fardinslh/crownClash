@@ -450,8 +450,8 @@ export class GameScene extends Phaser.Scene {
 
     // Right: Audio Toggle Pill
     const rightPillX = LOGICAL_WIDTH - 22;
-    this.add
-      .rectangle(rightPillX, 20, 32, 24, 0x0f172a, 0.95)
+    const muteBg = this.add
+      .rectangle(rightPillX, 20, 40, 32, 0x0f172a, 0.95)
       .setStrokeStyle(1.5, 0x334155, 0.8)
       .setDepth(95);
 
@@ -462,14 +462,15 @@ export class GameScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5)
-      .setDepth(96)
-      .setInteractive({ useHandCursor: true });
+      .setDepth(96);
 
-    muteBtn.on('pointerdown', () => {
+    muteBg.setInteractive({ useHandCursor: true });
+    muteBg.on('pointerdown', () => {
       const isMuted = sounds.toggleMute();
       muteBtn.setText(isMuted ? '🔇' : '🔊');
       this.platform.hapticSelection();
     });
+    this.bindPressFeedback(muteBg, muteBtn);
 
     // Auto-update HUD when career balance changes
     this.careerManager.subscribe((updatedCareer) => {
@@ -1657,6 +1658,7 @@ export class GameScene extends Phaser.Scene {
           resolution: 2,
         })
         .setOrigin(0.5);
+      this.bindPressFeedback(buyBg, buyText);
 
       const refresh = (): void => {
         const career = this.careerManager.getCareer();
@@ -1706,7 +1708,7 @@ export class GameScene extends Phaser.Scene {
     // Play Again Button
     const btnY = 170;
     const btnBg = this.add
-      .rectangle(0, btnY, 240, 44, isWin ? 0x2563eb : 0x374151, 1)
+      .rectangle(0, btnY, 240, 50, isWin ? 0x2563eb : 0x374151, 1)
       .setStrokeStyle(2, isWin ? 0x60a5fa : 0x9ca3af, 1)
       .setInteractive({ useHandCursor: true });
 
@@ -1721,6 +1723,7 @@ export class GameScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
+    this.bindPressFeedback(btnBg, btnText);
 
     btnBg.on('pointerover', () => {
       btnBg.setScale(1.03);
@@ -1739,7 +1742,7 @@ export class GameScene extends Phaser.Scene {
     // Native Messenger Share Button
     const shareY = 225;
     const shareBg = this.add
-      .rectangle(0, shareY, 240, 38, 0x1e293b, 1)
+      .rectangle(0, shareY, 240, 46, 0x1e293b, 1)
       .setStrokeStyle(1.5, 0x475569, 1)
       .setInteractive({ useHandCursor: true });
 
@@ -1754,6 +1757,7 @@ export class GameScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
+    this.bindPressFeedback(shareBg, shareText);
 
     shareBg.on('pointerover', () => {
       shareBg.setScale(1.02);
@@ -1773,7 +1777,7 @@ export class GameScene extends Phaser.Scene {
 
     const menuY = 275;
     const menuBg = this.add
-      .rectangle(0, menuY, 240, 38, 0x0f172a, 1)
+      .rectangle(0, menuY, 240, 46, 0x0f172a, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
     const menuText = this.add
@@ -1787,6 +1791,7 @@ export class GameScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
+    this.bindPressFeedback(menuBg, menuText);
 
     menuBg.on('pointerover', () => {
       menuBg.setScale(1.02);
@@ -1886,7 +1891,7 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     const retryBg = this.add
-      .rectangle(0, 55, 190, 42, 0x2563eb, 1)
+      .rectangle(0, 55, 190, 50, 0x2563eb, 1)
       .setStrokeStyle(2, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
     const retryText = this.add
@@ -1900,6 +1905,7 @@ export class GameScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
+    this.bindPressFeedback(retryBg, retryText);
 
     retryBg.on('pointerdown', () => {
       modal.destroy();
@@ -1909,7 +1915,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     const menuBg = this.add
-      .rectangle(0, 105, 190, 38, 0x0f172a, 1)
+      .rectangle(0, 105, 190, 46, 0x0f172a, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
     const menuText = this.add
@@ -1923,12 +1929,37 @@ export class GameScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
+    this.bindPressFeedback(menuBg, menuText);
     menuBg.on('pointerdown', () => {
       this.platform.hapticSelection();
       this.returnToMenu();
     });
 
     modal.add([card, title, message, retryBg, retryText, menuBg, menuText]);
+    modal.setScale(0.92).setAlpha(0);
+    this.tweens.add({
+      targets: modal,
+      scale: 1,
+      alpha: 1,
+      duration: 220,
+      ease: 'Back.easeOut',
+    });
+  }
+
+  private bindPressFeedback(
+    background: Phaser.GameObjects.Rectangle,
+    label: Phaser.GameObjects.Text
+  ): void {
+    const reset = (): void => {
+      background.setScale(1);
+      label.setScale(1);
+    };
+    background.on('pointerdown', () => {
+      background.setScale(0.96);
+      label.setScale(0.96);
+    });
+    background.on('pointerup', reset);
+    background.on('pointerout', reset);
   }
 
   private returnToMenu(): void {
