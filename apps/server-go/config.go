@@ -29,7 +29,7 @@ func LoadConfig() Config {
 		maxAge = value
 	}
 	origins := map[string]bool{}
-	for _, origin := range strings.Split(getenv("CLIENT_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"), ",") {
+	for _, origin := range strings.Split(getenv("CLIENT_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:3002,http://127.0.0.1:3002"), ",") {
 		if trimmed := strings.TrimSpace(origin); trimmed != "" {
 			origins[trimmed] = true
 		}
