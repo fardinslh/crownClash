@@ -8,8 +8,12 @@ import {
   EconomyLedgerEntry,
   MatchSettlement,
   MatchStats,
+  normalizeUpgradeLevel,
   PlayerCareer,
+  purchaseUpgrade as purchaseCareerUpgrade,
   settleMatch,
+  UpgradePurchaseResult,
+  UpgradeType,
 } from '@crown-clash/game-core';
 
 export class CareerManager {
@@ -71,6 +75,24 @@ export class CareerManager {
     return settlement;
   }
 
+  public purchaseUpgrade(type: UpgradeType): UpgradePurchaseResult {
+    const timestamp = Date.now();
+    const purchaseId = `upgrade_${type}_${timestamp}_${Math.random().toString(36).slice(2, 7)}`;
+    const result = purchaseCareerUpgrade(this.career, type, purchaseId, timestamp);
+
+    if (!result.success) {
+      return result;
+    }
+
+    this.career = result.newCareer;
+    this.ledger.push(result.ledgerEntry);
+    this.saveCareer();
+    this.saveLedger();
+    this.emitChange();
+
+    return result;
+  }
+
   private loadCareer(playerId: string): PlayerCareer {
     if (typeof window === 'undefined' || !window.localStorage) {
       return createDefaultCareer(playerId);
@@ -86,6 +108,12 @@ export class CareerManager {
             coins: Math.max(0, parsed.coins),
             gems: typeof parsed.gems === 'number' ? parsed.gems : 10,
             trophies: Math.max(0, parsed.trophies),
+            startingGarrisonLevel: normalizeUpgradeLevel(
+              parsed.startingGarrisonLevel,
+              'starting_garrison'
+            ),
+            productionLevel: normalizeUpgradeLevel(parsed.productionLevel, 'production'),
+            armySpeedLevel: normalizeUpgradeLevel(parsed.armySpeedLevel, 'army_speed'),
             matchesPlayed: parsed.matchesPlayed ?? 0,
             matchesWon: parsed.matchesWon ?? 0,
             currentStreak: parsed.currentStreak ?? 0,

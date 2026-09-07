@@ -131,6 +131,28 @@ describe('Crown Clash - Domain Logic Tests', () => {
       expect(result.army!.targetId).toBe(target.id);
     });
 
+    it('applies an optional army travel-speed multiplier', () => {
+      const territories = createDefaultTerritories();
+      const normal = dispatchArmy(
+        territories['p_base'],
+        territories['n_center'],
+        'player',
+        0.5,
+        () => 'normal'
+      );
+      const upgraded = dispatchArmy(
+        territories['p_base'],
+        territories['n_center'],
+        'player',
+        0.5,
+        () => 'upgraded',
+        1.3
+      );
+
+      expect(upgraded.army!.speed).toBeGreaterThan(normal.army!.speed);
+      expect(upgraded.army!.units).toBe(normal.army!.units);
+    });
+
     it('rejects dispatch if sender does not own the source', () => {
       const territories = createDefaultTerritories();
       const eBase = territories['e_base'];
@@ -247,6 +269,24 @@ describe('Crown Clash - Domain Logic Tests', () => {
 
       const res = tickUnitGeneration(territories, accumulators, 10.0);
       expect(res.territories['p_base'].units).toBe(65);
+    });
+  });
+
+  describe('Player Match Modifiers', () => {
+    it('applies upgrades only to the initial player fortress', () => {
+      const state = createInitialGameState({
+        playerModifiers: {
+          startingUnits: 29,
+          productionRateMultiplier: 1.24,
+          armySpeedMultiplier: 1.18,
+        },
+      });
+
+      expect(state.territories['p_base'].units).toBe(29);
+      expect(state.territories['p_base'].productionRate).toBeCloseTo(1.488);
+      expect(state.territories['e_base'].units).toBe(20);
+      expect(state.territories['e_base'].productionRate).toBe(1.2);
+      expect(state.territories['n_bot_left'].productionRate).toBe(0.9);
     });
   });
 

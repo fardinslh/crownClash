@@ -7,13 +7,19 @@ import {
   dispatchMultipleArmies,
   evaluateAiMove,
   GameState,
+  getNextUpgradeCost,
+  getPlayerUpgradeModifiers,
+  getUpgradeLevel,
   LOGICAL_HEIGHT,
   LOGICAL_WIDTH,
   MatchStats,
   stepSimulation,
   Territory,
+  UPGRADE_DEFINITIONS,
+  UpgradeType,
 } from '@crown-clash/game-core';
 import { CareerManager } from '../career/CareerManager.js';
+import { trackEvent, trackUpgradeEvent } from '../analytics/Analytics.js';
 import { sounds } from '../audio/SoundEffects.js';
 import { THEME } from '../theme.js';
 import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
@@ -83,6 +89,7 @@ export class GameScene extends Phaser.Scene {
 
   // Career & Economy
   private careerManager!: CareerManager;
+  private playerArmySpeedMultiplier = 1;
 
   // Result Modal
   private resultModalContainer?: Phaser.GameObjects.Container;
@@ -119,7 +126,9 @@ export class GameScene extends Phaser.Scene {
     this.platform = (this.registry.get('platform') as PlatformAdapter) || createPlatformAdapter();
     const user = this.platform.getUser();
     this.careerManager = CareerManager.getInstance(user.id);
-    this.gameState = createInitialGameState();
+    const launchData = this.scene.settings.data as { source?: 'menu' | 'rematch' } | undefined;
+    trackEvent({ name: 'match_start', source: launchData?.source ?? 'menu' });
+    this.createUpgradedMatchState();
     this.accumulators = {};
     for (const vis of this.territoryVisuals.values()) {
       vis.container.destroy();
@@ -799,7 +808,13 @@ export class GameScene extends Phaser.Scene {
 
       if (target && sources.length > 0) {
         // Execute Coordinated Multi-Dispatch (or Reinforcement)
-        const multiDispatch = dispatchMultipleArmies(sources, target, 'player', 0.5);
+        const multiDispatch = dispatchMultipleArmies(
+          sources,
+          target,
+          'player',
+          0.5,
+          this.playerArmySpeedMultiplier
+        );
 
         if (multiDispatch.armies.length > 0) {
           // Update all source territories in state
@@ -1302,7 +1317,7 @@ export class GameScene extends Phaser.Scene {
       .setInteractive();
 
     // Modal Card
-    const cardHeight = 440;
+    const cardHeight = 640;
     const card = this.add
       .rectangle(0, 0, 330, cardHeight, 0x0c1322, 0.98)
       .setStrokeStyle(2, isWin ? 0xf59e0b : 0xef4444, 0.95);
@@ -1313,7 +1328,7 @@ export class GameScene extends Phaser.Scene {
     const subText = isWin ? '👑 ALL ENEMY BASES CAPTURED!' : '⚔️ YOUR DEFENSES HAVE FALLEN';
 
     const title = this.add
-      .text(0, -170, titleText, {
+      .text(0, -275, titleText, {
         fontFamily: FONT_FAMILY,
         fontSize: '32px',
         fontStyle: '900',
@@ -1325,7 +1340,7 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     const subtitle = this.add
-      .text(0, -136, subText, {
+      .text(0, -240, subText, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -1339,11 +1354,11 @@ export class GameScene extends Phaser.Scene {
     // Rank Tier Banner (e.g. ⚔️ SOLDIER RANK • 🏆 120)
     const rankTier = settlement.newRank;
     const rankBanner = this.add
-      .rectangle(0, -104, 280, 26, 0x111c33, 0.95)
+      .rectangle(0, -208, 280, 26, 0x111c33, 0.95)
       .setStrokeStyle(1.5, rankTier.color, 0.9);
 
     const rankText = this.add
-      .text(0, -104, `${rankTier.badge} ${rankTier.name.toUpperCase()} (🏆 ${settlement.newCareer.trophies})`, {
+      .text(0, -208, `${rankTier.badge} ${rankTier.name.toUpperCase()} (🏆 ${settlement.newCareer.trophies})`, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -1356,7 +1371,7 @@ export class GameScene extends Phaser.Scene {
 
     // Two Big Reward Cards: Trophies Card and Gold Card
     const trophyCardX = -72;
-    const trophyCardY = -46;
+    const trophyCardY = -153;
     const trophyDeltaStr =
       settlement.breakdown.trophyDelta > 0
         ? `+${settlement.breakdown.trophyDelta}`
@@ -1393,7 +1408,7 @@ export class GameScene extends Phaser.Scene {
 
     // Gold Card (right)
     const goldCardX = 72;
-    const goldCardY = -46;
+    const goldCardY = -153;
     const goldCardBg = this.add
       .rectangle(goldCardX, goldCardY, 130, 64, 0x111827, 0.95)
       .setStrokeStyle(1.5, 0xf59e0b, 0.85);
@@ -1429,7 +1444,7 @@ export class GameScene extends Phaser.Scene {
     if (settlement.breakdown.streakBonus > 0) breakdownParts.push(`Streak: +${settlement.breakdown.streakBonus}`);
 
     const bonusChipText = this.add
-      .text(0, 4, breakdownParts.join('  •  '), {
+      .text(0, -105, breakdownParts.join('  •  '), {
         fontFamily: FONT_FAMILY,
         fontSize: '10px',
         fontStyle: 'bold',
@@ -1442,13 +1457,13 @@ export class GameScene extends Phaser.Scene {
 
     // Match Stats Summary Section
     const statsBox = this.add
-      .rectangle(0, 50, 280, 52, 0x0f172a, 0.9)
+      .rectangle(0, -68, 280, 52, 0x0f172a, 0.9)
       .setStrokeStyle(1, 0x1e293b, 1);
 
     const matchStatsText = this.add
       .text(
         0,
-        50,
+        -68,
         `⏱ Time: ${duration}s    🏰 Captured: ${stats.territoriesCapturedByPlayer}    ⚔ Dispatched: ${stats.playerUnitsDispatched}\n🔥 Win Streak: ${settlement.newCareer.currentStreak}    👑 Total Wins: ${settlement.newCareer.matchesWon}`,
         {
           fontFamily: FONT_FAMILY,
@@ -1467,7 +1482,7 @@ export class GameScene extends Phaser.Scene {
     // Rank Promotion Banner (if promoted)
     let promoContainer: Phaser.GameObjects.Container | null = null;
     if (settlement.rankPromoted) {
-      promoContainer = this.add.container(0, -104);
+      promoContainer = this.add.container(0, -208);
       const promoGlow = this.add
         .rectangle(0, 0, 284, 28, 0xf59e0b, 0.3)
         .setStrokeStyle(2, 0xfde047, 1);
@@ -1492,8 +1507,129 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
+    const upgradeBalanceText = this.add
+      .text(0, -25, '', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '11px',
+        fontStyle: '900',
+        color: '#fbbf24',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+
+    const upgradeObjects: Phaser.GameObjects.GameObject[] = [upgradeBalanceText];
+    const refreshUpgradeRows: Array<() => void> = [];
+    const upgradeRows: ReadonlyArray<{
+      type: UpgradeType;
+      y: number;
+      icon: string;
+      title: string;
+    }> = [
+      { type: 'starting_garrison', y: 12, icon: '🏰', title: 'STRONGHOLD' },
+      { type: 'production', y: 58, icon: '⚒', title: 'WAR FORGE' },
+      { type: 'army_speed', y: 104, icon: '⚡', title: 'SWIFT MARCH' },
+    ];
+
+    for (const row of upgradeRows) {
+      const rowBg = this.add
+        .rectangle(0, row.y, 280, 40, 0x111827, 0.96)
+        .setStrokeStyle(1, 0x334155, 1);
+      const label = this.add
+        .text(-128, row.y, '', {
+          fontFamily: FONT_FAMILY,
+          fontSize: '10px',
+          fontStyle: 'bold',
+          color: '#e2e8f0',
+          stroke: '#000000',
+          strokeThickness: 1.5,
+          lineSpacing: 1,
+          resolution: 2,
+        })
+        .setOrigin(0, 0.5);
+      const buyBg = this.add
+        .rectangle(103, row.y, 66, 28, 0x2563eb, 1)
+        .setStrokeStyle(1.5, 0x60a5fa, 1);
+      const buyText = this.add
+        .text(103, row.y, '', {
+          fontFamily: FONT_FAMILY,
+          fontSize: '10px',
+          fontStyle: '900',
+          color: '#ffffff',
+          stroke: '#000000',
+          strokeThickness: 1.5,
+          resolution: 2,
+        })
+        .setOrigin(0.5);
+
+      const refresh = (): void => {
+        const career = this.careerManager.getCareer();
+        const level = getUpgradeLevel(career, row.type);
+        const maxLevel = UPGRADE_DEFINITIONS[row.type].maxLevel;
+        const cost = getNextUpgradeCost(career, row.type);
+        const effect =
+          row.type === 'starting_garrison'
+            ? `+${level * 3} starting troops`
+            : row.type === 'production'
+              ? `+${level * 8}% production`
+              : `+${level * 6}% march speed`;
+
+        label.setText(`${row.icon} ${row.title}  LV.${level}/${maxLevel}\n${effect}`);
+        buyText.setText(cost === null ? 'MAX' : `${cost} 🪙`);
+        upgradeBalanceText.setText(`UPGRADE YOUR ARMY  •  ${career.coins} 🪙`);
+
+        const canBuy = cost !== null && career.coins >= cost;
+        buyBg
+          .setFillStyle(canBuy ? 0x2563eb : 0x273449, 1)
+          .setStrokeStyle(1.5, canBuy ? 0x60a5fa : 0x475569, 1);
+        buyText.setColor(canBuy ? '#ffffff' : '#94a3b8');
+        if (canBuy) {
+          buyBg.setInteractive({ useHandCursor: true });
+        } else {
+          buyBg.disableInteractive();
+        }
+      };
+
+      buyBg.on('pointerdown', () => {
+        buyBg.disableInteractive();
+        const purchase = this.careerManager.purchaseUpgrade(row.type);
+        if (purchase.success) {
+          sounds.playCoin();
+          this.platform.hapticNotification('success');
+          trackUpgradeEvent({
+            name: 'upgrade_purchase_succeeded',
+            upgradeType: row.type,
+            level: getUpgradeLevel(purchase.newCareer, row.type),
+            cost: purchase.cost,
+            resultingCoins: purchase.newCareer.coins,
+          });
+        } else {
+          trackUpgradeEvent({
+            name: 'upgrade_purchase_failed',
+            upgradeType: row.type,
+            cost: purchase.cost,
+            reason: purchase.reason,
+            coins: purchase.newCareer.coins,
+          });
+        }
+        refreshUpgradeRows.forEach((refreshRow) => refreshRow());
+      });
+
+      refreshUpgradeRows.push(refresh);
+      upgradeObjects.push(rowBg, label, buyBg, buyText);
+    }
+    refreshUpgradeRows.forEach((refresh) => refresh());
+    trackUpgradeEvent({
+      name: 'upgrade_panel_viewed',
+      coins: settlement.newCareer.coins,
+      startingGarrisonLevel: settlement.newCareer.startingGarrisonLevel,
+      productionLevel: settlement.newCareer.productionLevel,
+      armySpeedLevel: settlement.newCareer.armySpeedLevel,
+    });
+
     // Play Again Button
-    const btnY = 118;
+    const btnY = 170;
     const btnBg = this.add
       .rectangle(0, btnY, 240, 44, isWin ? 0x2563eb : 0x374151, 1)
       .setStrokeStyle(2, isWin ? 0x60a5fa : 0x9ca3af, 1)
@@ -1526,7 +1662,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Native Messenger Share Button
-    const shareY = 172;
+    const shareY = 225;
     const shareBg = this.add
       .rectangle(0, shareY, 240, 38, 0x1e293b, 1)
       .setStrokeStyle(1.5, 0x475569, 1)
@@ -1576,6 +1712,7 @@ export class GameScene extends Phaser.Scene {
       bonusChipText,
       statsBox,
       matchStatsText,
+      ...upgradeObjects,
       btnBg,
       btnText,
       shareBg,
@@ -1619,7 +1756,8 @@ export class GameScene extends Phaser.Scene {
     this.armyVisuals.clear();
 
     // Reset state & restart scene cleanly
-    this.gameState = createInitialGameState();
+    trackEvent({ name: 'match_start', source: 'rematch' });
+    this.createUpgradedMatchState();
     this.accumulators = {};
     this.selectedSourceIds = [];
     this.hoveredTargetId = null;
@@ -1640,5 +1778,11 @@ export class GameScene extends Phaser.Scene {
 
     // Small celebratory restart pop
     this.cameras.main.flash(200, 20, 30, 50);
+  }
+
+  private createUpgradedMatchState(): void {
+    const modifiers = getPlayerUpgradeModifiers(this.careerManager.getCareer());
+    this.playerArmySpeedMultiplier = modifiers.armySpeedMultiplier;
+    this.gameState = createInitialGameState({ playerModifiers: modifiers });
   }
 }
