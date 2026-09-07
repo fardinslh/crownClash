@@ -150,8 +150,16 @@ describe('CareerManager', () => {
 
   it('hydrates career and applies remote settlement and upgrade responses', async () => {
     const remoteCareer = createDefaultCareer('remote_player');
+    const remoteStats: MatchStats = {
+      matchDurationSeconds: 45,
+      playerUnitsDispatched: 10,
+      enemyUnitsDispatched: 10,
+      territoriesCapturedByPlayer: 3,
+      territoriesCapturedByEnemy: 2,
+    };
     const remoteApi: CareerApi = {
       login: async () => remoteCareer,
+      getCareer: async () => remoteCareer,
       getLedger: async () => [],
       settleMatch: async (matchId) => ({
         matchId,
@@ -164,6 +172,7 @@ describe('CareerManager', () => {
           totalCoins: 40,
           trophyDelta: 30,
         },
+        stats: remoteStats,
         previousCareer: remoteCareer,
         newCareer: { ...remoteCareer, coins: 140, trophies: 30, matchesPlayed: 1, matchesWon: 1 },
         previousRank: {
@@ -210,6 +219,7 @@ describe('CareerManager', () => {
         },
       }),
       getPvpOpponents: async () => [],
+      trackEvents: async () => undefined,
       publishDefense: async () => ({
         playerId: 'remote_player',
         displayName: 'Remote Player',
@@ -241,14 +251,7 @@ describe('CareerManager', () => {
       trophies: 0,
     });
 
-    const stats: MatchStats = {
-      matchDurationSeconds: 45,
-      playerUnitsDispatched: 10,
-      enemyUnitsDispatched: 10,
-      territoriesCapturedByPlayer: 3,
-      territoriesCapturedByEnemy: 2,
-    };
-    const settlement = await manager.recordMatchResultRemote('victory', stats, 'remote_match_1');
+    const settlement = await manager.recordMatchResultRemote([], 'remote_match_1');
     expect(settlement.newCareer.coins).toBe(140);
     expect(manager.getCareer().coins).toBe(140);
 
@@ -256,5 +259,93 @@ describe('CareerManager', () => {
     expect(purchase.success).toBe(true);
     expect(manager.getCareer().productionLevel).toBe(1);
     expect(manager.getCareer().coins).toBe(90);
+  });
+
+  it('deduplicates concurrent connect calls into a single login', async () => {
+    const remoteCareer = createDefaultCareer('dedup_player');
+    let logins = 0;
+    const remoteApi: CareerApi = {
+      login: async () => {
+        logins++;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return remoteCareer;
+      },
+      getCareer: async () => remoteCareer,
+      getLedger: async () => [],
+      settleMatch: async () => {
+        throw new Error('not_used_in_test');
+      },
+      purchaseUpgrade: async () => {
+        throw new Error('not_used_in_test');
+      },
+      trackEvents: async () => undefined,
+      getPvpOpponents: async () => [],
+      publishDefense: async () => {
+        throw new Error('not_used_in_test');
+      },
+      submitPvpAttack: async () => {
+        throw new Error('not_used_in_test');
+      },
+      getPvpHistory: async () => [],
+      openLiveMatch: () => {
+        throw new Error('not_used_in_test');
+      },
+    };
+    const adapter = {
+      platform: 'browser',
+      getInitDataRaw: () => 'user=dedup_player',
+    } as PlatformAdapter;
+    const manager = CareerManager.getInstance('dedup_player');
+
+    const [first, second, third] = await Promise.all([
+      manager.connect(adapter, remoteApi),
+      manager.connect(adapter, remoteApi),
+      manager.connect(adapter, remoteApi),
+    ]);
+    expect(logins).toBe(1);
+    expect(first).toEqual(second);
+    expect(second).toEqual(third);
+  });
+
+  it('refreshes the remote career without local overwrite', async () => {
+    const remoteCareer = createDefaultCareer('refresh_player');
+    const updatedCareer = { ...remoteCareer, coins: 777, trophies: 42 };
+    let careerToServe = remoteCareer;
+    const remoteApi: CareerApi = {
+      login: async () => remoteCareer,
+      getCareer: async () => careerToServe,
+      getLedger: async () => [],
+      settleMatch: async () => {
+        throw new Error('not_used_in_test');
+      },
+      purchaseUpgrade: async () => {
+        throw new Error('not_used_in_test');
+      },
+      trackEvents: async () => undefined,
+      getPvpOpponents: async () => [],
+      publishDefense: async () => {
+        throw new Error('not_used_in_test');
+      },
+      submitPvpAttack: async () => {
+        throw new Error('not_used_in_test');
+      },
+      getPvpHistory: async () => [],
+      openLiveMatch: () => {
+        throw new Error('not_used_in_test');
+      },
+    };
+    const adapter = {
+      platform: 'browser',
+      getInitDataRaw: () => 'user=refresh_player',
+    } as PlatformAdapter;
+    const manager = CareerManager.getInstance('refresh_player');
+
+    await manager.connect(adapter, remoteApi);
+    expect(manager.getCareer().coins).toBe(100);
+
+    careerToServe = updatedCareer;
+    await manager.refreshRemoteCareer();
+    expect(manager.getCareer().coins).toBe(777);
+    expect(manager.getCareer().trophies).toBe(42);
   });
 });

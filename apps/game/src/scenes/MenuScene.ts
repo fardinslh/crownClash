@@ -486,9 +486,88 @@ export class MenuScene extends Phaser.Scene {
     createBg.on('pointerdown', () => startClient('create'));
     joinBg.on('pointerdown', () => {
       const linkedRoomCode = new URLSearchParams(window.location.search).get('liveRoom');
-      const roomCode = linkedRoomCode || window.prompt('Enter the live invite code');
-      if (roomCode) startClient('join', roomCode);
+      if (linkedRoomCode) {
+        startClient('join', linkedRoomCode);
+        return;
+      }
+      // window.prompt is unavailable in most messenger WebViews; use an
+      // in-scene input instead.
+      this.showJoinCodeEntry(overlay, (roomCode) => startClient('join', roomCode));
     });
+  }
+
+  private showJoinCodeEntry(
+    overlay: Phaser.GameObjects.Container,
+    onStart: (roomCode: string) => void
+  ): void {
+    const panel = this.add.container(0, 0);
+    const backdrop = this.add
+      .rectangle(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT, 0x000000, 0.72)
+      .setInteractive();
+    const card = this.add
+      .rectangle(0, 0, 300, 210, 0x0c1322, 0.99)
+      .setStrokeStyle(2, 0x60a5fa, 0.95);
+    const title = this.add
+      .text(0, -72, 'ENTER INVITE CODE', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '15px',
+        fontStyle: '900',
+        color: '#bfdbfe',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    const input = this.add.dom(
+      0,
+      -15,
+      'input',
+      'width: 220px; height: 44px; font-size: 20px; font-weight: 700; text-align: center; text-transform: uppercase; letter-spacing: 4px; border-radius: 8px; border: 2px solid #60a5fa; background: #0f172a; color: #ffffff; outline: none; box-sizing: border-box;',
+      ''
+    );
+    const errorText = this.add
+      .text(0, 22, '', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '10px',
+        fontStyle: 'bold',
+        color: '#f87171',
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    const joinBg = this.add
+      .rectangle(0, 66, 180, 42, 0x2563eb, 1)
+      .setStrokeStyle(2, 0x60a5fa, 1)
+      .setInteractive({ useHandCursor: true });
+    const joinText = this.add
+      .text(0, 66, 'JOIN BATTLE', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '13px',
+        fontStyle: '900',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    this.bindPressFeedback(joinBg, joinText);
+    panel.add([backdrop, card, title, input, errorText, joinBg, joinText]);
+    overlay.add(panel);
+
+    const inputElement = input.node as HTMLInputElement;
+    const submit = (): void => {
+      const value = (inputElement.value || '').trim().toUpperCase();
+      if (!/^[0-9A-F]{8}$/.test(value)) {
+        errorText.setText('Enter the 8-character code your friend shared');
+        return;
+      }
+      panel.destroy();
+      onStart(value);
+    };
+    joinBg.on('pointerdown', submit);
+    inputElement.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') submit();
+    });
+    window.setTimeout(() => inputElement.focus(), 50);
   }
 
   private showBackendUnavailable(): void {

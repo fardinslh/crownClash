@@ -74,4 +74,53 @@ func TestPvpSimulationRejectsMalformedActions(t *testing.T) {
 	if err != ErrPvpInvalidTimestamp {
 		t.Fatalf("expected invalid timestamp, got %v", err)
 	}
+
+	_, _, err = SimulatePvpBattle([]PvpAction{
+		{Sequence: 0, AtSeconds: 0, SourceID: "does_not_exist", TargetID: "n_center"},
+	}, DefaultModifiers(), DefaultModifiers())
+	if err != ErrPvpInvalidSource {
+		t.Fatalf("expected invalid source, got %v", err)
+	}
+}
+
+func TestBotBattleSkipsInvalidPlayerActionsInsteadOfFailing(t *testing.T) {
+	actions := []PvpAction{
+		{Sequence: 0, AtSeconds: 0, SourceID: "p_base", TargetID: "n_center"},
+		{Sequence: 1, AtSeconds: 5, SourceID: "does_not_exist", TargetID: "n_center"},
+		{Sequence: 2, AtSeconds: 8, SourceID: "p_base", TargetID: "n_bot_left"},
+	}
+	state, summary, err := SimulateBotBattle(actions, DefaultModifiers())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.ActionsProcessed != 2 {
+		t.Fatalf("expected 2 processed actions, got %d", summary.ActionsProcessed)
+	}
+	switch summary.Status {
+	case "victory", "defeat", "draw":
+	default:
+		t.Fatalf("unexpected status: %q", summary.Status)
+	}
+	if summary.Stats.MatchDurationSeconds <= 0 || state.ElapsedTimeSeconds <= 0 {
+		t.Fatal("bot battle replay did not run the simulation")
+	}
+}
+
+func TestBotBattleIsDeterministic(t *testing.T) {
+	actions := []PvpAction{
+		{Sequence: 0, AtSeconds: 0, SourceID: "p_base", TargetID: "n_center"},
+		{Sequence: 1, AtSeconds: 4, SourceID: "p_base", TargetID: "n_bot_right"},
+		{Sequence: 2, AtSeconds: 9, SourceID: "n_bot_right", TargetID: "n_top_right"},
+	}
+	firstState, firstSummary, err := SimulateBotBattle(actions, DefaultModifiers())
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondState, secondSummary, err := SimulateBotBattle(actions, DefaultModifiers())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(firstState, secondState) || !reflect.DeepEqual(firstSummary, secondSummary) {
+		t.Fatal("replaying identical bot actions produced different results")
+	}
 }

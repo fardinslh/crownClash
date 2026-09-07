@@ -65,6 +65,7 @@ export interface MatchSettlement {
   matchId: string;
   status: 'victory' | 'defeat' | 'draw';
   breakdown: MatchRewardBreakdown;
+  stats: MatchStats;
   previousCareer: PlayerCareer;
   newCareer: PlayerCareer;
   previousRank: RankTierInfo;
@@ -236,6 +237,7 @@ export function settleMatch(
     matchId,
     status,
     breakdown,
+    stats,
     previousCareer,
     newCareer,
     previousRank,

@@ -20,7 +20,8 @@ import {
   UpgradeType,
 } from '@crown-clash/game-core';
 import type { PlatformAdapter } from '@crown-clash/platform';
-import { GameApiClient, type CareerApi } from '../api/GameApiClient.js';
+import type { CareerApi } from '../api/GameApiClient.js';
+import { getSharedGameApiClient } from '../api/sharedClient.js';
 import { LiveMatchClient } from '../api/LiveMatchClient.js';
 
 export class CareerManager {
@@ -32,6 +33,7 @@ export class CareerManager {
   private readonly ledgerStorageKey: string;
   private remoteApi: CareerApi | null = null;
   private remoteConnected = false;
+  private connectPromise: Promise<PlayerCareer> | null = null;
 
   private constructor(playerId: string) {
     this.storageKey = `crown_clash_career_${playerId}`;
@@ -62,12 +64,26 @@ export class CareerManager {
 
   public async connect(
     platform: PlatformAdapter,
-    api: CareerApi = new GameApiClient()
+    api: CareerApi = getSharedGameApiClient()
   ): Promise<PlayerCareer> {
     if (this.remoteConnected) {
       return this.getCareer();
     }
+    // Deduplicate concurrent connects (e.g. menu + fast PLAY tap) so only a
+    // single login is performed and out-of-order responses cannot clobber a
+    // fresher career.
+    if (this.connectPromise) {
+      return this.connectPromise;
+    }
+    this.connectPromise = this.performConnect(platform, api);
+    try {
+      return await this.connectPromise;
+    } finally {
+      this.connectPromise = null;
+    }
+  }
 
+  private async performConnect(platform: PlatformAdapter, api: CareerApi): Promise<PlayerCareer> {
     const career = await api.login(platform);
     this.remoteApi = api;
     this.remoteConnected = true;
@@ -85,16 +101,26 @@ export class CareerManager {
     return this.getCareer();
   }
 
+  /**
+   * Re-fetches the authoritative career after the server mutated it outside
+   * of this client's control (e.g. a live match settled on disconnect).
+   */
+  public async refreshRemoteCareer(): Promise<PlayerCareer> {
+    const api = this.requireRemoteApi();
+    const career = await api.getCareer();
+    this.applyRemoteState(career, []);
+    return this.getCareer();
+  }
+
   public isRemoteConnected(): boolean {
     return this.remoteConnected;
   }
 
   public async recordMatchResultRemote(
-    status: 'victory' | 'defeat' | 'draw',
-    stats: MatchStats,
+    actions: readonly PvpAction[],
     matchId: string
   ): Promise<MatchSettlement> {
-    const settlement = await this.requireRemoteApi().settleMatch(matchId, status, stats);
+    const settlement = await this.requireRemoteApi().settleMatch(matchId, actions);
     this.applyRemoteState(settlement.newCareer, settlement.ledgerEntries);
     return settlement;
   }

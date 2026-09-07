@@ -57,6 +57,7 @@ type MatchSettlement struct {
 	MatchID        string               `json:"matchId"`
 	Status         string               `json:"status"`
 	Breakdown      MatchRewardBreakdown `json:"breakdown"`
+	Stats          MatchStats           `json:"stats"`
 	PreviousCareer PlayerCareer         `json:"previousCareer"`
 	NewCareer      PlayerCareer         `json:"newCareer"`
 	PreviousRank   RankTierInfo         `json:"previousRank"`
@@ -129,6 +130,11 @@ type PvpBattleSummary struct {
 	Stats            MatchStats `json:"stats"`
 	DurationSeconds  int        `json:"durationSeconds"`
 	ActionsProcessed int        `json:"actionsProcessed"`
+}
+
+type AnalyticsEventRecord struct {
+	Name  string         `json:"name"`
+	Props map[string]any `json:"props"`
 }
 
 type PvpAttackResult struct {

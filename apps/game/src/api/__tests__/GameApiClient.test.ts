@@ -36,6 +36,40 @@ describe('GameApiClient', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('settles matches by submitting recorded actions only', async () => {
+    const career = createDefaultCareer('browser:client_test');
+    const settlement = {
+      matchId: 'match_1',
+      status: 'victory',
+      stats: {
+        matchDurationSeconds: 42,
+        playerUnitsDispatched: 30,
+        enemyUnitsDispatched: 12,
+        territoriesCapturedByPlayer: 5,
+        territoriesCapturedByEnemy: 1,
+      },
+    };
+    const actions = [
+      { sequence: 0, atSeconds: 1.5, sourceId: 'p_base', targetId: 'n_center' },
+    ];
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/auth/login')) {
+        return new Response(JSON.stringify({ token: 'session-token', career }), { status: 200 });
+      }
+      expect(url).toContain('/matches/settle');
+      expect(init?.method).toBe('POST');
+      expect(init?.body).toBe(JSON.stringify({ matchId: 'match_1', actions }));
+      expect(init?.headers).toMatchObject({ authorization: 'Bearer session-token' });
+      return new Response(JSON.stringify({ settlement }), { status: 200 });
+    });
+
+    const client = new GameApiClient('http://api.test');
+    await client.login(platform);
+    await expect(client.settleMatch('match_1', actions)).resolves.toEqual(settlement);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('returns server errors as typed API errors', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ error: 'insufficient_coins' }), { status: 400 })
