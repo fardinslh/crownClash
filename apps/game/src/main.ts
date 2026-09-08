@@ -24,7 +24,8 @@ const startApp = (): void => {
 
   // Render the canvas at a higher internal resolution than the 400x720
   // logical coordinate system to avoid blurriness on high-DPI screens.
-  // The camera zoom maps logical coordinates back to the scaled canvas.
+  // The camera zoom (set in each scene's create()) maps logical
+  // coordinates back onto the scaled canvas.
   const RENDER_SCALE = Math.min(window.devicePixelRatio || 1, 2);
 
   const config: Phaser.Types.Core.GameConfig = {
@@ -36,6 +37,19 @@ const startApp = (): void => {
       mode: Phaser.Scale.FIT,
       autoCenter: Phaser.Scale.CENTER_BOTH,
       autoRound: true,
+      // FIT stretches the canvas up to fill whatever parent size it's
+      // given, regardless of devicePixelRatio. On a viewport wider than
+      // our RENDER_SCALE compensates for (e.g. a desktop window, or a
+      // low-DPI screen bigger than a phone), that stretch can exceed the
+      // canvas's actual backing-store resolution, upscaling it and
+      // producing visible smearing/tiling artifacts. Capping the CSS
+      // size to the backing-store size guarantees we only ever scale
+      // down, never up, and simply letterboxes on oversized viewports
+      // (acceptable for a portrait, mobile-first game).
+      max: {
+        width: LOGICAL_WIDTH * RENDER_SCALE,
+        height: LOGICAL_HEIGHT * RENDER_SCALE,
+      },
     },
     dom: {
       createContainer: true,
@@ -53,7 +67,11 @@ const startApp = (): void => {
       forceSetTimeOut: true,
     },
     callbacks: {
-      postBoot: (bootedGame) => {
+      // preBoot (not postBoot) because the first scene's create() runs as
+      // part of the Game's internal boot/READY sequence, before postBoot
+      // fires. Registry values written in postBoot arrive too late for
+      // MenuScene.create() to see them.
+      preBoot: (bootedGame) => {
         bootedGame.registry.set('platform', platform);
         bootedGame.registry.set('renderScale', RENDER_SCALE);
       },
