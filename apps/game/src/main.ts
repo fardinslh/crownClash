@@ -22,11 +22,16 @@ const startApp = (): void => {
   });
   analyticsSink.start();
 
+  // Render the canvas at a higher internal resolution than the 400x720
+  // logical coordinate system to avoid blurriness on high-DPI screens.
+  // The camera zoom maps logical coordinates back to the scaled canvas.
+  const RENDER_SCALE = Math.min(window.devicePixelRatio || 1, 2);
+
   const config: Phaser.Types.Core.GameConfig = {
     type: Phaser.AUTO,
     parent: 'game-container',
-    width: LOGICAL_WIDTH,
-    height: LOGICAL_HEIGHT,
+    width: LOGICAL_WIDTH * RENDER_SCALE,
+    height: LOGICAL_HEIGHT * RENDER_SCALE,
     scale: {
       mode: Phaser.Scale.FIT,
       autoCenter: Phaser.Scale.CENTER_BOTH,
@@ -40,7 +45,7 @@ const startApp = (): void => {
     render: {
       antialias: true,
       antialiasGL: true,
-      roundPixels: false,
+      roundPixels: true,
       powerPreference: 'high-performance',
     },
     fps: {
@@ -50,6 +55,7 @@ const startApp = (): void => {
     callbacks: {
       postBoot: (bootedGame) => {
         bootedGame.registry.set('platform', platform);
+        bootedGame.registry.set('renderScale', RENDER_SCALE);
       },
     },
   };

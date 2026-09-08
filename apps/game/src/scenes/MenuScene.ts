@@ -22,6 +22,10 @@ export class MenuScene extends Phaser.Scene {
   }
 
   create(): void {
+    const renderScale = this.registry.get('renderScale') as number || 1;
+    this.cameras.main.setZoom(renderScale);
+    this.cameras.main.centerOn(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2);
+
     const platform: PlatformAdapter =
       (this.registry.get('platform') as PlatformAdapter) || createPlatformAdapter();
     const careerManager = CareerManager.getInstance(platform.getUser().id);

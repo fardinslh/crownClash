@@ -144,6 +144,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
+    const renderScale = this.registry.get('renderScale') as number || 1;
+    this.cameras.main.setZoom(renderScale);
+    this.cameras.main.centerOn(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2);
+
     this.platform = (this.registry.get('platform') as PlatformAdapter) || createPlatformAdapter();
     const user = this.platform.getUser();
     this.careerManager = CareerManager.getInstance(user.id);
