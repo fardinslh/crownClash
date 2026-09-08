@@ -9,39 +9,61 @@ services:
     ports:
       - '5433:5432'
     volumes:
-      - crownclash_pg_data:/var/lib/postgresql/data
+      - crownclash_nakama_data:/var/lib/postgresql/data
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U crownclash -d crownclash']
       interval: 5s
       timeout: 5s
       retries: 10
 
-  backend:
+  nakama-migrate:
     build:
       context: .
-      dockerfile: apps/server-go/Dockerfile
-    restart: unless-stopped
-    environment:
-      NODE_ENV: production
-      PORT: 8787
-      DATABASE_URL: postgresql://crownclash:crownclash@db:5432/crownclash
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
-      CLIENT_ORIGINS: ${CLIENT_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:3001,http://127.0.0.1:3001,http://localhost:3002,http://127.0.0.1:3002}
-      ALLOW_GUEST_AUTH: ${ALLOW_GUEST_AUTH:-false}
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
-      BALE_BOT_TOKEN: ${BALE_BOT_TOKEN:-}
-      INIT_DATA_MAX_AGE_SECONDS: ${INIT_DATA_MAX_AGE_SECONDS:-86400}
-    ports:
-      - '8787:8787'
-    healthcheck:
-      test: ['CMD', '/crown-clash-server', 'healthcheck']
-      interval: 10s
-      timeout: 3s
-      retries: 3
-      start_period: 10s
+      dockerfile: apps/server-nakama/Dockerfile
+    entrypoint:
+      - '/nakama/nakama'
+      - 'migrate'
+      - 'up'
+      - '--database.address=crownclash:crownclash@db:5432/crownclash'
     depends_on:
       db:
         condition: service_healthy
+    restart: 'no'
+
+  nakama:
+    build:
+      context: .
+      dockerfile: apps/server-nakama/Dockerfile
+    restart: unless-stopped
+    entrypoint:
+      - '/nakama/nakama'
+      - '--name=crownclash'
+      - '--runtime.path=/nakama/data/modules'
+      - '--database.address=crownclash:crownclash@db:5432/crownclash'
+      - '--runtime.env=ALLOW_GUEST_AUTH=${ALLOW_GUEST_AUTH:-false}'
+      - '--runtime.env=TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}'
+      - '--runtime.env=BALE_BOT_TOKEN=${BALE_BOT_TOKEN:-}'
+      - '--runtime.env=INIT_DATA_MAX_AGE_SECONDS=${INIT_DATA_MAX_AGE_SECONDS:-86400}'
+      - '--socket.server_key=${NAKAMA_SERVER_KEY:-defaultkey}'
+      - '--session.token_expiry_sec=7200'
+      - '--logger.level=INFO'
+      - '--console.username=${NAKAMA_CONSOLE_USER:-admin}'
+      - '--console.password=${NAKAMA_CONSOLE_PASSWORD:?NAKAMA_CONSOLE_PASSWORD is required}'
+    ports:
+      - '7348:7348' # gRPC
+      - '7350:7350' # WebSocket + HTTP
+      - '7351:7351' # Console
+    healthcheck:
+      test: ['CMD', '/nakama/nakama', 'healthcheck']
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      db:
+        condition: service_healthy
+      nakama-migrate:
+        condition: service_completed_successfully
 
 volumes:
-  crownclash_pg_data:
+  crownclash_nakama_data:

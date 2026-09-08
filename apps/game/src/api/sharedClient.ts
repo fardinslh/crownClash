@@ -1,15 +1,16 @@
-import { GameApiClient } from './GameApiClient.js';
+import { NakamaClient } from './NakamaClient.js';
+import type { CareerApi } from './GameApiClient.js';
 
-let sharedClient: GameApiClient | null = null;
+let sharedClient: NakamaClient | null = null;
 
 /**
- * Returns the process-wide API client so the session token is shared by
- * every consumer (career manager, analytics sink, live matches) instead of
- * each module performing its own login.
+ * Returns the process-wide Nakama client so the session and socket are
+ * shared by every consumer (career manager, analytics sink, live matches)
+ * instead of each module performing its own login.
  */
-export function getSharedGameApiClient(): GameApiClient {
+export function getSharedGameApiClient(): CareerApi {
   if (!sharedClient) {
-    sharedClient = new GameApiClient();
+    sharedClient = new NakamaClient();
   }
   return sharedClient;
 }

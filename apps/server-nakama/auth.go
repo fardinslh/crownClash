@@ -11,8 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/golang-jwt/jwt/v5"
 )
 
 type VerifiedInitData struct {
@@ -143,36 +141,4 @@ func stringifyUserID(value any) string {
 	default:
 		return ""
 	}
-}
-
-type sessionClaims struct {
-	Platform string `json:"platform"`
-	jwt.RegisteredClaims
-}
-
-func SignSessionToken(playerID, platform, secret string) (string, error) {
-	now := time.Now()
-	claims := sessionClaims{
-		Platform: platform,
-		RegisteredClaims: jwt.RegisteredClaims{
-			Subject:   playerID,
-			ExpiresAt: jwt.NewNumericDate(now.Add(7 * 24 * time.Hour)),
-			IssuedAt:  jwt.NewNumericDate(now),
-		},
-	}
-	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secret))
-}
-
-func VerifySessionToken(token, secret string) (string, string, error) {
-	var claims sessionClaims
-	parsed, err := jwt.ParseWithClaims(token, &claims, func(token *jwt.Token) (any, error) {
-		if token.Method != jwt.SigningMethodHS256 {
-			return nil, errors.New("invalid_token_algorithm")
-		}
-		return []byte(secret), nil
-	})
-	if err != nil || !parsed.Valid || claims.Subject == "" || claims.Platform == "" {
-		return "", "", errors.New("invalid_token")
-	}
-	return claims.Subject, claims.Platform, nil
 }

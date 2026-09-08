@@ -2,12 +2,13 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/heroiclabs/nakama-common/runtime"
 )
 
 var (
@@ -17,14 +18,17 @@ var (
 	ErrPvpAttackOwnership = errors.New("pvp_attack_id_owned_by_another_player")
 )
 
-type PlayerRepository struct {
-	pool *pgxpool.Pool
+type Store struct {
+	db *sql.DB
+}
+
+func NewStore(db *sql.DB) *Store {
+	return &Store{db: db}
 }
 
 type playerRow struct {
 	ID                    string
-	Platform              string
-	Username              *string
+	Username              sql.NullString
 	Coins                 int
 	Gems                  int
 	Trophies              int
@@ -38,42 +42,40 @@ type playerRow struct {
 	LastMatchTimestamp    int64
 }
 
-func NewPlayerRepository(pool *pgxpool.Pool) *PlayerRepository {
-	return &PlayerRepository{pool: pool}
+type rowQuerier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-func (r *PlayerRepository) GetOrCreateCareer(ctx context.Context, playerID, platform string, username *string) (PlayerCareer, error) {
-	fresh := CreateDefaultCareer(playerID)
-	_, err := r.pool.Exec(ctx, `
-		INSERT INTO players (id, platform, username, coins, gems, trophies)
-		VALUES ($1, $2, $3, $4, $5, $6)
+func (s *Store) GetOrCreateCareer(ctx context.Context, userID string) (PlayerCareer, error) {
+	fresh := CreateDefaultCareer(userID)
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO players (id, coins, gems, trophies)
+		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (id) DO NOTHING
-	`, playerID, platform, username, fresh.Coins, fresh.Gems, fresh.Trophies)
+	`, userID, fresh.Coins, fresh.Gems, fresh.Trophies)
 	if err != nil {
 		return PlayerCareer{}, err
 	}
-	return r.getCareer(ctx, r.pool, playerID)
+	return getCareer(ctx, s.db, userID)
 }
 
-func (r *PlayerRepository) getCareer(ctx context.Context, queryer interface {
-	QueryRow(context.Context, string, ...any) pgx.Row
-}, playerID string) (PlayerCareer, error) {
-	row := queryer.QueryRow(ctx, `
-		SELECT id, platform, username, coins, gems, trophies,
+func getCareer(ctx context.Context, queryer rowQuerier, userID string) (PlayerCareer, error) {
+	row := queryer.QueryRowContext(ctx, `
+		SELECT id, coins, gems, trophies,
 		       starting_garrison_level, production_level, army_speed_level,
 		       matches_played, matches_won, current_streak, best_streak,
 		       last_match_timestamp
 		FROM players WHERE id = $1
-	`, playerID)
+	`, userID)
 	var value playerRow
 	if err := row.Scan(
-		&value.ID, &value.Platform, &value.Username, &value.Coins, &value.Gems,
-		&value.Trophies, &value.StartingGarrisonLevel, &value.ProductionLevel,
-		&value.ArmySpeedLevel, &value.MatchesPlayed, &value.MatchesWon,
-		&value.CurrentStreak, &value.BestStreak, &value.LastMatchTimestamp,
+		&value.ID, &value.Coins, &value.Gems, &value.Trophies,
+		&value.StartingGarrisonLevel, &value.ProductionLevel, &value.ArmySpeedLevel,
+		&value.MatchesPlayed, &value.MatchesWon, &value.CurrentStreak, &value.BestStreak,
+		&value.LastMatchTimestamp,
 	); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return PlayerCareer{}, fmt.Errorf("%w:%s", ErrPlayerNotFound, playerID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return PlayerCareer{}, fmt.Errorf("%w:%s", ErrPlayerNotFound, userID)
 		}
 		return PlayerCareer{}, err
 	}
@@ -91,15 +93,15 @@ func careerFromRow(row playerRow) PlayerCareer {
 	}
 }
 
-func (r *PlayerRepository) GetLedger(ctx context.Context, playerID string, limit int) ([]EconomyLedgerEntry, error) {
-	rows, err := r.pool.Query(ctx, `
+func (s *Store) GetLedger(ctx context.Context, userID string, limit int) ([]EconomyLedgerEntry, error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, player_id, currency, amount, reason, source,
 		       previous_balance, resulting_balance, timestamp
 		FROM economy_ledger
 		WHERE player_id = $1
 		ORDER BY timestamp DESC
 		LIMIT $2
-	`, playerID, limit)
+	`, userID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -118,41 +120,37 @@ func (r *PlayerRepository) GetLedger(ctx context.Context, playerID string, limit
 	return entries, rows.Err()
 }
 
-func (r *PlayerRepository) InsertAnalyticsEvents(ctx context.Context, playerID string, events []AnalyticsEventRecord) error {
-	for _, event := range events {
-		props := event.Props
-		if props == nil {
-			props = map[string]any{}
-		}
-		encoded, err := json.Marshal(props)
-		if err != nil {
-			return err
-		}
-		if _, err := r.pool.Exec(ctx, `
-			INSERT INTO analytics_events (player_id, name, props)
-			VALUES ($1, $2, $3)
-		`, playerID, event.Name, encoded); err != nil {
-			return err
-		}
+func (s *Store) GetPlayerDisplayName(ctx context.Context, userID string) (string, error) {
+	var displayName string
+	err := s.db.QueryRowContext(ctx, `SELECT display_name FROM player_names WHERE player_id = $1`, userID).Scan(&displayName)
+	if errors.Is(err, sql.ErrNoRows) {
+		return userID, nil
 	}
-	return nil
-}
-
-func (r *PlayerRepository) GetPlayerDisplayName(ctx context.Context, playerID string) (string, error) {
-	var username *string
-	if err := r.pool.QueryRow(ctx, `SELECT username FROM players WHERE id = $1`, playerID).Scan(&username); err != nil {
+	if err != nil {
 		return "", err
 	}
-	if username != nil && *username != "" {
-		return *username, nil
-	}
-	return playerID, nil
+	return displayName, nil
 }
 
-func findStoredSettlement(ctx context.Context, tx pgx.Tx, matchID string) (*MatchSettlement, error) {
+func (s *Store) SetPlayerDisplayName(ctx context.Context, userID, displayName string) error {
+	if len(displayName) > 40 {
+		displayName = displayName[:40]
+	}
+	if displayName == "" {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO player_names (player_id, display_name)
+		VALUES ($1, $2)
+		ON CONFLICT (player_id) DO UPDATE SET display_name = EXCLUDED.display_name
+	`, userID, displayName)
+	return err
+}
+
+func findStoredSettlement(ctx context.Context, tx *sql.Tx, matchID string) (*MatchSettlement, error) {
 	var stored []byte
-	err := tx.QueryRow(ctx, `SELECT settlement FROM match_settlements WHERE match_id = $1`, matchID).Scan(&stored)
-	if errors.Is(err, pgx.ErrNoRows) {
+	err := tx.QueryRowContext(ctx, `SELECT settlement FROM match_settlements WHERE match_id = $1`, matchID).Scan(&stored)
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -165,16 +163,16 @@ func findStoredSettlement(ctx context.Context, tx pgx.Tx, matchID string) (*Matc
 	return &settlement, nil
 }
 
-func (r *PlayerRepository) persistSettlement(ctx context.Context, tx pgx.Tx, career PlayerCareer, status string, stats MatchStats, matchID string) (MatchSettlement, error) {
+func (s *Store) persistSettlement(ctx context.Context, tx *sql.Tx, career PlayerCareer, status string, stats MatchStats, matchID string) (MatchSettlement, error) {
 	settlement := SettleMatch(career, status, stats, matchID, nowMillis())
-	if err := r.persistCareer(ctx, tx, settlement.NewCareer); err != nil {
+	if err := persistCareer(ctx, tx, settlement.NewCareer); err != nil {
 		return MatchSettlement{}, err
 	}
-	if err := r.insertLedgerEntries(ctx, tx, settlement.LedgerEntries); err != nil {
+	if err := insertLedgerEntries(ctx, tx, settlement.LedgerEntries); err != nil {
 		return MatchSettlement{}, err
 	}
 	payload, _ := json.Marshal(settlement)
-	if _, err := tx.Exec(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO match_settlements (match_id, player_id, status, settlement)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (match_id) DO NOTHING
@@ -185,13 +183,13 @@ func (r *PlayerRepository) persistSettlement(ctx context.Context, tx pgx.Tx, car
 }
 
 // SettleMatch settles a match whose status and stats were produced by a
-// server-authoritative simulation (live WebSocket rooms).
-func (r *PlayerRepository) SettleMatch(ctx context.Context, playerID, status string, stats MatchStats, matchID string) (MatchSettlement, error) {
-	tx, err := r.pool.Begin(ctx)
+// server-authoritative simulation (live match handler).
+func (s *Store) SettleMatch(ctx context.Context, userID, status string, stats MatchStats, matchID string) (MatchSettlement, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return MatchSettlement{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 
 	if existing, err := findStoredSettlement(ctx, tx, matchID); err != nil {
 		return MatchSettlement{}, err
@@ -199,7 +197,7 @@ func (r *PlayerRepository) SettleMatch(ctx context.Context, playerID, status str
 		return *existing, nil
 	}
 
-	career, err := r.getCareerForUpdate(ctx, tx, playerID)
+	career, err := getCareerForUpdate(ctx, tx, userID)
 	if err != nil {
 		return MatchSettlement{}, err
 	}
@@ -211,11 +209,11 @@ func (r *PlayerRepository) SettleMatch(ctx context.Context, playerID, status str
 		return *existing, nil
 	}
 
-	settlement, err := r.persistSettlement(ctx, tx, career, status, stats, matchID)
+	settlement, err := s.persistSettlement(ctx, tx, career, status, stats, matchID)
 	if err != nil {
 		return MatchSettlement{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(); err != nil {
 		return MatchSettlement{}, err
 	}
 	return settlement, nil
@@ -225,12 +223,12 @@ func (r *PlayerRepository) SettleMatch(ctx context.Context, playerID, status str
 // recorded player actions through the authoritative simulation. The client
 // supplies only dispatch intents; status, stats, and rewards are derived
 // server-side and cannot be forged.
-func (r *PlayerRepository) SettleMatchVerified(ctx context.Context, playerID, matchID string, actions []PvpAction) (MatchSettlement, error) {
-	tx, err := r.pool.Begin(ctx)
+func (s *Store) SettleMatchVerified(ctx context.Context, userID, matchID string, actions []PvpAction) (MatchSettlement, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return MatchSettlement{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 
 	if existing, err := findStoredSettlement(ctx, tx, matchID); err != nil {
 		return MatchSettlement{}, err
@@ -238,7 +236,7 @@ func (r *PlayerRepository) SettleMatchVerified(ctx context.Context, playerID, ma
 		return *existing, nil
 	}
 
-	career, err := r.getCareerForUpdate(ctx, tx, playerID)
+	career, err := getCareerForUpdate(ctx, tx, userID)
 	if err != nil {
 		return MatchSettlement{}, err
 	}
@@ -254,92 +252,92 @@ func (r *PlayerRepository) SettleMatchVerified(ctx context.Context, playerID, ma
 	if err != nil {
 		return MatchSettlement{}, err
 	}
-	settlement, err := r.persistSettlement(ctx, tx, career, summary.Status, summary.Stats, matchID)
+	settlement, err := s.persistSettlement(ctx, tx, career, summary.Status, summary.Stats, matchID)
 	if err != nil {
 		return MatchSettlement{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(); err != nil {
 		return MatchSettlement{}, err
 	}
 	return settlement, nil
 }
 
-func (r *PlayerRepository) PurchaseUpgrade(ctx context.Context, playerID string, upgrade UpgradeType, purchaseID string) (UpgradePurchaseResult, error) {
-	tx, err := r.pool.Begin(ctx)
+func (s *Store) PurchaseUpgrade(ctx context.Context, userID string, upgrade UpgradeType, purchaseID string) (UpgradePurchaseResult, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return UpgradePurchaseResult{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 
 	var stored []byte
-	err = tx.QueryRow(ctx, `SELECT result FROM upgrade_purchases WHERE purchase_id = $1`, purchaseID).Scan(&stored)
+	err = tx.QueryRowContext(ctx, `SELECT result FROM upgrade_purchases WHERE purchase_id = $1`, purchaseID).Scan(&stored)
 	if err == nil {
 		var result UpgradePurchaseResult
-		if unmarshalJSON(stored, &result) != nil {
+		if json.Unmarshal(stored, &result) != nil {
 			return UpgradePurchaseResult{}, errors.New("invalid_stored_upgrade_result")
 		}
 		return result, nil
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+	if !errors.Is(err, sql.ErrNoRows) {
 		return UpgradePurchaseResult{}, err
 	}
 
-	career, err := r.getCareerForUpdate(ctx, tx, playerID)
+	career, err := getCareerForUpdate(ctx, tx, userID)
 	if err != nil {
 		return UpgradePurchaseResult{}, err
 	}
 	// A concurrent request may have committed while this transaction waited
 	// for the player's row lock.
-	err = tx.QueryRow(ctx, `SELECT result FROM upgrade_purchases WHERE purchase_id = $1`, purchaseID).Scan(&stored)
+	err = tx.QueryRowContext(ctx, `SELECT result FROM upgrade_purchases WHERE purchase_id = $1`, purchaseID).Scan(&stored)
 	if err == nil {
 		var result UpgradePurchaseResult
-		if unmarshalJSON(stored, &result) != nil {
+		if json.Unmarshal(stored, &result) != nil {
 			return UpgradePurchaseResult{}, errors.New("invalid_stored_upgrade_result")
 		}
 		return result, nil
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+	if !errors.Is(err, sql.ErrNoRows) {
 		return UpgradePurchaseResult{}, err
 	}
 	result := PurchaseUpgrade(career, upgrade, purchaseID, nowMillis())
 	if !result.Success {
 		return result, nil
 	}
-	if err := r.persistCareer(ctx, tx, result.NewCareer); err != nil {
+	if err := persistCareer(ctx, tx, result.NewCareer); err != nil {
 		return UpgradePurchaseResult{}, err
 	}
 	if result.LedgerEntry != nil {
-		if err := r.insertLedgerEntries(ctx, tx, []EconomyLedgerEntry{*result.LedgerEntry}); err != nil {
+		if err := insertLedgerEntries(ctx, tx, []EconomyLedgerEntry{*result.LedgerEntry}); err != nil {
 			return UpgradePurchaseResult{}, err
 		}
 	}
 	payload, _ := json.Marshal(result)
-	if _, err := tx.Exec(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO upgrade_purchases (purchase_id, player_id, upgrade_type, result)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (purchase_id) DO NOTHING
-	`, purchaseID, playerID, upgrade, payload); err != nil {
+	`, purchaseID, userID, upgrade, payload); err != nil {
 		return UpgradePurchaseResult{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(); err != nil {
 		return UpgradePurchaseResult{}, err
 	}
 	return result, nil
 }
 
-func (r *PlayerRepository) PublishDefense(ctx context.Context, playerID, displayName string, career PlayerCareer, publishedAt int64) (PvpDefenseSnapshot, error) {
+func (s *Store) PublishDefense(ctx context.Context, userID, displayName string, career PlayerCareer, publishedAt int64) (PvpDefenseSnapshot, error) {
 	if len(displayName) > 40 {
 		displayName = displayName[:40]
 	}
 	if displayName == "" {
-		displayName = playerID
+		displayName = userID
 	}
 	snapshot := PvpDefenseSnapshot{
-		PlayerID: playerID, DisplayName: displayName, Trophies: career.Trophies,
+		PlayerID: userID, DisplayName: displayName, Trophies: career.Trophies,
 		MatchesWon: career.MatchesWon, Modifiers: UpgradeModifiers(career), PublishedAt: publishedAt,
 	}
 	modifiers, _ := json.Marshal(snapshot.Modifiers)
-	_, err := r.pool.Exec(ctx, `
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO pvp_defenses
 			(player_id, display_name, trophies, matches_won, modifiers, published_at)
 		VALUES ($1, $2, $3, $4, $5, $6)
@@ -350,12 +348,12 @@ func (r *PlayerRepository) PublishDefense(ctx context.Context, playerID, display
 			modifiers = EXCLUDED.modifiers,
 			published_at = EXCLUDED.published_at,
 			updated_at = now()
-	`, playerID, displayName, snapshot.Trophies, snapshot.MatchesWon, modifiers, publishedAt)
+	`, userID, displayName, snapshot.Trophies, snapshot.MatchesWon, modifiers, publishedAt)
 	return snapshot, err
 }
 
-func (r *PlayerRepository) GetPvpOpponents(ctx context.Context, playerID string, trophies, limit int) ([]PvpOpponent, error) {
-	rows, err := r.pool.Query(ctx, `
+func (s *Store) GetPvpOpponents(ctx context.Context, userID string, trophies, limit int) ([]PvpOpponent, error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT d.player_id, d.display_name, d.trophies, d.matches_won, d.modifiers, d.published_at,
 		       EXISTS (
 		         SELECT 1 FROM pvp_attacks revenge_check
@@ -366,7 +364,7 @@ func (r *PlayerRepository) GetPvpOpponents(ctx context.Context, playerID string,
 		WHERE d.player_id <> $1
 		ORDER BY ABS(d.trophies - $2), d.published_at DESC
 		LIMIT $3
-	`, playerID, trophies, limit)
+	`, userID, trophies, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -386,20 +384,20 @@ func (r *PlayerRepository) GetPvpOpponents(ctx context.Context, playerID string,
 	return opponents, rows.Err()
 }
 
-func (r *PlayerRepository) GetPvpHistory(ctx context.Context, playerID string, limit int) ([]PvpAttackHistoryEntry, error) {
-	rows, err := r.pool.Query(ctx, `
+func (s *Store) GetPvpHistory(ctx context.Context, userID string, limit int) ([]PvpAttackHistoryEntry, error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT a.attack_id, a.attacker_id, a.defender_id,
 		       a.summary->>'status', a.is_revenge,
 		       (a.summary->>'durationSeconds')::integer, a.created_at,
-		       COALESCE(defender_defense.display_name, a.defender_id),
-		       COALESCE(attacker_defense.display_name, a.attacker_id)
+		       COALESCE(defender_name.display_name, a.defender_id),
+		       COALESCE(attacker_name.display_name, a.attacker_id)
 		FROM pvp_attacks a
-		LEFT JOIN pvp_defenses defender_defense ON defender_defense.player_id = a.defender_id
-		LEFT JOIN pvp_defenses attacker_defense ON attacker_defense.player_id = a.attacker_id
+		LEFT JOIN player_names defender_name ON defender_name.player_id = a.defender_id
+		LEFT JOIN player_names attacker_name ON attacker_name.player_id = a.attacker_id
 		WHERE a.attacker_id = $1 OR a.defender_id = $1
 		ORDER BY a.created_at DESC
 		LIMIT $2
-	`, playerID, limit)
+	`, userID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -415,7 +413,7 @@ func (r *PlayerRepository) GetPvpHistory(ctx context.Context, playerID string, l
 		); err != nil {
 			return nil, err
 		}
-		if entry.AttackerID == playerID {
+		if entry.AttackerID == userID {
 			entry.OpponentName = defenderName
 		} else {
 			entry.OpponentName = attackerName
@@ -425,18 +423,18 @@ func (r *PlayerRepository) GetPvpHistory(ctx context.Context, playerID string, l
 	return history, rows.Err()
 }
 
-func (r *PlayerRepository) SettlePvpAttack(ctx context.Context, attackerID, defenderID, attackID string, actions []PvpAction) (PvpAttackResult, error) {
-	tx, err := r.pool.Begin(ctx)
+func (s *Store) SettlePvpAttack(ctx context.Context, attackerID, defenderID, attackID string, actions []PvpAction) (PvpAttackResult, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return PvpAttackResult{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 
 	var existingAttacker string
 	var existingDefender string
 	var existingRevenge bool
 	var existingSummary, existingSettlement []byte
-	err = tx.QueryRow(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		SELECT attacker_id, defender_id, is_revenge, summary, settlement
 		FROM pvp_attacks WHERE attack_id = $1
 	`, attackID).Scan(&existingAttacker, &existingDefender, &existingRevenge, &existingSummary, &existingSettlement)
@@ -446,7 +444,7 @@ func (r *PlayerRepository) SettlePvpAttack(ctx context.Context, attackerID, defe
 		}
 		var summary PvpBattleSummary
 		var settlement MatchSettlement
-		if unmarshalJSON(existingSummary, &summary) != nil || unmarshalJSON(existingSettlement, &settlement) != nil {
+		if json.Unmarshal(existingSummary, &summary) != nil || json.Unmarshal(existingSettlement, &settlement) != nil {
 			return PvpAttackResult{}, errors.New("invalid_stored_pvp_result")
 		}
 		return PvpAttackResult{
@@ -454,20 +452,20 @@ func (r *PlayerRepository) SettlePvpAttack(ctx context.Context, attackerID, defe
 			IsRevenge: existingRevenge, Summary: summary, Settlement: settlement,
 		}, nil
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+	if !errors.Is(err, sql.ErrNoRows) {
 		return PvpAttackResult{}, err
 	}
 	if attackerID == defenderID {
 		return PvpAttackResult{}, ErrPvpSelfAttack
 	}
 
-	attackerCareer, err := r.getCareerForUpdate(ctx, tx, attackerID)
+	attackerCareer, err := getCareerForUpdate(ctx, tx, attackerID)
 	if err != nil {
 		return PvpAttackResult{}, err
 	}
 	// A concurrent request may have committed while this transaction waited
 	// for the attacker's row lock.
-	err = tx.QueryRow(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		SELECT attacker_id, defender_id, is_revenge, summary, settlement
 		FROM pvp_attacks WHERE attack_id = $1
 	`, attackID).Scan(&existingAttacker, &existingDefender, &existingRevenge, &existingSummary, &existingSettlement)
@@ -477,7 +475,7 @@ func (r *PlayerRepository) SettlePvpAttack(ctx context.Context, attackerID, defe
 		}
 		var summary PvpBattleSummary
 		var settlement MatchSettlement
-		if unmarshalJSON(existingSummary, &summary) != nil || unmarshalJSON(existingSettlement, &settlement) != nil {
+		if json.Unmarshal(existingSummary, &summary) != nil || json.Unmarshal(existingSettlement, &settlement) != nil {
 			return PvpAttackResult{}, errors.New("invalid_stored_pvp_result")
 		}
 		return PvpAttackResult{
@@ -485,18 +483,18 @@ func (r *PlayerRepository) SettlePvpAttack(ctx context.Context, attackerID, defe
 			IsRevenge: existingRevenge, Summary: summary, Settlement: settlement,
 		}, nil
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+	if !errors.Is(err, sql.ErrNoRows) {
 		return PvpAttackResult{}, err
 	}
 	var defenseID, displayName string
 	var trophies, matchesWon int
 	var modifiersJSON []byte
 	var publishedAt int64
-	err = tx.QueryRow(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		SELECT player_id, display_name, trophies, matches_won, modifiers, published_at
 		FROM pvp_defenses WHERE player_id = $1 FOR SHARE
 	`, defenderID).Scan(&defenseID, &displayName, &trophies, &matchesWon, &modifiersJSON, &publishedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, sql.ErrNoRows) {
 		return PvpAttackResult{}, ErrPvpDefenseNotFound
 	}
 	if err != nil {
@@ -507,7 +505,7 @@ func (r *PlayerRepository) SettlePvpAttack(ctx context.Context, attackerID, defe
 		return PvpAttackResult{}, err
 	}
 	var isRevenge bool
-	if err := tx.QueryRow(ctx, `
+	if err := tx.QueryRowContext(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM pvp_attacks
 			WHERE attacker_id = $1 AND defender_id = $2
@@ -524,53 +522,73 @@ func (r *PlayerRepository) SettlePvpAttack(ctx context.Context, attackerID, defe
 		AttackID: attackID, AttackerID: attackerID, DefenderID: defenderID,
 		IsRevenge: isRevenge, Summary: summary, Settlement: settlement,
 	}
-	if err := r.persistCareer(ctx, tx, settlement.NewCareer); err != nil {
+	if err := persistCareer(ctx, tx, settlement.NewCareer); err != nil {
 		return PvpAttackResult{}, err
 	}
-	if err := r.insertLedgerEntries(ctx, tx, settlement.LedgerEntries); err != nil {
+	if err := insertLedgerEntries(ctx, tx, settlement.LedgerEntries); err != nil {
 		return PvpAttackResult{}, err
 	}
 	actionJSON, _ := json.Marshal(actions)
 	summaryJSON, _ := json.Marshal(summary)
 	settlementJSON, _ := json.Marshal(settlement)
-	if _, err := tx.Exec(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO pvp_attacks
 			(attack_id, attacker_id, defender_id, is_revenge, actions, summary, settlement, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`, attackID, attackerID, defenderID, isRevenge, actionJSON, summaryJSON, settlementJSON, settlement.NewCareer.LastMatchTimestamp); err != nil {
 		return PvpAttackResult{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(); err != nil {
 		return PvpAttackResult{}, err
 	}
 	return result, nil
 }
 
-func (r *PlayerRepository) getCareerForUpdate(ctx context.Context, tx pgx.Tx, playerID string) (PlayerCareer, error) {
-	row := tx.QueryRow(ctx, `
-		SELECT id, platform, username, coins, gems, trophies,
+func (s *Store) InsertAnalyticsEvents(ctx context.Context, userID string, events []AnalyticsEventRecord) error {
+	for _, event := range events {
+		props := event.Props
+		if props == nil {
+			props = map[string]any{}
+		}
+		encoded, err := json.Marshal(props)
+		if err != nil {
+			return err
+		}
+		if _, err := s.db.ExecContext(ctx, `
+			INSERT INTO analytics_events (player_id, name, props)
+			VALUES ($1, $2, $3)
+		`, userID, event.Name, encoded); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func getCareerForUpdate(ctx context.Context, tx *sql.Tx, userID string) (PlayerCareer, error) {
+	row := tx.QueryRowContext(ctx, `
+		SELECT id, coins, gems, trophies,
 		       starting_garrison_level, production_level, army_speed_level,
 		       matches_played, matches_won, current_streak, best_streak,
 		       last_match_timestamp
 		FROM players WHERE id = $1 FOR UPDATE
-	`, playerID)
+	`, userID)
 	var value playerRow
 	if err := row.Scan(
-		&value.ID, &value.Platform, &value.Username, &value.Coins, &value.Gems,
-		&value.Trophies, &value.StartingGarrisonLevel, &value.ProductionLevel,
-		&value.ArmySpeedLevel, &value.MatchesPlayed, &value.MatchesWon,
-		&value.CurrentStreak, &value.BestStreak, &value.LastMatchTimestamp,
+		&value.ID, &value.Coins, &value.Gems, &value.Trophies,
+		&value.StartingGarrisonLevel, &value.ProductionLevel, &value.ArmySpeedLevel,
+		&value.MatchesPlayed, &value.MatchesWon, &value.CurrentStreak, &value.BestStreak,
+		&value.LastMatchTimestamp,
 	); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return PlayerCareer{}, fmt.Errorf("%w:%s", ErrPlayerNotFound, playerID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return PlayerCareer{}, fmt.Errorf("%w:%s", ErrPlayerNotFound, userID)
 		}
 		return PlayerCareer{}, err
 	}
 	return careerFromRow(value), nil
 }
 
-func (r *PlayerRepository) persistCareer(ctx context.Context, tx pgx.Tx, career PlayerCareer) error {
-	_, err := tx.Exec(ctx, `
+func persistCareer(ctx context.Context, tx *sql.Tx, career PlayerCareer) error {
+	_, err := tx.ExecContext(ctx, `
 		UPDATE players SET
 			coins = $2, gems = $3, trophies = $4,
 			starting_garrison_level = $5, production_level = $6, army_speed_level = $7,
@@ -584,9 +602,9 @@ func (r *PlayerRepository) persistCareer(ctx context.Context, tx pgx.Tx, career 
 	return err
 }
 
-func (r *PlayerRepository) insertLedgerEntries(ctx context.Context, tx pgx.Tx, entries []EconomyLedgerEntry) error {
+func insertLedgerEntries(ctx context.Context, tx *sql.Tx, entries []EconomyLedgerEntry) error {
 	for _, entry := range entries {
-		if _, err := tx.Exec(ctx, `
+		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO economy_ledger
 				(id, player_id, currency, amount, reason, source,
 				 previous_balance, resulting_balance, timestamp)
@@ -600,6 +618,14 @@ func (r *PlayerRepository) insertLedgerEntries(ctx context.Context, tx pgx.Tx, e
 	return nil
 }
 
-func unmarshalJSON(data []byte, target any) error {
-	return json.Unmarshal(data, target)
+func nowMillis() int64 {
+	return time.Now().UnixMilli()
+}
+
+// submitTrophies pushes the settled trophy balance to the Nakama leaderboard.
+func submitTrophies(ctx context.Context, nk runtime.NakamaModule, userID string, trophies int64) {
+	if _, err := nk.LeaderboardRecordWrite(ctx, "trophies", userID, "", trophies, 0, nil, nil); err != nil {
+		// Leaderboard is a projection; settlement already succeeded.
+		_ = err
+	}
 }

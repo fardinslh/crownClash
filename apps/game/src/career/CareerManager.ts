@@ -11,9 +11,6 @@ import {
   normalizeUpgradeLevel,
   PlayerCareer,
   PvpAction,
-  PvpAttackHistoryEntry,
-  PvpAttackResult,
-  PvpOpponent,
   purchaseUpgrade as purchaseCareerUpgrade,
   settleMatch,
   UpgradePurchaseResult,
@@ -134,24 +131,6 @@ export class CareerManager {
     }
 
     return result;
-  }
-
-  public async getPvpOpponentsRemote(limit = 8): Promise<PvpOpponent[]> {
-    return this.requireRemoteApi().getPvpOpponents(limit);
-  }
-
-  public async submitPvpAttackRemote(
-    defenderId: string,
-    attackId: string,
-    actions: readonly PvpAction[]
-  ): Promise<PvpAttackResult> {
-    const result = await this.requireRemoteApi().submitPvpAttack(defenderId, attackId, actions);
-    this.applyRemoteState(result.settlement.newCareer, result.settlement.ledgerEntries);
-    return result;
-  }
-
-  public async getPvpHistoryRemote(limit = 20): Promise<PvpAttackHistoryEntry[]> {
-    return this.requireRemoteApi().getPvpHistory(limit);
   }
 
   public openLiveMatchRemote(): LiveMatchClient {

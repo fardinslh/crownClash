@@ -13,6 +13,7 @@
   "dependencies": {
     "@crown-clash/game-core": "*",
     "@crown-clash/platform": "*",
+    "@heroiclabs/nakama-js": "^2.0.0",
     "phaser": "^4.2.1"
   },
   "devDependencies": {

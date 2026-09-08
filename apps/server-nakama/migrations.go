@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"fmt"
-
-	"github.com/jackc/pgx/v5/pgxpool"
+	"database/sql"
 )
 
 type migration struct {
@@ -18,8 +16,6 @@ var migrations = []migration{
 		sql: `
 CREATE TABLE IF NOT EXISTS players (
   id TEXT PRIMARY KEY,
-  platform TEXT NOT NULL,
-  username TEXT,
   coins INTEGER NOT NULL DEFAULT 100,
   gems INTEGER NOT NULL DEFAULT 10,
   trophies INTEGER NOT NULL DEFAULT 0,
@@ -32,6 +28,11 @@ CREATE TABLE IF NOT EXISTS players (
   best_streak INTEGER NOT NULL DEFAULT 0,
   last_match_timestamp BIGINT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS player_names (
+  player_id TEXT PRIMARY KEY,
+  display_name TEXT NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS economy_ledger (
@@ -108,36 +109,35 @@ CREATE INDEX IF NOT EXISTS idx_analytics_events_name ON analytics_events (name, 
 	},
 }
 
-func RunMigrations(ctx context.Context, pool *pgxpool.Pool) error {
-	_, err := pool.Exec(ctx, `
+func RunMigrations(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			name TEXT PRIMARY KEY,
 			applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		)
-	`)
-	if err != nil {
+	`); err != nil {
 		return err
 	}
 	for _, item := range migrations {
 		var exists bool
-		if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE name = $1)`, item.name).Scan(&exists); err != nil {
+		if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE name = $1)`, item.name).Scan(&exists); err != nil {
 			return err
 		}
 		if exists {
 			continue
 		}
-		tx, err := pool.Begin(ctx)
+		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
 			return err
 		}
-		if _, err = tx.Exec(ctx, item.sql); err == nil {
-			_, err = tx.Exec(ctx, `INSERT INTO schema_migrations (name) VALUES ($1)`, item.name)
+		if _, err = tx.ExecContext(ctx, item.sql); err == nil {
+			_, err = tx.ExecContext(ctx, `INSERT INTO schema_migrations (name) VALUES ($1)`, item.name)
 		}
 		if err != nil {
-			_ = tx.Rollback(ctx)
-			return fmt.Errorf("migration %s: %w", item.name, err)
+			_ = tx.Rollback()
+			return err
 		}
-		if err := tx.Commit(ctx); err != nil {
+		if err := tx.Commit(); err != nil {
 			return err
 		}
 	}

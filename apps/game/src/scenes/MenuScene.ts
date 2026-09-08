@@ -3,8 +3,6 @@ import {
   getRankTier,
   LOGICAL_HEIGHT,
   LOGICAL_WIDTH,
-  PvpAttackHistoryEntry,
-  PvpOpponent,
 } from '@crown-clash/game-core';
 import { trackEvent } from '../analytics/Analytics.js';
 import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
@@ -220,48 +218,15 @@ export class MenuScene extends Phaser.Scene {
       stroke: online ? 0x60a5fa : 0x475569,
     });
 
-    const raidBg = this.add
-      .rectangle(
-        LOGICAL_WIDTH / 2,
-        590,
-        250,
-        50,
-        secondaryButtonStyle(careerManager.isRemoteConnected()).fill,
-        1
-      )
-      .setStrokeStyle(
-        1.5,
-        secondaryButtonStyle(careerManager.isRemoteConnected()).stroke,
-        1
-      )
-      .setInteractive({ useHandCursor: true });
-    const raidText = this.add
-      .text(
-        LOGICAL_WIDTH / 2,
-        590,
-        careerManager.isRemoteConnected() ? 'RAID RIVALS  ⚔' : 'RAIDS OFFLINE',
-        {
-          fontFamily: FONT_FAMILY,
-          fontSize: '14px',
-          fontStyle: '900',
-          color: careerManager.isRemoteConnected() ? '#bfdbfe' : '#94a3b8',
-          stroke: '#000000',
-          strokeThickness: 2,
-          resolution: 2,
-        }
-      )
-      .setOrigin(0.5);
-    this.bindPressFeedback(raidBg, raidText);
-
     const liveStyle = secondaryButtonStyle(careerManager.isRemoteConnected());
     const liveBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2, 652, 250, 50, liveStyle.fill, 1)
+      .rectangle(LOGICAL_WIDTH / 2, 590, 250, 50, liveStyle.fill, 1)
       .setStrokeStyle(1.5, liveStyle.stroke, 1)
       .setInteractive({ useHandCursor: true });
     const liveText = this.add
       .text(
         LOGICAL_WIDTH / 2,
-        652,
+        590,
         careerManager.isRemoteConnected() ? 'LIVE PVP  ⚔' : 'LIVE PVP OFFLINE',
         {
           fontFamily: FONT_FAMILY,
@@ -277,13 +242,8 @@ export class MenuScene extends Phaser.Scene {
     this.bindPressFeedback(liveBg, liveText);
 
     if (!careerManager.isRemoteConnected()) {
-      raidBg.disableInteractive();
       liveBg.disableInteractive();
     } else {
-      raidBg.on('pointerdown', () => {
-        raidBg.disableInteractive();
-        this.openRaidPanel(platform, careerManager, raidBg, raidText);
-      });
       liveBg.on('pointerdown', () => {
         liveBg.disableInteractive();
         this.openLivePvpLobby(platform, careerManager, liveBg, liveText);
@@ -528,256 +488,6 @@ export class MenuScene extends Phaser.Scene {
       // in-scene input instead.
       this.showJoinCodeEntry(overlay, (roomCode) => startClient('join', roomCode));
     });
-  }
-
-  private openRaidPanel(
-    platform: PlatformAdapter,
-    careerManager: CareerManager,
-    raidButton: Phaser.GameObjects.Rectangle,
-    raidText: Phaser.GameObjects.Text
-  ): void {
-    const overlay = this.add.container(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2).setDepth(150);
-    const backdrop = this.add
-      .rectangle(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT, 0x000000, 0.76)
-      .setInteractive();
-    const card = this.add
-      .rectangle(0, 0, 330, 540, 0x0c1322, 0.99)
-      .setStrokeStyle(2, 0x60a5fa, 0.95);
-    const title = this.add
-      .text(0, -245, 'RAID RIVALS', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '24px',
-        fontStyle: '900',
-        color: '#bfdbfe',
-        stroke: '#000000',
-        strokeThickness: 3,
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    const subtitle = this.add
-      .text(0, -214, 'Raid a rival realm and steal trophies', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '11px',
-        fontStyle: 'bold',
-        color: '#94a3b8',
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    const status = this.add
-      .text(0, 238, 'LOADING RIVALS...', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '12px',
-        fontStyle: 'bold',
-        color: '#60a5fa',
-        align: 'center',
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    const closeBg = this.add
-      .rectangle(140, -245, 36, 36, 0x000000, 0)
-      .setInteractive({ useHandCursor: true });
-    const close = this.add
-      .text(140, -245, '✕', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '18px',
-        color: '#94a3b8',
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-
-    const closePanel = (): void => {
-      overlay.destroy();
-      raidButton.setInteractive({ useHandCursor: true });
-      raidText.setText('RAID RIVALS  ⚔');
-    };
-    closeBg.on('pointerdown', closePanel);
-    this.bindPressFeedback(closeBg, close);
-
-    let activeTab: 'rivals' | 'history' = 'rivals';
-    const rivalsTabBg = this.add
-      .rectangle(-82, -182, 130, 30, 0x2563eb, 1)
-      .setStrokeStyle(1.5, 0x60a5fa, 1)
-      .setInteractive({ useHandCursor: true });
-    const rivalsTabText = this.add
-      .text(-82, -182, 'RIVALS', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '11px',
-        fontStyle: '900',
-        color: '#ffffff',
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    const historyTabBg = this.add
-      .rectangle(82, -182, 130, 30, 0x111c33, 1)
-      .setStrokeStyle(1.5, 0x475569, 1)
-      .setInteractive({ useHandCursor: true });
-    const historyTabText = this.add
-      .text(82, -182, 'HISTORY', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '11px',
-        fontStyle: '900',
-        color: '#e2e8f0',
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-
-    const list = this.add.container(0, 0);
-    overlay.add([
-      backdrop,
-      card,
-      title,
-      subtitle,
-      status,
-      closeBg,
-      close,
-      rivalsTabBg,
-      rivalsTabText,
-      historyTabBg,
-      historyTabText,
-      list,
-    ]);
-
-    const setTabStyle = (): void => {
-      rivalsTabBg.setFillStyle(activeTab === 'rivals' ? 0x2563eb : 0x111c33, 1);
-      historyTabBg.setFillStyle(activeTab === 'history' ? 0x2563eb : 0x111c33, 1);
-    };
-
-    const truncate = (value: string, max: number): string =>
-      value.length > max ? value.slice(0, max - 1) + '…' : value;
-
-    const startAttack = (opponent: PvpOpponent): void => {
-      sounds.playDispatch();
-      platform.hapticImpact('medium');
-      trackEvent({
-        name: 'pvp_attack_start',
-        defenderId: opponent.playerId,
-        isRevenge: opponent.isRevenge,
-      });
-      this.scene.start('GameScene', { source: 'menu', mode: 'pvp', opponent });
-    };
-
-    const renderRivals = (opponents: PvpOpponent[]): void => {
-      list.removeAll(true);
-      if (opponents.length === 0) {
-        status.setText('NO RIVALS FOUND YET');
-        return;
-      }
-      status.setText('');
-      trackEvent({ name: 'pvp_opponents_viewed', count: opponents.length });
-      opponents.slice(0, 6).forEach((opponent, index) => {
-        const y = -140 + index * 66;
-        const rank = getRankTier(opponent.trophies);
-        const rowBg = this.add
-          .rectangle(0, y, 294, 58, 0x0f172a, 0.95)
-          .setStrokeStyle(1, opponent.isRevenge ? 0xef4444 : 0x1e293b, 1)
-          .setInteractive({ useHandCursor: true });
-        const badge = this.add
-          .text(-128, y, rank.badge, { fontSize: '18px', resolution: 2 })
-          .setOrigin(0.5);
-        const name = this.add
-          .text(-105, y - 9, truncate(opponent.displayName, 14), {
-            fontFamily: FONT_FAMILY,
-            fontSize: '12px',
-            fontStyle: '900',
-            color: '#f8fafc',
-            stroke: '#000000',
-            strokeThickness: 2,
-            resolution: 2,
-          })
-          .setOrigin(0, 0.5);
-        const sub = this.add
-          .text(-105, y + 12, `🏆 ${opponent.trophies}  •  👑 ${opponent.matchesWon} wins`, {
-            fontFamily: FONT_FAMILY,
-            fontSize: '10px',
-            fontStyle: 'bold',
-            color: '#94a3b8',
-            resolution: 2,
-          })
-          .setOrigin(0, 0.5);
-        const chipBg = this.add
-          .rectangle(105, y, 74, 24, opponent.isRevenge ? 0x7f1d1d : 0x1d4ed8, 1)
-          .setStrokeStyle(1.5, opponent.isRevenge ? 0xf87171 : 0x60a5fa, 1);
-        const chipText = this.add
-          .text(105, y, opponent.isRevenge ? 'REVENGE' : 'RAID ⚔', {
-            fontFamily: FONT_FAMILY,
-            fontSize: '10px',
-            fontStyle: '900',
-            color: '#ffffff',
-            resolution: 2,
-          })
-          .setOrigin(0.5);
-        this.bindPressFeedback(rowBg, chipText);
-        rowBg.on('pointerdown', () => startAttack(opponent));
-        list.add([rowBg, badge, name, sub, chipBg, chipText]);
-      });
-    };
-
-    const renderHistory = (entries: PvpAttackHistoryEntry[]): void => {
-      list.removeAll(true);
-      if (entries.length === 0) {
-        status.setText('NO RAIDS YET');
-        return;
-      }
-      status.setText('');
-      entries.slice(0, 6).forEach((entry, index) => {
-        const y = -140 + index * 66;
-        const isWin = entry.status === 'victory';
-        const isDraw = entry.status === 'draw';
-        const iconText = isWin ? '👑' : isDraw ? '🤝' : '💀';
-        const label = isWin ? 'VICTORY' : isDraw ? 'DRAW' : 'DEFEAT';
-        const labelColor = isWin ? '#fbbf24' : isDraw ? '#cbd5e1' : '#f87171';
-        const rowBg = this.add
-          .rectangle(0, y, 294, 58, 0x0f172a, 0.95)
-          .setStrokeStyle(1, 0x1e293b, 1);
-        const icon = this.add
-          .text(-128, y, iconText, { fontSize: '16px', resolution: 2 })
-          .setOrigin(0.5);
-        const name = this.add
-          .text(-105, y - 9, `${label} vs ${truncate(entry.opponentName, 11)}`, {
-            fontFamily: FONT_FAMILY,
-            fontSize: '12px',
-            fontStyle: '900',
-            color: labelColor,
-            stroke: '#000000',
-            strokeThickness: 2,
-            resolution: 2,
-          })
-          .setOrigin(0, 0.5);
-        const sub = this.add
-          .text(-105, y + 12, `⏱ ${entry.durationSeconds}s${entry.isRevenge ? '  •  revenge raid' : ''}`, {
-            fontFamily: FONT_FAMILY,
-            fontSize: '10px',
-            fontStyle: 'bold',
-            color: '#94a3b8',
-            resolution: 2,
-          })
-          .setOrigin(0, 0.5);
-        list.add([rowBg, icon, name, sub]);
-      });
-    };
-
-    const load = (tab: 'rivals' | 'history'): void => {
-      activeTab = tab;
-      setTabStyle();
-      list.removeAll(true);
-      status.setText(tab === 'rivals' ? 'LOADING RIVALS...' : 'LOADING HISTORY...');
-      const loadPromise =
-        tab === 'rivals'
-          ? careerManager.getPvpOpponentsRemote(6).then(renderRivals)
-          : careerManager.getPvpHistoryRemote(6).then(renderHistory);
-      loadPromise.catch(() => {
-        status.setText('COULD NOT LOAD\nTAP A TAB TO RETRY');
-      });
-    };
-
-    rivalsTabBg.on('pointerdown', () => {
-      if (activeTab !== 'rivals') load('rivals');
-    });
-    historyTabBg.on('pointerdown', () => {
-      if (activeTab !== 'history') load('history');
-    });
-
-    load('rivals');
   }
 
   private showJoinCodeEntry(

@@ -18,7 +18,6 @@ import {
   MAX_PVP_ACTIONS,
   PVP_AI_TICK_SECONDS,
   PvpAction,
-  PvpOpponent,
   stepSimulation,
   Territory,
   UPGRADE_DEFINITIONS,
@@ -111,9 +110,6 @@ export class GameScene extends Phaser.Scene {
   private liveOpponentName = 'Opponent';
   private liveUnsubscribers: Array<() => void> = [];
 
-  // Asynchronous PvP raid against a defender's published snapshot.
-  private pvpMode = false;
-  private pvpOpponent?: PvpOpponent;
   private enemyArmySpeedMultiplier = 1;
 
   // Result Modal
@@ -153,17 +149,14 @@ export class GameScene extends Phaser.Scene {
     this.careerManager = CareerManager.getInstance(user.id);
     const launchData = this.scene.settings.data as {
       source?: 'menu' | 'rematch';
-      mode?: 'bot' | 'live' | 'pvp';
+      mode?: 'bot' | 'live';
       liveClient?: LiveMatchClient;
       liveMatch?: LiveMatchStarted;
-      opponent?: PvpOpponent;
     } | undefined;
     this.liveMode = launchData?.mode === 'live';
     this.liveClient = launchData?.liveClient;
-    this.pvpMode = launchData?.mode === 'pvp';
-    this.pvpOpponent = launchData?.opponent;
     this.liveOpponentName =
-      launchData?.liveMatch?.opponentName || launchData?.opponent?.displayName || 'Opponent';
+      launchData?.liveMatch?.opponentName || 'Opponent';
     this.activeMatchId = this.createMatchId();
     this.matchActions = [];
     this.liveUnsubscribers = [];
@@ -593,8 +586,6 @@ export class GameScene extends Phaser.Scene {
     let rawName = this.platform.getUser().username || 'Commander';
     if (this.liveMode) {
       rawName = `LIVE vs ${this.liveOpponentName}`;
-    } else if (this.pvpMode) {
-      rawName = `RAID vs ${this.liveOpponentName}`;
     }
     if (rawName.startsWith('Commander_')) {
       rawName = 'Cmdr ' + rawName.slice(10);
@@ -1434,25 +1425,7 @@ export class GameScene extends Phaser.Scene {
     try {
       await this.backendConnectPromise;
       let settlement: MatchSettlement;
-      if (this.pvpMode) {
-        if (!this.pvpOpponent || !this.careerManager.isRemoteConnected()) {
-          throw new Error('backend_required_for_pvp_attack');
-        }
-        // The server replays the actions against the defender's snapshot and
-        // derives the outcome; the local prediction is display-only.
-        const result = await this.careerManager.submitPvpAttackRemote(
-          this.pvpOpponent.playerId,
-          this.activeMatchId,
-          this.matchActions
-        );
-        settlement = result.settlement;
-        trackEvent({
-          name: 'pvp_attack_end',
-          defenderId: this.pvpOpponent.playerId,
-          status: settlement.status,
-          isRevenge: result.isRevenge,
-        });
-      } else if (this.careerManager.isRemoteConnected()) {
+      if (this.careerManager.isRemoteConnected()) {
         // Server replays the recorded actions and derives the outcome.
         settlement = await this.careerManager.recordMatchResultRemote(
           this.matchActions,
@@ -1473,23 +1446,14 @@ export class GameScene extends Phaser.Scene {
         settlement.stats && settlement.stats.matchDurationSeconds > 0
           ? settlement.stats
           : this.localMatchStats();
-      if (!this.pvpMode) {
-        trackEvent({
-          name: 'match_end',
-          status: settlement.status,
-          matchId: settlement.matchId,
-        });
-      }
+      trackEvent({
+        name: 'match_end',
+        status: settlement.status,
+        matchId: settlement.matchId,
+      });
       this.renderResultModal(settlement.status, stats, settlement);
     } catch (error) {
       this.resultPending = false;
-      if (this.pvpMode && this.pvpOpponent) {
-        trackEvent({
-          name: 'pvp_attack_failed',
-          defenderId: this.pvpOpponent.playerId,
-          reason: error instanceof Error ? error.message : 'unknown',
-        });
-      }
       this.showSettlementError(error);
     }
   }
@@ -2144,8 +2108,6 @@ export class GameScene extends Phaser.Scene {
     this.liveClient = undefined;
     this.liveMode = false;
     this.liveOpponentName = 'Opponent';
-    this.pvpMode = false;
-    this.pvpOpponent = undefined;
     this.enemyArmySpeedMultiplier = 1;
     this.resultPending = false;
     this.hudPlayerText.setText(this.computePlayerHudLabel());
@@ -2186,10 +2148,9 @@ export class GameScene extends Phaser.Scene {
   private createUpgradedMatchState(): void {
     const modifiers = getPlayerUpgradeModifiers(this.careerManager.getCareer());
     this.playerArmySpeedMultiplier = modifiers.armySpeedMultiplier;
-    this.enemyArmySpeedMultiplier = this.pvpOpponent?.modifiers.armySpeedMultiplier ?? 1;
+    this.enemyArmySpeedMultiplier = 1;
     this.gameState = createInitialGameState({
       playerModifiers: modifiers,
-      enemyModifiers: this.pvpOpponent?.modifiers,
     });
   }
 
