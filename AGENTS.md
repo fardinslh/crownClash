@@ -468,3 +468,5 @@ prefer B unless product direction explicitly requires otherwise.
 The project is a commercial game.
 
 Optimize for players returning and eventually paying — not for the repository looking technically impressive.
+
+...
