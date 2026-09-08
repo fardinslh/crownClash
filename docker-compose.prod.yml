@@ -1,0 +1,53 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: crownclash
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-crownclash}
+      POSTGRES_DB: crownclash
+    volumes:
+      - crownclash_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U crownclash -d crownclash']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: apps/server-go/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 8787
+      DATABASE_URL: postgresql://crownclash:${POSTGRES_PASSWORD:-crownclash}@db:5432/crownclash
+      JWT_SECRET: ${JWT_SECRET}
+      CLIENT_ORIGINS: ${CLIENT_ORIGINS:-https://crownclash.tusigame.ir}
+      ALLOW_GUEST_AUTH: ${ALLOW_GUEST_AUTH:-false}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      BALE_BOT_TOKEN: ${BALE_BOT_TOKEN:-}
+      INIT_DATA_MAX_AGE_SECONDS: ${INIT_DATA_MAX_AGE_SECONDS:-86400}
+    healthcheck:
+      test: ['CMD', '/crown-clash-server', 'healthcheck']
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      db:
+        condition: service_healthy
+
+  game:
+    build:
+      context: .
+      dockerfile: apps/game/Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-https://api-cc.tusigame.ir}
+    restart: unless-stopped
+    depends_on:
+      - backend
+
+volumes:
+  crownclash_pg_data:
