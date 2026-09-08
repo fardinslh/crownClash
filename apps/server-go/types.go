@@ -106,13 +106,14 @@ type PvpDefenseSnapshot struct {
 }
 
 type PvpOpponent struct {
-	PlayerID           string `json:"playerId"`
-	DisplayName        string `json:"displayName"`
-	Trophies           int    `json:"trophies"`
-	MatchesWon         int    `json:"matchesWon"`
-	RankID             string `json:"rankId"`
-	DefensePublishedAt int64  `json:"defensePublishedAt"`
-	IsRevenge          bool   `json:"isRevenge"`
+	PlayerID           string                 `json:"playerId"`
+	DisplayName        string                 `json:"displayName"`
+	Trophies           int                    `json:"trophies"`
+	MatchesWon         int                    `json:"matchesWon"`
+	RankID             string                 `json:"rankId"`
+	DefensePublishedAt int64                  `json:"defensePublishedAt"`
+	IsRevenge          bool                   `json:"isRevenge"`
+	Modifiers          PlayerUpgradeModifiers `json:"modifiers"`
 }
 
 type PvpAttackHistoryEntry struct {
@@ -123,6 +124,7 @@ type PvpAttackHistoryEntry struct {
 	IsRevenge       bool   `json:"isRevenge"`
 	DurationSeconds int    `json:"durationSeconds"`
 	CreatedAt       int64  `json:"createdAt"`
+	OpponentName    string `json:"opponentName"`
 }
 
 type PvpBattleSummary struct {

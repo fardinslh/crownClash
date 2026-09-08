@@ -32,6 +32,7 @@ export interface PvpOpponent {
   rankId: string;
   defensePublishedAt: number;
   isRevenge: boolean;
+  modifiers: PlayerUpgradeModifiers;
 }
 
 export interface PvpAttackHistoryEntry {
@@ -42,6 +43,7 @@ export interface PvpAttackHistoryEntry {
   isRevenge: boolean;
   durationSeconds: number;
   createdAt: number;
+  opponentName: string;
 }
 
 export interface PvpBattleSummary {

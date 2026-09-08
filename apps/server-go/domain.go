@@ -408,20 +408,22 @@ func evaluateAIMove(state GameState) (string, string, bool) {
 	return fromID, toID, bestScore > 0
 }
 
+// SimulatePvpBattle replays an asynchronous PvP attack against the
+// defender's snapshot. Structural violations (bad sequence, timestamps,
+// action count) are rejected; player actions that are invalid at replay time
+// (e.g. due to minor client prediction divergence) are skipped. The outcome
+// is always derived from this server-side simulation, so skipping cannot
+// inflate rewards.
 func SimulatePvpBattle(actions []PvpAction, player, enemy PlayerUpgradeModifiers) (GameState, PvpBattleSummary, error) {
-	return simulateBattle(actions, player, enemy, false)
+	return simulateBattle(actions, player, enemy)
 }
 
 // SimulateBotBattle replays a single-player match against the standard AI.
-// Invalid player actions are skipped instead of aborting the replay so minor
-// client/server timing divergence cannot dead-end a settlement. The outcome
-// is still derived exclusively from the server-side simulation, so skipping
-// cannot inflate rewards.
 func SimulateBotBattle(actions []PvpAction, player PlayerUpgradeModifiers) (GameState, PvpBattleSummary, error) {
-	return simulateBattle(actions, player, DefaultModifiers(), true)
+	return simulateBattle(actions, player, DefaultModifiers())
 }
 
-func simulateBattle(actions []PvpAction, player, enemy PlayerUpgradeModifiers, lenientPlayerActions bool) (GameState, PvpBattleSummary, error) {
+func simulateBattle(actions []PvpAction, player, enemy PlayerUpgradeModifiers) (GameState, PvpBattleSummary, error) {
 	if len(actions) > MaxPvpActions {
 		return GameState{}, PvpBattleSummary{}, ErrPvpTooManyActions
 	}
@@ -466,28 +468,13 @@ func simulateBattle(actions []PvpAction, player, enemy PlayerUpgradeModifiers, l
 			nextAITick += PvpAITickSeconds
 		}
 		if state.Status != "playing" {
-			if lenientPlayerActions {
-				break
-			}
-			return GameState{}, PvpBattleSummary{}, ErrPvpActionAfterBattleEnd
+			break
 		}
 		stepTo(action.AtSeconds)
 		if state.Status != "playing" {
-			if lenientPlayerActions {
-				break
-			}
-			return GameState{}, PvpBattleSummary{}, ErrPvpActionAfterBattleEnd
+			break
 		}
 		if err := dispatchArmy(&state, action.SourceID, action.TargetID, TeamPlayer, player.ArmySpeedMultiplier, "pvp_player_"+itoa(int64(action.Sequence))); err != nil {
-			if !lenientPlayerActions {
-				if err == ErrPvpInvalidSource {
-					return GameState{}, PvpBattleSummary{}, ErrPvpInvalidSource
-				}
-				if err == ErrPvpInvalidTarget {
-					return GameState{}, PvpBattleSummary{}, ErrPvpInvalidTarget
-				}
-				return GameState{}, PvpBattleSummary{}, ErrPvpInvalidDispatch
-			}
 			continue
 		}
 		actionsProcessed++
