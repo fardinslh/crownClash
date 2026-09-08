@@ -356,7 +356,7 @@ func (r *PlayerRepository) PublishDefense(ctx context.Context, playerID, display
 
 func (r *PlayerRepository) GetPvpOpponents(ctx context.Context, playerID string, trophies, limit int) ([]PvpOpponent, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT d.player_id, d.display_name, d.trophies, d.matches_won, d.published_at,
+		SELECT d.player_id, d.display_name, d.trophies, d.matches_won, d.modifiers, d.published_at,
 		       EXISTS (
 		         SELECT 1 FROM pvp_attacks revenge_check
 		         WHERE revenge_check.attacker_id = d.player_id
@@ -376,7 +376,7 @@ func (r *PlayerRepository) GetPvpOpponents(ctx context.Context, playerID string,
 		var opponent PvpOpponent
 		if err := rows.Scan(
 			&opponent.PlayerID, &opponent.DisplayName, &opponent.Trophies,
-			&opponent.MatchesWon, &opponent.DefensePublishedAt, &opponent.IsRevenge,
+			&opponent.MatchesWon, &opponent.Modifiers, &opponent.DefensePublishedAt, &opponent.IsRevenge,
 		); err != nil {
 			return nil, err
 		}
@@ -388,12 +388,16 @@ func (r *PlayerRepository) GetPvpOpponents(ctx context.Context, playerID string,
 
 func (r *PlayerRepository) GetPvpHistory(ctx context.Context, playerID string, limit int) ([]PvpAttackHistoryEntry, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT attack_id, attacker_id, defender_id,
-		       summary->>'status', is_revenge,
-		       (summary->>'durationSeconds')::integer, created_at
-		FROM pvp_attacks
-		WHERE attacker_id = $1 OR defender_id = $1
-		ORDER BY created_at DESC
+		SELECT a.attack_id, a.attacker_id, a.defender_id,
+		       a.summary->>'status', a.is_revenge,
+		       (a.summary->>'durationSeconds')::integer, a.created_at,
+		       COALESCE(defender_defense.display_name, a.defender_id),
+		       COALESCE(attacker_defense.display_name, a.attacker_id)
+		FROM pvp_attacks a
+		LEFT JOIN pvp_defenses defender_defense ON defender_defense.player_id = a.defender_id
+		LEFT JOIN pvp_defenses attacker_defense ON attacker_defense.player_id = a.attacker_id
+		WHERE a.attacker_id = $1 OR a.defender_id = $1
+		ORDER BY a.created_at DESC
 		LIMIT $2
 	`, playerID, limit)
 	if err != nil {
@@ -403,11 +407,18 @@ func (r *PlayerRepository) GetPvpHistory(ctx context.Context, playerID string, l
 	history := make([]PvpAttackHistoryEntry, 0)
 	for rows.Next() {
 		var entry PvpAttackHistoryEntry
+		var defenderName, attackerName string
 		if err := rows.Scan(
 			&entry.AttackID, &entry.AttackerID, &entry.DefenderID, &entry.Status,
 			&entry.IsRevenge, &entry.DurationSeconds, &entry.CreatedAt,
+			&defenderName, &attackerName,
 		); err != nil {
 			return nil, err
+		}
+		if entry.AttackerID == playerID {
+			entry.OpponentName = defenderName
+		} else {
+			entry.OpponentName = attackerName
 		}
 		history = append(history, entry)
 	}

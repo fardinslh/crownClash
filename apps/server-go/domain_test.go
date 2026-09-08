@@ -75,11 +75,14 @@ func TestPvpSimulationRejectsMalformedActions(t *testing.T) {
 		t.Fatalf("expected invalid timestamp, got %v", err)
 	}
 
-	_, _, err = SimulatePvpBattle([]PvpAction{
+	_, summary, err := SimulatePvpBattle([]PvpAction{
 		{Sequence: 0, AtSeconds: 0, SourceID: "does_not_exist", TargetID: "n_center"},
 	}, DefaultModifiers(), DefaultModifiers())
-	if err != ErrPvpInvalidSource {
-		t.Fatalf("expected invalid source, got %v", err)
+	if err != nil {
+		t.Fatalf("expected invalid player action to be skipped, got %v", err)
+	}
+	if summary.ActionsProcessed != 0 {
+		t.Fatalf("expected 0 processed actions, got %d", summary.ActionsProcessed)
 	}
 }
 

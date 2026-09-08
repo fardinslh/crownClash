@@ -57,6 +57,9 @@ func TestPostgresAPIIntegration(t *testing.T) {
 	for _, opponent := range opponentBody.Opponents {
 		if opponent.PlayerID == second.playerID {
 			found = true
+			if opponent.Modifiers.StartingUnits != 20 || opponent.Modifiers.ArmySpeedMultiplier != 1 {
+				t.Fatalf("opponent response missing default modifiers: %+v", opponent.Modifiers)
+			}
 		}
 	}
 	if !found {
