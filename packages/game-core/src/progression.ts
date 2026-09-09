@@ -4,6 +4,7 @@
  */
 
 import { MatchStats } from './types.js';
+import { getTreasuryCoinBonusRate } from './upgrades.js';
 
 export type CurrencyType = 'coins' | 'gems' | 'trophies';
 
@@ -33,6 +34,7 @@ export interface PlayerCareer {
   startingGarrisonLevel: number;
   productionLevel: number;
   armySpeedLevel: number;
+  treasuryLevel: number;
   matchesPlayed: number;
   matchesWon: number;
   currentStreak: number;
@@ -57,6 +59,7 @@ export interface MatchRewardBreakdown {
   speedBonus: number;
   dominationBonus: number;
   streakBonus: number;
+  treasuryBonus: number;
   totalCoins: number;
   trophyDelta: number;
 }
@@ -83,6 +86,7 @@ export function createDefaultCareer(playerId: string): PlayerCareer {
     startingGarrisonLevel: 0,
     productionLevel: 0,
     armySpeedLevel: 0,
+    treasuryLevel: 0,
     matchesPlayed: 0,
     matchesWon: 0,
     currentStreak: 0,
@@ -105,8 +109,29 @@ export function getRankTier(trophies: number): RankTierInfo {
 export function calculateMatchRewards(
   status: 'victory' | 'defeat' | 'draw',
   stats: MatchStats,
-  currentStreak: number
+  currentStreak: number,
+  treasuryLevel = 0
 ): MatchRewardBreakdown {
+  const applyTreasuryBonus = (
+    baseCoins: number,
+    speedBonus: number,
+    dominationBonus: number,
+    streakBonus: number,
+    trophyDelta: number
+  ): MatchRewardBreakdown => {
+    const preTreasuryCoinReward = baseCoins + speedBonus + dominationBonus + streakBonus;
+    const treasuryBonus = Math.floor(preTreasuryCoinReward * getTreasuryCoinBonusRate(treasuryLevel));
+    return {
+      baseCoins,
+      speedBonus,
+      dominationBonus,
+      streakBonus,
+      treasuryBonus,
+      totalCoins: preTreasuryCoinReward + treasuryBonus,
+      trophyDelta,
+    };
+  };
+
   if (status === 'victory') {
     const baseCoins = 40;
 
@@ -125,39 +150,15 @@ export function calculateMatchRewards(
     const newStreak = currentStreak + 1;
     const streakBonus = Math.min(25, Math.max(0, (newStreak - 1) * 5));
 
-    const totalCoins = baseCoins + speedBonus + dominationBonus + streakBonus;
-    const trophyDelta = 30;
-
-    return {
-      baseCoins,
-      speedBonus,
-      dominationBonus,
-      streakBonus,
-      totalCoins,
-      trophyDelta,
-    };
+    return applyTreasuryBonus(baseCoins, speedBonus, dominationBonus, streakBonus, 30);
   }
 
   if (status === 'defeat') {
-    return {
-      baseCoins: 10, // Consolation gold
-      speedBonus: 0,
-      dominationBonus: 0,
-      streakBonus: 0,
-      totalCoins: 10,
-      trophyDelta: -12,
-    };
+    return applyTreasuryBonus(10, 0, 0, 0, -12);
   }
 
   // Draw
-  return {
-    baseCoins: 20,
-    speedBonus: 0,
-    dominationBonus: 0,
-    streakBonus: 0,
-    totalCoins: 20,
-    trophyDelta: 5,
-  };
+  return applyTreasuryBonus(20, 0, 0, 0, 5);
 }
 
 /**
@@ -174,7 +175,12 @@ export function settleMatch(
   const previousCareer: PlayerCareer = { ...career };
   const previousRank = getRankTier(previousCareer.trophies);
 
-  const breakdown = calculateMatchRewards(status, stats, previousCareer.currentStreak);
+  const breakdown = calculateMatchRewards(
+    status,
+    stats,
+    previousCareer.currentStreak,
+    previousCareer.treasuryLevel
+  );
 
   // New Career metrics
   const matchesPlayed = previousCareer.matchesPlayed + 1;

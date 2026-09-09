@@ -8,6 +8,7 @@ type PlayerCareer struct {
 	StartingGarrisonLevel int    `json:"startingGarrisonLevel"`
 	ProductionLevel       int    `json:"productionLevel"`
 	ArmySpeedLevel        int    `json:"armySpeedLevel"`
+	TreasuryLevel         int    `json:"treasuryLevel"`
 	MatchesPlayed         int    `json:"matchesPlayed"`
 	MatchesWon            int    `json:"matchesWon"`
 	CurrentStreak         int    `json:"currentStreak"`
@@ -49,6 +50,7 @@ type MatchRewardBreakdown struct {
 	SpeedBonus      int `json:"speedBonus"`
 	DominationBonus int `json:"dominationBonus"`
 	StreakBonus     int `json:"streakBonus"`
+	TreasuryBonus   int `json:"treasuryBonus"`
 	TotalCoins      int `json:"totalCoins"`
 	TrophyDelta     int `json:"trophyDelta"`
 }
@@ -72,6 +74,7 @@ const (
 	UpgradeStartingGarrison UpgradeType = "starting_garrison"
 	UpgradeProduction       UpgradeType = "production"
 	UpgradeArmySpeed        UpgradeType = "army_speed"
+	UpgradeTreasury         UpgradeType = "treasury"
 )
 
 type UpgradePurchaseResult struct {

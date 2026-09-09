@@ -5,7 +5,15 @@ import {
   getRankTier,
   settleMatch,
 } from '../progression.js';
-import { getNextUpgradeCost, getPlayerUpgradeModifiers, purchaseUpgrade } from '../upgrades.js';
+import {
+  getNextUpgradeCost,
+  getUpgradeEffectLabel,
+  getPlayerUpgradeModifiers,
+  getTreasuryCoinBonusRate,
+  getUpgradeMilestoneTier,
+  getUpgradeMilestoneLabel,
+  purchaseUpgrade,
+} from '../upgrades.js';
 import { MatchStats } from '../types.js';
 
 describe('Progression & Economy Engine', () => {
@@ -18,6 +26,7 @@ describe('Progression & Economy Engine', () => {
     expect(career.startingGarrisonLevel).toBe(0);
     expect(career.productionLevel).toBe(0);
     expect(career.armySpeedLevel).toBe(0);
+    expect(career.treasuryLevel).toBe(0);
     expect(career.matchesPlayed).toBe(0);
     expect(career.matchesWon).toBe(0);
     expect(career.currentStreak).toBe(0);
@@ -58,7 +67,7 @@ describe('Progression & Economy Engine', () => {
 
       const maxedCareer = {
         ...createDefaultCareer('upgrader_3'),
-        startingGarrisonLevel: 5,
+        startingGarrisonLevel: 20,
         coins: 9999,
       };
       expect(getNextUpgradeCost(maxedCareer, 'starting_garrison')).toBeNull();
@@ -70,19 +79,77 @@ describe('Progression & Economy Engine', () => {
       expect(maxed.newCareer).toEqual(maxedCareer);
     });
 
-    it('calculates deterministic next-match modifiers from levels', () => {
+    it.each([
+      [0, 50],
+      [1, 100],
+      [2, 175],
+      [3, 275],
+      [4, 400],
+      [5, 500],
+      [6, 625],
+      [7, 775],
+      [8, 950],
+      [9, 1150],
+      [10, 1375],
+      [11, 1625],
+      [12, 1900],
+      [13, 2200],
+      [14, 2525],
+      [15, 2875],
+      [16, 3250],
+      [17, 3650],
+      [18, 4100],
+      [19, 4600],
+    ])('uses the balance cost at level %i', (level, cost) => {
+      const career = { ...createDefaultCareer('cost_test'), coins: 10000, treasuryLevel: level };
+      expect(getNextUpgradeCost(career, 'treasury')).toBe(cost);
+    });
+
+    it('purchases Treasury through level 20 and rejects a further purchase', () => {
+      let career = { ...createDefaultCareer('treasury_test'), coins: 100000 };
+      for (let level = 0; level < 20; level++) {
+        const result = purchaseUpgrade(career, 'treasury', `treasury_${level}`, 1000 + level);
+        expect(result.success).toBe(true);
+        if (!result.success) throw new Error('Treasury purchase failed');
+        career = result.newCareer;
+      }
+      expect(career.treasuryLevel).toBe(20);
+      expect(getNextUpgradeCost(career, 'treasury')).toBeNull();
+      const rejected = purchaseUpgrade(career, 'treasury', 'treasury_max');
+      expect(rejected.success).toBe(false);
+      if (!rejected.success) expect(rejected.reason).toBe('max_level');
+    });
+
+    it.each([
+      [0, 20, 1, 1, 0, 0],
+      [5, 35, 1.4, 1.3, 0.25, 1],
+      [6, 36, 1.42, 1.315, 0.27, 1],
+      [10, 40, 1.5, 1.375, 0.35, 2],
+      [15, 45, 1.6, 1.45, 0.45, 3],
+      [20, 50, 1.7, 1.525, 0.55, 4],
+    ])('keeps TypeScript upgrade rules in parity at level %i', (level, startingUnits, production, speed, treasuryRate, tier) => {
       const career = {
         ...createDefaultCareer('upgrader_4'),
-        startingGarrisonLevel: 2,
-        productionLevel: 3,
-        armySpeedLevel: 4,
+        startingGarrisonLevel: level,
+        productionLevel: level,
+        armySpeedLevel: level,
       };
-
       expect(getPlayerUpgradeModifiers(career)).toEqual({
-        startingUnits: 26,
-        productionRateMultiplier: 1.24,
-        armySpeedMultiplier: 1.24,
+        startingUnits,
+        productionRateMultiplier: production,
+        armySpeedMultiplier: speed,
       });
+      expect(getTreasuryCoinBonusRate(level)).toBe(treasuryRate);
+      expect(getUpgradeMilestoneTier(level)).toBe(tier);
+    });
+
+    it.each([
+      ['army_speed', 6, '+31.5% march', 'M5→10'],
+      ['army_speed', 20, '+52.5% march', 'M20 ✓'],
+      ['treasury', 20, '+55% coins', 'M20 ✓'],
+    ] as const)('uses exact shared presentation at level %i', (type, level, effect, milestone) => {
+      expect(getUpgradeEffectLabel(type, level)).toBe(effect);
+      expect(getUpgradeMilestoneLabel(level)).toBe(milestone);
     });
   });
 
@@ -119,8 +186,29 @@ describe('Progression & Economy Engine', () => {
       expect(rewards.speedBonus).toBe(15);
       expect(rewards.dominationBonus).toBe(15);
       expect(rewards.streakBonus).toBe(10); // (3 - 1) * 5
+      expect(rewards.treasuryBonus).toBe(0);
       expect(rewards.totalCoins).toBe(80);
       expect(rewards.trophyDelta).toBe(30);
+    });
+
+    it('adds Treasury bonus only after reward components are calculated', () => {
+      const stats: MatchStats = {
+        matchDurationSeconds: 35,
+        playerUnitsDispatched: 0,
+        enemyUnitsDispatched: 0,
+        territoriesCapturedByPlayer: 5,
+        territoriesCapturedByEnemy: 0,
+      };
+      const rewards = calculateMatchRewards('victory', stats, 0, 20);
+      expect(rewards).toMatchObject({
+        baseCoins: 40,
+        speedBonus: 15,
+        dominationBonus: 15,
+        streakBonus: 0,
+        treasuryBonus: 38,
+        totalCoins: 108,
+        trophyDelta: 30,
+      });
     });
 
     it('calculates defeat rewards as consolation gold and trophy deduction', () => {
@@ -197,6 +285,7 @@ describe('Progression & Economy Engine', () => {
         startingGarrisonLevel: 1,
         productionLevel: 2,
         armySpeedLevel: 3,
+        treasuryLevel: 8,
       };
       const stats: MatchStats = {
         matchDurationSeconds: 90,
@@ -210,6 +299,7 @@ describe('Progression & Economy Engine', () => {
       expect(settlement.newCareer.startingGarrisonLevel).toBe(1);
       expect(settlement.newCareer.productionLevel).toBe(2);
       expect(settlement.newCareer.armySpeedLevel).toBe(3);
+      expect(settlement.newCareer.treasuryLevel).toBe(8);
     });
 
     it('prevents trophy balance from dropping below zero on defeat', () => {

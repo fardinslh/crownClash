@@ -145,6 +145,7 @@ describe('CareerManager', () => {
       startingGarrisonLevel: 0,
       productionLevel: 0,
       armySpeedLevel: 0,
+      treasuryLevel: 0,
     });
   });
 
@@ -169,6 +170,7 @@ describe('CareerManager', () => {
           speedBonus: 0,
           dominationBonus: 0,
           streakBonus: 0,
+          treasuryBonus: 0,
           totalCoins: 40,
           trophyDelta: 30,
         },

@@ -204,6 +204,7 @@ export class CareerManager {
             ),
             productionLevel: normalizeUpgradeLevel(parsed.productionLevel, 'production'),
             armySpeedLevel: normalizeUpgradeLevel(parsed.armySpeedLevel, 'army_speed'),
+            treasuryLevel: normalizeUpgradeLevel(parsed.treasuryLevel, 'treasury'),
             matchesPlayed: parsed.matchesPlayed ?? 0,
             matchesWon: parsed.matchesWon ?? 0,
             currentStreak: parsed.currentStreak ?? 0,

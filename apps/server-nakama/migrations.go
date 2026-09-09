@@ -144,6 +144,27 @@ CREATE INDEX IF NOT EXISTS idx_analytics_events_player_occurred
   ON analytics_events (player_id, occurred_at DESC);
 `,
 	},
+	{
+		name: "005_add_treasury_upgrade",
+		sql: `
+ALTER TABLE players
+  ADD COLUMN IF NOT EXISTS treasury_level INTEGER NOT NULL DEFAULT 0;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'players_upgrade_levels_valid'
+  ) THEN
+    ALTER TABLE players ADD CONSTRAINT players_upgrade_levels_valid CHECK (
+      starting_garrison_level BETWEEN 0 AND 20 AND
+      production_level BETWEEN 0 AND 20 AND
+      army_speed_level BETWEEN 0 AND 20 AND
+      treasury_level BETWEEN 0 AND 20
+    );
+  END IF;
+END $$;
+`,
+	},
 }
 
 func RunMigrations(ctx context.Context, db *sql.DB) error {

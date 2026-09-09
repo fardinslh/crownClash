@@ -247,14 +247,14 @@ func TestInsertAnalyticsEventsNormalizesRewardFromSettlement(t *testing.T) {
 		MatchID: "match_1",
 		Breakdown: MatchRewardBreakdown{
 			BaseCoins: 40, SpeedBonus: 15, DominationBonus: 15, StreakBonus: 5,
-			TotalCoins: 75, TrophyDelta: 30,
+			TreasuryBonus: 8, TotalCoins: 83, TrophyDelta: 30,
 		},
 		NewCareer: PlayerCareer{Coins: 175, Trophies: 30},
 	}
 	settlementJSON, _ := json.Marshal(settlement)
 	expectedProps := map[string]any{
 		"matchId": "match_1", "mode": "bot", "baseCoins": 40, "speedBonus": 15,
-		"dominationBonus": 15, "streakBonus": 5, "totalCoins": 75, "trophyDelta": 30,
+		"dominationBonus": 15, "streakBonus": 5, "treasuryBonus": 8, "totalCoins": 83, "trophyDelta": 30,
 		"resultingCoins": 175, "resultingTrophies": 30,
 	}
 	mock.ExpectBegin()

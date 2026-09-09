@@ -8,8 +8,11 @@ import {
   evaluateAiMove,
   GameState,
   getNextUpgradeCost,
+  getUpgradeEffectLabel,
   getPlayerUpgradeModifiers,
   getUpgradeLevel,
+  getUpgradeMilestoneLabel,
+  isUpgradeMilestoneLevel,
   LOGICAL_HEIGHT,
   LOGICAL_WIDTH,
   MarchingArmy,
@@ -1941,19 +1944,23 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     // Bonus Breakdown Chip
-    const breakdownParts: string[] = [`Base: ${settlement.breakdown.baseCoins}`];
-    if (settlement.breakdown.speedBonus > 0) breakdownParts.push(`Speed: +${settlement.breakdown.speedBonus}`);
-    if (settlement.breakdown.dominationBonus > 0) breakdownParts.push(`Dominance: +${settlement.breakdown.dominationBonus}`);
-    if (settlement.breakdown.streakBonus > 0) breakdownParts.push(`Streak: +${settlement.breakdown.streakBonus}`);
+    const primaryBreakdown: string[] = [`Base: ${settlement.breakdown.baseCoins}`];
+    if (settlement.breakdown.speedBonus > 0) primaryBreakdown.push(`Speed: +${settlement.breakdown.speedBonus}`);
+    if (settlement.breakdown.dominationBonus > 0) primaryBreakdown.push(`Dominance: +${settlement.breakdown.dominationBonus}`);
+    const secondaryBreakdown: string[] = [];
+    if (settlement.breakdown.streakBonus > 0) secondaryBreakdown.push(`Streak: +${settlement.breakdown.streakBonus}`);
+    if (settlement.breakdown.treasuryBonus > 0) secondaryBreakdown.push(`Treasury: +${settlement.breakdown.treasuryBonus}`);
 
     const bonusChipText = this.add
-      .text(0, -105, breakdownParts.join('  •  '), {
+      .text(0, -108, [primaryBreakdown.join('  •  '), secondaryBreakdown.join('  •  ')].filter(Boolean).join('\n'), {
         fontFamily: FONT_FAMILY,
         fontSize: '10px',
         fontStyle: 'bold',
         color: '#38bdf8',
         stroke: '#000000',
         strokeThickness: 1.5,
+        align: 'center',
+        lineSpacing: 3,
         resolution: 2,
       })
       .setOrigin(0.5);
@@ -2026,38 +2033,40 @@ export class GameScene extends Phaser.Scene {
     const refreshUpgradeRows: Array<() => void> = [];
     const upgradeRows: ReadonlyArray<{
       type: UpgradeType;
+      x: number;
       y: number;
       icon: string;
       title: string;
     }> = [
-      { type: 'starting_garrison', y: 12, icon: '🏰', title: 'STRONGHOLD' },
-      { type: 'production', y: 58, icon: '⚒', title: 'WAR FORGE' },
-      { type: 'army_speed', y: 104, icon: '⚡', title: 'SWIFT MARCH' },
+      { type: 'starting_garrison', x: -72, y: 7, icon: '🏰', title: 'CITADEL' },
+      { type: 'production', x: 72, y: 7, icon: '⚒', title: 'WAR FORGE' },
+      { type: 'army_speed', x: -72, y: 57, icon: '⚡', title: 'ROYAL ROADS' },
+      { type: 'treasury', x: 72, y: 57, icon: '🪙', title: 'TREASURY' },
     ];
 
     for (const row of upgradeRows) {
       const rowBg = this.add
-        .rectangle(0, row.y, 280, 40, 0x111827, 0.96)
+        .rectangle(row.x, row.y, 134, 44, 0x111827, 0.96)
         .setStrokeStyle(1, 0x334155, 1);
       const label = this.add
-        .text(-128, row.y, '', {
+        .text(row.x, row.y - 7, '', {
           fontFamily: FONT_FAMILY,
-          fontSize: '10px',
+          fontSize: '8px',
           fontStyle: 'bold',
           color: '#e2e8f0',
           stroke: '#000000',
-          strokeThickness: 1.5,
+          strokeThickness: 1,
           lineSpacing: 1,
           resolution: 2,
         })
-        .setOrigin(0, 0.5);
+        .setOrigin(0.5);
       const buyBg = this.add
-        .rectangle(103, row.y, 66, 28, 0x2563eb, 1)
-        .setStrokeStyle(1.5, 0x60a5fa, 1);
+        .rectangle(row.x, row.y + 13, 76, 16, 0x2563eb, 1)
+        .setStrokeStyle(1, 0x60a5fa, 1);
       const buyText = this.add
-        .text(103, row.y, '', {
+        .text(row.x, row.y + 13, '', {
           fontFamily: FONT_FAMILY,
-          fontSize: '10px',
+          fontSize: '8px',
           fontStyle: '900',
           color: '#ffffff',
           stroke: '#000000',
@@ -2065,21 +2074,17 @@ export class GameScene extends Phaser.Scene {
           resolution: 2,
         })
         .setOrigin(0.5);
-      this.bindPressFeedback(buyBg, buyText);
+      this.bindPressFeedback(rowBg, buyText);
 
       const refresh = (): void => {
         const career = this.careerManager.getCareer();
         const level = getUpgradeLevel(career, row.type);
         const maxLevel = UPGRADE_DEFINITIONS[row.type].maxLevel;
         const cost = getNextUpgradeCost(career, row.type);
-        const effect =
-          row.type === 'starting_garrison'
-            ? `+${level * 3} starting troops`
-            : row.type === 'production'
-              ? `+${level * 8}% production`
-              : `+${level * 6}% march speed`;
+        const effect = getUpgradeEffectLabel(row.type, level);
+        const milestone = getUpgradeMilestoneLabel(level);
 
-        label.setText(`${row.icon} ${row.title}  LV.${level}/${maxLevel}\n${effect}`);
+        label.setText(`${row.icon} ${row.title} LV.${level}/${maxLevel}\n${effect} • ${milestone}`);
         buyText.setText(cost === null ? 'MAX' : `${cost} 🪙`);
         upgradeBalanceText.setText(`UPGRADE YOUR ARMY  •  ${career.coins} 🪙`);
 
@@ -2089,14 +2094,14 @@ export class GameScene extends Phaser.Scene {
           .setStrokeStyle(1.5, canBuy ? 0x60a5fa : 0x475569, 1);
         buyText.setColor(canBuy ? '#ffffff' : '#94a3b8');
         if (canBuy) {
-          buyBg.setInteractive({ useHandCursor: true });
+          rowBg.setInteractive({ useHandCursor: true });
         } else {
-          buyBg.disableInteractive();
+          rowBg.disableInteractive();
         }
       };
 
-      buyBg.on('pointerdown', () => {
-        buyBg.disableInteractive();
+      rowBg.on('pointerdown', () => {
+        rowBg.disableInteractive();
         void this.purchaseUpgrade(row.type, refreshUpgradeRows);
       });
 
@@ -2109,7 +2114,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Play Again Button
-    const btnY = 170;
+    const btnY = 135;
     const btnBg = this.add
       .rectangle(0, btnY, 240, 50, isWin ? 0x2563eb : 0x374151, 1)
       .setStrokeStyle(2, isWin ? 0x60a5fa : 0x9ca3af, 1)
@@ -2143,7 +2148,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Native Messenger Share Button
-    const shareY = 225;
+    const shareY = 190;
     const shareBg = this.add
       .rectangle(0, shareY, 240, 46, 0x1e293b, 1)
       .setStrokeStyle(1.5, 0x475569, 1)
@@ -2178,7 +2183,7 @@ export class GameScene extends Phaser.Scene {
       await this.platform.share({ text: shareMsg });
     });
 
-    const menuY = 275;
+    const menuY = 245;
     const menuBg = this.add
       .rectangle(0, menuY, 240, 46, 0x0f172a, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
@@ -2399,6 +2404,10 @@ export class GameScene extends Phaser.Scene {
       if (purchase.success) {
         sounds.playCoin();
         this.platform.hapticNotification('success');
+        const level = getUpgradeLevel(purchase.newCareer, type);
+        if (isUpgradeMilestoneLevel(level)) {
+          this.showUpgradeMilestoneCelebration(level);
+        }
         trackUpgradeEvent({
           name: 'upgrade_purchase_succeeded',
           purchaseId: purchase.ledgerEntry.id,
@@ -2416,6 +2425,35 @@ export class GameScene extends Phaser.Scene {
     } finally {
       refreshUpgradeRows.forEach((refreshRow) => refreshRow());
     }
+  }
+
+  private showUpgradeMilestoneCelebration(level: number): void {
+    const celebration = this.add
+      .text(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2 + 95, `✦ MILESTONE ${level} REACHED ✦`, {
+        fontFamily: FONT_FAMILY,
+        fontSize: '11px',
+        fontStyle: '900',
+        color: '#fef08a',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setDepth(230)
+      .setOrigin(0.5);
+    sounds.playVictory();
+    this.platform.hapticImpact('heavy');
+    if (this.reducedMotion) {
+      this.time.delayedCall(900, () => celebration.destroy());
+      return;
+    }
+    this.tweens.add({
+      targets: celebration,
+      y: celebration.y - 10,
+      alpha: 0,
+      duration: 950,
+      ease: 'Cubic.easeOut',
+      onComplete: () => celebration.destroy(),
+    });
   }
 
   private createMatchId(): string {

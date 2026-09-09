@@ -12,10 +12,12 @@ import (
 )
 
 var (
-	ErrPlayerNotFound     = errors.New("player_not_found")
-	ErrPvpDefenseNotFound = errors.New("pvp_defense_not_found")
-	ErrPvpSelfAttack      = errors.New("pvp_cannot_attack_self")
-	ErrPvpAttackOwnership = errors.New("pvp_attack_id_owned_by_another_player")
+	ErrPlayerNotFound           = errors.New("player_not_found")
+	ErrPvpDefenseNotFound       = errors.New("pvp_defense_not_found")
+	ErrPvpSelfAttack            = errors.New("pvp_cannot_attack_self")
+	ErrPvpAttackOwnership       = errors.New("pvp_attack_id_owned_by_another_player")
+	ErrUpgradePurchaseOwnership = errors.New("upgrade_purchase_id_owned_by_another_player")
+	ErrUpgradePurchaseMismatch  = errors.New("upgrade_purchase_id_reused_for_different_upgrade")
 )
 
 type Store struct {
@@ -35,6 +37,7 @@ type playerRow struct {
 	StartingGarrisonLevel int
 	ProductionLevel       int
 	ArmySpeedLevel        int
+	TreasuryLevel         int
 	MatchesPlayed         int
 	MatchesWon            int
 	CurrentStreak         int
@@ -62,7 +65,7 @@ func (s *Store) GetOrCreateCareer(ctx context.Context, userID string) (PlayerCar
 func getCareer(ctx context.Context, queryer rowQuerier, userID string) (PlayerCareer, error) {
 	row := queryer.QueryRowContext(ctx, `
 		SELECT id, coins, gems, trophies,
-		       starting_garrison_level, production_level, army_speed_level,
+		       starting_garrison_level, production_level, army_speed_level, treasury_level,
 		       matches_played, matches_won, current_streak, best_streak,
 		       last_match_timestamp
 		FROM players WHERE id = $1
@@ -70,7 +73,7 @@ func getCareer(ctx context.Context, queryer rowQuerier, userID string) (PlayerCa
 	var value playerRow
 	if err := row.Scan(
 		&value.ID, &value.Coins, &value.Gems, &value.Trophies,
-		&value.StartingGarrisonLevel, &value.ProductionLevel, &value.ArmySpeedLevel,
+		&value.StartingGarrisonLevel, &value.ProductionLevel, &value.ArmySpeedLevel, &value.TreasuryLevel,
 		&value.MatchesPlayed, &value.MatchesWon, &value.CurrentStreak, &value.BestStreak,
 		&value.LastMatchTimestamp,
 	); err != nil {
@@ -86,7 +89,7 @@ func careerFromRow(row playerRow) PlayerCareer {
 	return PlayerCareer{
 		PlayerID: row.ID, Coins: row.Coins, Gems: row.Gems, Trophies: row.Trophies,
 		StartingGarrisonLevel: row.StartingGarrisonLevel,
-		ProductionLevel:       row.ProductionLevel, ArmySpeedLevel: row.ArmySpeedLevel,
+		ProductionLevel:       row.ProductionLevel, ArmySpeedLevel: row.ArmySpeedLevel, TreasuryLevel: row.TreasuryLevel,
 		MatchesPlayed: row.MatchesPlayed, MatchesWon: row.MatchesWon,
 		CurrentStreak: row.CurrentStreak, BestStreak: row.BestStreak,
 		LastMatchTimestamp: row.LastMatchTimestamp,
@@ -269,17 +272,10 @@ func (s *Store) PurchaseUpgrade(ctx context.Context, userID string, upgrade Upgr
 	}
 	defer tx.Rollback()
 
-	var stored []byte
-	err = tx.QueryRowContext(ctx, `SELECT result FROM upgrade_purchases WHERE purchase_id = $1`, purchaseID).Scan(&stored)
-	if err == nil {
-		var result UpgradePurchaseResult
-		if json.Unmarshal(stored, &result) != nil {
-			return UpgradePurchaseResult{}, errors.New("invalid_stored_upgrade_result")
-		}
-		return result, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if existing, err := findStoredUpgradePurchase(ctx, tx, userID, upgrade, purchaseID); err != nil {
 		return UpgradePurchaseResult{}, err
+	} else if existing != nil {
+		return *existing, nil
 	}
 
 	career, err := getCareerForUpdate(ctx, tx, userID)
@@ -288,20 +284,35 @@ func (s *Store) PurchaseUpgrade(ctx context.Context, userID string, upgrade Upgr
 	}
 	// A concurrent request may have committed while this transaction waited
 	// for the player's row lock.
-	err = tx.QueryRowContext(ctx, `SELECT result FROM upgrade_purchases WHERE purchase_id = $1`, purchaseID).Scan(&stored)
-	if err == nil {
-		var result UpgradePurchaseResult
-		if json.Unmarshal(stored, &result) != nil {
-			return UpgradePurchaseResult{}, errors.New("invalid_stored_upgrade_result")
-		}
-		return result, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if existing, err := findStoredUpgradePurchase(ctx, tx, userID, upgrade, purchaseID); err != nil {
 		return UpgradePurchaseResult{}, err
+	} else if existing != nil {
+		return *existing, nil
 	}
 	result := PurchaseUpgrade(career, upgrade, purchaseID, nowMillis())
 	if !result.Success {
 		return result, nil
+	}
+	payload, _ := json.Marshal(result)
+	var claimedPurchaseID string
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO upgrade_purchases (purchase_id, player_id, upgrade_type, result)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (purchase_id) DO NOTHING
+		RETURNING purchase_id
+	`, purchaseID, userID, upgrade, payload).Scan(&claimedPurchaseID)
+	if errors.Is(err, sql.ErrNoRows) {
+		existing, readErr := findStoredUpgradePurchase(ctx, tx, userID, upgrade, purchaseID)
+		if readErr != nil {
+			return UpgradePurchaseResult{}, readErr
+		}
+		if existing == nil {
+			return UpgradePurchaseResult{}, errors.New("upgrade_purchase_claim_lost")
+		}
+		return *existing, nil
+	}
+	if err != nil {
+		return UpgradePurchaseResult{}, err
 	}
 	if err := persistCareer(ctx, tx, result.NewCareer); err != nil {
 		return UpgradePurchaseResult{}, err
@@ -311,18 +322,37 @@ func (s *Store) PurchaseUpgrade(ctx context.Context, userID string, upgrade Upgr
 			return UpgradePurchaseResult{}, err
 		}
 	}
-	payload, _ := json.Marshal(result)
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO upgrade_purchases (purchase_id, player_id, upgrade_type, result)
-		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (purchase_id) DO NOTHING
-	`, purchaseID, userID, upgrade, payload); err != nil {
-		return UpgradePurchaseResult{}, err
-	}
 	if err := tx.Commit(); err != nil {
 		return UpgradePurchaseResult{}, err
 	}
 	return result, nil
+}
+
+func findStoredUpgradePurchase(ctx context.Context, tx *sql.Tx, userID string, upgrade UpgradeType, purchaseID string) (*UpgradePurchaseResult, error) {
+	var storedUserID string
+	var storedUpgrade UpgradeType
+	var stored []byte
+	err := tx.QueryRowContext(ctx, `
+		SELECT player_id, upgrade_type, result
+		FROM upgrade_purchases WHERE purchase_id = $1
+	`, purchaseID).Scan(&storedUserID, &storedUpgrade, &stored)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if storedUserID != userID {
+		return nil, ErrUpgradePurchaseOwnership
+	}
+	if storedUpgrade != upgrade {
+		return nil, ErrUpgradePurchaseMismatch
+	}
+	var result UpgradePurchaseResult
+	if json.Unmarshal(stored, &result) != nil {
+		return nil, errors.New("invalid_stored_upgrade_result")
+	}
+	return &result, nil
 }
 
 func (s *Store) PublishDefense(ctx context.Context, userID, displayName string, career PlayerCareer, publishedAt int64) (PvpDefenseSnapshot, error) {
@@ -614,6 +644,7 @@ func normalizeAnalyticsEvent(ctx context.Context, tx *sql.Tx, userID string, eve
 				"speedBonus":        settlement.Breakdown.SpeedBonus,
 				"dominationBonus":   settlement.Breakdown.DominationBonus,
 				"streakBonus":       settlement.Breakdown.StreakBonus,
+				"treasuryBonus":     settlement.Breakdown.TreasuryBonus,
 				"totalCoins":        settlement.Breakdown.TotalCoins,
 				"trophyDelta":       settlement.Breakdown.TrophyDelta,
 				"resultingCoins":    settlement.NewCareer.Coins,
@@ -651,7 +682,7 @@ func normalizeAnalyticsEvent(ctx context.Context, tx *sql.Tx, userID string, eve
 func getCareerForUpdate(ctx context.Context, tx *sql.Tx, userID string) (PlayerCareer, error) {
 	row := tx.QueryRowContext(ctx, `
 		SELECT id, coins, gems, trophies,
-		       starting_garrison_level, production_level, army_speed_level,
+		       starting_garrison_level, production_level, army_speed_level, treasury_level,
 		       matches_played, matches_won, current_streak, best_streak,
 		       last_match_timestamp
 		FROM players WHERE id = $1 FOR UPDATE
@@ -659,7 +690,7 @@ func getCareerForUpdate(ctx context.Context, tx *sql.Tx, userID string) (PlayerC
 	var value playerRow
 	if err := row.Scan(
 		&value.ID, &value.Coins, &value.Gems, &value.Trophies,
-		&value.StartingGarrisonLevel, &value.ProductionLevel, &value.ArmySpeedLevel,
+		&value.StartingGarrisonLevel, &value.ProductionLevel, &value.ArmySpeedLevel, &value.TreasuryLevel,
 		&value.MatchesPlayed, &value.MatchesWon, &value.CurrentStreak, &value.BestStreak,
 		&value.LastMatchTimestamp,
 	); err != nil {
@@ -675,12 +706,12 @@ func persistCareer(ctx context.Context, tx *sql.Tx, career PlayerCareer) error {
 	_, err := tx.ExecContext(ctx, `
 		UPDATE players SET
 			coins = $2, gems = $3, trophies = $4,
-			starting_garrison_level = $5, production_level = $6, army_speed_level = $7,
-			matches_played = $8, matches_won = $9, current_streak = $10, best_streak = $11,
-			last_match_timestamp = $12, updated_at = now()
+			starting_garrison_level = $5, production_level = $6, army_speed_level = $7, treasury_level = $8,
+			matches_played = $9, matches_won = $10, current_streak = $11, best_streak = $12,
+			last_match_timestamp = $13, updated_at = now()
 		WHERE id = $1
 	`, career.PlayerID, career.Coins, career.Gems, career.Trophies,
-		career.StartingGarrisonLevel, career.ProductionLevel, career.ArmySpeedLevel,
+		career.StartingGarrisonLevel, career.ProductionLevel, career.ArmySpeedLevel, career.TreasuryLevel,
 		career.MatchesPlayed, career.MatchesWon, career.CurrentStreak, career.BestStreak,
 		career.LastMatchTimestamp)
 	return err

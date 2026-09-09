@@ -441,7 +441,7 @@ func rpcPurchaseUpgrade(store *Store) rpcFn {
 			return "", errors.New("invalid_payload")
 		}
 		upgrade := UpgradeType(request.Type)
-		if upgrade != UpgradeStartingGarrison && upgrade != UpgradeProduction && upgrade != UpgradeArmySpeed {
+		if upgrade != UpgradeStartingGarrison && upgrade != UpgradeProduction && upgrade != UpgradeArmySpeed && upgrade != UpgradeTreasury {
 			return "", errors.New("invalid_upgrade_type")
 		}
 		if len(request.PurchaseID) < 1 || len(request.PurchaseID) > 128 {
@@ -731,7 +731,7 @@ func hasValidAnalyticsPropertyEnums(event AnalyticsEventRecord) bool {
 	case "match_reward_received":
 		return oneOf(value("mode"), "bot", "live")
 	case "upgrade_purchase_failed":
-		return oneOf(value("upgradeType"), "starting_garrison", "production", "army_speed") &&
+		return oneOf(value("upgradeType"), "starting_garrison", "production", "army_speed", "treasury") &&
 			oneOf(value("reason"), "insufficient_coins", "max_level")
 	case "live_match_ended":
 		return oneOf(value("status"), "victory", "defeat", "draw")

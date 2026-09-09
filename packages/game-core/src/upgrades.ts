@@ -1,6 +1,6 @@
 import type { EconomyLedgerEntry, PlayerCareer } from './progression.js';
 
-export type UpgradeType = 'starting_garrison' | 'production' | 'army_speed';
+export type UpgradeType = 'starting_garrison' | 'production' | 'army_speed' | 'treasury';
 
 export interface UpgradeDefinition {
   readonly maxLevel: number;
@@ -12,6 +12,13 @@ export interface PlayerUpgradeModifiers {
   productionRateMultiplier: number;
   armySpeedMultiplier: number;
 }
+
+const UPGRADE_COSTS = [
+  50, 100, 175, 275, 400,
+  500, 625, 775, 950, 1150,
+  1375, 1625, 1900, 2200, 2525,
+  2875, 3250, 3650, 4100, 4600,
+] as const;
 
 export type UpgradeFailureReason = 'insufficient_coins' | 'max_level';
 
@@ -34,16 +41,20 @@ export type UpgradePurchaseResult =
 
 export const UPGRADE_DEFINITIONS: Readonly<Record<UpgradeType, UpgradeDefinition>> = {
   starting_garrison: {
-    maxLevel: 5,
-    costs: [50, 100, 175, 275, 400],
+    maxLevel: 20,
+    costs: UPGRADE_COSTS,
   },
   production: {
-    maxLevel: 5,
-    costs: [50, 100, 175, 275, 400],
+    maxLevel: 20,
+    costs: UPGRADE_COSTS,
   },
   army_speed: {
-    maxLevel: 5,
-    costs: [50, 100, 175, 275, 400],
+    maxLevel: 20,
+    costs: UPGRADE_COSTS,
+  },
+  treasury: {
+    maxLevel: 20,
+    costs: UPGRADE_COSTS,
   },
 };
 
@@ -60,6 +71,9 @@ export function getUpgradeLevel(career: PlayerCareer, type: UpgradeType): number
   if (type === 'production') {
     return normalizeUpgradeLevel(career.productionLevel, type);
   }
+  if (type === 'treasury') {
+    return normalizeUpgradeLevel(career.treasuryLevel, type);
+  }
   return normalizeUpgradeLevel(career.armySpeedLevel, type);
 }
 
@@ -69,11 +83,72 @@ export function getNextUpgradeCost(career: PlayerCareer, type: UpgradeType): num
 }
 
 export function getPlayerUpgradeModifiers(career: PlayerCareer): PlayerUpgradeModifiers {
+  const garrisonLevel = getUpgradeLevel(career, 'starting_garrison');
+  const productionLevel = getUpgradeLevel(career, 'production');
+  const armySpeedLevel = getUpgradeLevel(career, 'army_speed');
   return {
-    startingUnits: 20 + getUpgradeLevel(career, 'starting_garrison') * 3,
-    productionRateMultiplier: 1 + getUpgradeLevel(career, 'production') * 0.08,
-    armySpeedMultiplier: 1 + getUpgradeLevel(career, 'army_speed') * 0.06,
+    startingUnits: getStartingUnits(garrisonLevel),
+    productionRateMultiplier: getProductionRateMultiplier(productionLevel),
+    armySpeedMultiplier: getArmySpeedMultiplier(armySpeedLevel),
   };
+}
+
+export function getTreasuryCoinBonusRate(level: number): number {
+  const safeLevel = normalizeUpgradeLevel(level, 'treasury');
+  return Math.min(safeLevel, 5) * 0.05 + Math.max(safeLevel - 5, 0) * 0.02;
+}
+
+export function getUpgradeEffectLabel(type: UpgradeType, level: number): string {
+  const safeLevel = normalizeUpgradeLevel(level, type);
+  if (type === 'starting_garrison') {
+    return `+${getStartingUnits(safeLevel) - 20} troops`;
+  }
+  if (type === 'production') {
+    return `+${formatPercent((getProductionRateMultiplier(safeLevel) - 1) * 100)}% production`;
+  }
+  if (type === 'army_speed') {
+    return `+${formatPercent((getArmySpeedMultiplier(safeLevel) - 1) * 100)}% march`;
+  }
+  return `+${formatPercent(getTreasuryCoinBonusRate(safeLevel) * 100)}% coins`;
+}
+
+export function getUpgradeMilestoneTier(level: number): number {
+  const safeLevel = Math.min(20, Math.max(0, Math.floor(level)));
+  return safeLevel === 20 ? 4 : Math.floor(safeLevel / 5);
+}
+
+export function getUpgradeMilestoneLabel(level: number): string {
+  const safeLevel = Math.min(20, Math.max(0, Math.floor(level)));
+  if (safeLevel === 20) return 'M20 ✓';
+  const completed = Math.floor(safeLevel / 5) * 5;
+  return completed > 0 && safeLevel === completed
+    ? `M${completed} ✓`
+    : `M${completed}→${completed + 5}`;
+}
+
+export function isUpgradeMilestoneLevel(level: number): boolean {
+  const safeLevel = Math.min(20, Math.max(0, Math.floor(level)));
+  return safeLevel > 0 && safeLevel % 5 === 0;
+}
+
+function getStartingUnits(level: number): number {
+  return 20 + Math.min(level, 5) * 3 + Math.max(level - 5, 0);
+}
+
+function getProductionRateMultiplier(level: number): number {
+  return roundMultiplier(1 + Math.min(level, 5) * 0.08 + Math.max(level - 5, 0) * 0.02);
+}
+
+function getArmySpeedMultiplier(level: number): number {
+  return roundMultiplier(1 + Math.min(level, 5) * 0.06 + Math.max(level - 5, 0) * 0.015);
+}
+
+function formatPercent(value: number): string {
+  return value.toFixed(3).replace(/\.?0+$/, '');
+}
+
+function roundMultiplier(value: number): number {
+  return Math.round(value * 1000) / 1000;
 }
 
 export function purchaseUpgrade(
@@ -113,6 +188,7 @@ export function purchaseUpgrade(
       type === 'starting_garrison' ? level + 1 : previousCareer.startingGarrisonLevel,
     productionLevel: type === 'production' ? level + 1 : previousCareer.productionLevel,
     armySpeedLevel: type === 'army_speed' ? level + 1 : previousCareer.armySpeedLevel,
+    treasuryLevel: type === 'treasury' ? level + 1 : previousCareer.treasuryLevel,
   };
 
   return {

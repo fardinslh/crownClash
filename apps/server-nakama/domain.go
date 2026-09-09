@@ -51,7 +51,20 @@ func GetRankTier(trophies int) RankTierInfo {
 	return rankTiers[0]
 }
 
-func CalculateMatchRewards(status string, stats MatchStats, currentStreak int) MatchRewardBreakdown {
+func CalculateMatchRewards(status string, stats MatchStats, currentStreak int, treasuryLevel ...int) MatchRewardBreakdown {
+	level := 0
+	if len(treasuryLevel) > 0 {
+		level = treasuryLevel[0]
+	}
+	withTreasury := func(baseCoins, speedBonus, dominationBonus, streakBonus, trophyDelta int) MatchRewardBreakdown {
+		preTreasury := baseCoins + speedBonus + dominationBonus + streakBonus
+		bonus := int(math.Floor(float64(preTreasury) * TreasuryCoinBonusRate(level)))
+		return MatchRewardBreakdown{
+			BaseCoins: baseCoins, SpeedBonus: speedBonus, DominationBonus: dominationBonus,
+			StreakBonus: streakBonus, TreasuryBonus: bonus, TotalCoins: preTreasury + bonus,
+			TrophyDelta: trophyDelta,
+		}
+	}
 	switch status {
 	case "victory":
 		speedBonus := 0
@@ -65,22 +78,18 @@ func CalculateMatchRewards(status string, stats MatchStats, currentStreak int) M
 			dominationBonus = 15
 		}
 		streakBonus := minInt(25, maxInt(0, (currentStreak+1-1)*5))
-		return MatchRewardBreakdown{
-			BaseCoins: 40, SpeedBonus: speedBonus, DominationBonus: dominationBonus,
-			StreakBonus: streakBonus, TotalCoins: 40 + speedBonus + dominationBonus + streakBonus,
-			TrophyDelta: 30,
-		}
+		return withTreasury(40, speedBonus, dominationBonus, streakBonus, 30)
 	case "defeat":
-		return MatchRewardBreakdown{BaseCoins: 10, TotalCoins: 10, TrophyDelta: -12}
+		return withTreasury(10, 0, 0, 0, -12)
 	default:
-		return MatchRewardBreakdown{BaseCoins: 20, TotalCoins: 20, TrophyDelta: 5}
+		return withTreasury(20, 0, 0, 0, 5)
 	}
 }
 
 func SettleMatch(career PlayerCareer, status string, stats MatchStats, matchID string, timestamp int64) MatchSettlement {
 	previous := career
 	previousRank := GetRankTier(previous.Trophies)
-	breakdown := CalculateMatchRewards(status, stats, previous.CurrentStreak)
+	breakdown := CalculateMatchRewards(status, stats, previous.CurrentStreak, previous.TreasuryLevel)
 	isWin := status == "victory"
 	currentStreak := 0
 	if isWin {
@@ -132,7 +141,12 @@ func SettleMatch(career PlayerCareer, status string, stats MatchStats, matchID s
 	}
 }
 
-var upgradeCosts = []int{50, 100, 175, 275, 400}
+var upgradeCosts = []int{
+	50, 100, 175, 275, 400,
+	500, 625, 775, 950, 1150,
+	1375, 1625, 1900, 2200, 2525,
+	2875, 3250, 3650, 4100, 4600,
+}
 
 func UpgradeLevel(career PlayerCareer, upgrade UpgradeType) int {
 	level := 0
@@ -143,16 +157,38 @@ func UpgradeLevel(career PlayerCareer, upgrade UpgradeType) int {
 		level = career.ProductionLevel
 	case UpgradeArmySpeed:
 		level = career.ArmySpeedLevel
+	case UpgradeTreasury:
+		level = career.TreasuryLevel
 	}
-	return minInt(5, maxInt(0, level))
+	return minInt(20, maxInt(0, level))
 }
 
 func UpgradeModifiers(career PlayerCareer) PlayerUpgradeModifiers {
+	garrisonLevel := UpgradeLevel(career, UpgradeStartingGarrison)
+	productionLevel := UpgradeLevel(career, UpgradeProduction)
+	speedLevel := UpgradeLevel(career, UpgradeArmySpeed)
 	return PlayerUpgradeModifiers{
-		StartingUnits:            20 + UpgradeLevel(career, UpgradeStartingGarrison)*3,
-		ProductionRateMultiplier: 1 + float64(UpgradeLevel(career, UpgradeProduction))*0.08,
-		ArmySpeedMultiplier:      1 + float64(UpgradeLevel(career, UpgradeArmySpeed))*0.06,
+		StartingUnits:            20 + minInt(garrisonLevel, 5)*3 + maxInt(garrisonLevel-5, 0),
+		ProductionRateMultiplier: roundMultiplier(1 + float64(minInt(productionLevel, 5))*0.08 + float64(maxInt(productionLevel-5, 0))*0.02),
+		ArmySpeedMultiplier:      roundMultiplier(1 + float64(minInt(speedLevel, 5))*0.06 + float64(maxInt(speedLevel-5, 0))*0.015),
 	}
+}
+
+func TreasuryCoinBonusRate(level int) float64 {
+	level = minInt(20, maxInt(0, level))
+	return float64(minInt(level, 5))*0.05 + float64(maxInt(level-5, 0))*0.02
+}
+
+func UpgradeMilestoneTier(level int) int {
+	level = minInt(20, maxInt(0, level))
+	if level == 20 {
+		return 4
+	}
+	return level / 5
+}
+
+func roundMultiplier(value float64) float64 {
+	return math.Round(value*1000) / 1000
 }
 
 func PurchaseUpgrade(career PlayerCareer, upgrade UpgradeType, purchaseID string, timestamp int64) UpgradePurchaseResult {
@@ -174,6 +210,8 @@ func PurchaseUpgrade(career PlayerCareer, upgrade UpgradeType, purchaseID string
 		newCareer.ProductionLevel = level + 1
 	case UpgradeArmySpeed:
 		newCareer.ArmySpeedLevel = level + 1
+	case UpgradeTreasury:
+		newCareer.TreasuryLevel = level + 1
 	}
 	entry := EconomyLedgerEntry{
 		ID: purchaseID, Player: previous.PlayerID, Currency: "coins", Amount: -cost,
