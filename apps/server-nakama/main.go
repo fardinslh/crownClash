@@ -616,7 +616,7 @@ var analyticsEventDefinitions = map[string]analyticsEventDefinition{
 	"match_end":                  {properties: analyticsPropertiesWithDuration("matchId", "mode", "result")},
 	"match_quit":                 {properties: analyticsPropertiesWithDuration("matchId", "mode")},
 	"match_reward_received":      {properties: analyticsProperties("matchId", "mode")},
-	"upgrade_panel_viewed":       {properties: map[string]analyticsPropertyKind{}},
+	"upgrade_panel_viewed":       {properties: analyticsProperties("source")},
 	"upgrade_purchase_succeeded": {properties: analyticsProperties("purchaseId")},
 	"upgrade_purchase_failed":    {properties: analyticsProperties("upgradeType", "reason")},
 	"live_queue_joined":          {properties: map[string]analyticsPropertyKind{}},
@@ -730,6 +730,8 @@ func hasValidAnalyticsPropertyEnums(event AnalyticsEventRecord) bool {
 		return value("mode") == "live"
 	case "match_reward_received":
 		return oneOf(value("mode"), "bot", "live")
+	case "upgrade_panel_viewed":
+		return oneOf(value("source"), "menu", "result")
 	case "upgrade_purchase_failed":
 		return oneOf(value("upgradeType"), "starting_garrison", "production", "army_speed", "treasury") &&
 			oneOf(value("reason"), "insufficient_coins", "max_level")

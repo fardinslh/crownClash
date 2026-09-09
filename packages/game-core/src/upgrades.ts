@@ -131,6 +131,62 @@ export function isUpgradeMilestoneLevel(level: number): boolean {
   return safeLevel > 0 && safeLevel % 5 === 0;
 }
 
+/**
+ * Fraction (0..1) of progress through the current 5-level milestone tier.
+ * 1 once the upgrade is fully maxed at level 20.
+ */
+export function getUpgradeMilestoneProgress(level: number): number {
+  const safeLevel = Math.min(20, Math.max(0, Math.floor(level)));
+  // A level that just landed on a multiple of 5 reads as "complete" (see
+  // getUpgradeMilestoneLabel's "✓" marker), so its bar is full rather than
+  // the start of the next tier.
+  if (safeLevel > 0 && safeLevel % 5 === 0) return 1;
+  const tierStart = Math.floor(safeLevel / 5) * 5;
+  return (safeLevel - tierStart) / 5;
+}
+
+export interface UpgradeCardViewModel {
+  readonly type: UpgradeType;
+  readonly level: number;
+  readonly maxLevel: number;
+  readonly isMaxLevel: boolean;
+  readonly currentEffectLabel: string;
+  /** Null once the upgrade is at max level; there is no further effect. */
+  readonly nextEffectLabel: string | null;
+  readonly nextCost: number | null;
+  readonly canAfford: boolean;
+  readonly milestoneLabel: string;
+  readonly milestoneProgress: number;
+}
+
+/**
+ * Single source of truth for rendering an upgrade as a card, so every
+ * surface (result panel, Kingdom hub) shows identical level/cost/effect
+ * figures derived from the same shared math instead of duplicating it.
+ */
+export function getUpgradeCardViewModel(
+  career: PlayerCareer,
+  type: UpgradeType
+): UpgradeCardViewModel {
+  const level = getUpgradeLevel(career, type);
+  const maxLevel = UPGRADE_DEFINITIONS[type].maxLevel;
+  const isMaxLevel = level >= maxLevel;
+  const nextCost = getNextUpgradeCost(career, type);
+
+  return {
+    type,
+    level,
+    maxLevel,
+    isMaxLevel,
+    currentEffectLabel: getUpgradeEffectLabel(type, level),
+    nextEffectLabel: isMaxLevel ? null : getUpgradeEffectLabel(type, level + 1),
+    nextCost,
+    canAfford: nextCost !== null && career.coins >= nextCost,
+    milestoneLabel: getUpgradeMilestoneLabel(level),
+    milestoneProgress: getUpgradeMilestoneProgress(level),
+  };
+}
+
 function getStartingUnits(level: number): number {
   return 20 + Math.min(level, 5) * 3 + Math.max(level - 5, 0);
 }

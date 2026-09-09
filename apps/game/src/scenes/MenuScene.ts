@@ -250,6 +250,29 @@ export class MenuScene extends Phaser.Scene {
       });
     }
 
+    const kingdomBg = this.add
+      .rectangle(LOGICAL_WIDTH / 2, 654, 250, 44, 0x111c33, 1)
+      .setStrokeStyle(1.5, THEME.gold, 0.8)
+      .setInteractive({ useHandCursor: true });
+    const kingdomText = this.add
+      .text(LOGICAL_WIDTH / 2, 654, '🏰 KINGDOM', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '14px',
+        fontStyle: '900',
+        color: '#fde68a',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    this.bindPressFeedback(kingdomBg, kingdomText);
+    kingdomBg.on('pointerdown', () => {
+      kingdomBg.disableInteractive();
+      sounds.playReinforce();
+      platform.hapticSelection();
+      this.scene.start('KingdomScene');
+    });
+
     const muteX = LOGICAL_WIDTH - 28;
     const muteBg = this.add
       .rectangle(muteX, 28, 40, 36, 0x0f172a, 0.95)

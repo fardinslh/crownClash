@@ -66,6 +66,12 @@ func TestAnalyticsPayloadRejectsMalformedAndInvalidEvents(t *testing.T) {
 		{name: "missing required property", payload: analyticsPayload([]AnalyticsEventRecord{
 			analyticsTestEvent("match_start", map[string]any{"matchId": "match_1"}),
 		}), wantErr: "invalid_event_props"},
+		{name: "missing upgrade panel source", payload: analyticsPayload([]AnalyticsEventRecord{
+			analyticsTestEvent("upgrade_panel_viewed", map[string]any{}),
+		}), wantErr: "invalid_event_props"},
+		{name: "invalid upgrade panel source enum", payload: analyticsPayload([]AnalyticsEventRecord{
+			analyticsTestEvent("upgrade_panel_viewed", map[string]any{"source": "shop"}),
+		}), wantErr: "invalid_event_props"},
 		{name: "invalid envelope", payload: analyticsPayload([]AnalyticsEventRecord{{
 			Name: "session_start", SessionID: "session_test", OccurredAt: analyticsTestNow, SchemaVersion: 1, Props: map[string]any{},
 		}}), wantErr: "invalid_event_envelope"},

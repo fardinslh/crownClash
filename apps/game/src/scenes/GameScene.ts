@@ -7,12 +7,8 @@ import {
   dispatchMultipleArmies,
   evaluateAiMove,
   GameState,
-  getNextUpgradeCost,
-  getUpgradeEffectLabel,
   getPlayerUpgradeModifiers,
-  getUpgradeLevel,
-  getUpgradeMilestoneLabel,
-  isUpgradeMilestoneLevel,
+  getUpgradeCardViewModel,
   LOGICAL_HEIGHT,
   LOGICAL_WIDTH,
   MarchingArmy,
@@ -23,7 +19,6 @@ import {
   PvpAction,
   stepSimulation,
   Territory,
-  UPGRADE_DEFINITIONS,
   UpgradeType,
 } from '@crown-clash/game-core';
 import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
@@ -37,6 +32,8 @@ import { sounds } from '../audio/SoundEffects.js';
 import { THEME } from '../theme.js';
 import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
 import { LiveMatchClient, LiveMatchStarted } from '../api/LiveMatchClient.js';
+import { purchaseUpgradeThroughCareer } from '../upgrades/UpgradePurchaseController.js';
+import { playUpgradeMilestoneCelebration } from '../upgrades/UpgradeMilestoneCelebration.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 const MONO_FONT_FAMILY = '"Segoe UI", monospace, -apple-system, sans-serif';
@@ -2078,22 +2075,19 @@ export class GameScene extends Phaser.Scene {
 
       const refresh = (): void => {
         const career = this.careerManager.getCareer();
-        const level = getUpgradeLevel(career, row.type);
-        const maxLevel = UPGRADE_DEFINITIONS[row.type].maxLevel;
-        const cost = getNextUpgradeCost(career, row.type);
-        const effect = getUpgradeEffectLabel(row.type, level);
-        const milestone = getUpgradeMilestoneLabel(level);
+        const card = getUpgradeCardViewModel(career, row.type);
 
-        label.setText(`${row.icon} ${row.title} LV.${level}/${maxLevel}\n${effect} • ${milestone}`);
-        buyText.setText(cost === null ? 'MAX' : `${cost} 🪙`);
+        label.setText(
+          `${row.icon} ${row.title} LV.${card.level}/${card.maxLevel}\n${card.currentEffectLabel} • ${card.milestoneLabel}`
+        );
+        buyText.setText(card.nextCost === null ? 'MAX' : `${card.nextCost} 🪙`);
         upgradeBalanceText.setText(`UPGRADE YOUR ARMY  •  ${career.coins} 🪙`);
 
-        const canBuy = cost !== null && career.coins >= cost;
         buyBg
-          .setFillStyle(canBuy ? 0x2563eb : 0x273449, 1)
-          .setStrokeStyle(1.5, canBuy ? 0x60a5fa : 0x475569, 1);
-        buyText.setColor(canBuy ? '#ffffff' : '#94a3b8');
-        if (canBuy) {
+          .setFillStyle(card.canAfford ? 0x2563eb : 0x273449, 1)
+          .setStrokeStyle(1.5, card.canAfford ? 0x60a5fa : 0x475569, 1);
+        buyText.setColor(card.canAfford ? '#ffffff' : '#94a3b8');
+        if (card.canAfford) {
           rowBg.setInteractive({ useHandCursor: true });
         } else {
           rowBg.disableInteractive();
@@ -2111,6 +2105,7 @@ export class GameScene extends Phaser.Scene {
     refreshUpgradeRows.forEach((refresh) => refresh());
     trackUpgradeEvent({
       name: 'upgrade_panel_viewed',
+      source: 'result',
     });
 
     // Play Again Button
@@ -2393,67 +2388,22 @@ export class GameScene extends Phaser.Scene {
   ): Promise<void> {
     try {
       await this.backendConnectPromise;
-      const purchase = this.careerManager.isRemoteConnected()
-        ? await this.careerManager.purchaseUpgradeRemote(type)
-        : isLocalCareerFallbackAllowed()
-          ? this.careerManager.purchaseUpgrade(type)
-          : (() => {
-              throw new Error('backend_required_for_upgrade_purchase');
-            })();
-
-      if (purchase.success) {
-        sounds.playCoin();
-        this.platform.hapticNotification('success');
-        const level = getUpgradeLevel(purchase.newCareer, type);
-        if (isUpgradeMilestoneLevel(level)) {
-          this.showUpgradeMilestoneCelebration(level);
-        }
-        trackUpgradeEvent({
-          name: 'upgrade_purchase_succeeded',
-          purchaseId: purchase.ledgerEntry.id,
-        });
-      } else {
-        trackUpgradeEvent({
-          name: 'upgrade_purchase_failed',
-          upgradeType: type,
-          reason: purchase.reason,
-        });
-      }
+      await purchaseUpgradeThroughCareer(this.careerManager, this.platform, type, {
+        onMilestone: (level) =>
+          playUpgradeMilestoneCelebration(
+            this,
+            this.platform,
+            level,
+            { x: LOGICAL_WIDTH / 2, y: LOGICAL_HEIGHT / 2 + 95 },
+            this.reducedMotion
+          ),
+      });
     } catch (error) {
       console.error('[GameScene] Upgrade purchase failed:', error);
       this.platform.hapticNotification('error');
     } finally {
       refreshUpgradeRows.forEach((refreshRow) => refreshRow());
     }
-  }
-
-  private showUpgradeMilestoneCelebration(level: number): void {
-    const celebration = this.add
-      .text(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2 + 95, `✦ MILESTONE ${level} REACHED ✦`, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '11px',
-        fontStyle: '900',
-        color: '#fef08a',
-        stroke: '#000000',
-        strokeThickness: 2,
-        resolution: 2,
-      })
-      .setDepth(230)
-      .setOrigin(0.5);
-    sounds.playVictory();
-    this.platform.hapticImpact('heavy');
-    if (this.reducedMotion) {
-      this.time.delayedCall(900, () => celebration.destroy());
-      return;
-    }
-    this.tweens.add({
-      targets: celebration,
-      y: celebration.y - 10,
-      alpha: 0,
-      duration: 950,
-      ease: 'Cubic.easeOut',
-      onComplete: () => celebration.destroy(),
-    });
   }
 
   private createMatchId(): string {

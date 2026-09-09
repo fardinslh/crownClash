@@ -31,7 +31,7 @@ export type AnalyticsEventInput =
       durationSeconds: number;
     }
   | { name: 'match_reward_received'; matchId: string; mode: 'bot' | 'live' }
-  | { name: 'upgrade_panel_viewed' }
+  | { name: 'upgrade_panel_viewed'; source: 'menu' | 'result' }
   | { name: 'upgrade_purchase_succeeded'; purchaseId: string }
   | {
       name: 'upgrade_purchase_failed';

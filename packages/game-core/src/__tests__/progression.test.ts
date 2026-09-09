@@ -7,9 +7,11 @@ import {
 } from '../progression.js';
 import {
   getNextUpgradeCost,
+  getUpgradeCardViewModel,
   getUpgradeEffectLabel,
   getPlayerUpgradeModifiers,
   getTreasuryCoinBonusRate,
+  getUpgradeMilestoneProgress,
   getUpgradeMilestoneTier,
   getUpgradeMilestoneLabel,
   purchaseUpgrade,
@@ -150,6 +152,99 @@ describe('Progression & Economy Engine', () => {
     ] as const)('uses exact shared presentation at level %i', (type, level, effect, milestone) => {
       expect(getUpgradeEffectLabel(type, level)).toBe(effect);
       expect(getUpgradeMilestoneLabel(level)).toBe(milestone);
+    });
+
+    it.each([
+      [0, 0],
+      [1, 0.2],
+      [4, 0.8],
+      [5, 1],
+      [6, 0.2],
+      [19, 0.8],
+      [20, 1],
+    ])('reports milestone progress %i -> %j', (level, progress) => {
+      expect(getUpgradeMilestoneProgress(level)).toBeCloseTo(progress, 5);
+    });
+  });
+
+  describe('Upgrade Card View Model', () => {
+    it('presents a fresh, unpurchased upgrade', () => {
+      const career = { ...createDefaultCareer('kingdom_0'), coins: 0 };
+      const card = getUpgradeCardViewModel(career, 'army_speed');
+
+      expect(card).toMatchObject({
+        type: 'army_speed',
+        level: 0,
+        maxLevel: 20,
+        isMaxLevel: false,
+        currentEffectLabel: '+0% march',
+        nextEffectLabel: '+6% march',
+        nextCost: 50,
+        canAfford: false,
+        milestoneLabel: 'M0→5',
+        milestoneProgress: 0,
+      });
+    });
+
+    it('marks a card affordable once coins cover the next cost', () => {
+      const career = { ...createDefaultCareer('kingdom_5'), coins: 500, armySpeedLevel: 5 };
+      const card = getUpgradeCardViewModel(career, 'army_speed');
+
+      expect(card).toMatchObject({
+        level: 5,
+        currentEffectLabel: '+30% march',
+        nextEffectLabel: '+31.5% march',
+        nextCost: 500,
+        canAfford: true,
+        milestoneLabel: 'M5 ✓',
+        milestoneProgress: 1,
+      });
+    });
+
+    it('reports mid-tier progress and cost just past a milestone', () => {
+      const career = { ...createDefaultCareer('kingdom_6'), coins: 100, armySpeedLevel: 6 };
+      const card = getUpgradeCardViewModel(career, 'army_speed');
+
+      expect(card).toMatchObject({
+        level: 6,
+        currentEffectLabel: '+31.5% march',
+        nextEffectLabel: '+33% march',
+        nextCost: 625,
+        canAfford: false,
+        milestoneLabel: 'M5→10',
+        milestoneProgress: 0.2,
+      });
+    });
+
+    it('shows the final pre-max card with an exact decimal effect', () => {
+      const career = { ...createDefaultCareer('kingdom_19'), coins: 4600, armySpeedLevel: 19 };
+      const card = getUpgradeCardViewModel(career, 'army_speed');
+
+      expect(card).toMatchObject({
+        level: 19,
+        currentEffectLabel: '+51% march',
+        nextEffectLabel: '+52.5% march',
+        nextCost: 4600,
+        canAfford: true,
+        milestoneLabel: 'M15→20',
+        milestoneProgress: 0.8,
+      });
+    });
+
+    it('flags a fully maxed card with no further cost or next effect', () => {
+      const career = { ...createDefaultCareer('kingdom_20'), coins: 99999, armySpeedLevel: 20 };
+      const card = getUpgradeCardViewModel(career, 'army_speed');
+
+      expect(card).toMatchObject({
+        level: 20,
+        isMaxLevel: true,
+        currentEffectLabel: '+52.5% march',
+        nextEffectLabel: null,
+        nextCost: null,
+        canAfford: false,
+        milestoneLabel: 'M20 ✓',
+        milestoneProgress: 1,
+      });
     });
   });
 

@@ -12,7 +12,7 @@ derives player identity from authentication and records receipt time separately.
 | `match_end` | Server settlement received | `matchId`, `mode`, `result`, `durationSeconds` | Server-confirmed result | Completion and win rate |
 | `match_quit` | Live connection ends before a result | `matchId`, `mode`, `durationSeconds` | Client connection state | Live abandonment |
 | `match_reward_received` | Server settlement applied | Client: `matchId`, `mode`. Server: `baseCoins`, `speedBonus`, `dominationBonus`, `streakBonus`, `treasuryBonus`, `totalCoins`, `trophyDelta`, `resultingCoins`, `resultingTrophies` | Server-confirmed settlement | Result to reward |
-| `upgrade_panel_viewed` | Result upgrade panel opens | None | Client view | Reward to progress |
+| `upgrade_panel_viewed` | Upgrade panel opens, from the result screen or the Kingdom hub | `source` (`menu` or `result`) | Client view | Reward to progress |
 | `upgrade_purchase_succeeded` | Server purchase succeeds | `purchaseId`, server-enriched `upgradeType`, `level`, `cost`, `resultingCoins` | Server-confirmed purchase | Upgrade conversion |
 | `upgrade_purchase_failed` | Server purchase rejects request | `upgradeType`, `reason` | Server response | Upgrade failure rate |
 | `live_queue_joined` | Server accepts queue entry | None | Server-confirmed client response | Live queue starts |
