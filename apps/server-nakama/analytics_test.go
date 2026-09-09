@@ -66,11 +66,17 @@ func TestAnalyticsPayloadRejectsMalformedAndInvalidEvents(t *testing.T) {
 		{name: "missing required property", payload: analyticsPayload([]AnalyticsEventRecord{
 			analyticsTestEvent("match_start", map[string]any{"matchId": "match_1"}),
 		}), wantErr: "invalid_event_props"},
-		{name: "missing upgrade panel source", payload: analyticsPayload([]AnalyticsEventRecord{
-			analyticsTestEvent("upgrade_panel_viewed", map[string]any{}),
+		{name: "unknown property on upgrade panel", payload: analyticsPayload([]AnalyticsEventRecord{
+			analyticsTestEvent("upgrade_panel_viewed", map[string]any{"source": "menu", "extra": "x"}),
+		}), wantErr: "invalid_event_props"},
+		{name: "unknown property alone on upgrade panel", payload: analyticsPayload([]AnalyticsEventRecord{
+			analyticsTestEvent("upgrade_panel_viewed", map[string]any{"extra": "x"}),
 		}), wantErr: "invalid_event_props"},
 		{name: "invalid upgrade panel source enum", payload: analyticsPayload([]AnalyticsEventRecord{
 			analyticsTestEvent("upgrade_panel_viewed", map[string]any{"source": "shop"}),
+		}), wantErr: "invalid_event_props"},
+		{name: "wrong type for upgrade panel source", payload: analyticsPayload([]AnalyticsEventRecord{
+			analyticsTestEvent("upgrade_panel_viewed", map[string]any{"source": 1}),
 		}), wantErr: "invalid_event_props"},
 		{name: "invalid envelope", payload: analyticsPayload([]AnalyticsEventRecord{{
 			Name: "session_start", SessionID: "session_test", OccurredAt: analyticsTestNow, SchemaVersion: 1, Props: map[string]any{},
@@ -98,6 +104,33 @@ func TestAnalyticsPayloadAcceptsValidEvent(t *testing.T) {
 	}
 	if len(events) != 1 || events[0].EventID != "event_test" {
 		t.Fatalf("unexpected events: %+v", events)
+	}
+}
+
+func TestAnalyticsPayloadAcceptsUpgradePanelViewedWithLegacyAndSourcedProps(t *testing.T) {
+	// Schema-version-1 clients shipped before the Kingdom hub send this event
+	// with no properties; newer clients always include a source. Both shapes
+	// must keep validating so old builds never get their analytics dropped.
+	cases := []struct {
+		name  string
+		props map[string]any
+	}{
+		{name: "legacy empty props", props: map[string]any{}},
+		{name: "menu source", props: map[string]any{"source": "menu"}},
+		{name: "result source", props: map[string]any{"source": "result"}},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			events, err := parseAnalyticsEventsPayload(analyticsPayload([]AnalyticsEventRecord{
+				analyticsTestEvent("upgrade_panel_viewed", test.props),
+			}), analyticsTestNow)
+			if err != nil {
+				t.Fatalf("expected acceptance, got %v", err)
+			}
+			if len(events) != 1 {
+				t.Fatalf("unexpected events: %+v", events)
+			}
+		})
 	}
 }
 

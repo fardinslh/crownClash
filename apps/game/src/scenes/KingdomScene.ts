@@ -14,6 +14,7 @@ import { THEME } from '../theme.js';
 import { UPGRADE_CARD_META, UPGRADE_TYPES } from '../upgrades/UpgradeCardMeta.js';
 import { purchaseUpgradeThroughCareer } from '../upgrades/UpgradePurchaseController.js';
 import { playUpgradeMilestoneCelebration } from '../upgrades/UpgradeMilestoneCelebration.js';
+import { ScenePurchaseRunner } from '../upgrades/ScenePurchaseRunner.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 
@@ -39,8 +40,8 @@ interface CardHandle {
 export class KingdomScene extends Phaser.Scene {
   private platform!: PlatformAdapter;
   private careerManager!: CareerManager;
+  private purchaseRunner!: ScenePurchaseRunner;
   private reducedMotion = false;
-  private pendingType: UpgradeType | null = null;
   private cards: Map<UpgradeType, CardHandle> = new Map();
   private goldText!: Phaser.GameObjects.Text;
   private goldBg!: Phaser.GameObjects.Rectangle;
@@ -63,11 +64,54 @@ export class KingdomScene extends Phaser.Scene {
 
     this.platform = (this.registry.get('platform') as PlatformAdapter) || createPlatformAdapter();
     this.careerManager = CareerManager.getInstance(this.platform.getUser().id);
-    this.pendingType = null;
+
+    // The runner instance is captured by the purchase closure so a promise
+    // started by an earlier visit can never fire hooks into this (or a
+    // future) visit after shutdown().
+    const runner = new ScenePurchaseRunner(
+      (type) =>
+        purchaseUpgradeThroughCareer(this.careerManager, this.platform, type, {
+          onMilestone: (level) => {
+            if (!runner.isActive) return;
+            const position = this.cards.get(type)?.container;
+            playUpgradeMilestoneCelebration(
+              this,
+              this.platform,
+              level,
+              {
+                x: position?.x ?? LOGICAL_WIDTH / 2,
+                y: (position?.y ?? LOGICAL_HEIGHT / 2) - CARD_HEIGHT / 2 - 14,
+              },
+              this.reducedMotion
+            );
+          },
+        }),
+      {
+        onPendingChanged: () => this.refreshAll(),
+        onResult: (type, purchase) => {
+          if (purchase.success) {
+            this.cards.get(type)?.celebrate();
+          } else if (purchase.reason === 'insufficient_coins') {
+            this.showToast('Not enough gold for this upgrade yet.');
+          } else if (purchase.reason === 'max_level') {
+            this.showToast('This upgrade is already fully mastered.');
+          }
+        },
+        onError: (_type, error) => {
+          console.error('[KingdomScene] Upgrade purchase failed:', error);
+          this.platform.hapticNotification('error');
+          this.showToast("Couldn't reach the kingdom. Please try again.");
+        },
+      }
+    );
+    this.purchaseRunner = runner;
 
     this.backButtonHandler = () => this.closeKingdom();
     this.platform.showBackButton(this.backButtonHandler);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.platform.hideBackButton());
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      runner.shutdown();
+      this.platform.hideBackButton();
+    });
 
     this.buildScene();
     trackUpgradeEvent({ name: 'upgrade_panel_viewed', source: 'menu' });
@@ -83,7 +127,7 @@ export class KingdomScene extends Phaser.Scene {
     this.goalText = this.add
       .text(LOGICAL_WIDTH / 2, 138, '', {
         fontFamily: FONT_FAMILY,
-        fontSize: '11px',
+        fontSize: '12px',
         fontStyle: 'bold',
         color: '#93c5fd',
         stroke: '#000000',
@@ -134,7 +178,7 @@ export class KingdomScene extends Phaser.Scene {
     this.add
       .text(LOGICAL_WIDTH / 2, 68, 'Grow your realm', {
         fontFamily: FONT_FAMILY,
-        fontSize: '11px',
+        fontSize: '12px',
         fontStyle: 'bold',
         color: '#93c5fd',
         stroke: '#000000',
@@ -149,7 +193,7 @@ export class KingdomScene extends Phaser.Scene {
     this.goldText = this.add
       .text(LOGICAL_WIDTH - 38, 34, '', {
         fontFamily: FONT_FAMILY,
-        fontSize: '13px',
+        fontSize: '14px',
         fontStyle: '900',
         color: '#fbbf24',
         stroke: '#000000',
@@ -166,10 +210,14 @@ export class KingdomScene extends Phaser.Scene {
     const cardBg = this.add
       .rectangle(0, 0, CARD_WIDTH, CARD_HEIGHT, 0x111827, 0.97)
       .setStrokeStyle(1.5, 0x334155, 1);
+    // Font sizes are chosen for the worst supported viewport: at 360x640
+    // Phaser's FIT scaling renders logical pixels at ~0.89x, so a 10px label
+    // lands at ~9 CSS px. Nothing below 10px is considered readable enough
+    // for card content at that size.
     const titleText = this.add
-      .text(0, -104, `${meta.icon} ${meta.title}`, {
+      .text(0, -102, `${meta.icon} ${meta.title}`, {
         fontFamily: FONT_FAMILY,
-        fontSize: '12px',
+        fontSize: '13px',
         fontStyle: '900',
         color: '#f1f5f9',
         stroke: '#000000',
@@ -178,18 +226,18 @@ export class KingdomScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     const subtitleText = this.add
-      .text(0, -86, meta.subtitle, {
+      .text(0, -82, meta.subtitle, {
         fontFamily: FONT_FAMILY,
-        fontSize: '8px',
+        fontSize: '10px',
         fontStyle: 'bold',
         color: '#94a3b8',
         resolution: 2,
       })
       .setOrigin(0.5);
     const levelText = this.add
-      .text(0, -64, '', {
+      .text(0, -58, '', {
         fontFamily: FONT_FAMILY,
-        fontSize: '13px',
+        fontSize: '14px',
         fontStyle: '900',
         color: '#fbbf24',
         stroke: '#000000',
@@ -198,21 +246,21 @@ export class KingdomScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     const milestoneText = this.add
-      .text(0, -46, '', {
+      .text(0, -37, '', {
         fontFamily: FONT_FAMILY,
-        fontSize: '8px',
+        fontSize: '10px',
         fontStyle: 'bold',
         color: '#93c5fd',
         resolution: 2,
       })
       .setOrigin(0.5);
-    const progressTrack = this.add.rectangle(0, -34, 140, 6, 0x0b1120, 1).setStrokeStyle(1, 0x334155, 1);
-    const progressFill = this.add.rectangle(-70, -34, 0, 4, 0x2563eb, 1).setOrigin(0, 0.5);
-    const divider = this.add.rectangle(0, -20, CARD_WIDTH - 24, 1, 0x1e293b, 1);
+    const progressTrack = this.add.rectangle(0, -25, 140, 6, 0x0b1120, 1).setStrokeStyle(1, 0x334155, 1);
+    const progressFill = this.add.rectangle(-70, -25, 0, 4, 0x2563eb, 1).setOrigin(0, 0.5);
+    const divider = this.add.rectangle(0, -11, CARD_WIDTH - 24, 1, 0x1e293b, 1);
     const nowLabel = this.add
-      .text(0, -6, '', {
+      .text(0, 4, '', {
         fontFamily: FONT_FAMILY,
-        fontSize: '9px',
+        fontSize: '11px',
         fontStyle: 'bold',
         color: '#cbd5e1',
         align: 'center',
@@ -220,9 +268,9 @@ export class KingdomScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     const nextLabel = this.add
-      .text(0, 16, '', {
+      .text(0, 28, '', {
         fontFamily: FONT_FAMILY,
-        fontSize: '9px',
+        fontSize: '11px',
         fontStyle: 'bold',
         color: '#64ffda',
         align: 'center',
@@ -236,7 +284,7 @@ export class KingdomScene extends Phaser.Scene {
     const buyText = this.add
       .text(0, 96, '', {
         fontFamily: FONT_FAMILY,
-        fontSize: '12px',
+        fontSize: '13px',
         fontStyle: '900',
         color: '#ffffff',
         stroke: '#000000',
@@ -264,7 +312,7 @@ export class KingdomScene extends Phaser.Scene {
     const refresh = (): void => {
       const career = this.careerManager.getCareer();
       const card: UpgradeCardViewModel = getUpgradeCardViewModel(career, type);
-      const isPending = this.pendingType === type;
+      const isPending = this.purchaseRunner.pending === type;
 
       levelText.setText(`LV. ${card.level} / ${card.maxLevel}`);
       milestoneText.setText(card.milestoneLabel);
@@ -317,10 +365,7 @@ export class KingdomScene extends Phaser.Scene {
       });
     };
 
-    buyBg.on('pointerdown', () => {
-      if (this.pendingType !== null) return;
-      void this.handlePurchase(type);
-    });
+    buyBg.on('pointerdown', () => this.purchaseRunner.run(type));
 
     container.setScale(this.reducedMotion ? 1 : 0.9);
     container.setAlpha(this.reducedMotion ? 1 : 0);
@@ -337,7 +382,7 @@ export class KingdomScene extends Phaser.Scene {
     this.toastText = this.add
       .text(LOGICAL_WIDTH / 2, 700, '', {
         fontFamily: FONT_FAMILY,
-        fontSize: '11px',
+        fontSize: '12px',
         fontStyle: 'bold',
         color: '#fecaca',
         align: 'center',
@@ -405,42 +450,14 @@ export class KingdomScene extends Phaser.Scene {
     return `${prefix}: ${meta.icon} ${meta.title} — ${goal.nextCost} 🪙`;
   }
 
-  private async handlePurchase(type: UpgradeType): Promise<void> {
-    this.pendingType = type;
-    this.refreshAll();
-
-    try {
-      const purchase = await purchaseUpgradeThroughCareer(this.careerManager, this.platform, type, {
-        onMilestone: (level) => {
-          const position = this.cards.get(type)?.container;
-          playUpgradeMilestoneCelebration(
-            this,
-            this.platform,
-            level,
-            { x: position?.x ?? LOGICAL_WIDTH / 2, y: (position?.y ?? LOGICAL_HEIGHT / 2) - CARD_HEIGHT / 2 - 14 },
-            this.reducedMotion
-          );
-        },
-      });
-
-      if (purchase.success) {
-        this.cards.get(type)?.celebrate();
-      } else if (purchase.reason === 'insufficient_coins') {
-        this.showToast("Not enough gold for this upgrade yet.");
-      } else if (purchase.reason === 'max_level') {
-        this.showToast('This upgrade is already fully mastered.');
-      }
-    } catch (error) {
-      console.error('[KingdomScene] Upgrade purchase failed:', error);
-      this.platform.hapticNotification('error');
-      this.showToast("Couldn't reach the kingdom. Please try again.");
-    } finally {
-      this.pendingType = null;
-      this.refreshAll();
-    }
-  }
-
   private closeKingdom(): void {
+    // Leaving mid-purchase would strand the in-flight request's UI callbacks
+    // on a torn-down scene and let MenuScene render pre-purchase career data,
+    // so the hub stays open until the purchase settles.
+    if (!this.purchaseRunner.requestClose()) {
+      this.showToast('Finishing your upgrade…');
+      return;
+    }
     this.scene.start('MenuScene');
   }
 

@@ -600,6 +600,10 @@ func rpcTrackEvents(store *Store) rpcFn {
 
 type analyticsEventDefinition struct {
 	properties map[string]analyticsPropertyKind
+	// optionalProperties may be present or absent; when present they are
+	// validated with the same strictness as required ones. Used to evolve an
+	// event's schema without rejecting already-shipped clients.
+	optionalProperties map[string]analyticsPropertyKind
 }
 
 type analyticsPropertyKind string
@@ -616,7 +620,9 @@ var analyticsEventDefinitions = map[string]analyticsEventDefinition{
 	"match_end":                  {properties: analyticsPropertiesWithDuration("matchId", "mode", "result")},
 	"match_quit":                 {properties: analyticsPropertiesWithDuration("matchId", "mode")},
 	"match_reward_received":      {properties: analyticsProperties("matchId", "mode")},
-	"upgrade_panel_viewed":       {properties: analyticsProperties("source")},
+	// source is optional: schema-version-1 clients shipped before the
+	// Kingdom hub emit this event with no properties at all.
+	"upgrade_panel_viewed":       {properties: map[string]analyticsPropertyKind{}, optionalProperties: analyticsProperties("source")},
 	"upgrade_purchase_succeeded": {properties: analyticsProperties("purchaseId")},
 	"upgrade_purchase_failed":    {properties: analyticsProperties("upgradeType", "reason")},
 	"live_queue_joined":          {properties: map[string]analyticsPropertyKind{}},
@@ -678,14 +684,24 @@ func validateAnalyticsEvent(event AnalyticsEventRecord, receivedAt int64) error 
 		event.OccurredAt > receivedAt+analyticsOccurredAtFutureSkew.Milliseconds() {
 		return errors.New("invalid_event_timestamp")
 	}
-	if event.Props == nil || len(event.Props) != len(definition.properties) || len(event.Props) > 16 {
+	maxProps := len(definition.properties) + len(definition.optionalProperties)
+	if event.Props == nil || len(event.Props) < len(definition.properties) ||
+		len(event.Props) > maxProps || len(event.Props) > 16 {
 		return errors.New("invalid_event_props")
+	}
+	for key := range definition.properties {
+		if _, present := event.Props[key]; !present {
+			return errors.New("invalid_event_props")
+		}
 	}
 	for key, value := range event.Props {
 		if len(key) == 0 || len(key) > 64 {
 			return errors.New("invalid_event_props")
 		}
 		expectedType, permitted := definition.properties[key]
+		if !permitted {
+			expectedType, permitted = definition.optionalProperties[key]
+		}
 		if !permitted {
 			return errors.New("invalid_event_props")
 		}
@@ -731,6 +747,11 @@ func hasValidAnalyticsPropertyEnums(event AnalyticsEventRecord) bool {
 	case "match_reward_received":
 		return oneOf(value("mode"), "bot", "live")
 	case "upgrade_panel_viewed":
+		// Legacy schema-version-1 clients send no properties; only enforce
+		// the enum when source is present.
+		if _, present := event.Props["source"]; !present {
+			return true
+		}
 		return oneOf(value("source"), "menu", "result")
 	case "upgrade_purchase_failed":
 		return oneOf(value("upgradeType"), "starting_garrison", "production", "army_speed", "treasury") &&
