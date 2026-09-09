@@ -135,8 +135,16 @@ type PvpBattleSummary struct {
 }
 
 type AnalyticsEventRecord struct {
-	Name  string         `json:"name"`
-	Props map[string]any `json:"props"`
+	EventID       string         `json:"eventId"`
+	Name          string         `json:"name"`
+	SessionID     string         `json:"sessionId"`
+	OccurredAt    int64          `json:"occurredAt"`
+	SchemaVersion int            `json:"schemaVersion"`
+	Props         map[string]any `json:"props"`
+}
+
+type AnalyticsInsertResult struct {
+	Inserted int
 }
 
 type PvpAttackResult struct {

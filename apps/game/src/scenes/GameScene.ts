@@ -25,7 +25,11 @@ import {
 } from '@crown-clash/game-core';
 import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { CareerManager } from '../career/CareerManager.js';
-import { trackEvent, trackUpgradeEvent } from '../analytics/Analytics.js';
+import {
+  trackEvent,
+  trackTerminalMatchEvent,
+  trackUpgradeEvent,
+} from '../analytics/Analytics.js';
 import { sounds } from '../audio/SoundEffects.js';
 import { THEME } from '../theme.js';
 import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
@@ -178,11 +182,18 @@ export class GameScene extends Phaser.Scene {
       .catch((error: unknown) => {
         console.warn('[GameScene] Backend unavailable, using local career cache:', error);
       });
-    trackEvent({ name: 'match_start', source: launchData?.source ?? 'menu' });
     this.createUpgradedMatchState();
     if (this.liveMode && launchData?.liveMatch) {
       this.gameState = launchData.liveMatch.state;
       this.activeMatchId = launchData.liveMatch.matchId;
+    }
+    trackEvent({
+      name: 'match_start',
+      matchId: this.activeMatchId,
+      mode: this.liveMode ? 'live' : 'bot',
+      source: launchData?.source ?? 'menu',
+    });
+    if (this.liveMode && launchData?.liveMatch) {
       this.bindLiveMatch(this.liveClient);
     }
     this.accumulators = {};
@@ -1762,10 +1773,17 @@ export class GameScene extends Phaser.Scene {
         settlement.stats && settlement.stats.matchDurationSeconds > 0
           ? settlement.stats
           : this.localMatchStats();
-      trackEvent({
+      trackTerminalMatchEvent({
         name: 'match_end',
-        status: settlement.status,
         matchId: settlement.matchId,
+        mode: 'bot',
+        result: settlement.status,
+        durationSeconds: stats.matchDurationSeconds,
+      });
+      trackEvent({
+        name: 'match_reward_received',
+        matchId: settlement.matchId,
+        mode: 'bot',
       });
       this.renderResultModal(settlement.status, stats, settlement);
     } catch (error) {
@@ -2088,10 +2106,6 @@ export class GameScene extends Phaser.Scene {
     refreshUpgradeRows.forEach((refresh) => refresh());
     trackUpgradeEvent({
       name: 'upgrade_panel_viewed',
-      coins: settlement.newCareer.coins,
-      startingGarrisonLevel: settlement.newCareer.startingGarrisonLevel,
-      productionLevel: settlement.newCareer.productionLevel,
-      armySpeedLevel: settlement.newCareer.armySpeedLevel,
     });
 
     // Play Again Button
@@ -2387,18 +2401,13 @@ export class GameScene extends Phaser.Scene {
         this.platform.hapticNotification('success');
         trackUpgradeEvent({
           name: 'upgrade_purchase_succeeded',
-          upgradeType: type,
-          level: getUpgradeLevel(purchase.newCareer, type),
-          cost: purchase.cost,
-          resultingCoins: purchase.newCareer.coins,
+          purchaseId: purchase.ledgerEntry.id,
         });
       } else {
         trackUpgradeEvent({
           name: 'upgrade_purchase_failed',
           upgradeType: type,
-          cost: purchase.cost,
           reason: purchase.reason,
-          coins: purchase.newCareer.coins,
         });
       }
     } catch (error) {
@@ -2437,7 +2446,12 @@ export class GameScene extends Phaser.Scene {
     // Reset state & restart scene cleanly
     this.activeMatchId = this.createMatchId();
     this.matchActions = [];
-    trackEvent({ name: 'match_start', source: 'rematch' });
+    trackEvent({
+      name: 'match_start',
+      matchId: this.activeMatchId,
+      mode: 'bot',
+      source: 'rematch',
+    });
     this.createUpgradedMatchState();
     this.accumulators = {};
     this.selectedSourceIds = [];
@@ -2484,16 +2498,42 @@ export class GameScene extends Phaser.Scene {
         this.spawnFloatingText(LOGICAL_WIDTH / 2, 96, code.replaceAll('_', ' '), '#f87171');
       }),
       client.on('match_result', (result) => {
+        const terminalEventRecorded = trackTerminalMatchEvent({
+          name: 'match_end',
+          matchId: result.matchId,
+          mode: 'live',
+          result: result.status,
+          durationSeconds: result.stats.matchDurationSeconds,
+        });
         this.gameState.status = result.status;
         this.resultPending = false;
         this.careerManager.applyLiveMatchSettlement(result.settlement);
-        trackEvent({ name: 'live_match_ended', status: result.status });
+        if (terminalEventRecorded) {
+          trackEvent({
+            name: 'match_reward_received',
+            matchId: result.matchId,
+            mode: 'live',
+          });
+          trackEvent({
+            name: 'live_match_ended',
+            matchId: result.matchId,
+            status: result.status,
+          });
+        }
         this.renderResultModal(result.status, result.stats, result.settlement);
         client.close();
       }),
       client.on('closed', () => {
         if (!this.resultModalContainer && this.gameState.status === 'playing') {
-          trackEvent({ name: 'live_match_disconnected' });
+          const durationSeconds = this.gameState.elapsedTimeSeconds;
+          if (trackTerminalMatchEvent({
+            name: 'match_quit',
+            matchId: this.activeMatchId,
+            mode: 'live',
+            durationSeconds,
+          })) {
+            trackEvent({ name: 'live_match_disconnected', matchId: this.activeMatchId });
+          }
           this.showLiveConnectionError();
         }
       }),

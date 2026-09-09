@@ -1,27 +1,26 @@
-import type { TrackedAnalyticsEvent } from '../api/GameApiClient.js';
+import { isAnalyticsEvent, type AnalyticsEvent } from './Analytics.js';
 
-type SerializableValue = string | number | boolean;
+export const ANALYTICS_BATCH_MAX_SIZE = 50;
 
 export interface AnalyticsSinkOptions {
-  flush: (events: readonly TrackedAnalyticsEvent[]) => Promise<void>;
+  flush: (events: readonly AnalyticsEvent[]) => Promise<void>;
   shouldFlush?: () => boolean;
   flushIntervalMs?: number;
   maxBuffer?: number;
 }
 
 /**
- * Collects the analytics events dispatched on the
- * `crown-clash:analytics` CustomEvent and batches them to the backend.
- * Events are retained (up to the buffer cap) while flushing is impossible,
- * e.g. before the session token exists, and retried on the next tick.
+ * Collects typed event envelopes and sends them in ordered, idempotent batches.
+ * Failed batches are restored ahead of newer events, and analytics failures are
+ * intentionally isolated from normal gameplay.
  */
 export class AnalyticsSink {
   private readonly options: Required<Pick<AnalyticsSinkOptions, 'flushIntervalMs' | 'maxBuffer'>>;
   private readonly flushFn: AnalyticsSinkOptions['flush'];
   private readonly shouldFlush: () => boolean;
-  private buffer: TrackedAnalyticsEvent[] = [];
+  private buffer: AnalyticsEvent[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
-  private flushing = false;
+  private flushPromise: Promise<void> | null = null;
 
   constructor(options: AnalyticsSinkOptions) {
     this.flushFn = options.flush;
@@ -35,6 +34,10 @@ export class AnalyticsSink {
   public start(): void {
     if (typeof window === 'undefined' || this.timer !== null) return;
     window.addEventListener('crown-clash:analytics', this.handleEvent);
+    window.addEventListener('pagehide', this.flushOnPageHide);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this.flushOnLifecycleChange);
+    }
     this.timer = setInterval(() => {
       void this.flush();
     }, this.options.flushIntervalMs);
@@ -43,6 +46,10 @@ export class AnalyticsSink {
   public stop(): void {
     if (typeof window !== 'undefined') {
       window.removeEventListener('crown-clash:analytics', this.handleEvent);
+      window.removeEventListener('pagehide', this.flushOnPageHide);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', this.flushOnLifecycleChange);
+      }
     }
     if (this.timer !== null) {
       clearInterval(this.timer);
@@ -51,38 +58,52 @@ export class AnalyticsSink {
   }
 
   public flush(): Promise<void> {
-    if (this.flushing || this.buffer.length === 0 || !this.shouldFlush()) {
-      return Promise.resolve();
-    }
-    this.flushing = true;
-    const events = this.buffer.splice(0, this.buffer.length);
-    return this.flushFn(events)
-      .catch(() => {
-        this.buffer.unshift(...events);
-        this.trimBuffer();
-      })
-      .finally(() => {
-        this.flushing = false;
-      });
+    if (this.flushPromise) return this.flushPromise;
+    if (this.buffer.length === 0 || !this.shouldFlush()) return Promise.resolve();
+
+    this.flushPromise = this.flushBufferedEvents().finally(() => {
+      this.flushPromise = null;
+    });
+    return this.flushPromise;
   }
 
-  private readonly handleEvent = (event: Event): void => {
-    const detail = (event as CustomEvent<Record<string, unknown> | undefined>).detail;
-    if (!detail || typeof detail.name !== 'string' || detail.name.length === 0) return;
-    const { name, ...rest } = detail;
-    const props: Record<string, SerializableValue> = {};
-    for (const [key, value] of Object.entries(rest)) {
-      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-        props[key] = value;
+  private async flushBufferedEvents(): Promise<void> {
+    while (this.buffer.length > 0 && this.shouldFlush()) {
+      const batch = this.buffer.splice(0, ANALYTICS_BATCH_MAX_SIZE);
+      try {
+        await this.flushFn(batch);
+      } catch {
+        this.buffer.unshift(...batch);
+        this.trimBuffer(batch.length);
+        return;
       }
     }
-    this.buffer.push({ name, props });
+  }
+
+  private readonly flushOnLifecycleChange = (): void => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'visible') return;
+    void this.flush();
+  };
+
+  private readonly flushOnPageHide = (): void => {
+    void this.flush();
+  };
+
+  private readonly handleEvent = (event: Event): void => {
+    const detail = (event as CustomEvent<unknown>).detail;
+    if (!isAnalyticsEvent(detail)) return;
+    this.buffer.push(detail);
     this.trimBuffer();
   };
 
-  private trimBuffer(): void {
+  private trimBuffer(preserveHead = 0): void {
     if (this.buffer.length > this.options.maxBuffer) {
-      this.buffer.splice(0, this.buffer.length - this.options.maxBuffer);
+      const overflow = this.buffer.length - this.options.maxBuffer;
+      if (preserveHead > 0) {
+        this.buffer.splice(Math.max(preserveHead, this.options.maxBuffer), overflow);
+      } else {
+        this.buffer.splice(0, overflow);
+      }
     }
   }
 }

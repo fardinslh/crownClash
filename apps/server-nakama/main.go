@@ -5,15 +5,23 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io"
+	"math"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/heroiclabs/nakama-common/api"
 	"github.com/heroiclabs/nakama-common/runtime"
 )
 
 const (
-	trophiesLeaderboardID = "trophies"
+	trophiesLeaderboardID         = "trophies"
+	analyticsBatchMaxSize         = 50
+	analyticsEventIDMaxLength     = 128
+	analyticsSessionIDMaxLength   = 128
+	analyticsOccurredAtMaxAge     = 30 * 24 * time.Hour
+	analyticsOccurredAtFutureSkew = 5 * time.Minute
 )
 
 // rpcFn matches the RegisterRpc function signature in nakama-common.
@@ -573,38 +581,162 @@ func rpcTrackEvents(store *Store) rpcFn {
 		if !ok || userID == "" {
 			return "", errors.New("unauthenticated")
 		}
-		var request struct {
-			Events []AnalyticsEventRecord `json:"events"`
-		}
-		if err := json.Unmarshal([]byte(payload), &request); err != nil {
-			return "", errors.New("invalid_payload")
-		}
-		if len(request.Events) == 0 || len(request.Events) > 50 {
-			return "", errors.New("invalid_events")
-		}
-		for _, event := range request.Events {
-			if len(event.Name) < 1 || len(event.Name) > 64 {
-				return "", errors.New("invalid_event_name")
-			}
-			if len(event.Props) > 16 {
-				return "", errors.New("invalid_event_props")
-			}
-			for key, value := range event.Props {
-				if len(key) > 64 {
-					return "", errors.New("invalid_event_props")
-				}
-				switch value.(type) {
-				case string, float64, bool, nil:
-				default:
-					return "", errors.New("invalid_event_props")
-				}
-			}
-		}
-		if err := store.InsertAnalyticsEvents(ctx, userID, request.Events); err != nil {
+		events, err := parseAnalyticsEventsPayload(payload, nowMillis())
+		if err != nil {
 			return "", err
 		}
-		response, _ := json.Marshal(map[string]any{"accepted": len(request.Events)})
+		result, err := store.InsertAnalyticsEvents(ctx, userID, events)
+		if err != nil {
+			return "", err
+		}
+		response, _ := json.Marshal(map[string]any{
+			"accepted":   len(events),
+			"inserted":   result.Inserted,
+			"duplicates": len(events) - result.Inserted,
+		})
 		return string(response), nil
+	}
+}
+
+type analyticsEventDefinition struct {
+	properties map[string]analyticsPropertyKind
+}
+
+type analyticsPropertyKind string
+
+const (
+	analyticsPropertyString analyticsPropertyKind = "string"
+	analyticsPropertyNumber analyticsPropertyKind = "number"
+)
+
+var analyticsEventDefinitions = map[string]analyticsEventDefinition{
+	"session_start":              {properties: map[string]analyticsPropertyKind{}},
+	"menu_viewed":                {properties: analyticsProperties("rankId")},
+	"match_start":                {properties: analyticsProperties("matchId", "mode", "source")},
+	"match_end":                  {properties: analyticsPropertiesWithDuration("matchId", "mode", "result")},
+	"match_quit":                 {properties: analyticsPropertiesWithDuration("matchId", "mode")},
+	"match_reward_received":      {properties: analyticsProperties("matchId", "mode")},
+	"upgrade_panel_viewed":       {properties: map[string]analyticsPropertyKind{}},
+	"upgrade_purchase_succeeded": {properties: analyticsProperties("purchaseId")},
+	"upgrade_purchase_failed":    {properties: analyticsProperties("upgradeType", "reason")},
+	"live_queue_joined":          {properties: map[string]analyticsPropertyKind{}},
+	"live_invite_created":        {properties: map[string]analyticsPropertyKind{}},
+	"live_invite_joined":         {properties: map[string]analyticsPropertyKind{}},
+	"live_match_started":         {properties: analyticsProperties("matchId")},
+	"live_match_ended":           {properties: analyticsProperties("matchId", "status")},
+	"live_match_disconnected":    {properties: analyticsProperties("matchId")},
+}
+
+func analyticsProperties(keys ...string) map[string]analyticsPropertyKind {
+	properties := make(map[string]analyticsPropertyKind, len(keys))
+	for _, key := range keys {
+		properties[key] = analyticsPropertyString
+	}
+	return properties
+}
+
+func analyticsPropertiesWithDuration(keys ...string) map[string]analyticsPropertyKind {
+	properties := analyticsProperties(keys...)
+	properties["durationSeconds"] = analyticsPropertyNumber
+	return properties
+}
+
+func parseAnalyticsEventsPayload(payload string, receivedAt int64) ([]AnalyticsEventRecord, error) {
+	var request struct {
+		Events []AnalyticsEventRecord `json:"events"`
+	}
+	decoder := json.NewDecoder(strings.NewReader(payload))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		return nil, errors.New("invalid_payload")
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return nil, errors.New("invalid_payload")
+	}
+	if len(request.Events) == 0 || len(request.Events) > analyticsBatchMaxSize {
+		return nil, errors.New("invalid_events")
+	}
+	for _, event := range request.Events {
+		if err := validateAnalyticsEvent(event, receivedAt); err != nil {
+			return nil, err
+		}
+	}
+	return request.Events, nil
+}
+
+func validateAnalyticsEvent(event AnalyticsEventRecord, receivedAt int64) error {
+	if len(event.EventID) == 0 || len(event.EventID) > analyticsEventIDMaxLength ||
+		len(event.SessionID) == 0 || len(event.SessionID) > analyticsSessionIDMaxLength ||
+		event.SchemaVersion != 1 {
+		return errors.New("invalid_event_envelope")
+	}
+	definition, exists := analyticsEventDefinitions[event.Name]
+	if !exists {
+		return errors.New("invalid_event_name")
+	}
+	if event.OccurredAt < receivedAt-analyticsOccurredAtMaxAge.Milliseconds() ||
+		event.OccurredAt > receivedAt+analyticsOccurredAtFutureSkew.Milliseconds() {
+		return errors.New("invalid_event_timestamp")
+	}
+	if event.Props == nil || len(event.Props) != len(definition.properties) || len(event.Props) > 16 {
+		return errors.New("invalid_event_props")
+	}
+	for key, value := range event.Props {
+		if len(key) == 0 || len(key) > 64 {
+			return errors.New("invalid_event_props")
+		}
+		expectedType, permitted := definition.properties[key]
+		if !permitted {
+			return errors.New("invalid_event_props")
+		}
+		switch typed := value.(type) {
+		case string:
+			if expectedType != analyticsPropertyString || len(typed) == 0 || len(typed) > 256 {
+				return errors.New("invalid_event_props")
+			}
+		case float64:
+			if expectedType != analyticsPropertyNumber || math.IsNaN(typed) || math.IsInf(typed, 0) || typed < 0 {
+				return errors.New("invalid_event_props")
+			}
+		default:
+			return errors.New("invalid_event_props")
+		}
+	}
+	if !hasValidAnalyticsPropertyEnums(event) {
+		return errors.New("invalid_event_props")
+	}
+	return nil
+}
+
+func hasValidAnalyticsPropertyEnums(event AnalyticsEventRecord) bool {
+	value := func(key string) string {
+		value, _ := event.Props[key].(string)
+		return value
+	}
+	oneOf := func(candidate string, allowed ...string) bool {
+		for _, item := range allowed {
+			if candidate == item {
+				return true
+			}
+		}
+		return false
+	}
+	switch event.Name {
+	case "match_start":
+		return oneOf(value("mode"), "bot", "live") && oneOf(value("source"), "menu", "rematch")
+	case "match_end":
+		return oneOf(value("mode"), "bot", "live") && oneOf(value("result"), "victory", "defeat", "draw")
+	case "match_quit":
+		return value("mode") == "live"
+	case "match_reward_received":
+		return oneOf(value("mode"), "bot", "live")
+	case "upgrade_purchase_failed":
+		return oneOf(value("upgradeType"), "starting_garrison", "production", "army_speed") &&
+			oneOf(value("reason"), "insufficient_coins", "max_level")
+	case "live_match_ended":
+		return oneOf(value("status"), "victory", "defeat", "draw")
+	default:
+		return true
 	}
 }
 

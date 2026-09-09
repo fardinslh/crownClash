@@ -107,6 +107,43 @@ CREATE INDEX IF NOT EXISTS idx_analytics_events_player ON analytics_events (play
 CREATE INDEX IF NOT EXISTS idx_analytics_events_name ON analytics_events (name, created_at DESC);
 `,
 	},
+	{
+		name: "004_analytics_event_envelope",
+		sql: `
+ALTER TABLE analytics_events
+  ADD COLUMN IF NOT EXISTS event_id TEXT,
+  ADD COLUMN IF NOT EXISTS session_id TEXT,
+  ADD COLUMN IF NOT EXISTS occurred_at BIGINT,
+  ADD COLUMN IF NOT EXISTS schema_version INTEGER;
+
+UPDATE analytics_events
+SET
+  event_id = CONCAT('legacy_', id),
+  session_id = 'legacy',
+  occurred_at = FLOOR(EXTRACT(EPOCH FROM created_at) * 1000)::BIGINT,
+  schema_version = 0
+WHERE event_id IS NULL OR session_id IS NULL OR occurred_at IS NULL OR schema_version IS NULL;
+
+ALTER TABLE analytics_events
+  ALTER COLUMN event_id SET NOT NULL,
+  ALTER COLUMN session_id SET NOT NULL,
+  ALTER COLUMN occurred_at SET NOT NULL,
+  ALTER COLUMN schema_version SET NOT NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'analytics_events_player_event_id_key'
+  ) THEN
+    ALTER TABLE analytics_events
+      ADD CONSTRAINT analytics_events_player_event_id_key UNIQUE (player_id, event_id);
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_analytics_events_player_occurred
+  ON analytics_events (player_id, occurred_at DESC);
+`,
+	},
 }
 
 func RunMigrations(ctx context.Context, db *sql.DB) error {

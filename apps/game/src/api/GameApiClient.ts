@@ -8,11 +8,9 @@ import type {
 } from '@crown-clash/game-core';
 import type { PlatformAdapter } from '@crown-clash/platform';
 import type { LiveMatchClient } from './LiveMatchClient.js';
+import type { AnalyticsEvent } from '../analytics/Analytics.js';
 
-export interface TrackedAnalyticsEvent {
-  name: string;
-  props?: Record<string, string | number | boolean>;
-}
+export type TrackedAnalyticsEvent = AnalyticsEvent;
 
 /**
  * Career and economy API surface consumed by CareerManager.

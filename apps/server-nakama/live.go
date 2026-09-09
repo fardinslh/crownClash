@@ -313,22 +313,26 @@ func (s *liveMatchState) broadcastMatchStarted(logger runtime.Logger, dispatcher
 		if player == nil {
 			continue
 		}
-		opponent := s.opponentOf(player)
-		opponentName := "Opponent"
-		if opponent != nil {
-			opponentName = opponent.displayName
-		}
-		payload, _ := json.Marshal(map[string]any{
-			"type":         "match_started",
-			"matchId":      fmt.Sprintf("%d", s.startedAt),
-			"role":         player.role,
-			"playerName":   player.displayName,
-			"opponentName": opponentName,
-			"state":        stateForRole(s.state, player.role),
-		})
+		payload, _ := json.Marshal(s.matchStartedPayload(player))
 		if err := dispatcher.BroadcastMessageDeferred(liveOpCodeMatchStarted, payload, []runtime.Presence{player.presence}, nil, true); err != nil {
 			logger.WithField("error", err).Warn("broadcast match_started failed")
 		}
+	}
+}
+
+func (s *liveMatchState) matchStartedPayload(player *livePlayerState) map[string]any {
+	opponent := s.opponentOf(player)
+	opponentName := "Opponent"
+	if opponent != nil {
+		opponentName = opponent.displayName
+	}
+	return map[string]any{
+		"type":         "match_started",
+		"matchId":      livePlayerMatchID(s.startedAt, player.userID),
+		"role":         player.role,
+		"playerName":   player.displayName,
+		"opponentName": opponentName,
+		"state":        stateForRole(s.state, player.role),
 	}
 }
 
@@ -367,7 +371,7 @@ func (s *liveMatchState) finishSettlements(ctx context.Context, logger runtime.L
 		}
 		status := statusForRole(canonical, player.role)
 		stats := statsForRole(s.state.Stats, player.role)
-		matchID := fmt.Sprintf("live_%d_%s", s.startedAt, player.userID)
+		matchID := livePlayerMatchID(s.startedAt, player.userID)
 		settlement, err := s.store.SettleMatch(ctx, player.userID, status, stats, matchID)
 		if err != nil {
 			logger.WithField("error", err).Error("live settlement failed")
@@ -386,6 +390,10 @@ func (s *liveMatchState) finishSettlements(ctx context.Context, logger runtime.L
 		})
 		_ = dispatcher.BroadcastMessageDeferred(liveOpCodeMatchResult, payload, []runtime.Presence{player.presence}, nil, true)
 	}
+}
+
+func livePlayerMatchID(startedAt int64, userID string) string {
+	return fmt.Sprintf("live_%d_%s", startedAt, userID)
 }
 
 func stateForRole(state GameState, role Team) GameState {

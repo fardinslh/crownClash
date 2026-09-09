@@ -12,6 +12,26 @@ func TestLiveArmyIDsAreUniqueAcrossPlayers(t *testing.T) {
 	}
 }
 
+func TestLiveMatchStartIDMatchesPlayerSettlementID(t *testing.T) {
+	startedAt := int64(1_725_000_000_000)
+	playerID := "player_123"
+	settlementID := livePlayerMatchID(startedAt, playerID)
+	state := liveMatchState{
+		startedAt: startedAt,
+		players: [liveMaxPlayers]*livePlayerState{{
+			userID: playerID, displayName: "Player", role: TeamPlayer,
+		}},
+	}
+	startID, ok := state.matchStartedPayload(state.players[0])["matchId"].(string)
+
+	if !ok || startID != settlementID {
+		t.Fatalf("live start ID %q did not match settlement ID %q", startID, settlementID)
+	}
+	if startID != "live_1725000000000_player_123" {
+		t.Fatalf("unexpected canonical live match ID %q", startID)
+	}
+}
+
 func TestStateForEnemyRoleProjectsBothArmyOwners(t *testing.T) {
 	state := GameState{
 		Armies: []MarchingArmy{

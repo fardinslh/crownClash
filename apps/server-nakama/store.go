@@ -544,24 +544,108 @@ func (s *Store) SettlePvpAttack(ctx context.Context, attackerID, defenderID, att
 	return result, nil
 }
 
-func (s *Store) InsertAnalyticsEvents(ctx context.Context, userID string, events []AnalyticsEventRecord) error {
+func (s *Store) InsertAnalyticsEvents(ctx context.Context, userID string, events []AnalyticsEventRecord) (AnalyticsInsertResult, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return AnalyticsInsertResult{}, err
+	}
+	defer tx.Rollback()
+
+	result := AnalyticsInsertResult{}
 	for _, event := range events {
-		props := event.Props
-		if props == nil {
-			props = map[string]any{}
-		}
-		encoded, err := json.Marshal(props)
+		normalized, err := normalizeAnalyticsEvent(ctx, tx, userID, event)
 		if err != nil {
-			return err
+			return AnalyticsInsertResult{}, err
 		}
-		if _, err := s.db.ExecContext(ctx, `
-			INSERT INTO analytics_events (player_id, name, props)
-			VALUES ($1, $2, $3)
-		`, userID, event.Name, encoded); err != nil {
-			return err
+		encoded, err := json.Marshal(normalized.Props)
+		if err != nil {
+			return AnalyticsInsertResult{}, err
+		}
+		execution, err := tx.ExecContext(ctx, `
+			INSERT INTO analytics_events
+				(player_id, event_id, session_id, name, occurred_at, schema_version, props)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ON CONFLICT (player_id, event_id) DO NOTHING
+		`, userID, normalized.EventID, normalized.SessionID, normalized.Name, normalized.OccurredAt, normalized.SchemaVersion, encoded)
+		if err != nil {
+			return AnalyticsInsertResult{}, err
+		}
+		inserted, err := execution.RowsAffected()
+		if err != nil {
+			return AnalyticsInsertResult{}, err
+		}
+		result.Inserted += int(inserted)
+	}
+	if err := tx.Commit(); err != nil {
+		return AnalyticsInsertResult{}, err
+	}
+	return result, nil
+}
+
+func normalizeAnalyticsEvent(ctx context.Context, tx *sql.Tx, userID string, event AnalyticsEventRecord) (AnalyticsEventRecord, error) {
+	switch event.Name {
+	case "match_end", "match_reward_received":
+		matchID, _ := event.Props["matchId"].(string)
+		mode, _ := event.Props["mode"].(string)
+		var encoded []byte
+		if err := tx.QueryRowContext(ctx, `
+			SELECT settlement FROM match_settlements
+			WHERE match_id = $1 AND player_id = $2
+		`, matchID, userID).Scan(&encoded); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return AnalyticsEventRecord{}, errors.New("analytics_settlement_not_found")
+			}
+			return AnalyticsEventRecord{}, err
+		}
+		var settlement MatchSettlement
+		if err := json.Unmarshal(encoded, &settlement); err != nil {
+			return AnalyticsEventRecord{}, errors.New("invalid_stored_settlement")
+		}
+		if event.Name == "match_end" {
+			event.Props = map[string]any{
+				"matchId": matchID, "mode": mode, "result": settlement.Status,
+				"durationSeconds": settlement.Stats.MatchDurationSeconds,
+			}
+		} else {
+			event.Props = map[string]any{
+				"matchId":           matchID,
+				"mode":              mode,
+				"baseCoins":         settlement.Breakdown.BaseCoins,
+				"speedBonus":        settlement.Breakdown.SpeedBonus,
+				"dominationBonus":   settlement.Breakdown.DominationBonus,
+				"streakBonus":       settlement.Breakdown.StreakBonus,
+				"totalCoins":        settlement.Breakdown.TotalCoins,
+				"trophyDelta":       settlement.Breakdown.TrophyDelta,
+				"resultingCoins":    settlement.NewCareer.Coins,
+				"resultingTrophies": settlement.NewCareer.Trophies,
+			}
+		}
+	case "upgrade_purchase_succeeded":
+		purchaseID, _ := event.Props["purchaseId"].(string)
+		var upgradeType UpgradeType
+		var encoded []byte
+		if err := tx.QueryRowContext(ctx, `
+			SELECT upgrade_type, result FROM upgrade_purchases
+			WHERE purchase_id = $1 AND player_id = $2
+		`, purchaseID, userID).Scan(&upgradeType, &encoded); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return AnalyticsEventRecord{}, errors.New("analytics_purchase_not_found")
+			}
+			return AnalyticsEventRecord{}, err
+		}
+		var result UpgradePurchaseResult
+		if err := json.Unmarshal(encoded, &result); err != nil || !result.Success || result.Cost == nil {
+			return AnalyticsEventRecord{}, errors.New("invalid_stored_upgrade_result")
+		}
+		event.Props = map[string]any{
+			"purchaseId":     purchaseID,
+			"upgradeType":    string(upgradeType),
+			"level":          UpgradeLevel(result.NewCareer, upgradeType),
+			"cost":           *result.Cost,
+			"resultingCoins": result.NewCareer.Coins,
 		}
 	}
-	return nil
+	return event, nil
 }
 
 func getCareerForUpdate(ctx context.Context, tx *sql.Tx, userID string) (PlayerCareer, error) {

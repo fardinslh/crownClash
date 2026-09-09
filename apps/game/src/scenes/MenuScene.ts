@@ -48,16 +48,12 @@ export class MenuScene extends Phaser.Scene {
       return;
     }
 
-    const user = platform.getUser();
     const career = careerManager.getCareer();
     const rank = getRankTier(career.trophies);
 
     sounds.stopBattleMusic();
-    trackEvent({ name: 'session_start', playerId: user.id });
     trackEvent({
       name: 'menu_viewed',
-      coins: career.coins,
-      trophies: career.trophies,
       rankId: rank.id,
     });
 
@@ -419,9 +415,6 @@ export class MenuScene extends Phaser.Scene {
 
     const startClient = (mode: 'queue' | 'create' | 'join', roomCode?: string): void => {
       if (this.liveClient) return;
-      if (mode === 'queue') trackEvent({ name: 'live_queue_joined' });
-      if (mode === 'create') trackEvent({ name: 'live_invite_created' });
-      if (mode === 'join') trackEvent({ name: 'live_invite_joined' });
       let client: LiveMatchClient;
       try {
         client = careerManager.openLiveMatchRemote();
@@ -471,13 +464,19 @@ export class MenuScene extends Phaser.Scene {
         raidButton.setInteractive({ useHandCursor: true });
         raidText.setText('LIVE PVP  ⚔');
       });
-      void client.connect(mode, roomCode).catch(() => {
-        status.setText('COULD NOT CONNECT TO LIVE PVP');
-        client.close();
-        this.liveClient = undefined;
-        raidButton.setInteractive({ useHandCursor: true });
-        raidText.setText('LIVE PVP  ⚔');
-      });
+      void client.connect(mode, roomCode)
+        .then(() => {
+          if (mode === 'queue') trackEvent({ name: 'live_queue_joined' });
+          if (mode === 'create') trackEvent({ name: 'live_invite_created' });
+          if (mode === 'join') trackEvent({ name: 'live_invite_joined' });
+        })
+        .catch(() => {
+          status.setText('COULD NOT CONNECT TO LIVE PVP');
+          client.close();
+          this.liveClient = undefined;
+          raidButton.setInteractive({ useHandCursor: true });
+          raidText.setText('LIVE PVP  ⚔');
+        });
     };
 
     queueBg.on('pointerdown', () => startClient('queue'));
