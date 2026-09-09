@@ -250,7 +250,14 @@ func (m *liveMatch) MatchLoop(ctx context.Context, logger runtime.Logger, db *sq
 			s.rejectCommand(dispatcher, message, "invalid_sequence")
 			continue
 		}
-		err := dispatchArmy(&s.state, payload.SourceID, payload.TargetID, player.role, UpgradeModifiers(player.career).ArmySpeedMultiplier, fmt.Sprintf("live_%d_%d", s.startedAt, payload.Sequence))
+		err := dispatchArmy(
+			&s.state,
+			payload.SourceID,
+			payload.TargetID,
+			player.role,
+			UpgradeModifiers(player.career).ArmySpeedMultiplier,
+			liveArmyID(s.startedAt, player.role, payload.Sequence),
+		)
 		if err != nil {
 			s.rejectCommand(dispatcher, message, "invalid_dispatch")
 			continue
@@ -437,6 +444,10 @@ func statsForRole(stats MatchStats, role Team) MatchStats {
 		TerritoriesCapturedByPlayer: stats.TerritoriesCapturedByEnemy,
 		TerritoriesCapturedByEnemy:  stats.TerritoriesCapturedByPlayer,
 	}
+}
+
+func liveArmyID(startedAt int64, role Team, sequence int) string {
+	return fmt.Sprintf("live_%d_%s_%d", startedAt, role, sequence)
 }
 
 func newLiveJoinCode() string {

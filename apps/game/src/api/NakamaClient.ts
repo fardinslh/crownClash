@@ -11,34 +11,27 @@ import type { PlatformAdapter } from '@crown-clash/platform';
 import type { CareerApi, TrackedAnalyticsEvent } from './GameApiClient.js';
 import { LiveMatchClient } from './LiveMatchClient.js';
 
-interface IdentityResponse {
-  platform: string;
-  external_id: string;
-  username: string;
-  display_name: string;
-}
-
 /**
  * CareerApi implementation backed by Nakama RPC and socket APIs.
  *
  * Authentication flow:
- *   1. Call auth/register_identity RPC (unauthenticated, HTTP basic with
- *      server key) to verify platform init data and obtain a trusted
- *      "platform:externalId" custom ID.
- *   2. Authenticate with Nakama via authenticateCustom to get a session.
- *   3. Open a socket for real-time match and RPC communication.
- *   4. Fetch the player career via career/get RPC.
+ *   1. Authenticate with Nakama using the platform identity and raw init
+ *      data. The server's before-auth hook verifies both before account
+ *      creation.
+ *   2. Open a socket for real-time match and RPC communication.
+ *   3. Fetch the player career via career/get RPC.
  */
 export class NakamaClient implements CareerApi {
   private readonly client: Client;
-  private readonly httpUrl: string;
   private readonly useSSL: boolean;
   private session: Session | null = null;
   private socket: Socket | null = null;
 
   constructor(
     host: string = import.meta.env.VITE_NAKAMA_HOST ||
-      (import.meta.env.DEV ? '127.0.0.1' : typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1'),
+      (typeof window !== 'undefined' && window.location.hostname
+        ? window.location.hostname
+        : '127.0.0.1'),
     port: string = import.meta.env.VITE_NAKAMA_PORT || '7350',
     useSSL: boolean = import.meta.env.VITE_NAKAMA_SSL === 'true' ||
       (!import.meta.env.DEV && typeof window !== 'undefined' && window.location.protocol === 'https:'),
@@ -46,26 +39,24 @@ export class NakamaClient implements CareerApi {
   ) {
     this.useSSL = useSSL;
     this.client = new Client(serverKey, host, port, useSSL);
-    this.httpUrl = `${useSSL ? 'https' : 'http'}://${host}:${port}`;
   }
 
   public async login(platform: PlatformAdapter): Promise<PlayerCareer> {
-    // Step 1: Verify init data and obtain trusted custom ID.
-    const identity = await this.registerIdentity(platform);
-
-    // Step 2: Authenticate with Nakama.
-    const customId = `${identity.platform}:${identity.external_id}`;
+    const user = platform.getUser();
+    const customId = `${platform.platform}:${user.id}`;
     this.session = await this.client.authenticateCustom(
       customId,
       true,
-      identity.username || identity.display_name || ''
+      user.username || user.firstName || '',
+      {
+        platform: platform.platform,
+        init_data: platform.getInitDataRaw(),
+      }
     );
 
-    // Step 3: Open socket.
     this.socket = this.client.createSocket(this.useSSL, false);
     await this.socket.connect(this.session, false);
 
-    // Step 4: Fetch career.
     const rpcResult = await this.socket.rpc('career/get', '');
     const data = JSON.parse(rpcResult.payload ?? '') as { career: PlayerCareer };
     return data.career;
@@ -111,52 +102,6 @@ export class NakamaClient implements CareerApi {
 
   public isAuthenticated(): boolean {
     return this.session !== null;
-  }
-
-  /**
-   * Calls the register_identity RPC via HTTP basic auth (server key).
-   * This is the only unauthenticated call; everything else goes through
-   * the authenticated socket.
-   */
-  private async registerIdentity(platform: PlatformAdapter): Promise<IdentityResponse> {
-    const serverKey = (this.client as unknown as { serverkey: string }).serverkey || 'defaultkey';
-    const basicAuth = typeof btoa !== 'undefined'
-      ? btoa(`${serverKey}:`)
-      : Buffer.from(`${serverKey}:`).toString('base64');
-
-    let response: Response;
-    try {
-      response = await fetch(`${this.httpUrl}/v2/rpc/auth/register_identity`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Basic ${basicAuth}`,
-        },
-        body: JSON.stringify({
-          platform: platform.platform,
-          initData: platform.getInitDataRaw(),
-          username: platform.getUser().username,
-        }),
-      });
-    } catch (error) {
-      throw new Error(error instanceof Error ? error.message : 'identity_request_failed');
-    }
-
-    if (!response.ok) {
-      let code = `http_${response.status}`;
-      try {
-        const body = await response.json();
-        if (body && typeof body.error === 'string') code = body.error;
-        else if (body && typeof body.message === 'string') code = body.message;
-      } catch {
-        // Keep HTTP status as error code.
-      }
-      throw new Error(code);
-    }
-
-    const body = await response.json();
-    const payload = typeof body.payload === 'string' ? body.payload : JSON.stringify(body);
-    return JSON.parse(payload) as IdentityResponse;
   }
 
   private async rpc(id: string, payload: string): Promise<string> {

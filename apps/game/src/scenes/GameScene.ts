@@ -38,6 +38,7 @@ interface TerritoryVisual {
   territory: Territory;
   container: Phaser.GameObjects.Container;
   sprite: Phaser.GameObjects.Image;
+  basePlate: Phaser.GameObjects.Arc;
   ring: Phaser.GameObjects.Arc;
   unitBadge: Phaser.GameObjects.Rectangle;
   unitText: Phaser.GameObjects.Text;
@@ -72,11 +73,14 @@ export class GameScene extends Phaser.Scene {
   private selectedSourceIds: string[] = [];
   private hoveredTargetId: string | null = null;
   private lastHoveredFriendlyId: string | null = null;
+  private pointerWorldPoint = new Phaser.Math.Vector2();
   private dragGraphics!: Phaser.GameObjects.Graphics;
   private selectionRings: Map<string, Phaser.GameObjects.Arc> = new Map();
   private dragBadgeContainer!: Phaser.GameObjects.Container;
+  private dragBadgeShadow!: Phaser.GameObjects.Rectangle;
   private dragBadgeBg!: Phaser.GameObjects.Rectangle;
   private dragBadgeText!: Phaser.GameObjects.Text;
+  private reducedMotion = false;
 
   // Local AI: fixed match-time tick grid so the client prediction stays as
   // close as possible to the server's authoritative bot replay.
@@ -147,6 +151,9 @@ export class GameScene extends Phaser.Scene {
     const renderScale = this.registry.get('renderScale') as number || 1;
     this.cameras.main.setZoom(renderScale);
     this.cameras.main.centerOn(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2);
+    this.reducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
 
     this.platform = (this.registry.get('platform') as PlatformAdapter) || createPlatformAdapter();
     const user = this.platform.getUser();
@@ -205,6 +212,7 @@ export class GameScene extends Phaser.Scene {
 
     // Live Drag Badge preview
     this.dragBadgeContainer = this.add.container(0, 0).setDepth(55).setVisible(false);
+    this.dragBadgeShadow = this.add.rectangle(0, 3, 100, 28, 0x000000, 0.32);
     this.dragBadgeBg = this.add
       .rectangle(0, 0, 96, 26, 0x070d1a, 0.96)
       .setStrokeStyle(2, THEME.teams.player.primary, 1);
@@ -219,7 +227,7 @@ export class GameScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
-    this.dragBadgeContainer.add([this.dragBadgeBg, this.dragBadgeText]);
+    this.dragBadgeContainer.add([this.dragBadgeShadow, this.dragBadgeBg, this.dragBadgeText]);
 
     // 3. Build Territory Visuals
     this.createTerritoryObjects();
@@ -232,18 +240,40 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createArenaBackground(): void {
-    // Deep rich tactical battlefield background
-    const bg = this.add.rectangle(
-      LOGICAL_WIDTH / 2,
-      LOGICAL_HEIGHT / 2,
-      LOGICAL_WIDTH,
-      LOGICAL_HEIGHT,
-      0x070b14
-    );
-    bg.setDepth(0);
+    this.add
+      .rectangle(
+        LOGICAL_WIDTH / 2,
+        LOGICAL_HEIGHT / 2,
+        LOGICAL_WIDTH,
+        LOGICAL_HEIGHT,
+        0x060a13
+      )
+      .setDepth(0);
 
-    // Strategic Cobblestone Roadways & Tactical Conduits
-    const lanesGraphics = this.add.graphics().setDepth(1);
+    // Broad team-colored light pools make the two fronts readable without
+    // competing with the territory ownership colors.
+    this.add
+      .ellipse(LOGICAL_WIDTH / 2, 112, 470, 260, THEME.teams.enemy.dark, 0.12)
+      .setDepth(0);
+    this.add
+      .ellipse(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT - 70, 500, 290, THEME.teams.player.dark, 0.14)
+      .setDepth(0);
+
+    const fieldGraphics = this.add.graphics().setDepth(1);
+    fieldGraphics.fillStyle(0x101827, 0.42);
+    fieldGraphics.fillRoundedRect(10, 78, LOGICAL_WIDTH - 20, LOGICAL_HEIGHT - 132, 18);
+
+    // Subtle command-grid structure adds scale and keeps the empty arena from
+    // looking like a flat color fill.
+    fieldGraphics.lineStyle(1, 0x334155, 0.12);
+    for (let x = 28; x < LOGICAL_WIDTH; x += 36) {
+      fieldGraphics.lineBetween(x, 88, x, LOGICAL_HEIGHT - 66);
+    }
+    for (let y = 94; y < LOGICAL_HEIGHT - 64; y += 36) {
+      fieldGraphics.lineBetween(18, y, LOGICAL_WIDTH - 18, y);
+    }
+
+    const lanesGraphics = this.add.graphics().setDepth(2);
 
     const connections: [string, string][] = [
       ['p_base', 'n_bot_left'],
@@ -266,8 +296,8 @@ export class GameScene extends Phaser.Scene {
 
     const terrs = this.gameState.territories;
 
-    // 1. Road Underlay (Dark stone cobblestone paths)
-    lanesGraphics.lineStyle(14, 0x0f172a, 0.95);
+    // Recessed tactical roads: shadow, stone surface, then dotted center inlay.
+    lanesGraphics.lineStyle(18, 0x020617, 0.58);
     connections.forEach(([idA, idB]) => {
       const a = terrs[idA];
       const b = terrs[idB];
@@ -276,8 +306,7 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    // 2. Road Border Rails (Tactical slate trim)
-    lanesGraphics.lineStyle(2, 0x1e293b, 0.75);
+    lanesGraphics.lineStyle(12, 0x111c2d, 0.94);
     connections.forEach(([idA, idB]) => {
       const a = terrs[idA];
       const b = terrs[idB];
@@ -286,42 +315,87 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    // 3. Central Tactical Conduit Hubs under territories
+    lanesGraphics.fillStyle(0x64748b, 0.22);
+    connections.forEach(([idA, idB]) => {
+      const a = terrs[idA];
+      const b = terrs[idB];
+      if (!a || !b) return;
+      const distance = Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y);
+      const dotCount = Math.max(1, Math.floor(distance / 22));
+      for (let index = 1; index < dotCount; index++) {
+        const progress = index / dotCount;
+        lanesGraphics.fillCircle(
+          Phaser.Math.Linear(a.x, b.x, progress),
+          Phaser.Math.Linear(a.y, b.y, progress),
+          1.25
+        );
+      }
+    });
+
+    // Ground sockets visually anchor the rendered 2.5D buildings.
     Object.values(terrs).forEach((t) => {
-      lanesGraphics.fillStyle(0x0f172a, 0.95);
-      lanesGraphics.fillCircle(t.x, t.y, t.radius + 6);
-      lanesGraphics.lineStyle(1.5, 0x1e293b, 0.85);
-      lanesGraphics.strokeCircle(t.x, t.y, t.radius + 6);
+      lanesGraphics.fillStyle(0x050a12, 0.96);
+      lanesGraphics.fillCircle(t.x, t.y + 3, t.radius + 10);
+      lanesGraphics.lineStyle(2, 0x334155, 0.72);
+      lanesGraphics.strokeCircle(t.x, t.y + 3, t.radius + 10);
+      lanesGraphics.lineStyle(1, 0x94a3b8, 0.18);
+      lanesGraphics.strokeCircle(t.x, t.y + 3, t.radius + 5);
     });
 
-    // 4. Strategic Center Keep Tactical Rings
     const centerTerr = terrs['n_center'];
     if (centerTerr) {
-      lanesGraphics.lineStyle(1, 0x334155, 0.35);
+      lanesGraphics.lineStyle(1.5, THEME.gold, 0.28);
       lanesGraphics.strokeCircle(centerTerr.x, centerTerr.y, 58);
+      lanesGraphics.lineStyle(1, THEME.gold, 0.12);
+      lanesGraphics.strokeCircle(centerTerr.x, centerTerr.y, 68);
     }
 
-    // 5. Arena Perimeter Border
-    const border = this.add.graphics().setDepth(2);
-    border.lineStyle(1.5, 0x1e293b, 0.65);
+    const border = this.add.graphics().setDepth(3);
+    border.lineStyle(1.5, 0x475569, 0.66);
     border.strokeRoundedRect(8, 76, LOGICAL_WIDTH - 16, LOGICAL_HEIGHT - 128, 16);
+    border.lineStyle(3, THEME.gold, 0.58);
+    const cornerLength = 22;
+    const left = 12;
+    const right = LOGICAL_WIDTH - 12;
+    const top = 80;
+    const bottom = LOGICAL_HEIGHT - 56;
+    border.lineBetween(left, top + cornerLength, left, top);
+    border.lineBetween(left, top, left + cornerLength, top);
+    border.lineBetween(right - cornerLength, top, right, top);
+    border.lineBetween(right, top, right, top + cornerLength);
+    border.lineBetween(left, bottom - cornerLength, left, bottom);
+    border.lineBetween(left, bottom, left + cornerLength, bottom);
+    border.lineBetween(right - cornerLength, bottom, right, bottom);
+    border.lineBetween(right, bottom, right, bottom - cornerLength);
   }
 
   private createTerritoryObjects(): void {
-    Object.values(this.gameState.territories).forEach((territory) => {
+    Object.values(this.gameState.territories).forEach((territory, index) => {
       const container = this.add.container(territory.x, territory.y).setDepth(20);
 
       const teamStyle = THEME.teams[territory.owner];
 
-      // Ground glow / base ring
+      const groundShadow = this.add.ellipse(
+        0,
+        territory.radius * 0.5,
+        territory.radius * 2.2,
+        territory.radius * 0.78,
+        0x000000,
+        0.5
+      );
+
+      const basePlate = this.add
+        .circle(0, 4, territory.radius + 7, 0x09111e, 0.98)
+        .setStrokeStyle(2, teamStyle.dark, 0.95);
+
       const ring = this.add
-        .circle(0, 4, territory.radius + 5, teamStyle.glow, 0.22)
-        .setStrokeStyle(3, teamStyle.primary, 0.95);
+        .circle(0, 4, territory.radius + 10, teamStyle.glow, 0.12)
+        .setStrokeStyle(2.5, teamStyle.primary, 0.92);
 
       // 2.5D Rendered Fortress Sprite
       const textureKey = this.getTerritoryTextureKey(territory);
       const spriteSize = territory.tier === 3 ? 92 : territory.tier === 2 ? 80 : 66;
-      const sprite = this.add.image(0, -6, textureKey).setDisplaySize(spriteSize, spriteSize);
+      const sprite = this.add.image(0, -8, textureKey).setDisplaySize(spriteSize, spriteSize);
 
       // Unit Count Badge Pill
       const badgeY = territory.tier === 3 ? 25 : territory.tier === 2 ? 21 : 17;
@@ -333,7 +407,7 @@ export class GameScene extends Phaser.Scene {
       // Unit Count Text with resolution: 2 and bold stroke for retina sharpness
       const unitText = this.add
         .text(0, badgeY, territory.units.toString(), {
-          fontFamily: FONT_FAMILY,
+          fontFamily: MONO_FONT_FAMILY,
           fontSize: territory.tier === 3 ? '15px' : '14px',
           fontStyle: 'bold',
           color: '#ffffff',
@@ -343,7 +417,7 @@ export class GameScene extends Phaser.Scene {
         })
         .setOrigin(0.5);
 
-      container.add([ring, sprite, unitBadge, unitText]);
+      container.add([groundShadow, ring, basePlate, sprite, unitBadge, unitText]);
 
       // Make interactive for touch / click
       container.setSize(territory.radius * 2.5, territory.radius * 2.5);
@@ -357,15 +431,41 @@ export class GameScene extends Phaser.Scene {
         territory,
         container,
         sprite,
+        basePlate,
         ring,
         unitBadge,
         unitText,
       });
+
+      if (!this.reducedMotion) {
+        container.setScale(0.82).setAlpha(0);
+        this.tweens.add({
+          targets: container,
+          scale: 1,
+          alpha: 1,
+          duration: 260,
+          delay: 50 + index * 42,
+          ease: 'Back.easeOut',
+        });
+        this.tweens.add({
+          targets: sprite,
+          y: -10,
+          duration: 1500 + index * 45,
+          delay: 320 + index * 70,
+          yoyo: true,
+          repeat: -1,
+          ease: 'Sine.easeInOut',
+        });
+      }
     });
   }
 
   private createHud(): void {
     // 1. Header Glass Panel Bar (y: 0 to 70)
+    this.add
+      .rectangle(LOGICAL_WIDTH / 2, 39, LOGICAL_WIDTH, 74, 0x000000, 0.36)
+      .setDepth(89);
+
     this.add
       .rectangle(LOGICAL_WIDTH / 2, 35, LOGICAL_WIDTH, 70, 0x090f1d, 0.96)
       .setDepth(90);
@@ -373,6 +473,19 @@ export class GameScene extends Phaser.Scene {
     this.add
       .rectangle(LOGICAL_WIDTH / 2, 70, LOGICAL_WIDTH, 1.5, 0x1e293b, 1)
       .setDepth(91);
+    this.add
+      .rectangle(LOGICAL_WIDTH / 4, 70, LOGICAL_WIDTH / 2, 1.5, THEME.teams.player.primary, 0.58)
+      .setDepth(92);
+    this.add
+      .rectangle(
+        (LOGICAL_WIDTH * 3) / 4,
+        70,
+        LOGICAL_WIDTH / 2,
+        1.5,
+        THEME.teams.enemy.primary,
+        0.58
+      )
+      .setDepth(92);
 
     // 2. Top Row (y: 20): Profile, Trophies, Coins, Clock, and Audio
     const career = this.careerManager.getCareer();
@@ -568,8 +681,11 @@ export class GameScene extends Phaser.Scene {
 
     // 4. Bottom Tactical Control Hint Bar (y: 692)
     this.add
+      .rectangle(LOGICAL_WIDTH / 2, 695, 364, 28, 0x000000, 0.34)
+      .setDepth(94);
+    this.add
       .rectangle(LOGICAL_WIDTH / 2, 692, 360, 26, 0x090f1d, 0.94)
-      .setStrokeStyle(1.5, 0x1e293b, 1)
+      .setStrokeStyle(1.5, 0x334155, 0.92)
       .setDepth(95);
 
     this.bottomHintText = this.add
@@ -600,11 +716,17 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getTerritoryUnderPointer(pointer: Phaser.Input.Pointer): Territory | null {
+    pointer.positionToCamera(this.cameras.main, this.pointerWorldPoint);
     let closest: Territory | null = null;
     let minDistance = Infinity;
 
     for (const t of Object.values(this.gameState.territories)) {
-      const dist = Phaser.Math.Distance.Between(pointer.x, pointer.y, t.x, t.y);
+      const dist = Phaser.Math.Distance.Between(
+        this.pointerWorldPoint.x,
+        this.pointerWorldPoint.y,
+        t.x,
+        t.y
+      );
       const hitRadius = t.radius + 18;
       if (dist <= hitRadius && dist < minDistance) {
         minDistance = dist;
@@ -629,6 +751,7 @@ export class GameScene extends Phaser.Scene {
       if (this.selectedSourceIds.length === 0) return;
 
       const hoveredTerritory = this.getTerritoryUnderPointer(pointer);
+      const previousTargetId = this.hoveredTargetId;
 
       // Check if we just left a previously hovered friendly territory.
       // If the player dragged onto a friendly territory and then moved away without releasing,
@@ -663,6 +786,30 @@ export class GameScene extends Phaser.Scene {
         }
       } else {
         this.hoveredTargetId = null;
+      }
+
+      if (previousTargetId && previousTargetId !== this.hoveredTargetId) {
+        const previousTargetVisual = this.territoryVisuals.get(previousTargetId);
+        if (previousTargetVisual) {
+          this.tweens.killTweensOf(previousTargetVisual.ring);
+          previousTargetVisual.ring.setScale(1).setAlpha(1);
+        }
+      }
+
+      if (this.hoveredTargetId && this.hoveredTargetId !== previousTargetId) {
+        this.platform.hapticSelection();
+        const targetVisual = this.territoryVisuals.get(this.hoveredTargetId);
+        if (targetVisual && !this.reducedMotion) {
+          this.tweens.killTweensOf(targetVisual.ring);
+          targetVisual.ring.setScale(1.08).setAlpha(1);
+          this.tweens.add({
+            targets: targetVisual.ring,
+            scale: 1,
+            alpha: 0.92,
+            duration: 150,
+            ease: 'Cubic.easeOut',
+          });
+        }
       }
 
       this.renderDragTrajectory(pointer);
@@ -702,15 +849,32 @@ export class GameScene extends Phaser.Scene {
       this.selectionRings.set(territoryId, ring);
     }
     ring.setPosition(territory.x, territory.y).setVisible(true);
+    this.tweens.killTweensOf(ring);
+    ring.setScale(0.88).setAlpha(1);
+    if (!this.reducedMotion) {
+      this.tweens.add({
+        targets: ring,
+        scale: 1.2,
+        alpha: 0.28,
+        duration: 520,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+    }
 
     const vis = this.territoryVisuals.get(territoryId);
     if (vis) {
-      this.tweens.add({
-        targets: vis.container,
-        scale: 1.14,
-        duration: 100,
-        ease: 'Sine.easeOut',
-      });
+      if (this.reducedMotion) {
+        vis.container.setScale(1.08);
+      } else {
+        this.tweens.add({
+          targets: vis.container,
+          scale: 1.14,
+          duration: 100,
+          ease: 'Sine.easeOut',
+        });
+      }
     }
   }
 
@@ -731,8 +895,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     const target = this.hoveredTargetId ? this.gameState.territories[this.hoveredTargetId] : null;
-    const targetX = target ? target.x : pointer.x;
-    const targetY = target ? target.y : pointer.y;
+    pointer.positionToCamera(this.cameras.main, this.pointerWorldPoint);
+    const targetX = target ? target.x : this.pointerWorldPoint.x;
+    const targetY = target ? target.y : this.pointerWorldPoint.y;
 
     const isHoveringTarget = !!target;
     const isFriendly = target && target.owner === 'player';
@@ -743,10 +908,32 @@ export class GameScene extends Phaser.Scene {
         : 0xf59e0b
       : THEME.teams.player.light;
 
-    // Draw trajectory lines from EACH selected source territory converging on target
-    this.dragGraphics.lineStyle(4, color, 0.88);
+    // A dark under-stroke keeps the command path readable over roads and units.
+    this.dragGraphics.lineStyle(8, 0x020617, 0.72);
     selectedTerritories.forEach((src) => {
       this.dragGraphics.lineBetween(src.x, src.y, targetX, targetY);
+    });
+    this.dragGraphics.lineStyle(3.5, color, 0.96);
+    selectedTerritories.forEach((src) => {
+      this.dragGraphics.lineBetween(src.x, src.y, targetX, targetY);
+
+      const angle = Phaser.Math.Angle.Between(src.x, src.y, targetX, targetY);
+      const stopDistance = target ? target.radius + 10 : 2;
+      const tipX = targetX - Math.cos(angle) * stopDistance;
+      const tipY = targetY - Math.sin(angle) * stopDistance;
+      const rearX = tipX - Math.cos(angle) * 10;
+      const rearY = tipY - Math.sin(angle) * 10;
+      const wingX = Math.cos(angle + Math.PI / 2) * 5;
+      const wingY = Math.sin(angle + Math.PI / 2) * 5;
+      this.dragGraphics.fillStyle(color, 1);
+      this.dragGraphics.fillTriangle(
+        tipX,
+        tipY,
+        rearX + wingX,
+        rearY + wingY,
+        rearX - wingX,
+        rearY - wingY
+      );
     });
 
     // If multiple sources, draw a visual connection chain between the selected sources
@@ -764,11 +951,30 @@ export class GameScene extends Phaser.Scene {
 
     // Target reticle or end dot
     if (isHoveringTarget && target) {
-      this.dragGraphics.lineStyle(3, color, 1);
-      this.dragGraphics.strokeCircle(target.x, target.y, target.radius + 8);
+      const reticleRadius = target.radius + 10;
+      this.dragGraphics.fillStyle(color, 0.09);
+      this.dragGraphics.fillCircle(target.x, target.y, reticleRadius);
+      this.dragGraphics.lineStyle(5, 0x020617, 0.78);
+      this.dragGraphics.strokeCircle(target.x, target.y, reticleRadius);
+      this.dragGraphics.lineStyle(2.5, color, 1);
+      this.dragGraphics.strokeCircle(target.x, target.y, reticleRadius);
+      this.dragGraphics.lineStyle(2, color, 0.9);
+      const tickInner = reticleRadius + 4;
+      const tickOuter = reticleRadius + 10;
+      for (let index = 0; index < 4; index++) {
+        const angle = index * (Math.PI / 2);
+        this.dragGraphics.lineBetween(
+          target.x + Math.cos(angle) * tickInner,
+          target.y + Math.sin(angle) * tickInner,
+          target.x + Math.cos(angle) * tickOuter,
+          target.y + Math.sin(angle) * tickOuter
+        );
+      }
     } else {
+      this.dragGraphics.lineStyle(2, color, 0.42);
+      this.dragGraphics.strokeCircle(targetX, targetY, 10);
       this.dragGraphics.fillStyle(color, 0.9);
-      this.dragGraphics.fillCircle(targetX, targetY, 6);
+      this.dragGraphics.fillCircle(targetX, targetY, 4);
     }
 
     // Live Tactical Dispatch Badge in the center of the drag group
@@ -783,7 +989,18 @@ export class GameScene extends Phaser.Scene {
     const midX = (centroidX + targetX) / 2;
     const midY = (centroidY + targetY) / 2;
 
+    const badgeWasVisible = this.dragBadgeContainer.visible;
     this.dragBadgeContainer.setPosition(midX, midY).setVisible(true);
+    if (!badgeWasVisible && !this.reducedMotion) {
+      this.dragBadgeContainer.setScale(0.9).setAlpha(0.5);
+      this.tweens.add({
+        targets: this.dragBadgeContainer,
+        scale: 1,
+        alpha: 1,
+        duration: 140,
+        ease: 'Back.easeOut',
+      });
+    }
 
     const sourceCountLabel = selectedTerritories.length > 1 ? ` (${selectedTerritories.length} bases)` : '';
 
@@ -814,7 +1031,9 @@ export class GameScene extends Phaser.Scene {
       this.dragBadgeText.setColor('#ffffff');
       this.dragBadgeBg.setStrokeStyle(2, THEME.teams.player.primary, 0.95);
     }
-    this.dragBadgeBg.setSize(Math.ceil(this.dragBadgeText.width) + 20, 26);
+    const badgeWidth = Math.ceil(this.dragBadgeText.width) + 20;
+    this.dragBadgeBg.setSize(badgeWidth, 26);
+    this.dragBadgeShadow.setSize(badgeWidth + 4, 28);
 
     // Dynamic Bottom Action Bar Update
     this.bottomHintText
@@ -839,17 +1058,29 @@ export class GameScene extends Phaser.Scene {
     for (const id of sourceIds) {
       const vis = this.territoryVisuals.get(id);
       if (vis) {
-        this.tweens.add({
-          targets: vis.container,
-          scale: 1.0,
-          duration: 120,
-          ease: 'Sine.easeOut',
-        });
+        if (this.reducedMotion) {
+          vis.container.setScale(1);
+        } else {
+          this.tweens.add({
+            targets: vis.container,
+            scale: 1.0,
+            duration: 120,
+            ease: 'Sine.easeOut',
+          });
+        }
       }
     }
 
     for (const ring of this.selectionRings.values()) {
-      ring.setVisible(false);
+      this.tweens.killTweensOf(ring);
+      ring.setVisible(false).setScale(1).setAlpha(1);
+    }
+    if (targetId) {
+      const targetVisual = this.territoryVisuals.get(targetId);
+      if (targetVisual) {
+        this.tweens.killTweensOf(targetVisual.ring);
+        targetVisual.ring.setScale(1).setAlpha(1);
+      }
     }
 
     this.selectedSourceIds = [];
@@ -1011,7 +1242,7 @@ export class GameScene extends Phaser.Scene {
 
       // Small telegraph pulse on AI territory
       const vis = this.territoryVisuals.get(source.id);
-      if (vis) {
+      if (vis && !this.reducedMotion) {
         this.tweens.add({
           targets: vis.container,
           scale: 1.1,
@@ -1032,35 +1263,32 @@ export class GameScene extends Phaser.Scene {
       // Capture Feedback!
       if (arrival.targetId === 'n_center') {
         sounds.playCrownCapture();
-        this.cameras.main.shake(180, 0.008);
+        if (!this.reducedMotion) this.cameras.main.shake(160, 0.006);
       } else {
         sounds.playCapture();
-        this.cameras.main.shake(120, 0.005);
+        if (!this.reducedMotion) this.cameras.main.shake(100, 0.0035);
       }
       this.platform.hapticImpact('heavy');
 
       // Shake & scale pop
-      this.tweens.add({
-        targets: vis.container,
-        scale: 1.25,
-        duration: 130,
-        yoyo: true,
-        ease: 'Back.easeOut',
-      });
+      if (!this.reducedMotion) {
+        this.tweens.add({
+          targets: vis.container,
+          scale: 1.22,
+          duration: 125,
+          yoyo: true,
+          ease: 'Back.easeOut',
+        });
+      }
 
-      // Expanding Shockwave Ring
-      const shockwave = this.add
-        .circle(vis.territory.x, vis.territory.y, vis.territory.radius, teamStyle.glow, 0.6)
-        .setDepth(30);
-
-      this.tweens.add({
-        targets: shockwave,
-        scale: 2.2,
-        alpha: 0,
-        duration: 400,
-        ease: 'Cubic.easeOut',
-        onComplete: () => shockwave.destroy(),
-      });
+      this.spawnImpactRing(
+        vis.territory.x,
+        vis.territory.y,
+        vis.territory.radius + 2,
+        teamStyle.glow,
+        2.25
+      );
+      this.spawnCaptureBurst(vis.territory.x, vis.territory.y, teamStyle.light);
 
       // Floating capture badge
       this.spawnFloatingText(
@@ -1074,12 +1302,14 @@ export class GameScene extends Phaser.Scene {
       sounds.playReinforce();
       this.platform.hapticImpact('light');
 
-      this.tweens.add({
-        targets: vis.container,
-        scale: 1.08,
-        duration: 90,
-        yoyo: true,
-      });
+      if (!this.reducedMotion) {
+        this.tweens.add({
+          targets: vis.container,
+          scale: 1.08,
+          duration: 90,
+          yoyo: true,
+        });
+      }
 
       this.spawnFloatingText(
         vis.territory.x,
@@ -1087,21 +1317,30 @@ export class GameScene extends Phaser.Scene {
         `+${arrival.incomingUnits}`,
         '#10b981'
       );
+      this.spawnImpactRing(
+        vis.territory.x,
+        vis.territory.y,
+        vis.territory.radius,
+        0x10b981,
+        1.55
+      );
     } else {
       // Attack defended / repelled
       sounds.playCombatHit();
       this.platform.hapticImpact('medium');
 
-      this.tweens.add({
-        targets: vis.container,
-        x: vis.territory.x + 4,
-        duration: 40,
-        yoyo: true,
-        repeat: 2,
-        onComplete: () => {
-          vis.container.x = vis.territory.x;
-        },
-      });
+      if (!this.reducedMotion) {
+        this.tweens.add({
+          targets: vis.container,
+          x: vis.territory.x + 4,
+          duration: 40,
+          yoyo: true,
+          repeat: 2,
+          onComplete: () => {
+            vis.container.x = vis.territory.x;
+          },
+        });
+      }
 
       this.spawnFloatingText(
         vis.territory.x,
@@ -1109,6 +1348,59 @@ export class GameScene extends Phaser.Scene {
         `-${arrival.incomingUnits}`,
         '#ef4444'
       );
+      this.spawnImpactRing(
+        vis.territory.x,
+        vis.territory.y,
+        vis.territory.radius,
+        THEME.teams.enemy.light,
+        1.35
+      );
+    }
+  }
+
+  private spawnImpactRing(
+    x: number,
+    y: number,
+    radius: number,
+    color: number,
+    targetScale: number
+  ): void {
+    const ring = this.add
+      .circle(x, y, radius, color, 0.04)
+      .setStrokeStyle(3, color, 0.95)
+      .setDepth(31);
+
+    this.tweens.add({
+      targets: ring,
+      scale: this.reducedMotion ? 1 : targetScale,
+      alpha: 0,
+      duration: this.reducedMotion ? 180 : 420,
+      ease: 'Cubic.easeOut',
+      onComplete: () => ring.destroy(),
+    });
+  }
+
+  private spawnCaptureBurst(x: number, y: number, color: number): void {
+    if (this.reducedMotion) return;
+
+    for (let index = 0; index < 8; index++) {
+      const angle = (Math.PI * 2 * index) / 8 - Math.PI / 2;
+      const distance = index % 2 === 0 ? 44 : 34;
+      const spark = this.add
+        .rectangle(x, y, 3, 8, color, 0.95)
+        .setRotation(angle)
+        .setDepth(32);
+
+      this.tweens.add({
+        targets: spark,
+        x: x + Math.cos(angle) * distance,
+        y: y + Math.sin(angle) * distance,
+        scaleY: 0.25,
+        alpha: 0,
+        duration: 360,
+        ease: 'Cubic.easeOut',
+        onComplete: () => spark.destroy(),
+      });
     }
   }
 
@@ -1158,8 +1450,9 @@ export class GameScene extends Phaser.Scene {
       vis.unitText.setText(stateTerritory.units.toString());
 
       const teamStyle = THEME.teams[stateTerritory.owner];
-      vis.ring.setStrokeStyle(3, teamStyle.primary);
-      vis.ring.setFillStyle(teamStyle.glow, 0.25);
+      vis.basePlate.setStrokeStyle(2, teamStyle.dark, 0.95);
+      vis.ring.setStrokeStyle(2.5, teamStyle.primary, 0.95);
+      vis.ring.setFillStyle(teamStyle.glow, 0.12);
       vis.unitBadge.setStrokeStyle(1.5, teamStyle.primary);
 
       const targetTexture = this.getTerritoryTextureKey(stateTerritory);
@@ -1188,7 +1481,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateArmyVisuals(deltaSeconds: number): void {
-    const activeArmyIds = new Set(this.gameState.armies.map((a) => a.id));
+    // Owner is part of the visual key as defense-in-depth against an older
+    // server producing the same per-player sequence ID for both commanders.
+    const activeArmyIds = new Set(
+      this.gameState.armies.map((army) => `${army.owner}:${army.id}`)
+    );
 
     // Destroy visuals for finished armies
     for (const [id, visual] of this.armyVisuals.entries()) {
@@ -1202,8 +1499,9 @@ export class GameScene extends Phaser.Scene {
     for (const army of this.gameState.armies) {
       const currentX = Phaser.Math.Linear(army.startX, army.targetX, army.progress);
       const currentY = Phaser.Math.Linear(army.startY, army.targetY, army.progress);
+      const visualId = `${army.owner}:${army.id}`;
 
-      let visual = this.armyVisuals.get(army.id);
+      let visual = this.armyVisuals.get(visualId);
 
       if (!visual) {
         const teamStyle = THEME.teams[army.owner];
@@ -1244,18 +1542,20 @@ export class GameScene extends Phaser.Scene {
             .setScale(0.19)
             .setFlipX(isFacingLeft);
 
-          // Alternating rhythmic stride bounce
-          this.tweens.add({
-            targets: sprite,
-            y: f.y - 2.5,
-            scaleX: 0.175,
-            scaleY: 0.205,
-            duration: 130,
-            delay: f.delay,
-            yoyo: true,
-            repeat: -1,
-            ease: 'Sine.easeInOut',
-          });
+          if (!this.reducedMotion) {
+            // Alternating rhythmic stride bounce
+            this.tweens.add({
+              targets: sprite,
+              y: f.y - 2.5,
+              scaleX: 0.175,
+              scaleY: 0.205,
+              duration: 130,
+              delay: f.delay,
+              yoyo: true,
+              repeat: -1,
+              ease: 'Sine.easeInOut',
+            });
+          }
 
           container.add([shadow, sprite]);
           followers.push({ shadow, sprite, relX: f.x, relY: f.y });
@@ -1269,17 +1569,19 @@ export class GameScene extends Phaser.Scene {
           .setScale(0.25)
           .setFlipX(isFacingLeft);
 
-        // Leader stride bounce + squash/stretch
-        this.tweens.add({
-          targets: leaderSprite,
-          y: -3.5,
-          scaleX: 0.23,
-          scaleY: 0.27,
-          duration: 130,
-          yoyo: true,
-          repeat: -1,
-          ease: 'Sine.easeInOut',
-        });
+        if (!this.reducedMotion) {
+          // Leader stride bounce + squash/stretch
+          this.tweens.add({
+            targets: leaderSprite,
+            y: -3.5,
+            scaleX: 0.23,
+            scaleY: 0.27,
+            duration: 130,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut',
+          });
+        }
 
         // High-contrast Troop Count Pill Badge
         const badgeY = -19;
@@ -1305,7 +1607,7 @@ export class GameScene extends Phaser.Scene {
 
         const lastOffset = followerOffsets[followerOffsets.length - 1] ?? { x: 0, y: 0 };
         visual = {
-          id: army.id,
+          id: visualId,
           container,
           leaderSprite,
           leaderShadow,
@@ -1315,7 +1617,17 @@ export class GameScene extends Phaser.Scene {
           rearOffset: { x: lastOffset.x, y: lastOffset.y },
           dustTimer: 0.05,
         };
-        this.armyVisuals.set(army.id, visual);
+        this.armyVisuals.set(visualId, visual);
+        if (!this.reducedMotion) {
+          container.setScale(0.86).setAlpha(0);
+          this.tweens.add({
+            targets: container,
+            scale: 1,
+            alpha: 1,
+            duration: 150,
+            ease: 'Back.easeOut',
+          });
+        }
       } else {
         visual.container.setPosition(currentX, currentY);
         const unitsStr = army.units.toString();
@@ -1327,7 +1639,7 @@ export class GameScene extends Phaser.Scene {
 
         // Emit rhythmic dust puff behind rearmost follower
         visual.dustTimer -= deltaSeconds;
-        if (visual.dustTimer <= 0) {
+        if (!this.reducedMotion && visual.dustTimer <= 0) {
           visual.dustTimer = 0.14;
           this.spawnDustPuff(
             currentX + visual.rearOffset.x,

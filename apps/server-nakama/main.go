@@ -105,9 +105,6 @@ func InitModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runti
 	if err := rpc("player/register_name", rpcRegisterName(store)); err != nil {
 		return err
 	}
-	if err := rpc("auth/register_identity", registerIdentity); err != nil {
-		return err
-	}
 
 	logger.Info("crown clash runtime initialized")
 	return nil
@@ -135,9 +132,7 @@ func loadServerConfig(initializer runtime.Initializer) {
 	}
 }
 
-// identityFromUsername parses "platform:external_id" custom IDs. The
-// initData payload is validated in beforeAuthenticateCustom before the
-// account is created, so by this point the identity is trusted.
+// identityFromUsername parses "platform:external_id" custom IDs.
 func identityFromUsername(customID string) platformIdentity {
 	platform, externalID, found := strings.Cut(customID, ":")
 	if !found || platform == "" || externalID == "" {
@@ -146,29 +141,88 @@ func identityFromUsername(customID string) platformIdentity {
 	return platformIdentity{Platform: platform, ExternalID: externalID}
 }
 
-// beforeAuthenticateCustom verifies platform init data before Nakama
-// creates or authenticates a session. The client authenticates with
-// custom ID "platform:external_id" where external_id comes from a
-// verified Telegram/Bale initData payload, or a dev guest identity.
+func validatePlatformIdentity(customID string, vars map[string]string) (platformIdentity, error) {
+	identity := identityFromUsername(customID)
+	platform := vars["platform"]
+	initData := vars["init_data"]
+	if identity.Platform == "unknown" || platform == "" || initData == "" {
+		return platformIdentity{}, errors.New("invalid_auth_payload")
+	}
+	if platform != identity.Platform {
+		return platformIdentity{}, errors.New("identity_mismatch")
+	}
+
+	switch platform {
+	case "telegram", "bale":
+		botToken := serverConfig.TelegramBotToken
+		if platform == "bale" {
+			botToken = serverConfig.BaleBotToken
+		}
+		if botToken == "" {
+			return platformIdentity{}, errors.New("platform_not_configured")
+		}
+		verified, err := VerifyTelegramStyleInitData(initData, botToken, serverConfig.InitDataMaxAge)
+		if err != nil {
+			return platformIdentity{}, err
+		}
+		if verified.UserID != identity.ExternalID {
+			return platformIdentity{}, errors.New("identity_mismatch")
+		}
+		identity.Username = verified.Username
+		identity.DisplayName = verified.FirstName
+		if identity.DisplayName == "" {
+			identity.DisplayName = identity.Username
+		}
+	case "eitaa":
+		externalID, username, ok := ExtractUnverifiedUser(initData)
+		if !ok {
+			return platformIdentity{}, errors.New("missing_user")
+		}
+		if externalID != identity.ExternalID {
+			return platformIdentity{}, errors.New("identity_mismatch")
+		}
+		identity.Username = username
+		identity.DisplayName = username
+	case "guest", "browser":
+		if !serverConfig.AllowGuestAuth {
+			return platformIdentity{}, errors.New("guest_auth_disabled")
+		}
+		externalID, username, ok := ExtractUnverifiedUser(initData)
+		if !ok {
+			return platformIdentity{}, errors.New("missing_user")
+		}
+		if externalID != identity.ExternalID {
+			return platformIdentity{}, errors.New("identity_mismatch")
+		}
+		identity.Username = username
+		identity.DisplayName = username
+	default:
+		return platformIdentity{}, errors.New("unsupported_platform")
+	}
+
+	return identity, nil
+}
+
+// beforeAuthenticateCustom verifies platform init data and binds the
+// verified external user ID to the Nakama account before creation.
 func beforeAuthenticateCustom(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, in *api.AuthenticateCustomRequest) (*api.AuthenticateCustomRequest, error) {
 	if in.Account == nil || in.Account.Id == "" {
 		return nil, errors.New("missing_custom_id")
 	}
-	identity := identityFromUsername(in.Account.Id)
-
-	switch identity.Platform {
-	case "telegram", "bale":
-		// Identity already derived from verified init data during
-		// register_identity; nothing further to check here.
-		return in, nil
-	case "guest", "browser":
-		if !serverConfig.AllowGuestAuth {
-			return nil, errors.New("guest_auth_disabled")
-		}
-		return in, nil
-	default:
-		return nil, errors.New("unsupported_platform")
+	identity, err := validatePlatformIdentity(in.Account.Id, in.Account.Vars)
+	if err != nil {
+		return nil, err
 	}
+
+	if identity.Username != "" {
+		in.Username = identity.Username
+	}
+	in.Account.Vars = map[string]string{
+		"platform":     identity.Platform,
+		"external_id":  identity.ExternalID,
+		"display_name": identity.DisplayName,
+	}
+	return in, nil
 }
 
 // afterAuthenticateCustom ensures the player row, display name, and defense
@@ -177,6 +231,7 @@ func afterAuthenticateCustom(store *Store) func(ctx context.Context, logger runt
 	return func(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, out *api.Session, in *api.AuthenticateCustomRequest) error {
 		userID := ctx.Value(runtime.RUNTIME_CTX_USER_ID).(string)
 		identity := identityFromUsername(in.Account.Id)
+		identity.DisplayName = in.Account.Vars["display_name"]
 
 		career, err := store.GetOrCreateCareer(ctx, userID)
 		if err != nil {
@@ -200,67 +255,6 @@ func afterAuthenticateCustom(store *Store) func(ctx context.Context, logger runt
 		}
 		return nil
 	}
-}
-
-// registerIdentity is the entry RPC the client calls first. It verifies the
-// raw platform init data and returns the trusted custom ID the client must
-// use for authenticateCustom.
-func registerIdentity(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, payload string) (string, error) {
-	var request struct {
-		Platform string `json:"platform"`
-		InitData string `json:"initData"`
-		Username string `json:"username"`
-	}
-	if err := json.Unmarshal([]byte(payload), &request); err != nil || request.Platform == "" || request.InitData == "" {
-		return "", errors.New("invalid_payload")
-	}
-
-	var externalID, username, displayName string
-	switch request.Platform {
-	case "telegram", "bale":
-		botToken := serverConfig.TelegramBotToken
-		if request.Platform == "bale" {
-			botToken = serverConfig.BaleBotToken
-		}
-		if botToken == "" {
-			return "", errors.New("platform_not_configured")
-		}
-		verified, err := VerifyTelegramStyleInitData(request.InitData, botToken, serverConfig.InitDataMaxAge)
-		if err != nil {
-			return "", err
-		}
-		externalID = verified.UserID
-		username = verified.Username
-		displayName = verified.FirstName
-		if displayName == "" {
-			displayName = username
-		}
-	case "eitaa":
-		var ok bool
-		externalID, username, ok = ExtractUnverifiedUser(request.InitData)
-		if !ok {
-			return "", errors.New("missing_user")
-		}
-	case "browser", "guest":
-		if !serverConfig.AllowGuestAuth {
-			return "", errors.New("guest_auth_disabled")
-		}
-		var ok bool
-		externalID, username, ok = ExtractUnverifiedUser(request.InitData)
-		if !ok {
-			return "", errors.New("missing_user")
-		}
-	default:
-		return "", errors.New("unsupported_platform")
-	}
-
-	response, _ := json.Marshal(platformIdentity{
-		Platform:    request.Platform,
-		ExternalID:  externalID,
-		Username:    username,
-		DisplayName: displayName,
-	})
-	return string(response), nil
 }
 
 // matchmakerMatched spins up a live match for a matched pair from the

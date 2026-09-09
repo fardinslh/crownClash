@@ -68,9 +68,10 @@ services:
       context: .
       dockerfile: apps/game/Dockerfile
       args:
-        VITE_NAKAMA_HOST: ${VITE_NAKAMA_HOST:-nakama}
+        VITE_NAKAMA_HOST: ${VITE_NAKAMA_HOST:-}
         VITE_NAKAMA_PORT: ${VITE_NAKAMA_PORT:-7350}
-        VITE_NAKAMA_SSL: ${VITE_NAKAMA_SSL:-true}
+        VITE_NAKAMA_SSL: ${VITE_NAKAMA_SSL:-false}
+        VITE_NAKAMA_SERVER_KEY: ${NAKAMA_SERVER_KEY:-defaultkey}
     restart: unless-stopped
     depends_on:
       - nakama
