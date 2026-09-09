@@ -15,6 +15,8 @@ derives player identity from authentication and records receipt time separately.
 | `upgrade_panel_viewed` | Upgrade panel opens, from the result screen or the Kingdom hub | `source` (`menu` or `result`). Optional for backward compatibility: schema-version-1 clients shipped before the Kingdom hub send empty props, and the server accepts both shapes. Unknown properties and invalid `source` values are still rejected | Client view | Reward to progress |
 | `upgrade_purchase_succeeded` | Server purchase succeeds | `purchaseId`, server-enriched `upgradeType`, `level`, `cost`, `resultingCoins` | Server-confirmed purchase | Upgrade conversion |
 | `upgrade_purchase_failed` | Server purchase rejects request | `upgradeType`, `reason` | Server response | Upgrade failure rate |
+| `daily_panel_viewed` | Royal Orders screen opens | None | Client view | Daily-loop discovery |
+| `daily_reward_claimed` | Server confirms a mission or Crown Chest claim | Client: `claimId`. Server: `rewardType`, `reward`, `resultingCoins` | Server-confirmed claim | Daily completion and reward conversion |
 | `live_queue_joined` | Server accepts queue entry | None | Server-confirmed client response | Live queue starts |
 | `live_invite_created` | Server creates and joins invite | None | Server-confirmed client response | Invite creation |
 | `live_invite_joined` | Server accepts invite join | None | Server-confirmed client response | Invite conversion |
@@ -29,8 +31,12 @@ values are never included. Nakama loads the stored settlement for
 `match_end`/`match_reward_received` and the stored purchase for upgrade success,
 then overwrites those properties before insertion.
 
+Daily mission progress and rewards use the server's `Asia/Tehran` calendar day.
+Nakama loads the stored idempotent claim for `daily_reward_claimed` and replaces
+all reward and resulting-balance values before analytics insertion.
+
 ## Future event families
 
 Do not emit these until their flows exist: tutorial progression; shop and offer
-views; checkout and purchase outcomes; daily missions; seasons; referrals; and
+views; checkout and purchase outcomes; seasons; referrals; and
 revenge actions.

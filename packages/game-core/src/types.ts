@@ -63,3 +63,33 @@ export interface GameState {
   timeLimitSeconds: number;
   stats: MatchStats;
 }
+
+export type DailyRewardType =
+  | 'play_matches'
+  | 'win_match'
+  | 'capture_territories'
+  | 'crown_chest';
+
+export interface DailyMissionState {
+  id: Exclude<DailyRewardType, 'crown_chest'>;
+  title: string;
+  description: string;
+  progress: number;
+  target: number;
+  reward: number;
+  complete: boolean;
+  claimed: boolean;
+}
+
+export interface DailyChestState {
+  reward: number;
+  unlocked: boolean;
+  claimed: boolean;
+}
+
+export interface DailyState {
+  dayKey: string;
+  resetsAt: number;
+  missions: DailyMissionState[];
+  chest: DailyChestState;
+}

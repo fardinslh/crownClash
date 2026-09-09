@@ -165,6 +165,37 @@ BEGIN
 END $$;
 `,
 	},
+	{
+		name: "006_daily_missions",
+		sql: `
+CREATE TABLE IF NOT EXISTS player_daily_progress (
+  player_id TEXT NOT NULL REFERENCES players(id),
+  day_key DATE NOT NULL,
+  matches_played INTEGER NOT NULL DEFAULT 0 CHECK (matches_played BETWEEN 0 AND 2),
+  matches_won INTEGER NOT NULL DEFAULT 0 CHECK (matches_won BETWEEN 0 AND 1),
+  territories_captured INTEGER NOT NULL DEFAULT 0 CHECK (territories_captured BETWEEN 0 AND 10),
+  play_matches_claimed BOOLEAN NOT NULL DEFAULT false,
+  win_match_claimed BOOLEAN NOT NULL DEFAULT false,
+  capture_territories_claimed BOOLEAN NOT NULL DEFAULT false,
+  crown_chest_claimed BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (player_id, day_key)
+);
+CREATE INDEX IF NOT EXISTS idx_player_daily_progress_day ON player_daily_progress (day_key);
+
+CREATE TABLE IF NOT EXISTS daily_reward_claims (
+  claim_id TEXT PRIMARY KEY,
+  player_id TEXT NOT NULL REFERENCES players(id),
+  day_key DATE NOT NULL,
+  reward_type TEXT NOT NULL CHECK (reward_type IN ('play_matches', 'win_match', 'capture_territories', 'crown_chest')),
+  result JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (player_id, day_key, reward_type)
+);
+CREATE INDEX IF NOT EXISTS idx_daily_reward_claims_player ON daily_reward_claims (player_id, day_key DESC);
+`,
+	},
 }
 
 func RunMigrations(ctx context.Context, db *sql.DB) error {

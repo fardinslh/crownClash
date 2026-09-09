@@ -5,6 +5,9 @@
 
 import {
   createDefaultCareer,
+  DailyClaimResult,
+  DailyRewardType,
+  DailyState,
   EconomyLedgerEntry,
   MatchSettlement,
   MatchStats,
@@ -130,6 +133,19 @@ export class CareerManager {
       this.applyRemoteState(result.newCareer, [result.ledgerEntry]);
     }
 
+    return result;
+  }
+
+  public getDailyStateRemote(): Promise<DailyState> {
+    return this.requireRemoteApi().getDailyState();
+  }
+
+  public async claimDailyRewardRemote(type: DailyRewardType): Promise<DailyClaimResult> {
+    const claimId = `daily_${type}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const result = await this.requireRemoteApi().claimDailyReward(type, claimId);
+    if (result.success && result.ledgerEntry) {
+      this.applyRemoteState(result.newCareer, [result.ledgerEntry]);
+    }
     return result;
   }
 

@@ -89,6 +89,12 @@ func InitModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runti
 	if err := rpc("upgrade/purchase", rpcPurchaseUpgrade(store)); err != nil {
 		return err
 	}
+	if err := rpc("daily/get", rpcGetDailyState(store)); err != nil {
+		return err
+	}
+	if err := rpc("daily/claim", rpcClaimDailyReward(store)); err != nil {
+		return err
+	}
 	if err := rpc("pvp/defense/publish", rpcPublishDefense(store)); err != nil {
 		return err
 	}
@@ -456,6 +462,61 @@ func rpcPurchaseUpgrade(store *Store) rpcFn {
 	}
 }
 
+func rpcGetDailyState(store *Store) rpcFn {
+	return func(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, payload string) (string, error) {
+		userID, ok := ctx.Value(runtime.RUNTIME_CTX_USER_ID).(string)
+		if !ok || userID == "" {
+			return "", errors.New("unauthenticated")
+		}
+		if payload != "" && payload != "{}" {
+			return "", errors.New("invalid_payload")
+		}
+		if _, err := store.GetOrCreateCareer(ctx, userID); err != nil {
+			return "", err
+		}
+		state, err := store.GetDailyState(ctx, userID)
+		if err != nil {
+			return "", err
+		}
+		response, _ := json.Marshal(map[string]any{"state": state})
+		return string(response), nil
+	}
+}
+
+func rpcClaimDailyReward(store *Store) rpcFn {
+	return func(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, payload string) (string, error) {
+		userID, ok := ctx.Value(runtime.RUNTIME_CTX_USER_ID).(string)
+		if !ok || userID == "" {
+			return "", errors.New("unauthenticated")
+		}
+		var request struct {
+			RewardType string `json:"rewardType"`
+			ClaimID    string `json:"claimId"`
+		}
+		decoder := json.NewDecoder(strings.NewReader(payload))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&request); err != nil {
+			return "", errors.New("invalid_payload")
+		}
+		if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+			return "", errors.New("invalid_payload")
+		}
+		rewardType := DailyRewardType(request.RewardType)
+		if !isDailyRewardType(rewardType) {
+			return "", errors.New("invalid_reward_type")
+		}
+		if len(request.ClaimID) < 1 || len(request.ClaimID) > 128 {
+			return "", errors.New("invalid_claim_id")
+		}
+		result, err := store.ClaimDailyReward(ctx, userID, rewardType, request.ClaimID)
+		if err != nil {
+			return "", err
+		}
+		response, _ := json.Marshal(map[string]any{"result": result})
+		return string(response), nil
+	}
+}
+
 func rpcPublishDefense(store *Store) rpcFn {
 	return func(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, payload string) (string, error) {
 		userID, ok := ctx.Value(runtime.RUNTIME_CTX_USER_ID).(string)
@@ -614,17 +675,19 @@ const (
 )
 
 var analyticsEventDefinitions = map[string]analyticsEventDefinition{
-	"session_start":              {properties: map[string]analyticsPropertyKind{}},
-	"menu_viewed":                {properties: analyticsProperties("rankId")},
-	"match_start":                {properties: analyticsProperties("matchId", "mode", "source")},
-	"match_end":                  {properties: analyticsPropertiesWithDuration("matchId", "mode", "result")},
-	"match_quit":                 {properties: analyticsPropertiesWithDuration("matchId", "mode")},
-	"match_reward_received":      {properties: analyticsProperties("matchId", "mode")},
+	"session_start":         {properties: map[string]analyticsPropertyKind{}},
+	"menu_viewed":           {properties: analyticsProperties("rankId")},
+	"match_start":           {properties: analyticsProperties("matchId", "mode", "source")},
+	"match_end":             {properties: analyticsPropertiesWithDuration("matchId", "mode", "result")},
+	"match_quit":            {properties: analyticsPropertiesWithDuration("matchId", "mode")},
+	"match_reward_received": {properties: analyticsProperties("matchId", "mode")},
 	// source is optional: schema-version-1 clients shipped before the
 	// Kingdom hub emit this event with no properties at all.
 	"upgrade_panel_viewed":       {properties: map[string]analyticsPropertyKind{}, optionalProperties: analyticsProperties("source")},
 	"upgrade_purchase_succeeded": {properties: analyticsProperties("purchaseId")},
 	"upgrade_purchase_failed":    {properties: analyticsProperties("upgradeType", "reason")},
+	"daily_panel_viewed":         {properties: map[string]analyticsPropertyKind{}},
+	"daily_reward_claimed":       {properties: analyticsProperties("claimId")},
 	"live_queue_joined":          {properties: map[string]analyticsPropertyKind{}},
 	"live_invite_created":        {properties: map[string]analyticsPropertyKind{}},
 	"live_invite_joined":         {properties: map[string]analyticsPropertyKind{}},

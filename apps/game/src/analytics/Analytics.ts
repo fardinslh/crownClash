@@ -38,6 +38,8 @@ export type AnalyticsEventInput =
       upgradeType: UpgradeType;
       reason: UpgradeFailureReason;
     }
+  | { name: 'daily_panel_viewed' }
+  | { name: 'daily_reward_claimed'; claimId: string }
   | { name: 'live_queue_joined' }
   | { name: 'live_invite_created' }
   | { name: 'live_invite_joined' }
@@ -73,6 +75,8 @@ const EVENT_NAMES: ReadonlySet<AnalyticsEvent['name']> = new Set([
   'upgrade_panel_viewed',
   'upgrade_purchase_succeeded',
   'upgrade_purchase_failed',
+  'daily_panel_viewed',
+  'daily_reward_claimed',
   'live_queue_joined',
   'live_invite_created',
   'live_invite_joined',

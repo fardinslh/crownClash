@@ -150,6 +150,51 @@ type AnalyticsInsertResult struct {
 	Inserted int
 }
 
+type DailyRewardType string
+
+const (
+	DailyPlayMatches        DailyRewardType = "play_matches"
+	DailyWinMatch           DailyRewardType = "win_match"
+	DailyCaptureTerritories DailyRewardType = "capture_territories"
+	DailyCrownChest         DailyRewardType = "crown_chest"
+)
+
+type DailyMissionState struct {
+	ID          DailyRewardType `json:"id"`
+	Title       string          `json:"title"`
+	Description string          `json:"description"`
+	Progress    int             `json:"progress"`
+	Target      int             `json:"target"`
+	Reward      int             `json:"reward"`
+	Complete    bool            `json:"complete"`
+	Claimed     bool            `json:"claimed"`
+}
+
+type DailyChestState struct {
+	Reward   int  `json:"reward"`
+	Unlocked bool `json:"unlocked"`
+	Claimed  bool `json:"claimed"`
+}
+
+type DailyState struct {
+	DayKey   string              `json:"dayKey"`
+	ResetsAt int64               `json:"resetsAt"`
+	Missions []DailyMissionState `json:"missions"`
+	Chest    DailyChestState     `json:"chest"`
+}
+
+type DailyClaimResult struct {
+	ClaimID     string              `json:"claimId"`
+	Success     bool                `json:"success"`
+	Reason      string              `json:"reason,omitempty"`
+	RewardType  DailyRewardType     `json:"rewardType"`
+	Reward      int                 `json:"reward"`
+	Replayed    bool                `json:"replayed"`
+	State       DailyState          `json:"state"`
+	NewCareer   PlayerCareer        `json:"newCareer"`
+	LedgerEntry *EconomyLedgerEntry `json:"ledgerEntry,omitempty"`
+}
+
 type PvpAttackResult struct {
 	AttackID   string           `json:"attackId"`
 	AttackerID string           `json:"attackerId"`

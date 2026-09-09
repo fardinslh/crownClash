@@ -18,14 +18,17 @@ var (
 	ErrPvpAttackOwnership       = errors.New("pvp_attack_id_owned_by_another_player")
 	ErrUpgradePurchaseOwnership = errors.New("upgrade_purchase_id_owned_by_another_player")
 	ErrUpgradePurchaseMismatch  = errors.New("upgrade_purchase_id_reused_for_different_upgrade")
+	ErrDailyClaimOwnership      = errors.New("daily_claim_id_owned_by_another_player")
+	ErrDailyClaimMismatch       = errors.New("daily_claim_id_reused_for_different_reward")
 )
 
 type Store struct {
-	db *sql.DB
+	db    *sql.DB
+	nowFn func() time.Time
 }
 
 func NewStore(db *sql.DB) *Store {
-	return &Store{db: db}
+	return &Store{db: db, nowFn: time.Now}
 }
 
 type playerRow struct {
@@ -180,6 +183,9 @@ func (s *Store) persistSettlement(ctx context.Context, tx *sql.Tx, career Player
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (match_id) DO NOTHING
 	`, matchID, career.PlayerID, status, payload); err != nil {
+		return MatchSettlement{}, err
+	}
+	if err := s.advanceDailyProgress(ctx, tx, career.PlayerID, status, stats, s.nowFn()); err != nil {
 		return MatchSettlement{}, err
 	}
 	return settlement, nil
@@ -568,6 +574,9 @@ func (s *Store) SettlePvpAttack(ctx context.Context, attackerID, defenderID, att
 	`, attackID, attackerID, defenderID, isRevenge, actionJSON, summaryJSON, settlementJSON, settlement.NewCareer.LastMatchTimestamp); err != nil {
 		return PvpAttackResult{}, err
 	}
+	if err := s.advanceDailyProgress(ctx, tx, attackerID, summary.Status, summary.Stats, s.nowFn()); err != nil {
+		return PvpAttackResult{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return PvpAttackResult{}, err
 	}
@@ -674,6 +683,26 @@ func normalizeAnalyticsEvent(ctx context.Context, tx *sql.Tx, userID string, eve
 			"level":          UpgradeLevel(result.NewCareer, upgradeType),
 			"cost":           *result.Cost,
 			"resultingCoins": result.NewCareer.Coins,
+		}
+	case "daily_reward_claimed":
+		claimID, _ := event.Props["claimId"].(string)
+		var encoded []byte
+		if err := tx.QueryRowContext(ctx, `
+			SELECT result FROM daily_reward_claims
+			WHERE claim_id = $1 AND player_id = $2
+		`, claimID, userID).Scan(&encoded); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return AnalyticsEventRecord{}, errors.New("analytics_daily_claim_not_found")
+			}
+			return AnalyticsEventRecord{}, err
+		}
+		var result DailyClaimResult
+		if err := json.Unmarshal(encoded, &result); err != nil || !result.Success {
+			return AnalyticsEventRecord{}, errors.New("invalid_stored_daily_claim")
+		}
+		event.Props = map[string]any{
+			"claimId": claimID, "rewardType": string(result.RewardType),
+			"reward": result.Reward, "resultingCoins": result.NewCareer.Coins,
 		}
 	}
 	return event, nil

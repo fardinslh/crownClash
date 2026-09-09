@@ -5,6 +5,7 @@ import { AnalyticsSink } from './analytics/AnalyticsSink.js';
 import { trackSessionStart } from './analytics/Analytics.js';
 import { getSharedGameApiClient } from './api/sharedClient.js';
 import { GameScene } from './scenes/GameScene.js';
+import { DailyScene } from './scenes/DailyScene.js';
 import { KingdomScene } from './scenes/KingdomScene.js';
 import { MenuScene } from './scenes/MenuScene.js';
 
@@ -58,7 +59,7 @@ const startApp = (): void => {
       createContainer: true,
     },
     backgroundColor: '#070b14',
-    scene: [MenuScene, GameScene, KingdomScene],
+    scene: [MenuScene, GameScene, KingdomScene, DailyScene],
     render: {
       antialias: true,
       antialiasGL: true,

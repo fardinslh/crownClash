@@ -78,6 +78,9 @@ func TestAnalyticsPayloadRejectsMalformedAndInvalidEvents(t *testing.T) {
 		{name: "wrong type for upgrade panel source", payload: analyticsPayload([]AnalyticsEventRecord{
 			analyticsTestEvent("upgrade_panel_viewed", map[string]any{"source": 1}),
 		}), wantErr: "invalid_event_props"},
+		{name: "forged daily reward value", payload: analyticsPayload([]AnalyticsEventRecord{
+			analyticsTestEvent("daily_reward_claimed", map[string]any{"claimId": "claim_1", "reward": 999999}),
+		}), wantErr: "invalid_event_props"},
 		{name: "invalid envelope", payload: analyticsPayload([]AnalyticsEventRecord{{
 			Name: "session_start", SessionID: "session_test", OccurredAt: analyticsTestNow, SchemaVersion: 1, Props: map[string]any{},
 		}}), wantErr: "invalid_event_envelope"},
@@ -104,6 +107,19 @@ func TestAnalyticsPayloadAcceptsValidEvent(t *testing.T) {
 	}
 	if len(events) != 1 || events[0].EventID != "event_test" {
 		t.Fatalf("unexpected events: %+v", events)
+	}
+}
+
+func TestAnalyticsPayloadAcceptsDailyEvents(t *testing.T) {
+	events, err := parseAnalyticsEventsPayload(analyticsPayload([]AnalyticsEventRecord{
+		analyticsTestEvent("daily_panel_viewed", map[string]any{}),
+		analyticsTestEvent("daily_reward_claimed", map[string]any{"claimId": "claim_1"}),
+	}), analyticsTestNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("unexpected daily events: %+v", events)
 	}
 }
 
@@ -354,6 +370,42 @@ func TestInsertAnalyticsEventsNormalizesUpgradeSuccessFromPurchase(t *testing.T)
 		Props: map[string]any{
 			"purchaseId": "purchase_1", "cost": 999_999, "level": 99, "resultingCoins": 999_999,
 		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInsertAnalyticsEventsNormalizesDailyRewardFromClaim(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	claim := DailyClaimResult{
+		ClaimID: "claim_1", Success: true, RewardType: DailyCrownChest, Reward: 75,
+		NewCareer: PlayerCareer{Coins: 275},
+	}
+	claimJSON, _ := json.Marshal(claim)
+	expectedProps := map[string]any{
+		"claimId": "claim_1", "rewardType": "crown_chest", "reward": 75, "resultingCoins": 275,
+	}
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT result FROM daily_reward_claims")).
+		WithArgs("claim_1", "player_1").
+		WillReturnRows(sqlmock.NewRows([]string{"result"}).AddRow(claimJSON))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO analytics_events")).
+		WithArgs("player_1", "event_1", "session_test", "daily_reward_claimed", analyticsTestNow, 1, analyticsPropsJSON(t, expectedProps)).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	_, err = NewStore(db).InsertAnalyticsEvents(context.Background(), "player_1", []AnalyticsEventRecord{{
+		EventID: "event_1", Name: "daily_reward_claimed", SessionID: "session_test", OccurredAt: analyticsTestNow, SchemaVersion: 1,
+		Props: map[string]any{"claimId": "claim_1", "reward": 999_999, "resultingCoins": 999_999},
 	}})
 	if err != nil {
 		t.Fatal(err)

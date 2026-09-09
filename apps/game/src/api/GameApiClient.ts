@@ -1,4 +1,7 @@
 import type {
+  DailyClaimResult,
+  DailyRewardType,
+  DailyState,
   EconomyLedgerEntry,
   MatchSettlement,
   PlayerCareer,
@@ -24,6 +27,8 @@ export interface CareerApi {
   getLedger(limit?: number): Promise<EconomyLedgerEntry[]>;
   settleMatch(matchId: string, actions: readonly PvpAction[]): Promise<MatchSettlement>;
   purchaseUpgrade(type: UpgradeType, purchaseId: string): Promise<UpgradePurchaseResult>;
+  getDailyState(): Promise<DailyState>;
+  claimDailyReward(type: DailyRewardType, claimId: string): Promise<DailyClaimResult>;
   trackEvents(events: readonly TrackedAnalyticsEvent[]): Promise<void>;
   openLiveMatch(): LiveMatchClient;
   isAuthenticated(): boolean;

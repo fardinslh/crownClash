@@ -1,5 +1,8 @@
 import { Client, type Session, type Socket } from '@heroiclabs/nakama-js';
 import type {
+  DailyClaimResult,
+  DailyRewardType,
+  DailyState,
   EconomyLedgerEntry,
   MatchSettlement,
   PlayerCareer,
@@ -86,6 +89,19 @@ export class NakamaClient implements CareerApi {
   ): Promise<UpgradePurchaseResult> {
     const result = await this.rpc('upgrade/purchase', JSON.stringify({ type, purchaseId }));
     return (JSON.parse(result) as { result: UpgradePurchaseResult }).result;
+  }
+
+  public async getDailyState(): Promise<DailyState> {
+    const result = await this.rpc('daily/get', '');
+    return (JSON.parse(result) as { state: DailyState }).state;
+  }
+
+  public async claimDailyReward(
+    type: DailyRewardType,
+    claimId: string
+  ): Promise<DailyClaimResult> {
+    const result = await this.rpc('daily/claim', JSON.stringify({ rewardType: type, claimId }));
+    return (JSON.parse(result) as { result: DailyClaimResult }).result;
   }
 
   public async trackEvents(events: readonly TrackedAnalyticsEvent[]): Promise<void> {

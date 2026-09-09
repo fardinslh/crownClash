@@ -220,6 +220,12 @@ describe('CareerManager', () => {
           timestamp: 2,
         },
       }),
+      getDailyState: async () => {
+        throw new Error('not_used_in_test');
+      },
+      claimDailyReward: async () => {
+        throw new Error('not_used_in_test');
+      },
       trackEvents: async () => undefined,
       openLiveMatch: () => {
         throw new Error('not_used_in_test');
@@ -264,6 +270,12 @@ describe('CareerManager', () => {
       purchaseUpgrade: async () => {
         throw new Error('not_used_in_test');
       },
+      getDailyState: async () => {
+        throw new Error('not_used_in_test');
+      },
+      claimDailyReward: async () => {
+        throw new Error('not_used_in_test');
+      },
       trackEvents: async () => undefined,
       openLiveMatch: () => {
         throw new Error('not_used_in_test');
@@ -298,6 +310,12 @@ describe('CareerManager', () => {
         throw new Error('not_used_in_test');
       },
       purchaseUpgrade: async () => {
+        throw new Error('not_used_in_test');
+      },
+      getDailyState: async () => {
+        throw new Error('not_used_in_test');
+      },
+      claimDailyReward: async () => {
         throw new Error('not_used_in_test');
       },
       trackEvents: async () => undefined,
