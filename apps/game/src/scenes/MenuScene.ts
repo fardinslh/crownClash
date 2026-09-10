@@ -12,7 +12,6 @@ import { THEME } from '../theme.js';
 import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
 import { LiveMatchClient } from '../api/LiveMatchClient.js';
 import { LivePvpController, isValidRoomCode, sanitizeRoomCode } from '../pvp/LivePvpController.js';
-import { getLogicalDomLayout } from '../ui/LogicalDomLayout.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 
@@ -578,8 +577,8 @@ export class MenuScene extends Phaser.Scene {
     const joinTitle = TS('ENTER INVITE CODE', 0, -200, '14px', '#c7d2fe', { fontStyle: '900', strokeThickness: 2 });
     const joinSubtitle = TS('8-character code your friend shared', 0, -182, '10px', '#94a3b8', { strokeThickness: 1 });
 
-    // Phaser's DOM renderer does not stay aligned with this game's DPR camera
-    // zoom. Position the native input from the canvas's actual viewport bounds.
+    // Keep the keyboard input invisible. Phaser renders the visible field so
+    // it always shares the modal's coordinate system on every viewport.
     const joinInput = document.createElement('input');
     joinInput.type = 'text';
     joinInput.maxLength = 8;
@@ -591,51 +590,23 @@ export class MenuScene extends Phaser.Scene {
     joinInput.style.cssText = [
       'position: fixed',
       'display: none',
-      'z-index: 1000',
+      'left: 0',
+      'bottom: 0',
+      'width: 1px',
+      'height: 1px',
+      'opacity: 0',
+      'pointer-events: none',
+      'font-size: 16px',
+      'border: 0',
       'margin: 0',
-      'padding: 0 10px',
-      'font-weight: 700',
-      'font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif',
-      'text-align: center',
-      'text-transform: uppercase',
-      'border-style: solid',
-      'border-color: #818cf8',
-      'background: #0f172a',
-      'color: #ffffff',
-      'outline: none',
-      'box-sizing: border-box',
-      'transform: translate(-50%, -50%)',
-      'transform-origin: center',
-      'user-select: text',
-      '-webkit-user-select: text',
+      'padding: 0',
     ].join(';');
     document.body.appendChild(joinInput);
 
-    const positionJoinInput = (): void => {
-      const layout = getLogicalDomLayout(
-        this.game.canvas.getBoundingClientRect(),
-        { width: LOGICAL_WIDTH, height: LOGICAL_HEIGHT },
-        { x: LOGICAL_WIDTH / 2, y: LOGICAL_HEIGHT / 2 - 123, width: 230, height: 46 }
-      );
-      joinInput.style.left = `${layout.centerX}px`;
-      joinInput.style.top = `${layout.centerY}px`;
-      joinInput.style.width = `${layout.width}px`;
-      joinInput.style.height = `${layout.height}px`;
-      joinInput.style.fontSize = `${22 * layout.scale}px`;
-      joinInput.style.letterSpacing = `${5 * layout.scale}px`;
-      joinInput.style.borderWidth = `${Math.max(2, 2 * layout.scale)}px`;
-      joinInput.style.borderRadius = `${8 * layout.scale}px`;
-    };
-
     let inputCleanedUp = false;
-    const viewport = window.visualViewport;
     const cleanupJoinInput = (): void => {
       if (inputCleanedUp) return;
       inputCleanedUp = true;
-      window.removeEventListener('resize', positionJoinInput);
-      viewport?.removeEventListener('resize', positionJoinInput);
-      viewport?.removeEventListener('scroll', positionJoinInput);
-      this.scale.off(Phaser.Scale.Events.RESIZE, positionJoinInput);
       joinInput.remove();
       if (this.joinCodeInput === joinInput) this.joinCodeInput = undefined;
       if (this.joinCodeInputCleanup === cleanupJoinInput) {
@@ -643,13 +614,21 @@ export class MenuScene extends Phaser.Scene {
       }
     };
 
-    window.addEventListener('resize', positionJoinInput);
-    viewport?.addEventListener('resize', positionJoinInput);
-    viewport?.addEventListener('scroll', positionJoinInput);
-    this.scale.on(Phaser.Scale.Events.RESIZE, positionJoinInput);
-    positionJoinInput();
     this.joinCodeInput = joinInput;
     this.joinCodeInputCleanup = cleanupJoinInput;
+    const joinInputBg = this.add
+      .rectangle(0, -123, 230, 46, 0x0f172a, 1)
+      .setStrokeStyle(2, 0x818cf8, 1)
+      .setInteractive({ useHandCursor: true });
+    const joinInputText = this.add
+      .text(0, -123, 'TAP TO TYPE', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '11px',
+        fontStyle: '700',
+        color: '#94a3b8',
+        resolution: 2,
+      })
+      .setOrigin(0.5);
     const joinErrorText = TS('', 0, -87, '10px', '#f87171', { strokeThickness: 1 });
 
     const { bg: joinSubmitBg, txt: joinSubmitTxt } = makeBtn(
@@ -661,6 +640,7 @@ export class MenuScene extends Phaser.Scene {
 
     joinView.add([
       joinCard, joinTitle, joinSubtitle,
+      joinInputBg, joinInputText,
       joinErrorText,
       joinSubmitBg, joinSubmitTxt,
       joinCancelBg, joinCancelTxt,
@@ -756,7 +736,6 @@ export class MenuScene extends Phaser.Scene {
         }
         case 'entering_code': {
           joinView.setVisible(true);
-          positionJoinInput();
           joinInput.style.display = 'block';
           joinErrorText.setText(opts.error ?? '');
           const backToLobby = (): void => controller.cancel();
@@ -871,7 +850,11 @@ export class MenuScene extends Phaser.Scene {
       controller.startEnteringCode();
       window.setTimeout(() => {
         joinInput.value = '';
-        positionJoinInput();
+        joinInputText
+          .setText('TAP TO TYPE')
+          .setFontSize('11px')
+          .setColor('#94a3b8')
+          .setLetterSpacing(0);
         joinInput.focus();
       }, 80);
     });
@@ -920,15 +903,27 @@ export class MenuScene extends Phaser.Scene {
 
     // ------------------------------------------------ JOIN CODE VIEW HANDLERS
     const joinInputEl = joinInput;
+    joinInputBg.on('pointerdown', () => joinInputEl.focus());
     joinInputEl.addEventListener('input', () => {
       const sanitized = sanitizeRoomCode(joinInputEl.value);
       if (joinInputEl.value !== sanitized) joinInputEl.value = sanitized;
+      joinInputText
+        .setText(sanitized || 'TAP TO TYPE')
+        .setFontSize(sanitized ? '22px' : '11px')
+        .setColor(sanitized ? '#ffffff' : '#94a3b8')
+        .setLetterSpacing(sanitized ? 5 : 0);
       joinErrorText.setText('');
       const valid = isValidRoomCode(sanitized);
       joinSubmitBg.setFillStyle(valid ? 0x2563eb : 0x1e293b, 1);
     });
     joinInputEl.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') joinSubmitBg.emit('pointerdown');
+    });
+    joinInputEl.addEventListener('focus', () => {
+      joinInputBg.setStrokeStyle(2, 0xa5b4fc, 1);
+    });
+    joinInputEl.addEventListener('blur', () => {
+      joinInputBg.setStrokeStyle(2, 0x818cf8, 1);
     });
 
     joinSubmitBg.on('pointerdown', () => {
