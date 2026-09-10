@@ -250,24 +250,24 @@ export class MenuScene extends Phaser.Scene {
       });
     }
 
-    const dailyOnline = careerManager.isRemoteConnected();
+    const dailyAvailable = careerManager.isRemoteConnected() || isLocalCareerFallbackAllowed();
     const dailyBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2 - 66, 654, 118, 44, dailyOnline ? 0x1c1830 : 0x273449, 1)
-      .setStrokeStyle(1.5, dailyOnline ? THEME.gold : 0x475569, 0.9)
+      .rectangle(LOGICAL_WIDTH / 2 - 66, 654, 118, 44, dailyAvailable ? 0x1c1830 : 0x273449, 1)
+      .setStrokeStyle(1.5, dailyAvailable ? THEME.gold : 0x475569, 0.9)
       .setInteractive({ useHandCursor: true });
     const dailyText = this.add
-      .text(LOGICAL_WIDTH / 2 - 66, 654, dailyOnline ? '📜 DAILY' : 'DAILY OFFLINE', {
+      .text(LOGICAL_WIDTH / 2 - 66, 654, dailyAvailable ? '📜 DAILY' : 'DAILY OFFLINE', {
         fontFamily: FONT_FAMILY,
-        fontSize: dailyOnline ? '13px' : '10px',
+        fontSize: dailyAvailable ? '13px' : '10px',
         fontStyle: '900',
-        color: dailyOnline ? '#fde68a' : '#94a3b8',
+        color: dailyAvailable ? '#fde68a' : '#94a3b8',
         stroke: '#000000',
         strokeThickness: 2,
         resolution: 2,
       })
       .setOrigin(0.5);
     this.bindPressFeedback(dailyBg, dailyText);
-    if (dailyOnline) {
+    if (dailyAvailable) {
       dailyBg.on('pointerdown', () => {
         dailyBg.disableInteractive();
         sounds.playReinforce();

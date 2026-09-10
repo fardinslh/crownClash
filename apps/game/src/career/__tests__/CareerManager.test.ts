@@ -66,6 +66,33 @@ describe('CareerManager', () => {
     expect(ledger[1].currency).toBe('trophies');
   });
 
+  it('supports daily progress and claims through the dev-only local fallback', async () => {
+    const manager = CareerManager.getInstance('daily_local_player');
+    const stats: MatchStats = {
+      matchDurationSeconds: 38,
+      playerUnitsDispatched: 45,
+      enemyUnitsDispatched: 20,
+      territoriesCapturedByPlayer: 5,
+      territoriesCapturedByEnemy: 0,
+    };
+    manager.recordMatchResult('victory', stats, 'daily_match_1');
+    manager.recordMatchResult('defeat', stats, 'daily_match_2');
+
+    const state = await manager.getDailyState();
+    expect(state.missions.map((mission) => mission.progress)).toEqual([2, 1, 10]);
+
+    const beforeClaims = manager.getCareer().coins;
+    for (const type of ['play_matches', 'win_match', 'capture_territories'] as const) {
+      await expect(manager.claimDailyReward(type)).resolves.toMatchObject({ success: true });
+    }
+    await expect(manager.claimDailyReward('crown_chest')).resolves.toMatchObject({
+      success: true,
+      reward: 75,
+    });
+    expect(manager.getCareer().coins).toBe(beforeClaims + 195);
+    expect((await manager.getDailyState()).chest.claimed).toBe(true);
+  });
+
   it('broadcasts state changes to subscribers', () => {
     const manager = CareerManager.getInstance('test_player_3');
     let notifiedCoins = 0;

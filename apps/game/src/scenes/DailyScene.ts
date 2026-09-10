@@ -8,6 +8,7 @@ import {
 } from '@crown-clash/game-core';
 import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
 import { trackEvent } from '../analytics/Analytics.js';
+import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { sounds } from '../audio/SoundEffects.js';
 import { CareerManager } from '../career/CareerManager.js';
 import { DailyClaimRunner } from '../daily/DailyClaimRunner.js';
@@ -52,14 +53,16 @@ export class DailyScene extends Phaser.Scene {
     this.careerManager = CareerManager.getInstance(this.platform.getUser().id);
 
     this.claimRunner = new DailyClaimRunner(
-      (type) => this.careerManager.claimDailyRewardRemote(type),
+      (type) => this.careerManager.claimDailyReward(type),
       {
         onPendingChanged: () => this.renderContent(),
         onResult: (result) => {
           this.state = result.state;
           this.refreshGold();
           if (result.success) {
-            trackEvent({ name: 'daily_reward_claimed', claimId: result.claimId });
+            if (this.careerManager.isRemoteConnected()) {
+              trackEvent({ name: 'daily_reward_claimed', claimId: result.claimId });
+            }
             this.playClaimCelebration(result.reward, result.rewardType === 'crown_chest');
           } else {
             this.showToast(this.failureMessage(result.reason));
@@ -196,12 +199,11 @@ export class DailyScene extends Phaser.Scene {
   }
 
   private async loadState(): Promise<void> {
-    if (!this.careerManager.isRemoteConnected()) {
-      this.showLoadError('Daily orders need an online connection.');
-      return;
-    }
     try {
-      const state = await this.careerManager.getDailyStateRemote();
+      if (!this.careerManager.isRemoteConnected() && !isLocalCareerFallbackAllowed()) {
+        await this.careerManager.connect(this.platform);
+      }
+      const state = await this.careerManager.getDailyState();
       if (!this.active) return;
       this.state = state;
       this.statusText.setVisible(false);

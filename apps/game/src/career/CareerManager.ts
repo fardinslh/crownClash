@@ -4,13 +4,17 @@
  */
 
 import {
+  advanceDailyState,
+  claimDailyRewardLocally,
   createDefaultCareer,
+  createDailyState,
   DailyClaimResult,
   DailyRewardType,
   DailyState,
   EconomyLedgerEntry,
   MatchSettlement,
   MatchStats,
+  normalizeDailyState,
   normalizeUpgradeLevel,
   PlayerCareer,
   PvpAction,
@@ -21,6 +25,7 @@ import {
 } from '@crown-clash/game-core';
 import type { PlatformAdapter } from '@crown-clash/platform';
 import type { CareerApi } from '../api/GameApiClient.js';
+import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { getSharedGameApiClient } from '../api/sharedClient.js';
 import { LiveMatchClient } from '../api/LiveMatchClient.js';
 
@@ -31,6 +36,8 @@ export class CareerManager {
   private listeners: Set<(career: PlayerCareer) => void> = new Set();
   private readonly storageKey: string;
   private readonly ledgerStorageKey: string;
+  private readonly dailyStorageKey: string;
+  private dailyState: DailyState;
   private remoteApi: CareerApi | null = null;
   private remoteConnected = false;
   private connectPromise: Promise<PlayerCareer> | null = null;
@@ -38,8 +45,10 @@ export class CareerManager {
   private constructor(playerId: string) {
     this.storageKey = `crown_clash_career_${playerId}`;
     this.ledgerStorageKey = `crown_clash_ledger_${playerId}`;
+    this.dailyStorageKey = `crown_clash_daily_${playerId}`;
     this.career = this.loadCareer(playerId);
     this.ledger = this.loadLedger();
+    this.dailyState = this.loadDailyState();
   }
 
   public static getInstance(playerId = 'player_guest'): CareerManager {
@@ -143,8 +152,45 @@ export class CareerManager {
   public async claimDailyRewardRemote(type: DailyRewardType): Promise<DailyClaimResult> {
     const claimId = `daily_${type}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const result = await this.requireRemoteApi().claimDailyReward(type, claimId);
+    this.dailyState = result.state;
+    this.saveDailyState();
     if (result.success && result.ledgerEntry) {
       this.applyRemoteState(result.newCareer, [result.ledgerEntry]);
+    }
+    return result;
+  }
+
+  public async getDailyState(): Promise<DailyState> {
+    if (this.remoteConnected) {
+      const state = await this.getDailyStateRemote();
+      this.dailyState = state;
+      this.saveDailyState();
+      return state;
+    }
+    if (!isLocalCareerFallbackAllowed()) {
+      throw new Error('backend_required_for_daily_missions');
+    }
+    this.dailyState = normalizeDailyState(this.dailyState);
+    this.saveDailyState();
+    return this.dailyState;
+  }
+
+  public async claimDailyReward(type: DailyRewardType): Promise<DailyClaimResult> {
+    if (this.remoteConnected) return this.claimDailyRewardRemote(type);
+    if (!isLocalCareerFallbackAllowed()) {
+      throw new Error('backend_required_for_daily_claim');
+    }
+
+    const claimId = `daily_${type}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const result = claimDailyRewardLocally(this.dailyState, this.career, type, claimId);
+    this.dailyState = result.state;
+    this.saveDailyState();
+    if (result.success && result.ledgerEntry) {
+      this.career = result.newCareer;
+      this.ledger.push(result.ledgerEntry);
+      this.saveCareer();
+      this.saveLedger();
+      this.emitChange();
     }
     return result;
   }
@@ -170,10 +216,12 @@ export class CareerManager {
     // Update in-memory state
     this.career = settlement.newCareer;
     this.ledger.push(...settlement.ledgerEntries);
+    this.dailyState = advanceDailyState(this.dailyState, settlement.status, settlement.stats);
 
     // Save state and audit log to storage
     this.saveCareer();
     this.saveLedger();
+    this.saveDailyState();
 
     // Notify listeners (HUD counters, etc.)
     this.emitChange();
@@ -274,6 +322,19 @@ export class CareerManager {
     return [];
   }
 
+  private loadDailyState(): DailyState {
+    if (typeof window === 'undefined' || !window.localStorage) {
+      return createDailyState();
+    }
+    try {
+      const raw = window.localStorage.getItem(this.dailyStorageKey);
+      if (raw) return normalizeDailyState(JSON.parse(raw) as DailyState);
+    } catch (error) {
+      console.warn('[CareerManager] Failed to load daily progress:', error);
+    }
+    return createDailyState();
+  }
+
   private saveCareer(): void {
     this.saveCareerDirect(this.career);
   }
@@ -294,6 +355,15 @@ export class CareerManager {
       window.localStorage.setItem(this.ledgerStorageKey, JSON.stringify(capped));
     } catch (err) {
       console.error('[CareerManager] Failed to save ledger:', err);
+    }
+  }
+
+  private saveDailyState(): void {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+      window.localStorage.setItem(this.dailyStorageKey, JSON.stringify(this.dailyState));
+    } catch (error) {
+      console.error('[CareerManager] Failed to save daily progress:', error);
     }
   }
 
