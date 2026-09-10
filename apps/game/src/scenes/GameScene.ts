@@ -36,6 +36,7 @@ import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
 import { LiveMatchClient, LiveMatchStarted } from '../api/LiveMatchClient.js';
 import { purchaseUpgradeThroughCareer } from '../upgrades/UpgradePurchaseController.js';
 import { playUpgradeMilestoneCelebration } from '../upgrades/UpgradeMilestoneCelebration.js';
+import { deriveLiveCombatArrivals } from '../combat/LiveCombatFeedback.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 const MONO_FONT_FAMILY = '"Segoe UI", monospace, -apple-system, sans-serif';
@@ -68,6 +69,9 @@ interface ArmyVisual {
   followers: ArmyFollower[];
   rearOffset: { x: number; y: number };
   dustTimer: number;
+  dustInterval: number;
+  dustColor: number;
+  roleLabel: string;
 }
 
 export class GameScene extends Phaser.Scene {
@@ -1297,15 +1301,22 @@ export class GameScene extends Phaser.Scene {
     if (!vis) return;
 
     const teamStyle = THEME.teams[arrival.newOwner];
+    const targetRoleStyle = TERRITORY_TYPE_PRESENTATION[vis.territory.type];
 
     if (arrival.captured) {
-      // Capture Feedback!
-      if (arrival.targetId === 'n_center') {
+      const capturedByPlayer = arrival.attackerOwner === 'player';
+      if (arrival.targetId === 'n_center' && capturedByPlayer) {
         sounds.playCrownCapture();
-        if (!this.reducedMotion) this.cameras.main.shake(160, 0.006);
-      } else {
+      } else if (capturedByPlayer) {
         sounds.playCapture();
-        if (!this.reducedMotion) this.cameras.main.shake(100, 0.0035);
+      } else {
+        sounds.playCombatHit();
+      }
+      if (!this.reducedMotion) {
+        this.cameras.main.shake(
+          arrival.targetId === 'n_center' ? 160 : 100,
+          capturedByPlayer ? 0.006 : 0.0045
+        );
       }
       this.platform.hapticImpact('heavy');
 
@@ -1327,13 +1338,13 @@ export class GameScene extends Phaser.Scene {
         teamStyle.glow,
         2.25
       );
+      this.spawnCaptureFlash(vis.territory.x, vis.territory.y, teamStyle.light);
       this.spawnCaptureBurst(vis.territory.x, vis.territory.y, teamStyle.light);
 
-      // Floating capture badge
       this.spawnFloatingText(
         vis.territory.x,
         vis.territory.y - 20,
-        `+${arrival.remainingUnits}`,
+        capturedByPlayer ? `CAPTURE +${arrival.remainingUnits}` : 'TOWER LOST',
         teamStyle.lightHex
       );
     } else if (arrival.reinforced) {
@@ -1364,9 +1375,9 @@ export class GameScene extends Phaser.Scene {
         1.55
       );
     } else {
-      // Attack defended / repelled
       sounds.playCombatHit();
       this.platform.hapticImpact('medium');
+      const fortressBlocked = vis.territory.type === 'fortress';
 
       if (!this.reducedMotion) {
         this.tweens.add({
@@ -1384,17 +1395,31 @@ export class GameScene extends Phaser.Scene {
       this.spawnFloatingText(
         vis.territory.x,
         vis.territory.y - 20,
-        `-${arrival.incomingUnits}`,
-        '#ef4444'
+        fortressBlocked ? `DEFLECT -${arrival.incomingUnits}` : `-${arrival.incomingUnits}`,
+        fortressBlocked ? '#fbbf24' : '#ef4444'
       );
       this.spawnImpactRing(
         vis.territory.x,
         vis.territory.y,
         vis.territory.radius,
-        THEME.teams.enemy.light,
-        1.35
+        fortressBlocked ? targetRoleStyle.color : THEME.teams.enemy.light,
+        fortressBlocked ? 1.7 : 1.35
       );
+      if (fortressBlocked) this.pulseTerritoryRole(vis, targetRoleStyle.color);
     }
+  }
+
+  private spawnCaptureFlash(x: number, y: number, color: number): void {
+    if (this.reducedMotion) return;
+    const flash = this.add.circle(x, y, 10, color, 0.42).setDepth(30);
+    this.tweens.add({
+      targets: flash,
+      scale: 5.2,
+      alpha: 0,
+      duration: 260,
+      ease: 'Cubic.easeOut',
+      onComplete: () => flash.destroy(),
+    });
   }
 
   private spawnImpactRing(
@@ -1443,6 +1468,21 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private pulseTerritoryRole(vis: TerritoryVisual, color: number): void {
+    if (this.reducedMotion) return;
+    this.tweens.killTweensOf([vis.typeText, vis.unitBadge]);
+    vis.typeText.setScale(1).setAlpha(1);
+    vis.unitBadge.setScale(1);
+    vis.typeText.setColor(`#${color.toString(16).padStart(6, '0')}`);
+    this.tweens.add({
+      targets: [vis.typeText, vis.unitBadge],
+      scale: 1.18,
+      duration: 90,
+      yoyo: true,
+      ease: 'Sine.easeOut',
+    });
+  }
+
   private spawnFloatingText(x: number, y: number, text: string, color: string): void {
     const float = this.add
       .text(x, y, text, {
@@ -1485,8 +1525,19 @@ export class GameScene extends Phaser.Scene {
       const stateTerritory = this.gameState.territories[id];
       if (!stateTerritory) continue;
 
+      const producedUnit =
+        stateTerritory.type === 'barracks' &&
+        stateTerritory.units > vis.territory.units &&
+        stateTerritory.owner === vis.territory.owner;
       vis.territory = stateTerritory;
       vis.unitText.setText(stateTerritory.units.toString());
+
+      if (producedUnit) {
+        this.pulseTerritoryRole(
+          vis,
+          TERRITORY_TYPE_PRESENTATION.barracks.color
+        );
+      }
 
       const teamStyle = THEME.teams[stateTerritory.owner];
       vis.basePlate.setStrokeStyle(2, teamStyle.dark, 0.95);
@@ -1501,11 +1552,11 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private spawnDustPuff(x: number, y: number): void {
+  private spawnDustPuff(x: number, y: number, color: number): void {
     const jitterX = Math.random() * 4 - 2;
     const jitterY = Math.random() * 3 - 1.5;
     const dust = this.add
-      .circle(x + jitterX, y + 6 + jitterY, 3, 0x94a3b8, 0.45)
+      .circle(x + jitterX, y + 6 + jitterY, 3, color, 0.45)
       .setDepth(33);
 
     this.tweens.add({
@@ -1543,7 +1594,8 @@ export class GameScene extends Phaser.Scene {
       let visual = this.armyVisuals.get(visualId);
 
       if (!visual) {
-        const teamStyle = THEME.teams[army.owner];
+        const sourceType = this.gameState.territories[army.sourceId]?.type ?? 'barracks';
+        const roleStyle = TERRITORY_TYPE_PRESENTATION[sourceType];
         const container = this.add.container(currentX, currentY).setDepth(35);
 
         // Calculate travel angle and direction vectors
@@ -1570,6 +1622,32 @@ export class GameScene extends Phaser.Scene {
         } else {
           followerOffsets.push({ x: -16 * cos, y: -16 * sin, delay: 60 });
         }
+        if (sourceType === 'barracks') {
+          followerOffsets.push({
+            x: -38 * cos + 9 * perpX,
+            y: -38 * sin + 9 * perpY,
+            delay: 150,
+          });
+        }
+
+        if (sourceType === 'stable') {
+          const speedLines = this.add.graphics();
+          speedLines.lineStyle(2, roleStyle.color, 0.65);
+          for (const offset of [-7, 0, 7]) {
+            speedLines.lineBetween(
+              -cos * 42 + perpX * offset,
+              -sin * 42 + perpY * offset,
+              -cos * 21 + perpX * offset,
+              -sin * 21 + perpY * offset
+            );
+          }
+          container.add(speedLines);
+        }
+
+        const roleAura = this.add
+          .circle(0, 1, 15, roleStyle.color, 0.1)
+          .setStrokeStyle(sourceType === 'fortress' ? 3 : 1.5, roleStyle.color, 0.82);
+        container.add(roleAura);
 
         const followers: ArmyFollower[] = [];
         const followerTexture = army.owner === 'player' ? 'unit_follower_player' : 'unit_follower_enemy';
@@ -1624,11 +1702,11 @@ export class GameScene extends Phaser.Scene {
 
         // High-contrast Troop Count Pill Badge
         const badgeY = -19;
-        const initialUnits = army.units.toString();
-        const badgeWidth = Math.max(26, initialUnits.length * 8 + 14);
+        const initialUnits = `${roleStyle.label} ${army.units}`;
+        const badgeWidth = Math.max(42, initialUnits.length * 7 + 14);
         const badgeBg = this.add
           .rectangle(0, badgeY, badgeWidth, 18, 0x090d16, 0.94)
-          .setStrokeStyle(1.5, teamStyle.primary, 1);
+          .setStrokeStyle(1.5, roleStyle.color, 1);
 
         const badgeText = this.add
           .text(0, badgeY, initialUnits, {
@@ -1655,6 +1733,9 @@ export class GameScene extends Phaser.Scene {
           followers,
           rearOffset: { x: lastOffset.x, y: lastOffset.y },
           dustTimer: 0.05,
+          dustInterval: sourceType === 'stable' ? 0.09 : sourceType === 'barracks' ? 0.14 : 0.18,
+          dustColor: roleStyle.color,
+          roleLabel: roleStyle.label,
         };
         this.armyVisuals.set(visualId, visual);
         if (!this.reducedMotion) {
@@ -1669,20 +1750,21 @@ export class GameScene extends Phaser.Scene {
         }
       } else {
         visual.container.setPosition(currentX, currentY);
-        const unitsStr = army.units.toString();
+        const unitsStr = `${visual.roleLabel} ${army.units}`;
         if (visual.badgeText.text !== unitsStr) {
           visual.badgeText.setText(unitsStr);
-          const newWidth = Math.max(26, unitsStr.length * 8 + 14);
+          const newWidth = Math.max(42, unitsStr.length * 7 + 14);
           visual.badgeBg.setSize(newWidth, 18);
         }
 
         // Emit rhythmic dust puff behind rearmost follower
         visual.dustTimer -= deltaSeconds;
         if (!this.reducedMotion && visual.dustTimer <= 0) {
-          visual.dustTimer = 0.14;
+          visual.dustTimer = visual.dustInterval;
           this.spawnDustPuff(
             currentX + visual.rearOffset.x,
-            currentY + visual.rearOffset.y
+            currentY + visual.rearOffset.y,
+            visual.dustColor
           );
         }
       }
@@ -2519,7 +2601,9 @@ export class GameScene extends Phaser.Scene {
     this.liveUnsubscribers.push(
       client.on('state', (state) => {
         if (this.resultModalContainer) return;
+        const arrivals = deriveLiveCombatArrivals(this.gameState, state);
         this.gameState = state;
+        arrivals.forEach((arrival) => this.onCombatArrival(arrival));
       }),
       client.on('command_rejected', ({ code }) => {
         this.spawnFloatingText(LOGICAL_WIDTH / 2, 96, code.replaceAll('_', ' '), '#f87171');
