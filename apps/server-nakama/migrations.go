@@ -211,6 +211,29 @@ CREATE INDEX IF NOT EXISTS idx_league_reward_claims_player
   ON league_reward_claims (player_id, created_at DESC);
 `,
 	},
+	{
+		name: "008_legacy_players_compat",
+		sql: `
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'players'
+      AND column_name = 'platform'
+  ) THEN
+    ALTER TABLE players ALTER COLUMN platform SET DEFAULT 'nakama';
+  END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS player_names (
+  player_id TEXT PRIMARY KEY,
+  display_name TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+`,
+	},
 }
 
 func RunMigrations(ctx context.Context, db *sql.DB) error {
