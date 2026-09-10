@@ -1218,8 +1218,12 @@ export class GameScene extends Phaser.Scene {
 
     this.tutorial?.onTimerTick(deltaSeconds);
 
+    const isSimulationPaused = Boolean(!this.liveMode && this.tutorial?.shouldPauseSimulation);
+
     if (this.gameState.status === 'playing' && !this.liveMode) {
-      this.stepBotMatch(deltaSeconds);
+      if (!isSimulationPaused) {
+        this.stepBotMatch(deltaSeconds);
+      }
 
       // Update HUD
       this.updateHud();
@@ -1294,9 +1298,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   private executeAiTurn(): void {
-    // Tutorial: suppress enemy AI while the player reads the first instruction.
-    if (this.tutorial?.shouldSuppressAI) return;
-
     const move = evaluateAiMove(this.gameState.territories, 'enemy', 8);
     if (!move) return;
 
@@ -1871,10 +1872,9 @@ export class GameScene extends Phaser.Scene {
   private endMatch(): void {
     if (this.resultModalContainer || this.resultPending) return;
 
-    if (this.tutorial?.isActive) {
-      this.tutorial.skip();
-    }
     this.clearTutorialOverlay();
+    this.tutorial?.destroy();
+    this.tutorial = undefined;
 
     sounds.stopBattleMusic();
     this.resultPending = true;
@@ -2619,6 +2619,11 @@ export class GameScene extends Phaser.Scene {
 
     // Small celebratory restart pop
     this.cameras.main.flash(200, 20, 30, 50);
+
+    // Re-initialize tutorial on rematch if it was not completed/skipped
+    if (!this.liveMode && !isTutorialCompleted(this.platform.getUser().id)) {
+      this.initTutorial();
+    }
   }
 
   private createUpgradedMatchState(): void {
@@ -2922,15 +2927,27 @@ export class GameScene extends Phaser.Scene {
 
   private clearTutorialStepVisuals(): void {
     if (!this.tutorialOverlayContainer) return;
+    for (const child of this.tutorialOverlayContainer.getAll()) {
+      this.tweens.killTweensOf(child);
+    }
     this.tutorialOverlayContainer.removeAll(true);
   }
 
   private clearTutorialOverlay(): void {
     this.clearTutorialStepVisuals();
-    this.tutorialOverlayContainer?.destroy();
-    this.tutorialOverlayContainer = undefined;
-    this.tutorialSkipBtn?.destroy();
-    this.tutorialSkipBtn = undefined;
+    if (this.tutorialSkipBtn) {
+      for (const child of this.tutorialSkipBtn.getAll()) {
+        this.tweens.killTweensOf(child);
+      }
+      this.tweens.killTweensOf(this.tutorialSkipBtn);
+      this.tutorialSkipBtn.destroy();
+      this.tutorialSkipBtn = undefined;
+    }
+    if (this.tutorialOverlayContainer) {
+      this.tweens.killTweensOf(this.tutorialOverlayContainer);
+      this.tutorialOverlayContainer.destroy();
+      this.tutorialOverlayContainer = undefined;
+    }
   }
 
   private cleanup(): void {

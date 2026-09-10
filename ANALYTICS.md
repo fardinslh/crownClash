@@ -26,6 +26,10 @@ derives player identity from authentication and records receipt time separately.
 | `live_match_started` | Nakama match starts | `matchId` | Nakama match event | Live matches started |
 | `live_match_ended` | Server live result arrives | `matchId`, `status` | Server-confirmed result | Live completion and win rate |
 | `live_match_disconnected` | Connection ends before a result | `matchId` | Client connection state | Live connection reliability |
+| `tutorial_started` | Tutorial begins during first bot battle | None | Client action | Onboarding start |
+| `tutorial_step_completed` | Each tutorial step completes | `stepId` (`drag_to_attack`, `preview_result`, `tower_roles`, `multi_dispatch`) | Client action | Onboarding step progression |
+| `tutorial_completed` | All tutorial steps completed naturally | None | Client action | Onboarding completion |
+| `tutorial_skipped` | User taps SKIP on tutorial | `lastStepId` (`drag_to_attack`, `preview_result`, `tower_roles`, `multi_dispatch`) | Client action | Onboarding skip rate |
 
 Live events use the player-specific settlement ID, `live_<startedAt>_<playerId>`,
 while Nakama keeps its internal socket match ID unchanged. `match_end` and `match_quit` are mutually exclusive per match ID. Raw platform
@@ -44,6 +48,5 @@ stored match settlement.
 
 ## Future event families
 
-Do not emit these until their flows exist: tutorial progression; shop and offer
-views; checkout and purchase outcomes; seasons; referrals; and
+Do not emit these until their flows exist: shop and offer views; checkout and purchase outcomes; seasons; referrals; and
 revenge actions.

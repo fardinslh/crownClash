@@ -53,9 +53,9 @@ describe('TutorialController', () => {
     mockLocalStorage();
   });
 
-  // 1. Correct step order
-  describe('step order', () => {
-    it('follows the expected step sequence: drag_to_attack → preview_result → tower_roles → multi_dispatch → complete', () => {
+  // 1. Correct step order & Bug 4 timing
+  describe('step order and timing', () => {
+    it('follows the expected sequence: drag_to_attack → preview_result → tower_roles → multi_dispatch → complete', () => {
       const { controller, events } = createController();
 
       // Initial state
@@ -66,13 +66,19 @@ describe('TutorialController', () => {
       controller.onDispatch(['p_base'], 'n_bot_left');
       expect(controller.currentStepId).toBe('preview_result');
 
-      // Step 2: preview_result auto-advances after timed display
-      controller.onPreviewShown();
-      controller.onTimerTick(3.0); // > 2.5s threshold
+      // Step 2: preview_result remains visible for min duration (2.5s) AND waits for first capture
+      controller.onTimerTick(2.6);
+      // Min duration met, but first capture has not occurred yet -> stays in preview_result
+      expect(controller.currentStepId).toBe('preview_result');
+
+      // First player capture occurs -> now enters tower_roles
+      controller.onCapture('n_bot_left', true);
       expect(controller.currentStepId).toBe('tower_roles');
 
-      // Step 3: tower_roles advances on player capture
-      controller.onCapture('n_bot_left', true);
+      // Step 3: tower_roles remains visible for ~4 seconds
+      controller.onTimerTick(3.5);
+      expect(controller.currentStepId).toBe('tower_roles');
+      controller.onTimerTick(0.6); // Total >= 4.0s -> enters multi_dispatch
       expect(controller.currentStepId).toBe('multi_dispatch');
 
       // Step 4: multi_dispatch advances on 2+ source dispatch
@@ -86,8 +92,8 @@ describe('TutorialController', () => {
       expect(stepIds).toEqual([
         'drag_to_attack',   // initial entry
         'preview_result',   // after first dispatch
-        'tower_roles',      // after preview timer
-        'multi_dispatch',   // after capture
+        'tower_roles',      // after preview timer + capture
+        'multi_dispatch',   // after tower_roles duration
       ]);
 
       // Verify step_completed events have correct stepIds
@@ -100,6 +106,24 @@ describe('TutorialController', () => {
         'multi_dispatch',
       ]);
     });
+
+    it('preview_result waits for min duration if capture happens early', () => {
+      const { controller } = createController();
+
+      controller.onDispatch(['p_base'], 'n_bot_left');
+      expect(controller.currentStepId).toBe('preview_result');
+
+      // Fast capture at 1.0s (e.g. close march)
+      controller.onTimerTick(1.0);
+      controller.onCapture('n_bot_left', true);
+
+      // Must remain in preview_result until min readable duration (2.5s) is met
+      expect(controller.currentStepId).toBe('preview_result');
+
+      // Timer completes remaining 1.5s
+      controller.onTimerTick(1.6);
+      expect(controller.currentStepId).toBe('tower_roles');
+    });
   });
 
   // 2. Invalid actions do not advance steps
@@ -111,41 +135,60 @@ describe('TutorialController', () => {
       expect(controller.currentStepId).toBe('drag_to_attack');
     });
 
-    it('onPreviewShown during drag_to_attack does not advance', () => {
-      const { controller } = createController();
-      controller.onPreviewShown();
-      controller.onTimerTick(5.0);
-      expect(controller.currentStepId).toBe('drag_to_attack');
-    });
-
     it('onDispatch with 0 sources does not advance', () => {
       const { controller } = createController();
       controller.onDispatch([], 'n_bot_left');
       expect(controller.currentStepId).toBe('drag_to_attack');
     });
 
-    it('enemy capture during tower_roles does not advance', () => {
+    it('second dispatch does not skip preview_result before capture (Bug 4 Rule 7)', () => {
       const { controller } = createController();
 
-      // Advance to tower_roles
       controller.onDispatch(['p_base'], 'n_bot_left');
-      controller.onPreviewShown();
+      expect(controller.currentStepId).toBe('preview_result');
+
+      // Second dispatch during preview_result must be ignored
+      controller.onDispatch(['p_base'], 'n_bot_right');
+      expect(controller.currentStepId).toBe('preview_result');
+    });
+
+    it('enemy capture does not advance preview_result to tower_roles', () => {
+      const { controller } = createController();
+
+      controller.onDispatch(['p_base'], 'n_bot_left');
       controller.onTimerTick(3.0);
+      expect(controller.currentStepId).toBe('preview_result');
+
+      // Enemy capture should not satisfy the first player capture requirement
+      controller.onCapture('n_top_right', false);
+      expect(controller.currentStepId).toBe('preview_result');
+    });
+
+    it('capture or dispatch during tower_roles does not cut short the 4s duration', () => {
+      const { controller } = createController();
+
+      controller.onDispatch(['p_base'], 'n_bot_left');
+      controller.onTimerTick(2.5);
+      controller.onCapture('n_bot_left', true);
       expect(controller.currentStepId).toBe('tower_roles');
 
-      // Enemy capture should not advance
-      controller.onCapture('n_top_right', false);
+      // Actions during tower_roles do not advance before timer
+      controller.onCapture('n_bot_right', true);
+      controller.onDispatch(['p_base'], 'n_center');
       expect(controller.currentStepId).toBe('tower_roles');
+
+      // Only the 4s timer advances to multi_dispatch
+      controller.onTimerTick(4.0);
+      expect(controller.currentStepId).toBe('multi_dispatch');
     });
 
     it('single-source dispatch during multi_dispatch does not complete', () => {
       const { controller } = createController();
 
-      // Advance to multi_dispatch
       controller.onDispatch(['p_base'], 'n_bot_left');
-      controller.onPreviewShown();
-      controller.onTimerTick(3.0);
+      controller.onTimerTick(2.5);
       controller.onCapture('n_bot_left', true);
+      controller.onTimerTick(4.0);
       expect(controller.currentStepId).toBe('multi_dispatch');
 
       // Single source dispatch should NOT complete
@@ -170,32 +213,15 @@ describe('TutorialController', () => {
     });
   });
 
-  // 4. First capture advances the role step
-  describe('first capture', () => {
-    it('player capture advances tower_roles step', () => {
-      const { controller } = createController();
-
-      // Advance to tower_roles
-      controller.onDispatch(['p_base'], 'n_bot_left');
-      controller.onPreviewShown();
-      controller.onTimerTick(3.0);
-      expect(controller.currentStepId).toBe('tower_roles');
-
-      controller.onCapture('n_bot_left', true);
-      expect(controller.currentStepId).toBe('multi_dispatch');
-    });
-  });
-
-  // 5. Coordinated multi-source dispatch completes the tutorial
+  // 4. Coordinated multi-source dispatch completes the tutorial
   describe('multi dispatch completion', () => {
     it('dispatching from 2+ sources completes the tutorial', () => {
       const { controller, events } = createController();
 
-      // Advance to multi_dispatch
       controller.onDispatch(['p_base'], 'n_bot_left');
-      controller.onPreviewShown();
-      controller.onTimerTick(3.0);
+      controller.onTimerTick(2.5);
       controller.onCapture('n_bot_left', true);
+      controller.onTimerTick(4.0);
       expect(controller.currentStepId).toBe('multi_dispatch');
 
       controller.onDispatch(['p_base', 'n_bot_left'], 'n_center');
@@ -210,16 +236,16 @@ describe('TutorialController', () => {
       const { controller } = createController();
 
       controller.onDispatch(['p_base'], 'n_bot_left');
-      controller.onPreviewShown();
-      controller.onTimerTick(3.0);
+      controller.onTimerTick(2.5);
       controller.onCapture('n_bot_left', true);
+      controller.onTimerTick(4.0);
 
       controller.onDispatch(['p_base', 'n_bot_left', 'n_bot_right'], 'n_center');
       expect(controller.isCompleted).toBe(true);
     });
   });
 
-  // 6. Skip completes persistence and suppresses future tutorials
+  // 5. Skip completes persistence and suppresses future tutorials
   describe('skip', () => {
     it('skip immediately deactivates the controller', () => {
       const { controller } = createController();
@@ -252,24 +278,41 @@ describe('TutorialController', () => {
 
       controller.onDispatch(['p_base'], 'n_bot_left');
       controller.onCapture('n_bot_left', true);
-      controller.onPreviewShown();
       controller.onTimerTick(5.0);
 
       expect(events.length).toBe(eventCountAfterSkip);
     });
   });
 
-  // 7. Refresh/reload does not restart a completed tutorial
+  // 6. Bug 3: Match end is NOT a skip
+  describe('match end behavior (Bug 3)', () => {
+    it('destroy on match end does not emit tutorial_skipped and does not mark completion', () => {
+      const playerId = 'match_end_player';
+      const { controller, events } = createController(playerId);
+      expect(controller.isActive).toBe(true);
+
+      // Match ends naturally: GameScene destroys the active tutorial
+      controller.destroy();
+
+      expect(controller.isActive).toBe(false);
+      expect(controller.isCompleted).toBe(false);
+      // Must NOT emit tutorial_skipped
+      expect(events.some(e => e.type === 'skipped')).toBe(false);
+      // Must NOT persist completion
+      expect(isTutorialCompleted(playerId)).toBe(false);
+    });
+  });
+
+  // 7. Persistence across sessions
   describe('persistence across sessions', () => {
     it('completed tutorial is persisted and detected', () => {
       const playerId = 'persist_player';
       const { controller } = createController(playerId);
 
-      // Complete the full tutorial
       controller.onDispatch(['p_base'], 'n_bot_left');
-      controller.onPreviewShown();
-      controller.onTimerTick(3.0);
+      controller.onTimerTick(2.5);
       controller.onCapture('n_bot_left', true);
+      controller.onTimerTick(4.0);
       controller.onDispatch(['p_base', 'n_bot_left'], 'n_center');
 
       expect(controller.isCompleted).toBe(true);
@@ -294,7 +337,6 @@ describe('TutorialController', () => {
       controller.onDispatch(['p_base'], 'n_bot_left');
       controller.skip();
 
-      // No new events should have been emitted
       expect(events.length).toBe(eventCountAfterDestroy);
     });
 
@@ -316,11 +358,10 @@ describe('TutorialController', () => {
     it('step_entered events use stable IDs from TUTORIAL_STEPS', () => {
       const { controller, events } = createController();
 
-      // Complete all steps
       controller.onDispatch(['p_base'], 'n_bot_left');
-      controller.onPreviewShown();
-      controller.onTimerTick(3.0);
+      controller.onTimerTick(2.5);
       controller.onCapture('n_bot_left', true);
+      controller.onTimerTick(4.0);
       controller.onDispatch(['p_base', 'n_bot_left'], 'n_center');
 
       const stepEnteredEvents = events.filter(e => e.type === 'step_entered');
@@ -333,9 +374,9 @@ describe('TutorialController', () => {
       const { controller, events } = createController();
 
       controller.onDispatch(['p_base'], 'n_bot_left');
-      controller.onPreviewShown();
-      controller.onTimerTick(3.0);
+      controller.onTimerTick(2.5);
       controller.onCapture('n_bot_left', true);
+      controller.onTimerTick(4.0);
       controller.onDispatch(['p_base', 'n_bot_left'], 'n_center');
 
       const completedEvents = events.filter(e => e.type === 'completed');
@@ -345,7 +386,6 @@ describe('TutorialController', () => {
     it('skipped fires exactly once with lastStepId', () => {
       const { controller, events } = createController();
 
-      // Advance to preview_result then skip
       controller.onDispatch(['p_base'], 'n_bot_left');
       controller.skip();
 
@@ -353,67 +393,67 @@ describe('TutorialController', () => {
       expect(skippedEvents).toHaveLength(1);
       expect(skippedEvents[0].stepId).toBe('preview_result');
     });
-
-    it('no duplicate started events if events are replayed', () => {
-      const { events } = createController();
-      // Just constructing the controller should produce exactly one 'started'
-      expect(events.filter(e => e.type === 'started')).toHaveLength(1);
-    });
   });
 
-  // 10. AI suppression flag behavior
-  describe('AI suppression', () => {
-    it('shouldSuppressAI is true during drag_to_attack', () => {
+  // 10. Bug 1: Simulation pause behavior & replay parity
+  describe('simulation pause (Bug 1)', () => {
+    it('shouldPauseSimulation is true during drag_to_attack', () => {
       const { controller } = createController();
+      expect(controller.shouldPauseSimulation).toBe(true);
       expect(controller.shouldSuppressAI).toBe(true);
     });
 
-    it('shouldSuppressAI becomes false after first dispatch', () => {
+    it('shouldPauseSimulation becomes false immediately after first dispatch', () => {
       const { controller } = createController();
       controller.onDispatch(['p_base'], 'n_bot_left');
+      expect(controller.shouldPauseSimulation).toBe(false);
       expect(controller.shouldSuppressAI).toBe(false);
     });
 
-    it('shouldSuppressAI is false after skip', () => {
+    it('shouldPauseSimulation is false after skip', () => {
       const { controller } = createController();
       controller.skip();
-      expect(controller.shouldSuppressAI).toBe(false);
+      expect(controller.shouldPauseSimulation).toBe(false);
     });
 
-    it('shouldSuppressAI is false after destroy', () => {
+    it('shouldPauseSimulation is false after destroy', () => {
       const { controller } = createController();
       controller.destroy();
-      expect(controller.shouldSuppressAI).toBe(false);
+      expect(controller.shouldPauseSimulation).toBe(false);
+    });
+  });
+
+  // 11. Bug 5: Restricted WebView localStorage crash protection
+  describe('restricted WebView storage crash safety (Bug 5)', () => {
+    it('handles restricted WebView where localStorage getter throws without crashing', () => {
+      Object.defineProperty(globalThis.window, 'localStorage', {
+        get() {
+          throw new Error('SecurityError: The operation is insecure.');
+        },
+        configurable: true,
+      });
+
+      // Must return false and not throw
+      expect(isTutorialCompleted('restricted_player')).toBe(false);
+
+      // Must complete silently without crashing
+      expect(() => markTutorialCompleted('restricted_player')).not.toThrow();
+
+      // Controller must continue functioning normally without crashing
+      const { controller, events } = createController('restricted_player');
+      expect(controller.isActive).toBe(true);
+      expect(() => controller.skip()).not.toThrow();
+      expect(controller.isActive).toBe(false);
+      expect(events.some(e => e.type === 'skipped')).toBe(true);
     });
   });
 
   // Edge cases
   describe('edge cases', () => {
-    it('preview_result can be advanced by a second dispatch instead of timer', () => {
-      const { controller } = createController();
-      controller.onDispatch(['p_base'], 'n_bot_left');
-      expect(controller.currentStepId).toBe('preview_result');
-
-      // Dispatch again without waiting for timer
-      controller.onDispatch(['p_base'], 'n_center');
-      expect(controller.currentStepId).toBe('tower_roles');
-    });
-
-    it('timer tick without preview shown does not advance', () => {
-      const { controller } = createController();
-      controller.onDispatch(['p_base'], 'n_bot_left');
-      expect(controller.currentStepId).toBe('preview_result');
-
-      // Tick without preview shown
-      controller.onTimerTick(5.0);
-      expect(controller.currentStepId).toBe('preview_result');
-    });
-
     it('callback errors do not crash the controller', () => {
       const errorCallback = () => { throw new Error('callback error'); };
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      // Should not throw
       expect(() => new TutorialController('err_player', errorCallback)).not.toThrow();
 
       consoleSpy.mockRestore();

@@ -757,6 +757,10 @@ var analyticsEventDefinitions = map[string]analyticsEventDefinition{
 	"live_match_started":         {properties: analyticsProperties("matchId")},
 	"live_match_ended":           {properties: analyticsProperties("matchId", "status")},
 	"live_match_disconnected":    {properties: analyticsProperties("matchId")},
+	"tutorial_started":           {properties: map[string]analyticsPropertyKind{}},
+	"tutorial_step_completed":    {properties: analyticsProperties("stepId")},
+	"tutorial_completed":         {properties: map[string]analyticsPropertyKind{}},
+	"tutorial_skipped":           {properties: analyticsProperties("lastStepId")},
 }
 
 func analyticsProperties(keys ...string) map[string]analyticsPropertyKind {
@@ -884,6 +888,10 @@ func hasValidAnalyticsPropertyEnums(event AnalyticsEventRecord) bool {
 			oneOf(value("reason"), "insufficient_coins", "max_level")
 	case "live_match_ended":
 		return oneOf(value("status"), "victory", "defeat", "draw")
+	case "tutorial_step_completed":
+		return oneOf(value("stepId"), "drag_to_attack", "preview_result", "tower_roles", "multi_dispatch")
+	case "tutorial_skipped":
+		return oneOf(value("lastStepId"), "drag_to_attack", "preview_result", "tower_roles", "multi_dispatch")
 	default:
 		return true
 	}

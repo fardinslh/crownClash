@@ -78,18 +78,22 @@ function storageKey(playerId: string): string {
 }
 
 export function isTutorialCompleted(playerId: string): boolean {
-  if (typeof window === 'undefined' || !window.localStorage) return false;
   try {
-    return window.localStorage.getItem(storageKey(playerId)) === '1';
+    if (typeof window === 'undefined') return false;
+    const storage = window.localStorage;
+    if (!storage) return false;
+    return storage.getItem(storageKey(playerId)) === '1';
   } catch {
     return false;
   }
 }
 
 export function markTutorialCompleted(playerId: string): void {
-  if (typeof window === 'undefined' || !window.localStorage) return;
   try {
-    window.localStorage.setItem(storageKey(playerId), '1');
+    if (typeof window === 'undefined') return;
+    const storage = window.localStorage;
+    if (!storage) return;
+    storage.setItem(storageKey(playerId), '1');
   } catch {
     // Storage unavailable in some WebViews — silently ignored.
   }
@@ -104,14 +108,17 @@ export class TutorialController {
   private _isCompleted = false;
   private _isSkipped = false;
   private destroyed = false;
-  private previewShownForCurrentStep = false;
+  private firstCaptureOccurred = false;
 
-  /** Elapsed time in the current timed step (seconds). */
-  private timedElapsed = 0;
-  /** Seconds to auto-advance timed steps. */
-  private static readonly TIMED_STEP_DURATION = 2.5;
-  /** Seconds to auto-advance tower roles explanation. */
-  private static readonly TOWER_ROLES_DURATION = 4.0;
+  /** Elapsed time in preview_result step (seconds). */
+  private previewElapsed = 0;
+  /** Elapsed time in tower_roles step (seconds). */
+  private towerRolesElapsed = 0;
+
+  /** Minimum readable display time for the preview result step. */
+  public static readonly PREVIEW_RESULT_MIN_DURATION = 2.5;
+  /** Display duration for explaining tower roles. */
+  public static readonly TOWER_ROLES_DURATION = 4.0;
 
   constructor(
     private readonly playerId: string,
@@ -144,11 +151,18 @@ export class TutorialController {
   }
 
   /**
-   * When true, the bot AI should be suppressed so the player can read
-   * the first instruction without time pressure.
+   * When true, the entire bot match simulation (including elapsed time and bot AI)
+   * is paused so the player can read the first instruction without time pressure.
+   */
+  get shouldPauseSimulation(): boolean {
+    return this.isActive && this.stepIndex === 0;
+  }
+
+  /**
+   * Backward-compatible alias for shouldPauseSimulation.
    */
   get shouldSuppressAI(): boolean {
-    return this.isActive && this.stepIndex === 0;
+    return this.shouldPauseSimulation;
   }
 
   // -----------------------------------------------------------------------
@@ -166,16 +180,15 @@ export class TutorialController {
     const step = this.currentStepId;
 
     if (step === 'drag_to_attack') {
-      // Any valid dispatch advances past the first step.
+      // First valid dispatch completes drag_to_attack and unfreezes simulation.
       if (sourceIds.length >= 1) {
         this.advanceStep();
       }
       return;
     }
 
-    if (step === 'preview_result') {
-      // A second dispatch while we're showing the preview info also advances.
-      this.advanceStep();
+    // Rule 7: A second dispatch must NOT skip preview_result before capture.
+    if (step === 'preview_result' || step === 'tower_roles') {
       return;
     }
 
@@ -193,8 +206,16 @@ export class TutorialController {
   onCapture(_territoryId: string, capturedByPlayer: boolean): void {
     if (!this.isActive) return;
 
-    if (this.currentStepId === 'tower_roles' && capturedByPlayer) {
-      this.advanceStep();
+    if (capturedByPlayer) {
+      this.firstCaptureOccurred = true;
+
+      // In preview_result, once minimum display duration is met AND capture occurred, enter tower_roles.
+      if (
+        this.currentStepId === 'preview_result' &&
+        this.previewElapsed >= TutorialController.PREVIEW_RESULT_MIN_DURATION
+      ) {
+        this.advanceStep();
+      }
     }
   }
 
@@ -202,34 +223,31 @@ export class TutorialController {
    * Called when the drag-badge preview becomes visible to the player.
    */
   onPreviewShown(): void {
-    if (!this.isActive) return;
-
-    if (this.currentStepId === 'preview_result') {
-      this.previewShownForCurrentStep = true;
-    }
+    // Retained for interface compatibility.
   }
 
   /**
    * Called every frame with the frame delta (seconds).
-   * Used to auto-advance timed informational steps.
+   * Used to advance timed steps when requirements are met.
    */
   onTimerTick(deltaSeconds: number): void {
     if (!this.isActive) return;
 
-    if (
-      this.currentStepId === 'preview_result' &&
-      this.previewShownForCurrentStep
-    ) {
-      this.timedElapsed += deltaSeconds;
-      if (this.timedElapsed >= TutorialController.TIMED_STEP_DURATION) {
+    if (this.currentStepId === 'preview_result') {
+      this.previewElapsed += deltaSeconds;
+      // preview_result remains visible for min duration AND waits for first capture.
+      if (
+        this.previewElapsed >= TutorialController.PREVIEW_RESULT_MIN_DURATION &&
+        this.firstCaptureOccurred
+      ) {
         this.advanceStep();
       }
       return;
     }
 
     if (this.currentStepId === 'tower_roles') {
-      this.timedElapsed += deltaSeconds;
-      if (this.timedElapsed >= TutorialController.TOWER_ROLES_DURATION) {
+      this.towerRolesElapsed += deltaSeconds;
+      if (this.towerRolesElapsed >= TutorialController.TOWER_ROLES_DURATION) {
         this.advanceStep();
       }
       return;
@@ -269,8 +287,8 @@ export class TutorialController {
 
     const finishedStepId = this.currentStepId;
     this.stepIndex++;
-    this.previewShownForCurrentStep = false;
-    this.timedElapsed = 0;
+    this.previewElapsed = 0;
+    this.towerRolesElapsed = 0;
 
     if (finishedStepId) {
       this.emit({ type: 'step_completed', stepId: finishedStepId });

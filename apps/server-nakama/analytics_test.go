@@ -84,6 +84,33 @@ func TestAnalyticsPayloadRejectsMalformedAndInvalidEvents(t *testing.T) {
 		{name: "forged league reward value", payload: analyticsPayload([]AnalyticsEventRecord{
 			analyticsTestEvent("league_reward_claimed", map[string]any{"claimId": "claim_1", "reward": 999999}),
 		}), wantErr: "invalid_event_props"},
+		{name: "tutorial_started with extra property", payload: analyticsPayload([]AnalyticsEventRecord{
+			analyticsTestEvent("tutorial_started", map[string]any{"extra": "val"}),
+		}), wantErr: "invalid_event_props"},
+		{name: "tutorial_step_completed missing stepId", payload: analyticsPayload([]AnalyticsEventRecord{
+			analyticsTestEvent("tutorial_step_completed", map[string]any{}),
+		}), wantErr: "invalid_event_props"},
+		{name: "tutorial_step_completed invalid stepId", payload: analyticsPayload([]AnalyticsEventRecord{
+			analyticsTestEvent("tutorial_step_completed", map[string]any{"stepId": "invalid_step"}),
+		}), wantErr: "invalid_event_props"},
+		{name: "tutorial_step_completed wrong type for stepId", payload: analyticsPayload([]AnalyticsEventRecord{
+			analyticsTestEvent("tutorial_step_completed", map[string]any{"stepId": 123}),
+		}), wantErr: "invalid_event_props"},
+		{name: "tutorial_step_completed extra property", payload: analyticsPayload([]AnalyticsEventRecord{
+			analyticsTestEvent("tutorial_step_completed", map[string]any{"stepId": "drag_to_attack", "extra": "val"}),
+		}), wantErr: "invalid_event_props"},
+		{name: "tutorial_completed with extra property", payload: analyticsPayload([]AnalyticsEventRecord{
+			analyticsTestEvent("tutorial_completed", map[string]any{"extra": "val"}),
+		}), wantErr: "invalid_event_props"},
+		{name: "tutorial_skipped missing lastStepId", payload: analyticsPayload([]AnalyticsEventRecord{
+			analyticsTestEvent("tutorial_skipped", map[string]any{}),
+		}), wantErr: "invalid_event_props"},
+		{name: "tutorial_skipped invalid lastStepId", payload: analyticsPayload([]AnalyticsEventRecord{
+			analyticsTestEvent("tutorial_skipped", map[string]any{"lastStepId": "unknown"}),
+		}), wantErr: "invalid_event_props"},
+		{name: "tutorial_skipped wrong type for lastStepId", payload: analyticsPayload([]AnalyticsEventRecord{
+			analyticsTestEvent("tutorial_skipped", map[string]any{"lastStepId": true}),
+		}), wantErr: "invalid_event_props"},
 		{name: "invalid envelope", payload: analyticsPayload([]AnalyticsEventRecord{{
 			Name: "session_start", SessionID: "session_test", OccurredAt: analyticsTestNow, SchemaVersion: 1, Props: map[string]any{},
 		}}), wantErr: "invalid_event_envelope"},
@@ -137,6 +164,28 @@ func TestAnalyticsPayloadAcceptsLeagueEvents(t *testing.T) {
 	}
 	if len(events) != 3 {
 		t.Fatalf("unexpected league events: %+v", events)
+	}
+}
+
+func TestAnalyticsPayloadAcceptsTutorialEvents(t *testing.T) {
+	steps := []string{"drag_to_attack", "preview_result", "tower_roles", "multi_dispatch"}
+	var eventRecords []AnalyticsEventRecord
+
+	eventRecords = append(eventRecords, analyticsTestEvent("tutorial_started", map[string]any{}))
+	for _, step := range steps {
+		eventRecords = append(eventRecords, analyticsTestEvent("tutorial_step_completed", map[string]any{"stepId": step}))
+	}
+	eventRecords = append(eventRecords, analyticsTestEvent("tutorial_completed", map[string]any{}))
+	for _, step := range steps {
+		eventRecords = append(eventRecords, analyticsTestEvent("tutorial_skipped", map[string]any{"lastStepId": step}))
+	}
+
+	events, err := parseAnalyticsEventsPayload(analyticsPayload(eventRecords), analyticsTestNow)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(events) != len(eventRecords) {
+		t.Fatalf("expected %d events, got %d", len(eventRecords), len(events))
 	}
 }
 
