@@ -12,6 +12,7 @@ import { THEME } from '../theme.js';
 import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
 import { LiveMatchClient } from '../api/LiveMatchClient.js';
 import { LivePvpController, isValidRoomCode, sanitizeRoomCode } from '../pvp/LivePvpController.js';
+import { getLogicalDomLayout } from '../ui/LogicalDomLayout.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 
@@ -19,7 +20,8 @@ export class MenuScene extends Phaser.Scene {
   private liveClient?: LiveMatchClient;
   private pvpController?: LivePvpController;
   private backButtonUnregister?: () => void;
-  private joinCodeInput?: Phaser.GameObjects.DOMElement;
+  private joinCodeInput?: HTMLInputElement;
+  private joinCodeInputCleanup?: () => void;
 
   constructor() {
     super({ key: 'MenuScene' });
@@ -32,8 +34,9 @@ export class MenuScene extends Phaser.Scene {
     this.liveClient = undefined;
     this.backButtonUnregister?.();
     this.backButtonUnregister = undefined;
-    this.joinCodeInput?.destroy();
+    this.joinCodeInputCleanup?.();
     this.joinCodeInput = undefined;
+    this.joinCodeInputCleanup = undefined;
   }
 
   create(): void {
@@ -408,7 +411,7 @@ export class MenuScene extends Phaser.Scene {
       [lobbyView, waitingView, joinView, loadingView, errorView].forEach((v) =>
         v.setVisible(false)
       );
-      joinInput.setVisible(false);
+      joinInput.style.display = 'none';
     };
 
     // --------------------------------------------------- helpers
@@ -473,8 +476,7 @@ export class MenuScene extends Phaser.Scene {
       this.backButtonUnregister?.();
       this.backButtonUnregister = undefined;
       platform.hideBackButton();
-      joinInput.destroy();
-      this.joinCodeInput = undefined;
+      cleanupJoinInput();
       overlay.destroy();
       raidButton.setInteractive({ useHandCursor: true });
       raidText.setText('LIVE PVP  ⚔');
@@ -576,18 +578,78 @@ export class MenuScene extends Phaser.Scene {
     const joinTitle = TS('ENTER INVITE CODE', 0, -200, '14px', '#c7d2fe', { fontStyle: '900', strokeThickness: 2 });
     const joinSubtitle = TS('8-character code your friend shared', 0, -182, '10px', '#94a3b8', { strokeThickness: 1 });
 
-    // Phaser DOM elements support one container level. Keep the input directly
-    // under the root overlay so it shares the modal transform without the
-    // unsupported overlay -> joinView -> input nesting.
-    const joinInput = this.add.dom(
-      0,
-      -123,
-      'input',
-      'width: 230px; height: 46px; font-size: 22px; font-weight: 700; text-align: center; text-transform: uppercase; letter-spacing: 5px; border-radius: 8px; border: 2px solid #818cf8; background: #0f172a; color: #ffffff; outline: none; box-sizing: border-box;',
-      ''
-    ).setVisible(false);
+    // Phaser's DOM renderer does not stay aligned with this game's DPR camera
+    // zoom. Position the native input from the canvas's actual viewport bounds.
+    const joinInput = document.createElement('input');
+    joinInput.type = 'text';
+    joinInput.maxLength = 8;
+    joinInput.autocomplete = 'off';
+    joinInput.autocapitalize = 'characters';
+    joinInput.spellcheck = false;
+    joinInput.inputMode = 'text';
+    joinInput.setAttribute('aria-label', 'Invite code');
+    joinInput.style.cssText = [
+      'position: fixed',
+      'display: none',
+      'z-index: 1000',
+      'margin: 0',
+      'padding: 0 10px',
+      'font-weight: 700',
+      'font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif',
+      'text-align: center',
+      'text-transform: uppercase',
+      'border-style: solid',
+      'border-color: #818cf8',
+      'background: #0f172a',
+      'color: #ffffff',
+      'outline: none',
+      'box-sizing: border-box',
+      'transform: translate(-50%, -50%)',
+      'transform-origin: center',
+      'user-select: text',
+      '-webkit-user-select: text',
+    ].join(';');
+    document.body.appendChild(joinInput);
+
+    const positionJoinInput = (): void => {
+      const layout = getLogicalDomLayout(
+        this.game.canvas.getBoundingClientRect(),
+        { width: LOGICAL_WIDTH, height: LOGICAL_HEIGHT },
+        { x: LOGICAL_WIDTH / 2, y: LOGICAL_HEIGHT / 2 - 123, width: 230, height: 46 }
+      );
+      joinInput.style.left = `${layout.centerX}px`;
+      joinInput.style.top = `${layout.centerY}px`;
+      joinInput.style.width = `${layout.width}px`;
+      joinInput.style.height = `${layout.height}px`;
+      joinInput.style.fontSize = `${22 * layout.scale}px`;
+      joinInput.style.letterSpacing = `${5 * layout.scale}px`;
+      joinInput.style.borderWidth = `${Math.max(2, 2 * layout.scale)}px`;
+      joinInput.style.borderRadius = `${8 * layout.scale}px`;
+    };
+
+    let inputCleanedUp = false;
+    const viewport = window.visualViewport;
+    const cleanupJoinInput = (): void => {
+      if (inputCleanedUp) return;
+      inputCleanedUp = true;
+      window.removeEventListener('resize', positionJoinInput);
+      viewport?.removeEventListener('resize', positionJoinInput);
+      viewport?.removeEventListener('scroll', positionJoinInput);
+      this.scale.off(Phaser.Scale.Events.RESIZE, positionJoinInput);
+      joinInput.remove();
+      if (this.joinCodeInput === joinInput) this.joinCodeInput = undefined;
+      if (this.joinCodeInputCleanup === cleanupJoinInput) {
+        this.joinCodeInputCleanup = undefined;
+      }
+    };
+
+    window.addEventListener('resize', positionJoinInput);
+    viewport?.addEventListener('resize', positionJoinInput);
+    viewport?.addEventListener('scroll', positionJoinInput);
+    this.scale.on(Phaser.Scale.Events.RESIZE, positionJoinInput);
+    positionJoinInput();
     this.joinCodeInput = joinInput;
-    overlay.add(joinInput);
+    this.joinCodeInputCleanup = cleanupJoinInput;
     const joinErrorText = TS('', 0, -87, '10px', '#f87171', { strokeThickness: 1 });
 
     const { bg: joinSubmitBg, txt: joinSubmitTxt } = makeBtn(
@@ -694,7 +756,8 @@ export class MenuScene extends Phaser.Scene {
         }
         case 'entering_code': {
           joinView.setVisible(true);
-          joinInput.setVisible(true);
+          positionJoinInput();
+          joinInput.style.display = 'block';
           joinErrorText.setText(opts.error ?? '');
           const backToLobby = (): void => controller.cancel();
           this.backButtonUnregister?.();
@@ -747,8 +810,7 @@ export class MenuScene extends Phaser.Scene {
         platform.hideBackButton();
         this.backButtonUnregister?.();
         this.backButtonUnregister = undefined;
-        joinInput.destroy();
-        this.joinCodeInput = undefined;
+        cleanupJoinInput();
         overlay.destroy();
         this.liveClient = undefined;
         this.scene.start('GameScene', {
@@ -808,9 +870,9 @@ export class MenuScene extends Phaser.Scene {
       }
       controller.startEnteringCode();
       window.setTimeout(() => {
-        const el = joinInput.node as HTMLInputElement;
-        el.value = '';
-        el.focus();
+        joinInput.value = '';
+        positionJoinInput();
+        joinInput.focus();
       }, 80);
     });
 
@@ -857,7 +919,7 @@ export class MenuScene extends Phaser.Scene {
     });
 
     // ------------------------------------------------ JOIN CODE VIEW HANDLERS
-    const joinInputEl = joinInput.node as HTMLInputElement;
+    const joinInputEl = joinInput;
     joinInputEl.addEventListener('input', () => {
       const sanitized = sanitizeRoomCode(joinInputEl.value);
       if (joinInputEl.value !== sanitized) joinInputEl.value = sanitized;
