@@ -26,6 +26,11 @@ import {
   settleMatch,
   UpgradePurchaseResult,
   UpgradeType,
+  CommanderId,
+  CommanderSelectionResult,
+  getKingdomLevel,
+  isCommanderUnlocked,
+  normalizeCommanderId,
 } from '@crown-clash/game-core';
 import type { PlatformAdapter } from '@crown-clash/platform';
 import type { CareerApi } from '../api/GameApiClient.js';
@@ -149,6 +154,22 @@ export class CareerManager {
     }
 
     return result;
+  }
+
+  public async selectCommander(commanderId: CommanderId): Promise<CommanderSelectionResult> {
+    if (this.remoteConnected) {
+      const result = await this.requireRemoteApi().selectCommander(commanderId);
+      if (result.success) this.applyRemoteState(result.newCareer, []);
+      return result;
+    }
+    if (!isLocalCareerFallbackAllowed()) throw new Error('backend_required_for_commander');
+    if (!isCommanderUnlocked(commanderId, getKingdomLevel(this.career))) {
+      return { success: false, reason: 'commander_locked', commanderId, newCareer: this.getCareer() };
+    }
+    this.career = { ...this.career, selectedCommanderId: commanderId };
+    this.saveCareer();
+    this.emitChange();
+    return { success: true, commanderId, newCareer: this.getCareer() };
   }
 
   public getDailyStateRemote(): Promise<DailyState> {
@@ -306,6 +327,7 @@ export class CareerManager {
             productionLevel: normalizeUpgradeLevel(parsed.productionLevel, 'production'),
             armySpeedLevel: normalizeUpgradeLevel(parsed.armySpeedLevel, 'army_speed'),
             treasuryLevel: normalizeUpgradeLevel(parsed.treasuryLevel, 'treasury'),
+            selectedCommanderId: normalizeCommanderId(parsed.selectedCommanderId),
             matchesPlayed: parsed.matchesPlayed ?? 0,
             matchesWon: parsed.matchesWon ?? 0,
             currentStreak: parsed.currentStreak ?? 0,

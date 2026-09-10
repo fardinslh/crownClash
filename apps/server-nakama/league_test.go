@@ -15,9 +15,9 @@ import (
 func leagueCareerRows(playerID string, coins, trophies int) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "coins", "gems", "trophies",
-		"starting_garrison_level", "production_level", "army_speed_level", "treasury_level",
+		"starting_garrison_level", "production_level", "army_speed_level", "treasury_level", "selected_commander",
 		"matches_played", "matches_won", "current_streak", "best_streak", "last_match_timestamp",
-	}).AddRow(playerID, coins, 10, trophies, 2, 3, 4, 1, 0, 0, 0, 0, 0)
+	}).AddRow(playerID, coins, 10, trophies, 2, 3, 4, 1, "crown_guard", 0, 0, 0, 0, 0)
 }
 
 func TestLeagueStateUsesTrophiesPowerAndPermanentClaims(t *testing.T) {

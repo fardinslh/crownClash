@@ -5,6 +5,7 @@
 
 import { MatchStats } from './types.js';
 import { getTreasuryCoinBonusRate } from './upgrades.js';
+import type { CommanderId } from './commanders.js';
 
 export type CurrencyType = 'coins' | 'gems' | 'trophies';
 
@@ -35,6 +36,7 @@ export interface PlayerCareer {
   productionLevel: number;
   armySpeedLevel: number;
   treasuryLevel: number;
+  selectedCommanderId: CommanderId;
   matchesPlayed: number;
   matchesWon: number;
   currentStreak: number;
@@ -87,6 +89,7 @@ export function createDefaultCareer(playerId: string): PlayerCareer {
     productionLevel: 0,
     armySpeedLevel: 0,
     treasuryLevel: 0,
+    selectedCommanderId: 'crown_guard',
     matchesPlayed: 0,
     matchesWon: 0,
     currentStreak: 0,

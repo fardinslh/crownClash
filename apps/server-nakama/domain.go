@@ -27,7 +27,20 @@ var ErrPvpInvalidTarget = errors.New("invalid_target")
 var ErrPvpInvalidDispatch = errors.New("invalid_dispatch")
 
 func CreateDefaultCareer(playerID string) PlayerCareer {
-	return PlayerCareer{PlayerID: playerID, Coins: 100, Gems: 10}
+	return PlayerCareer{PlayerID: playerID, Coins: 100, Gems: 10, SelectedCommanderID: "crown_guard"}
+}
+
+func CommanderUnlockLevel(commanderID string) (int, bool) {
+	switch commanderID {
+	case "crown_guard":
+		return 0, true
+	case "quartermaster":
+		return 10, true
+	case "vanguard":
+		return 25, true
+	default:
+		return 0, false
+	}
 }
 
 var rankTiers = []RankTierInfo{
@@ -217,11 +230,20 @@ func UpgradeModifiers(career PlayerCareer) PlayerUpgradeModifiers {
 	garrisonLevel := UpgradeLevel(career, UpgradeStartingGarrison)
 	productionLevel := UpgradeLevel(career, UpgradeProduction)
 	speedLevel := UpgradeLevel(career, UpgradeArmySpeed)
-	return PlayerUpgradeModifiers{
+	modifiers := PlayerUpgradeModifiers{
 		StartingUnits:            20 + minInt(garrisonLevel, 5)*3 + maxInt(garrisonLevel-5, 0),
 		ProductionRateMultiplier: roundMultiplier(1 + float64(minInt(productionLevel, 5))*0.08 + float64(maxInt(productionLevel-5, 0))*0.02),
 		ArmySpeedMultiplier:      roundMultiplier(1 + float64(minInt(speedLevel, 5))*0.06 + float64(maxInt(speedLevel-5, 0))*0.015),
 	}
+	switch career.SelectedCommanderID {
+	case "quartermaster":
+		modifiers.ProductionRateMultiplier = roundMultiplier(modifiers.ProductionRateMultiplier * 1.15)
+		modifiers.ArmySpeedMultiplier = roundMultiplier(modifiers.ArmySpeedMultiplier * 0.9)
+	case "vanguard":
+		modifiers.StartingUnits = maxInt(1, modifiers.StartingUnits-3)
+		modifiers.ArmySpeedMultiplier = roundMultiplier(modifiers.ArmySpeedMultiplier * 1.15)
+	}
+	return modifiers
 }
 
 func TreasuryCoinBonusRate(level int) float64 {

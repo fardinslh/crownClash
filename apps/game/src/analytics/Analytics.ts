@@ -43,6 +43,8 @@ export type AnalyticsEventInput =
   | { name: 'daily_reward_claimed'; claimId: string }
   | { name: 'league_panel_viewed' }
   | { name: 'league_reward_claimed'; claimId: string }
+  | { name: 'commander_panel_viewed' }
+  | { name: 'commander_selected'; commanderId: 'crown_guard' | 'quartermaster' | 'vanguard' }
   | { name: 'rank_promoted'; matchId: string }
   | { name: 'live_queue_joined' }
   | { name: 'live_invite_created' }
@@ -87,6 +89,8 @@ const EVENT_NAMES: ReadonlySet<AnalyticsEvent['name']> = new Set([
   'daily_reward_claimed',
   'league_panel_viewed',
   'league_reward_claimed',
+  'commander_panel_viewed',
+  'commander_selected',
   'rank_promoted',
   'live_queue_joined',
   'live_invite_created',

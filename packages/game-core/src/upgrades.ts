@@ -1,4 +1,5 @@
 import type { EconomyLedgerEntry, PlayerCareer } from './progression.js';
+import { getCommander } from './commanders.js';
 
 export type UpgradeType = 'starting_garrison' | 'production' | 'army_speed' | 'treasury';
 
@@ -86,10 +87,15 @@ export function getPlayerUpgradeModifiers(career: PlayerCareer): PlayerUpgradeMo
   const garrisonLevel = getUpgradeLevel(career, 'starting_garrison');
   const productionLevel = getUpgradeLevel(career, 'production');
   const armySpeedLevel = getUpgradeLevel(career, 'army_speed');
+  const commander = getCommander(career.selectedCommanderId);
   return {
-    startingUnits: getStartingUnits(garrisonLevel),
-    productionRateMultiplier: getProductionRateMultiplier(productionLevel),
-    armySpeedMultiplier: getArmySpeedMultiplier(armySpeedLevel),
+    startingUnits: Math.max(1, getStartingUnits(garrisonLevel) + commander.startingUnitsDelta),
+    productionRateMultiplier: roundMultiplier(
+      getProductionRateMultiplier(productionLevel) * commander.productionMultiplier
+    ),
+    armySpeedMultiplier: roundMultiplier(
+      getArmySpeedMultiplier(armySpeedLevel) * commander.armySpeedMultiplier
+    ),
   };
 }
 

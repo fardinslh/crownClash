@@ -19,6 +19,8 @@ derives player identity from authentication and records receipt time separately.
 | `daily_reward_claimed` | Server confirms a mission or Crown Chest claim | Client: `claimId`. Server: `rewardType`, `reward`, `resultingCoins` | Server-confirmed claim | Daily completion and reward conversion |
 | `league_panel_viewed` | League Road opens | None | Client view | League discovery |
 | `league_reward_claimed` | Server confirms a league milestone claim | Client: `claimId`. Server: `rankId`, `reward`, `resultingCoins` | Server-confirmed claim | League reward conversion |
+| `commander_panel_viewed` | Commanders screen opens | None | Client view | Loadout discovery |
+| `commander_selected` | Server confirms a commander selection | `commanderId` | Server-confirmed selection | Loadout adoption |
 | `rank_promoted` | A settled match crosses a rank boundary | Client: `matchId`. Server: `rankId`, `resultingTrophies` | Server-confirmed settlement | Rank progression |
 | `live_queue_joined` | Server accepts queue entry | None | Server-confirmed client response | Live queue starts |
 | `live_invite_created` | Server creates and joins invite | None | Server-confirmed client response | Invite creation |

@@ -111,6 +111,12 @@ func TestAnalyticsPayloadRejectsMalformedAndInvalidEvents(t *testing.T) {
 		{name: "tutorial_skipped wrong type for lastStepId", payload: analyticsPayload([]AnalyticsEventRecord{
 			analyticsTestEvent("tutorial_skipped", map[string]any{"lastStepId": true}),
 		}), wantErr: "invalid_event_props"},
+		{name: "commander selected invalid ID", payload: analyticsPayload([]AnalyticsEventRecord{
+			analyticsTestEvent("commander_selected", map[string]any{"commanderId": "forged"}),
+		}), wantErr: "invalid_event_props"},
+		{name: "commander panel extra property", payload: analyticsPayload([]AnalyticsEventRecord{
+			analyticsTestEvent("commander_panel_viewed", map[string]any{"extra": true}),
+		}), wantErr: "invalid_event_props"},
 		{name: "invalid envelope", payload: analyticsPayload([]AnalyticsEventRecord{{
 			Name: "session_start", SessionID: "session_test", OccurredAt: analyticsTestNow, SchemaVersion: 1, Props: map[string]any{},
 		}}), wantErr: "invalid_event_envelope"},
@@ -136,6 +142,19 @@ func TestAnalyticsPayloadAcceptsValidEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(events) != 1 || events[0].EventID != "event_test" {
+		t.Fatalf("unexpected events: %+v", events)
+	}
+}
+
+func TestAnalyticsPayloadAcceptsCommanderEvents(t *testing.T) {
+	events, err := parseAnalyticsEventsPayload(analyticsPayload([]AnalyticsEventRecord{
+		analyticsTestEvent("commander_panel_viewed", map[string]any{}),
+		analyticsTestEvent("commander_selected", map[string]any{"commanderId": "quartermaster"}),
+	}), analyticsTestNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 {
 		t.Fatalf("unexpected events: %+v", events)
 	}
 }

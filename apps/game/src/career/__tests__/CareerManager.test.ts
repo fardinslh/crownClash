@@ -38,6 +38,21 @@ describe('CareerManager', () => {
     expect(career.matchesPlayed).toBe(0);
   });
 
+  it('enforces commander unlocks in the dev local fallback', async () => {
+    const playerId = 'commander_local_player';
+    window.localStorage.setItem(
+      `crown_clash_career_${playerId}`,
+      JSON.stringify({ ...createDefaultCareer(playerId), startingGarrisonLevel: 10 })
+    );
+    const manager = CareerManager.getInstance(playerId);
+    await expect(manager.selectCommander('vanguard')).resolves.toMatchObject({
+      success: false,
+      reason: 'commander_locked',
+    });
+    await expect(manager.selectCommander('quartermaster')).resolves.toMatchObject({ success: true });
+    expect(manager.getCareer().selectedCommanderId).toBe('quartermaster');
+  });
+
   it('supports permanent league claims through the dev local fallback', async () => {
     const manager = CareerManager.getInstance('league_local_player');
     const stats: MatchStats = {
@@ -276,6 +291,7 @@ describe('CareerManager', () => {
           timestamp: 2,
         },
       }),
+      selectCommander: async () => { throw new Error('not_used_in_test'); },
       getDailyState: async () => {
         throw new Error('not_used_in_test');
       },
@@ -332,6 +348,7 @@ describe('CareerManager', () => {
       purchaseUpgrade: async () => {
         throw new Error('not_used_in_test');
       },
+      selectCommander: async () => { throw new Error('not_used_in_test'); },
       getDailyState: async () => {
         throw new Error('not_used_in_test');
       },
@@ -380,6 +397,7 @@ describe('CareerManager', () => {
       purchaseUpgrade: async () => {
         throw new Error('not_used_in_test');
       },
+      selectCommander: async () => { throw new Error('not_used_in_test'); },
       getDailyState: async () => {
         throw new Error('not_used_in_test');
       },

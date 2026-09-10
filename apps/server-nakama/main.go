@@ -89,6 +89,9 @@ func InitModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runti
 	if err := rpc("upgrade/purchase", rpcPurchaseUpgrade(store)); err != nil {
 		return err
 	}
+	if err := rpc("commander/select", rpcSelectCommander(store)); err != nil {
+		return err
+	}
 	if err := rpc("daily/get", rpcGetDailyState(store)); err != nil {
 		return err
 	}
@@ -468,6 +471,29 @@ func rpcPurchaseUpgrade(store *Store) rpcFn {
 	}
 }
 
+func rpcSelectCommander(store *Store) rpcFn {
+	return func(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, payload string) (string, error) {
+		userID, ok := ctx.Value(runtime.RUNTIME_CTX_USER_ID).(string)
+		if !ok || userID == "" {
+			return "", errors.New("unauthenticated")
+		}
+		var request struct {
+			CommanderID string `json:"commanderId"`
+		}
+		decoder := json.NewDecoder(strings.NewReader(payload))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&request); err != nil || request.CommanderID == "" {
+			return "", errors.New("invalid_payload")
+		}
+		result, err := store.SelectCommander(ctx, userID, request.CommanderID)
+		if err != nil {
+			return "", err
+		}
+		response, _ := json.Marshal(map[string]any{"result": result})
+		return string(response), nil
+	}
+}
+
 func rpcGetDailyState(store *Store) rpcFn {
 	return func(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, payload string) (string, error) {
 		userID, ok := ctx.Value(runtime.RUNTIME_CTX_USER_ID).(string)
@@ -750,6 +776,8 @@ var analyticsEventDefinitions = map[string]analyticsEventDefinition{
 	"daily_reward_claimed":       {properties: analyticsProperties("claimId")},
 	"league_panel_viewed":        {properties: map[string]analyticsPropertyKind{}},
 	"league_reward_claimed":      {properties: analyticsProperties("claimId")},
+	"commander_panel_viewed":     {properties: map[string]analyticsPropertyKind{}},
+	"commander_selected":         {properties: analyticsProperties("commanderId")},
 	"rank_promoted":              {properties: analyticsProperties("matchId")},
 	"live_queue_joined":          {properties: map[string]analyticsPropertyKind{}},
 	"live_invite_created":        {properties: map[string]analyticsPropertyKind{}},
@@ -892,6 +920,8 @@ func hasValidAnalyticsPropertyEnums(event AnalyticsEventRecord) bool {
 		return oneOf(value("stepId"), "drag_to_attack", "preview_result", "tower_roles", "multi_dispatch")
 	case "tutorial_skipped":
 		return oneOf(value("lastStepId"), "drag_to_attack", "preview_result", "tower_roles", "multi_dispatch")
+	case "commander_selected":
+		return oneOf(value("commanderId"), "crown_guard", "quartermaster", "vanguard")
 	default:
 		return true
 	}

@@ -234,6 +234,23 @@ CREATE TABLE IF NOT EXISTS player_names (
 );
 `,
 	},
+	{
+		name: "009_commanders",
+		sql: `
+ALTER TABLE players
+  ADD COLUMN IF NOT EXISTS selected_commander TEXT NOT NULL DEFAULT 'crown_guard';
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'players_selected_commander_valid'
+  ) THEN
+    ALTER TABLE players ADD CONSTRAINT players_selected_commander_valid
+      CHECK (selected_commander IN ('crown_guard', 'quartermaster', 'vanguard'));
+  END IF;
+END $$;
+`,
+	},
 }
 
 func RunMigrations(ctx context.Context, db *sql.DB) error {

@@ -77,9 +77,9 @@ func TestTreasuryPurchaseClaimsIDBeforeCareerAndLedgerWrites(t *testing.T) {
 
 	careerRow := sqlmock.NewRows([]string{
 		"id", "coins", "gems", "trophies",
-		"starting_garrison_level", "production_level", "army_speed_level", "treasury_level",
+		"starting_garrison_level", "production_level", "army_speed_level", "treasury_level", "selected_commander",
 		"matches_played", "matches_won", "current_streak", "best_streak", "last_match_timestamp",
-	}).AddRow("player_1", 100, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+	}).AddRow("player_1", 100, 10, 0, 0, 0, 0, 0, "crown_guard", 0, 0, 0, 0, 0)
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT player_id, upgrade_type, result")).

@@ -10,6 +10,8 @@ import type {
   PvpAction,
   UpgradePurchaseResult,
   UpgradeType,
+  CommanderId,
+  CommanderSelectionResult,
 } from '@crown-clash/game-core';
 import type { PlatformAdapter } from '@crown-clash/platform';
 import type { LiveMatchClient } from './LiveMatchClient.js';
@@ -29,6 +31,7 @@ export interface CareerApi {
   getLedger(limit?: number): Promise<EconomyLedgerEntry[]>;
   settleMatch(matchId: string, actions: readonly PvpAction[]): Promise<MatchSettlement>;
   purchaseUpgrade(type: UpgradeType, purchaseId: string): Promise<UpgradePurchaseResult>;
+  selectCommander(commanderId: CommanderId): Promise<CommanderSelectionResult>;
   getDailyState(): Promise<DailyState>;
   claimDailyReward(type: DailyRewardType, claimId: string): Promise<DailyClaimResult>;
   getLeagueState(): Promise<LeagueState>;

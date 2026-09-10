@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import {
   getRankTier,
+  getCommander,
   LOGICAL_HEIGHT,
   LOGICAL_WIDTH,
 } from '@crown-clash/game-core';
@@ -199,6 +200,17 @@ export class MenuScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
+    const commander = getCommander(career.selectedCommanderId);
+    this.add
+      .text(LOGICAL_WIDTH / 2, 461, `DOCTRINE  •  ${commander.name.toUpperCase()}`, {
+        fontFamily: FONT_FAMILY,
+        fontSize: '10px',
+        fontStyle: '900',
+        color: '#93c5fd',
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+
     const playBg = this.add
       .rectangle(LOGICAL_WIDTH / 2, 500, 250, 56, 0x2563eb, 1)
       .setStrokeStyle(2.5, 0x60a5fa, 1)
@@ -299,11 +311,11 @@ export class MenuScene extends Phaser.Scene {
 
     const dailyAvailable = careerManager.isRemoteConnected() || isLocalCareerFallbackAllowed();
     const dailyBg = this.add
-      .rectangle(104, 680, 88, 44, dailyAvailable ? 0x1c1830 : 0x273449, 1)
+      .rectangle(56, 680, 82, 44, dailyAvailable ? 0x1c1830 : 0x273449, 1)
       .setStrokeStyle(1.5, dailyAvailable ? THEME.gold : 0x475569, 0.9)
       .setInteractive({ useHandCursor: true });
     const dailyText = this.add
-      .text(104, 680, dailyAvailable ? '📜 DAILY' : 'OFFLINE', {
+      .text(56, 680, dailyAvailable ? 'DAILY' : 'OFFLINE', {
         fontFamily: FONT_FAMILY,
         fontSize: dailyAvailable ? '12px' : '10px',
         fontStyle: '900',
@@ -326,11 +338,11 @@ export class MenuScene extends Phaser.Scene {
     }
 
     const leagueBg = this.add
-      .rectangle(200, 680, 88, 44, 0x151d31, 1)
+      .rectangle(152, 680, 82, 44, 0x151d31, 1)
       .setStrokeStyle(1.5, 0x818cf8, 0.9)
       .setInteractive({ useHandCursor: true });
     const leagueText = this.add
-      .text(200, 680, '🏆 LEAGUE', {
+      .text(152, 680, 'LEAGUE', {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: '900',
@@ -349,11 +361,11 @@ export class MenuScene extends Phaser.Scene {
     });
 
     const kingdomBg = this.add
-      .rectangle(296, 680, 88, 44, 0x111c33, 1)
+      .rectangle(248, 680, 82, 44, 0x111c33, 1)
       .setStrokeStyle(1.5, THEME.gold, 0.8)
       .setInteractive({ useHandCursor: true });
     const kingdomText = this.add
-      .text(296, 680, '🏰 KINGDOM', {
+      .text(248, 680, 'KINGDOM', {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: '900',
@@ -369,6 +381,29 @@ export class MenuScene extends Phaser.Scene {
       sounds.playReinforce();
       platform.hapticSelection();
       this.scene.start('KingdomScene');
+    });
+
+    const commanderBg = this.add
+      .rectangle(344, 680, 82, 44, 0x172033, 1)
+      .setStrokeStyle(1.5, 0x60a5fa, 0.85)
+      .setInteractive({ useHandCursor: true });
+    const commanderText = this.add
+      .text(344, 680, 'COUNCIL', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '10px',
+        fontStyle: '900',
+        color: '#bfdbfe',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    this.bindPressFeedback(commanderBg, commanderText);
+    commanderBg.on('pointerdown', () => {
+      commanderBg.disableInteractive();
+      sounds.playReinforce();
+      platform.hapticSelection();
+      this.scene.start('CommanderScene');
     });
 
     const muteX = LOGICAL_WIDTH - 28;

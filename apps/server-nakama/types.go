@@ -9,11 +9,19 @@ type PlayerCareer struct {
 	ProductionLevel       int    `json:"productionLevel"`
 	ArmySpeedLevel        int    `json:"armySpeedLevel"`
 	TreasuryLevel         int    `json:"treasuryLevel"`
+	SelectedCommanderID   string `json:"selectedCommanderId"`
 	MatchesPlayed         int    `json:"matchesPlayed"`
 	MatchesWon            int    `json:"matchesWon"`
 	CurrentStreak         int    `json:"currentStreak"`
 	BestStreak            int    `json:"bestStreak"`
 	LastMatchTimestamp    int64  `json:"lastMatchTimestamp"`
+}
+
+type CommanderSelectionResult struct {
+	Success     bool         `json:"success"`
+	Reason      string       `json:"reason,omitempty"`
+	CommanderID string       `json:"commanderId"`
+	NewCareer   PlayerCareer `json:"newCareer"`
 }
 
 type RankTierInfo struct {

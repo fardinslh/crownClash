@@ -22,6 +22,8 @@ var (
 	ErrDailyClaimMismatch       = errors.New("daily_claim_id_reused_for_different_reward")
 	ErrLeagueClaimOwnership     = errors.New("league_claim_id_owned_by_another_player")
 	ErrLeagueClaimMismatch      = errors.New("league_claim_id_reused_for_different_rank")
+	ErrCommanderInvalid         = errors.New("invalid_commander")
+	ErrCommanderLocked          = errors.New("commander_locked")
 )
 
 type Store struct {
@@ -43,6 +45,7 @@ type playerRow struct {
 	ProductionLevel       int
 	ArmySpeedLevel        int
 	TreasuryLevel         int
+	SelectedCommanderID   string
 	MatchesPlayed         int
 	MatchesWon            int
 	CurrentStreak         int
@@ -70,7 +73,7 @@ func (s *Store) GetOrCreateCareer(ctx context.Context, userID string) (PlayerCar
 func getCareer(ctx context.Context, queryer rowQuerier, userID string) (PlayerCareer, error) {
 	row := queryer.QueryRowContext(ctx, `
 		SELECT id, coins, gems, trophies,
-		       starting_garrison_level, production_level, army_speed_level, treasury_level,
+		       starting_garrison_level, production_level, army_speed_level, treasury_level, selected_commander,
 		       matches_played, matches_won, current_streak, best_streak,
 		       last_match_timestamp
 		FROM players WHERE id = $1
@@ -78,7 +81,7 @@ func getCareer(ctx context.Context, queryer rowQuerier, userID string) (PlayerCa
 	var value playerRow
 	if err := row.Scan(
 		&value.ID, &value.Coins, &value.Gems, &value.Trophies,
-		&value.StartingGarrisonLevel, &value.ProductionLevel, &value.ArmySpeedLevel, &value.TreasuryLevel,
+		&value.StartingGarrisonLevel, &value.ProductionLevel, &value.ArmySpeedLevel, &value.TreasuryLevel, &value.SelectedCommanderID,
 		&value.MatchesPlayed, &value.MatchesWon, &value.CurrentStreak, &value.BestStreak,
 		&value.LastMatchTimestamp,
 	); err != nil {
@@ -95,10 +98,38 @@ func careerFromRow(row playerRow) PlayerCareer {
 		PlayerID: row.ID, Coins: row.Coins, Gems: row.Gems, Trophies: row.Trophies,
 		StartingGarrisonLevel: row.StartingGarrisonLevel,
 		ProductionLevel:       row.ProductionLevel, ArmySpeedLevel: row.ArmySpeedLevel, TreasuryLevel: row.TreasuryLevel,
-		MatchesPlayed: row.MatchesPlayed, MatchesWon: row.MatchesWon,
+		SelectedCommanderID: row.SelectedCommanderID,
+		MatchesPlayed:       row.MatchesPlayed, MatchesWon: row.MatchesWon,
 		CurrentStreak: row.CurrentStreak, BestStreak: row.BestStreak,
 		LastMatchTimestamp: row.LastMatchTimestamp,
 	}
+}
+
+func (s *Store) SelectCommander(ctx context.Context, userID, commanderID string) (CommanderSelectionResult, error) {
+	unlockLevel, valid := CommanderUnlockLevel(commanderID)
+	if !valid {
+		return CommanderSelectionResult{Success: false, Reason: "invalid_commander", CommanderID: commanderID}, ErrCommanderInvalid
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return CommanderSelectionResult{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	career, err := getCareerForUpdate(ctx, tx, userID)
+	if err != nil {
+		return CommanderSelectionResult{}, err
+	}
+	if KingdomLevel(career) < unlockLevel {
+		return CommanderSelectionResult{Success: false, Reason: "commander_locked", CommanderID: commanderID, NewCareer: career}, ErrCommanderLocked
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE players SET selected_commander = $2, updated_at = now() WHERE id = $1`, userID, commanderID); err != nil {
+		return CommanderSelectionResult{}, err
+	}
+	career.SelectedCommanderID = commanderID
+	if err := tx.Commit(); err != nil {
+		return CommanderSelectionResult{}, err
+	}
+	return CommanderSelectionResult{Success: true, CommanderID: commanderID, NewCareer: career}, nil
 }
 
 func (s *Store) GetLedger(ctx context.Context, userID string, limit int) ([]EconomyLedgerEntry, error) {
@@ -755,7 +786,7 @@ func normalizeAnalyticsEvent(ctx context.Context, tx *sql.Tx, userID string, eve
 func getCareerForUpdate(ctx context.Context, tx *sql.Tx, userID string) (PlayerCareer, error) {
 	row := tx.QueryRowContext(ctx, `
 		SELECT id, coins, gems, trophies,
-		       starting_garrison_level, production_level, army_speed_level, treasury_level,
+		       starting_garrison_level, production_level, army_speed_level, treasury_level, selected_commander,
 		       matches_played, matches_won, current_streak, best_streak,
 		       last_match_timestamp
 		FROM players WHERE id = $1 FOR UPDATE
@@ -763,7 +794,7 @@ func getCareerForUpdate(ctx context.Context, tx *sql.Tx, userID string) (PlayerC
 	var value playerRow
 	if err := row.Scan(
 		&value.ID, &value.Coins, &value.Gems, &value.Trophies,
-		&value.StartingGarrisonLevel, &value.ProductionLevel, &value.ArmySpeedLevel, &value.TreasuryLevel,
+		&value.StartingGarrisonLevel, &value.ProductionLevel, &value.ArmySpeedLevel, &value.TreasuryLevel, &value.SelectedCommanderID,
 		&value.MatchesPlayed, &value.MatchesWon, &value.CurrentStreak, &value.BestStreak,
 		&value.LastMatchTimestamp,
 	); err != nil {

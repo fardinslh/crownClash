@@ -11,6 +11,8 @@ import type {
   PvpAction,
   UpgradePurchaseResult,
   UpgradeType,
+  CommanderId,
+  CommanderSelectionResult,
 } from '@crown-clash/game-core';
 import type { PlatformAdapter } from '@crown-clash/platform';
 import type { CareerApi, TrackedAnalyticsEvent } from './GameApiClient.js';
@@ -91,6 +93,11 @@ export class NakamaClient implements CareerApi {
   ): Promise<UpgradePurchaseResult> {
     const result = await this.rpc('upgrade/purchase', JSON.stringify({ type, purchaseId }));
     return (JSON.parse(result) as { result: UpgradePurchaseResult }).result;
+  }
+
+  public async selectCommander(commanderId: CommanderId): Promise<CommanderSelectionResult> {
+    const result = await this.rpc('commander/select', JSON.stringify({ commanderId }));
+    return (JSON.parse(result) as { result: CommanderSelectionResult }).result;
   }
 
   public async getDailyState(): Promise<DailyState> {

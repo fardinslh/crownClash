@@ -114,4 +114,16 @@ describe('analytics events', () => {
     };
     expect(analytics.isAnalyticsEvent(validSkipped)).toBe(true);
   });
+
+  it('validates commander analytics event envelopes', async () => {
+    const analytics = await import('./Analytics.js');
+    expect(analytics.isAnalyticsEvent({
+      eventId: 'event_commander',
+      name: 'commander_selected',
+      sessionId: 'session_1',
+      occurredAt: Date.now(),
+      schemaVersion: 1,
+      props: { commanderId: 'vanguard' },
+    })).toBe(true);
+  });
 });
