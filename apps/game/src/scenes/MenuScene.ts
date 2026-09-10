@@ -19,6 +19,7 @@ export class MenuScene extends Phaser.Scene {
   private liveClient?: LiveMatchClient;
   private pvpController?: LivePvpController;
   private backButtonUnregister?: () => void;
+  private joinCodeInput?: Phaser.GameObjects.DOMElement;
 
   constructor() {
     super({ key: 'MenuScene' });
@@ -31,6 +32,8 @@ export class MenuScene extends Phaser.Scene {
     this.liveClient = undefined;
     this.backButtonUnregister?.();
     this.backButtonUnregister = undefined;
+    this.joinCodeInput?.destroy();
+    this.joinCodeInput = undefined;
   }
 
   create(): void {
@@ -405,6 +408,7 @@ export class MenuScene extends Phaser.Scene {
       [lobbyView, waitingView, joinView, loadingView, errorView].forEach((v) =>
         v.setVisible(false)
       );
+      joinInput.setVisible(false);
     };
 
     // --------------------------------------------------- helpers
@@ -469,6 +473,8 @@ export class MenuScene extends Phaser.Scene {
       this.backButtonUnregister?.();
       this.backButtonUnregister = undefined;
       platform.hideBackButton();
+      joinInput.destroy();
+      this.joinCodeInput = undefined;
       overlay.destroy();
       raidButton.setInteractive({ useHandCursor: true });
       raidText.setText('LIVE PVP  ⚔');
@@ -570,13 +576,19 @@ export class MenuScene extends Phaser.Scene {
     const joinTitle = TS('ENTER INVITE CODE', 0, -200, '14px', '#c7d2fe', { fontStyle: '900', strokeThickness: 2 });
     const joinSubtitle = TS('8-character code your friend shared', 0, -182, '10px', '#94a3b8', { strokeThickness: 1 });
 
+    // DOM elements do NOT follow Phaser container transforms when nested
+    // multiple levels deep.  Position joinInput directly in world space at the
+    // coordinates that map to the centre of the join card on screen.
+    // overlay is at (LOGICAL_WIDTH/2, LOGICAL_HEIGHT/2); card is at y=-110
+    // relative to overlay; input sits at -13 below card top → world y = 237.
     const joinInput = this.add.dom(
-      0,
-      -123,
+      LOGICAL_WIDTH / 2,
+      LOGICAL_HEIGHT / 2 - 123,
       'input',
       'width: 230px; height: 46px; font-size: 22px; font-weight: 700; text-align: center; text-transform: uppercase; letter-spacing: 5px; border-radius: 8px; border: 2px solid #818cf8; background: #0f172a; color: #ffffff; outline: none; box-sizing: border-box;',
       ''
-    );
+    ).setVisible(false);
+    this.joinCodeInput = joinInput;
     const joinErrorText = TS('', 0, -87, '10px', '#f87171', { strokeThickness: 1 });
 
     const { bg: joinSubmitBg, txt: joinSubmitTxt } = makeBtn(
@@ -586,9 +598,10 @@ export class MenuScene extends Phaser.Scene {
       -75, -50, 100, 42, 0x1a1a2e, 0x475569, 'CANCEL', '#94a3b8', '12px'
     );
 
+    // joinInput is NOT added to joinView — it lives at scene/world level
     joinView.add([
       joinCard, joinTitle, joinSubtitle,
-      joinInput, joinErrorText,
+      joinErrorText,
       joinSubmitBg, joinSubmitTxt,
       joinCancelBg, joinCancelTxt,
     ]);
@@ -683,6 +696,7 @@ export class MenuScene extends Phaser.Scene {
         }
         case 'entering_code': {
           joinView.setVisible(true);
+          joinInput.setVisible(true);
           joinErrorText.setText(opts.error ?? '');
           const backToLobby = (): void => controller.cancel();
           this.backButtonUnregister?.();
@@ -735,6 +749,8 @@ export class MenuScene extends Phaser.Scene {
         platform.hideBackButton();
         this.backButtonUnregister?.();
         this.backButtonUnregister = undefined;
+        joinInput.destroy();
+        this.joinCodeInput = undefined;
         overlay.destroy();
         this.liveClient = undefined;
         this.scene.start('GameScene', {
