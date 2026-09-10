@@ -1,4 +1,5 @@
 export * from './types.js';
+export * from './territory-types.js';
 export * from './combat.js';
 export * from './generation.js';
 export * from './dispatch.js';

@@ -19,6 +19,7 @@ import {
   PVP_AI_TICK_SECONDS,
   PvpAction,
   stepSimulation,
+  TERRITORY_TYPE_PRESENTATION,
   Territory,
   UpgradeType,
 } from '@crown-clash/game-core';
@@ -47,6 +48,7 @@ interface TerritoryVisual {
   ring: Phaser.GameObjects.Arc;
   unitBadge: Phaser.GameObjects.Rectangle;
   unitText: Phaser.GameObjects.Text;
+  typeText: Phaser.GameObjects.Text;
 }
 
 interface ArmyFollower {
@@ -429,7 +431,20 @@ export class GameScene extends Phaser.Scene {
         })
         .setOrigin(0.5);
 
-      container.add([groundShadow, ring, basePlate, sprite, unitBadge, unitText]);
+      const typeStyle = TERRITORY_TYPE_PRESENTATION[territory.type];
+      const typeText = this.add
+        .text(0, badgeY + 18, typeStyle.label, {
+          fontFamily: MONO_FONT_FAMILY,
+          fontSize: '9px',
+          fontStyle: 'bold',
+          color: `#${typeStyle.color.toString(16).padStart(6, '0')}`,
+          backgroundColor: '#070d1a',
+          padding: { x: 3, y: 1 },
+          resolution: 2,
+        })
+        .setOrigin(0.5);
+
+      container.add([groundShadow, ring, basePlate, sprite, unitBadge, unitText, typeText]);
 
       // Make interactive for touch / click
       container.setSize(territory.radius * 2.5, territory.radius * 2.5);
@@ -447,6 +462,7 @@ export class GameScene extends Phaser.Scene {
         ring,
         unitBadge,
         unitText,
+        typeText,
       });
 
       if (!this.reducedMotion) {
@@ -691,19 +707,30 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(98);
 
-    // 4. Bottom Tactical Control Hint Bar (y: 692)
+    // 4. Bottom Tactical Control Hint Bar
     this.add
-      .rectangle(LOGICAL_WIDTH / 2, 695, 364, 28, 0x000000, 0.34)
+      .rectangle(LOGICAL_WIDTH / 2, 694, 364, 42, 0x000000, 0.34)
       .setDepth(94);
     this.add
-      .rectangle(LOGICAL_WIDTH / 2, 692, 360, 26, 0x090f1d, 0.94)
+      .rectangle(LOGICAL_WIDTH / 2, 691, 360, 40, 0x090f1d, 0.94)
       .setStrokeStyle(1.5, 0x334155, 0.92)
       .setDepth(95);
 
+    this.add
+      .text(LOGICAL_WIDTH / 2, 682, 'DEF shields  •  PROD trains  •  SPD marches', {
+        fontFamily: MONO_FONT_FAMILY,
+        fontSize: '10px',
+        fontStyle: 'bold',
+        color: '#f8c76a',
+        resolution: 2,
+      })
+      .setOrigin(0.5)
+      .setDepth(96);
+
     this.bottomHintText = this.add
-      .text(LOGICAL_WIDTH / 2, 692, '⚔ Drag across towers to attack or reinforce', {
+      .text(LOGICAL_WIDTH / 2, 701, '⚔ Drag across towers to attack or reinforce', {
         fontFamily: FONT_FAMILY,
-        fontSize: '12px',
+        fontSize: '11px',
         fontStyle: 'bold',
         color: '#cbd5e1',
         stroke: '#030712',

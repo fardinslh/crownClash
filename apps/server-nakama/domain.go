@@ -251,15 +251,15 @@ func PurchaseUpgrade(career PlayerCareer, upgrade UpgradeType, purchaseID string
 
 func CreateDefaultTerritories(player, enemy PlayerUpgradeModifiers) map[string]Territory {
 	return map[string]Territory{
-		"p_base":      {ID: "p_base", Name: "Player Fortress", X: 200, Y: 610, Radius: 36, Owner: TeamPlayer, Units: player.StartingUnits, MaxUnits: 65, ProductionRate: 1.2 * player.ProductionRateMultiplier, Tier: 3},
-		"e_base":      {ID: "e_base", Name: "Enemy Citadel", X: 200, Y: 110, Radius: 36, Owner: TeamEnemy, Units: enemy.StartingUnits, MaxUnits: 65, ProductionRate: 1.2 * enemy.ProductionRateMultiplier, Tier: 3},
-		"n_bot_left":  {ID: "n_bot_left", Name: "Southwest Outpost", X: 85, Y: 485, Radius: 27, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.9, Tier: 1},
-		"n_bot_right": {ID: "n_bot_right", Name: "Southeast Outpost", X: 315, Y: 485, Radius: 27, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.9, Tier: 1},
-		"n_center":    {ID: "n_center", Name: "Crown Keep", X: 200, Y: 360, Radius: 32, Owner: TeamNeutral, Units: 14, MaxUnits: 55, ProductionRate: 1.1, Tier: 2},
-		"n_mid_left":  {ID: "n_mid_left", Name: "West Watchtower", X: 75, Y: 360, Radius: 26, Owner: TeamNeutral, Units: 10, MaxUnits: 40, ProductionRate: 0.85, Tier: 1},
-		"n_mid_right": {ID: "n_mid_right", Name: "East Watchtower", X: 325, Y: 360, Radius: 26, Owner: TeamNeutral, Units: 10, MaxUnits: 40, ProductionRate: 0.85, Tier: 1},
-		"n_top_left":  {ID: "n_top_left", Name: "Northwest Outpost", X: 85, Y: 235, Radius: 27, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.9, Tier: 1},
-		"n_top_right": {ID: "n_top_right", Name: "Northeast Outpost", X: 315, Y: 235, Radius: 27, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.9, Tier: 1},
+		"p_base":      {ID: "p_base", Name: "Player Fortress", X: 200, Y: 610, Radius: 36, Owner: TeamPlayer, Units: player.StartingUnits, MaxUnits: 65, ProductionRate: 1.2 * player.ProductionRateMultiplier, Tier: 3, Type: TerritoryFortress},
+		"e_base":      {ID: "e_base", Name: "Enemy Citadel", X: 200, Y: 110, Radius: 36, Owner: TeamEnemy, Units: enemy.StartingUnits, MaxUnits: 65, ProductionRate: 1.2 * enemy.ProductionRateMultiplier, Tier: 3, Type: TerritoryFortress},
+		"n_bot_left":  {ID: "n_bot_left", Name: "Southwest Barracks", X: 85, Y: 485, Radius: 27, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.9, Tier: 1, Type: TerritoryBarracks},
+		"n_bot_right": {ID: "n_bot_right", Name: "Southeast Stable", X: 315, Y: 485, Radius: 27, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.9, Tier: 1, Type: TerritoryStable},
+		"n_center":    {ID: "n_center", Name: "Crown Keep", X: 200, Y: 360, Radius: 32, Owner: TeamNeutral, Units: 14, MaxUnits: 55, ProductionRate: 1.1, Tier: 2, Type: TerritoryFortress},
+		"n_mid_left":  {ID: "n_mid_left", Name: "West Barracks", X: 75, Y: 360, Radius: 26, Owner: TeamNeutral, Units: 10, MaxUnits: 40, ProductionRate: 0.85, Tier: 1, Type: TerritoryBarracks},
+		"n_mid_right": {ID: "n_mid_right", Name: "East Barracks", X: 325, Y: 360, Radius: 26, Owner: TeamNeutral, Units: 10, MaxUnits: 40, ProductionRate: 0.85, Tier: 1, Type: TerritoryBarracks},
+		"n_top_left":  {ID: "n_top_left", Name: "Northwest Stable", X: 85, Y: 235, Radius: 27, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.9, Tier: 1, Type: TerritoryStable},
+		"n_top_right": {ID: "n_top_right", Name: "Northeast Barracks", X: 315, Y: 235, Radius: 27, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.9, Tier: 1, Type: TerritoryBarracks},
 	}
 }
 
@@ -288,6 +288,41 @@ type combatResult struct {
 	captured  bool
 }
 
+const (
+	fortressDefenseMultiplier    = 1.25
+	barracksProductionMultiplier = 1.25
+	stableArmySpeedMultiplier    = 1.25
+)
+
+func territoryDefenseMultiplier(territoryType TerritoryType) float64 {
+	if territoryType == TerritoryFortress {
+		return fortressDefenseMultiplier
+	}
+	return 1
+}
+
+func territoryDefenseStrength(territory Territory) int {
+	return int(math.Ceil(float64(territory.Units) * territoryDefenseMultiplier(territory.Type)))
+}
+
+func remainingDefenders(territoryType TerritoryType, effectiveUnits int) int {
+	return int(math.Ceil(float64(effectiveUnits) / territoryDefenseMultiplier(territoryType)))
+}
+
+func territoryProductionMultiplier(territoryType TerritoryType) float64 {
+	if territoryType == TerritoryBarracks {
+		return barracksProductionMultiplier
+	}
+	return 1
+}
+
+func territoryArmySpeedMultiplier(territoryType TerritoryType) float64 {
+	if territoryType == TerritoryStable {
+		return stableArmySpeedMultiplier
+	}
+	return 1
+}
+
 func resolveArrival(target Territory, incoming int, attacker Team) combatResult {
 	if incoming <= 0 {
 		return combatResult{newOwner: target.Owner, remaining: target.Units}
@@ -295,10 +330,11 @@ func resolveArrival(target Territory, incoming int, attacker Team) combatResult 
 	if attacker == target.Owner {
 		return combatResult{newOwner: target.Owner, remaining: target.Units + incoming}
 	}
-	if incoming > target.Units {
-		return combatResult{newOwner: attacker, remaining: incoming - target.Units, captured: true}
+	defenseStrength := territoryDefenseStrength(target)
+	if incoming > defenseStrength {
+		return combatResult{newOwner: attacker, remaining: incoming - defenseStrength, captured: true}
 	}
-	return combatResult{newOwner: target.Owner, remaining: target.Units - incoming}
+	return combatResult{newOwner: target.Owner, remaining: remainingDefenders(target.Type, defenseStrength-incoming)}
 }
 
 func dispatchArmy(state *GameState, sourceID, targetID string, owner Team, multiplier float64, id string) error {
@@ -321,7 +357,7 @@ func dispatchArmy(state *GameState, sourceID, targetID string, owner Team, multi
 		multiplier = 1
 	}
 	distance := math.Hypot(target.X-source.X, target.Y-source.Y)
-	duration := math.Max(1, distance/(baseArmyTravelSpeed*multiplier))
+	duration := math.Max(1, distance/(baseArmyTravelSpeed*multiplier*territoryArmySpeedMultiplier(source.Type)))
 	source.Units -= units
 	state.Territories[sourceID] = source
 	state.Armies = append(state.Armies, MarchingArmy{
@@ -345,7 +381,7 @@ func tickGeneration(state *GameState, accumulators map[string]float64, delta flo
 			next[id] = 0
 			continue
 		}
-		current := accumulators[id] + territory.ProductionRate*delta
+		current := accumulators[id] + territory.ProductionRate*territoryProductionMultiplier(territory.Type)*delta
 		whole := int(math.Floor(current))
 		if whole > 0 {
 			allowed := maxInt(0, territory.MaxUnits-territory.Units)
@@ -444,16 +480,23 @@ func evaluateAIMove(state GameState) (string, string, bool) {
 			distancePenalty := math.Hypot(target.X-source.X, target.Y-source.Y) * 0.06
 			score := 0.0
 			if target.Owner != TeamEnemy {
-				canCapture := dispatchAmount > target.Units
-				advantage := dispatchAmount - target.Units
+				defenseStrength := territoryDefenseStrength(target)
+				canCapture := dispatchAmount > defenseStrength
+				advantage := dispatchAmount - defenseStrength
+				typeValue := 10.0
+				if target.Type == TerritoryBarracks {
+					typeValue = 18
+				} else if target.Type == TerritoryStable {
+					typeValue = 14
+				}
 				if target.Owner == TeamPlayer {
 					if canCapture {
-						score = 110 + float64(advantage)*3 - distancePenalty
+						score = 110 + typeValue + float64(advantage)*3 - distancePenalty
 					} else {
 						score = 25 - float64(target.Units) - distancePenalty
 					}
 				} else if canCapture {
-					score = 65 + float64(12-target.Units)*2 - distancePenalty
+					score = 65 + typeValue + float64(12-defenseStrength)*2 - distancePenalty
 					if target.ID == "n_center" {
 						score += 35
 					}

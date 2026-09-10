@@ -1,4 +1,5 @@
 import { CombatResult, Team, Territory } from './types.js';
+import { getRemainingDefenders, getTerritoryDefenseStrength } from './territory-types.js';
 
 /**
  * Resolves combat or reinforcement when a marching army arrives at a territory.
@@ -43,9 +44,11 @@ export function resolveArrival(
   }
 
   // Case 2: Hostile territory (Enemy or Neutral) -> Combat
-  if (incomingUnits > previousUnits) {
+  const defenseStrength = getTerritoryDefenseStrength(target);
+
+  if (incomingUnits > defenseStrength) {
     // Attacker overpowers defender: territory is captured!
-    const remainingUnits = incomingUnits - previousUnits;
+    const remainingUnits = incomingUnits - defenseStrength;
     return {
       targetId: target.id,
       attackerOwner,
@@ -59,9 +62,9 @@ export function resolveArrival(
     };
   }
 
-  if (incomingUnits < previousUnits) {
+  if (incomingUnits < defenseStrength) {
     // Defender repels the attack with remaining units
-    const remainingUnits = previousUnits - incomingUnits;
+    const remainingUnits = getRemainingDefenders(target.type, defenseStrength - incomingUnits);
     return {
       targetId: target.id,
       attackerOwner,

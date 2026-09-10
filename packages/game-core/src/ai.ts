@@ -1,5 +1,6 @@
 import { calculateDispatchUnits } from './dispatch.js';
 import { Territory } from './types.js';
+import { getTerritoryDefenseStrength } from './territory-types.js';
 
 export interface AiMove {
   fromId: string;
@@ -40,20 +41,22 @@ export function evaluateAiMove(
 
       if (target.owner !== aiTeam) {
         // Hostile territory (Neutral or Player)
-        const canCapture = dispatchAmount > target.units;
-        const unitAdvantage = dispatchAmount - target.units;
+        const defenseStrength = getTerritoryDefenseStrength(target);
+        const canCapture = dispatchAmount > defenseStrength;
+        const unitAdvantage = dispatchAmount - defenseStrength;
+        const typeValue = target.type === 'barracks' ? 18 : target.type === 'stable' ? 14 : 10;
 
         if (target.owner === 'player') {
           // Priority on capturing player holdings or contesting them
           if (canCapture) {
-            score = 110 + unitAdvantage * 3 - distancePenalty;
+            score = 110 + typeValue + unitAdvantage * 3 - distancePenalty;
           } else {
             score = 25 - target.units - distancePenalty;
           }
         } else {
           // Neutral territory
           if (canCapture) {
-            score = 65 + (12 - target.units) * 2 - distancePenalty;
+            score = 65 + typeValue + (12 - defenseStrength) * 2 - distancePenalty;
             // High strategic value for the Crown Keep (center)
             if (target.id === 'n_center') {
               score += 35;

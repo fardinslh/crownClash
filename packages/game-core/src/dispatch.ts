@@ -1,4 +1,5 @@
 import { MarchingArmy, Team, Territory } from './types.js';
+import { getTerritoryArmySpeedMultiplier } from './territory-types.js';
 
 export interface DispatchResult {
   success: boolean;
@@ -59,7 +60,11 @@ export function dispatchArmy(
   // Journey duration in seconds
   const safeSpeedMultiplier =
     Number.isFinite(travelSpeedMultiplier) && travelSpeedMultiplier > 0 ? travelSpeedMultiplier : 1;
-  const durationSeconds = Math.max(1.0, distance / (BASE_ARMY_TRAVEL_SPEED * safeSpeedMultiplier));
+  const sourceSpeedMultiplier = getTerritoryArmySpeedMultiplier(source.type);
+  const durationSeconds = Math.max(
+    1.0,
+    distance / (BASE_ARMY_TRAVEL_SPEED * safeSpeedMultiplier * sourceSpeedMultiplier)
+  );
   const speed = 1 / durationSeconds; // progress increase per second
 
   const army: MarchingArmy = {

@@ -96,6 +96,75 @@ func TestUpgradeBalanceParityAndTreasuryRewards(t *testing.T) {
 	}
 }
 
+func TestTerritoryTypeRulesMatchClientBalance(t *testing.T) {
+	territories := CreateDefaultTerritories(DefaultModifiers(), DefaultModifiers())
+	if territories["p_base"].Type != TerritoryFortress || territories["n_bot_left"].Type != TerritoryBarracks || territories["n_bot_right"].Type != TerritoryStable {
+		t.Fatalf("unexpected territory types: %+v", territories)
+	}
+
+	fortress := territories["n_center"]
+	fortress.Units = 10
+	repelled := resolveArrival(fortress, 12, TeamPlayer)
+	if repelled.captured || repelled.remaining != 1 {
+		t.Fatalf("expected fortress to repel attack, got %+v", repelled)
+	}
+	captured := resolveArrival(fortress, 14, TeamPlayer)
+	if !captured.captured || captured.remaining != 1 {
+		t.Fatalf("expected fortress capture with one survivor, got %+v", captured)
+	}
+
+	barracks := territories["n_bot_left"]
+	barracks.Owner = TeamPlayer
+	stable := territories["n_bot_right"]
+	stable.Owner = TeamPlayer
+	state := GameState{Territories: map[string]Territory{
+		"n_bot_left":  barracks,
+		"n_bot_right": stable,
+	}}
+	tickGeneration(&state, map[string]float64{}, 4)
+	if state.Territories["n_bot_left"].Units != 12 || state.Territories["n_bot_right"].Units != 11 {
+		t.Fatalf("unexpected typed production: %+v", state.Territories)
+	}
+}
+
+func TestStableDispatchesFaster(t *testing.T) {
+	territories := CreateDefaultTerritories(DefaultModifiers(), DefaultModifiers())
+	stable := territories["n_bot_right"]
+	stable.Owner = TeamPlayer
+	stable.Units = 20
+	ordinary := stable
+	ordinary.ID = "ordinary"
+	ordinary.Type = TerritoryBarracks
+	target := territories["n_center"]
+	state := GameState{Territories: map[string]Territory{
+		stable.ID:   stable,
+		ordinary.ID: ordinary,
+		target.ID:   target,
+	}}
+
+	if err := dispatchArmy(&state, stable.ID, target.ID, TeamPlayer, 1, "stable_army"); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatchArmy(&state, ordinary.ID, target.ID, TeamPlayer, 1, "ordinary_army"); err != nil {
+		t.Fatal(err)
+	}
+	if state.Armies[0].Speed <= state.Armies[1].Speed {
+		t.Fatalf("stable army should be faster: %+v", state.Armies)
+	}
+}
+
+func TestAIPrioritizesBarracksOverEquallyDefendedStable(t *testing.T) {
+	state := CreateInitialGameState(DefaultModifiers(), DefaultModifiers())
+	enemyBase := state.Territories["e_base"]
+	enemyBase.Units = 20
+	state.Territories["e_base"] = enemyBase
+
+	fromID, toID, ok := evaluateAIMove(state)
+	if !ok || fromID != "e_base" || toID != "n_top_right" {
+		t.Fatalf("unexpected typed AI move: %s -> %s (ok=%v)", fromID, toID, ok)
+	}
+}
+
 func TestPvpSimulationIsDeterministic(t *testing.T) {
 	actions := []PvpAction{
 		{Sequence: 0, AtSeconds: 0, SourceID: "p_base", TargetID: "n_center"},

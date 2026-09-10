@@ -1,4 +1,5 @@
 import { Territory } from './types.js';
+import { getTerritoryProductionMultiplier } from './territory-types.js';
 
 export interface GenerationUpdateResult {
   territories: Record<string, Territory>;
@@ -36,7 +37,9 @@ export function tickUnitGeneration(
       continue;
     }
 
-    const currentAcc = (updatedAccumulators[id] ?? 0) + territory.productionRate * deltaSeconds;
+    const productionRate =
+      territory.productionRate * getTerritoryProductionMultiplier(territory.type);
+    const currentAcc = (updatedAccumulators[id] ?? 0) + productionRate * deltaSeconds;
     const wholeUnits = Math.floor(currentAcc);
 
     if (wholeUnits > 0) {

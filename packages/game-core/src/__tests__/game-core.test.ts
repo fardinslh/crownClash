@@ -27,6 +27,7 @@ describe('Crown Clash - Domain Logic Tests', () => {
       maxUnits: 50,
       productionRate: 0,
       tier: 1,
+      type: 'barracks',
     };
 
     it('successfully captures a neutral territory when incoming > defenders', () => {
@@ -64,6 +65,18 @@ describe('Crown Clash - Domain Logic Tests', () => {
       expect(result.captured).toBe(false);
       expect(result.newOwner).toBe('player');
       expect(result.remainingUnits).toBe(20); // 12 + 8 = 20
+    });
+
+    it('requires extra force to capture a fortress', () => {
+      const fortress: Territory = { ...baseTarget, type: 'fortress', units: 10 };
+
+      const repelled = resolveArrival(fortress, 12, 'player');
+      expect(repelled.captured).toBe(false);
+      expect(repelled.remainingUnits).toBe(1);
+
+      const captured = resolveArrival(fortress, 14, 'player');
+      expect(captured.captured).toBe(true);
+      expect(captured.remainingUnits).toBe(1);
     });
 
     it('guarantees unit counts never become negative on any battle', () => {
@@ -153,6 +166,19 @@ describe('Crown Clash - Domain Logic Tests', () => {
 
       expect(upgraded.army!.speed).toBeGreaterThan(normal.army!.speed);
       expect(upgraded.army!.units).toBe(normal.army!.units);
+    });
+
+    it('dispatches armies faster from a stable', () => {
+      const territories = createDefaultTerritories();
+      const stable = { ...territories['n_bot_right'], owner: 'player' as const, units: 20 };
+      const ordinary = { ...stable, id: 'ordinary', type: 'barracks' as const };
+      const target = territories['n_center'];
+
+      const stableDispatch = dispatchArmy(stable, target, 'player');
+      const ordinaryDispatch = dispatchArmy(ordinary, target, 'player');
+
+      expect(stableDispatch.army!.speed).toBeGreaterThan(ordinaryDispatch.army!.speed);
+      expect(stableDispatch.army!.units).toBe(ordinaryDispatch.army!.units);
     });
 
     it('rejects dispatch if sender does not own the source', () => {
@@ -272,6 +298,30 @@ describe('Crown Clash - Domain Logic Tests', () => {
       const res = tickUnitGeneration(territories, accumulators, 10.0);
       expect(res.territories['p_base'].units).toBe(65);
     });
+
+    it('generates units faster in an owned barracks', () => {
+      const territories = createDefaultTerritories();
+      territories['n_bot_left'].owner = 'player';
+      territories['n_bot_right'].owner = 'player';
+
+      const res = tickUnitGeneration(territories, {}, 4);
+
+      expect(res.territories['n_bot_left'].type).toBe('barracks');
+      expect(res.territories['n_bot_left'].units).toBe(12);
+      expect(res.territories['n_bot_right'].type).toBe('stable');
+      expect(res.territories['n_bot_right'].units).toBe(11);
+    });
+  });
+
+  describe('Territory Types', () => {
+    it('keeps tactical territory placement symmetric', () => {
+      const territories = createDefaultTerritories();
+
+      expect(territories['p_base'].type).toBe(territories['e_base'].type);
+      expect(territories['n_bot_left'].type).toBe(territories['n_top_right'].type);
+      expect(territories['n_bot_right'].type).toBe(territories['n_top_left'].type);
+      expect(territories['n_mid_left'].type).toBe(territories['n_mid_right'].type);
+    });
   });
 
   describe('Player Match Modifiers', () => {
@@ -366,6 +416,15 @@ describe('Crown Clash - Domain Logic Tests', () => {
       territories['e_base'].units = 3; // Below min threshold 8
       const move = evaluateAiMove(territories, 'enemy', 8);
       expect(move).toBeNull();
+    });
+
+    it('prioritizes a barracks over an equally defended stable', () => {
+      const territories = createDefaultTerritories();
+      territories['e_base'].units = 20;
+
+      const move = evaluateAiMove(territories, 'enemy', 8);
+
+      expect(move).toEqual({ fromId: 'e_base', toId: 'n_top_right' });
     });
   });
 

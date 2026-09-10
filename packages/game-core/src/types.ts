@@ -4,6 +4,7 @@
  */
 
 export type Team = 'player' | 'enemy' | 'neutral';
+export type TerritoryType = 'fortress' | 'barracks' | 'stable';
 
 export interface Territory {
   id: string;
@@ -16,6 +17,7 @@ export interface Territory {
   maxUnits: number;
   productionRate: number; // units per second (0 for neutral)
   tier: 1 | 2 | 3;
+  type: TerritoryType;
 }
 
 export interface MarchingArmy {

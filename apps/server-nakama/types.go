@@ -234,24 +234,30 @@ type PvpAttackResult struct {
 }
 
 type Team string
+type TerritoryType string
 
 const (
 	TeamPlayer  Team = "player"
 	TeamEnemy   Team = "enemy"
 	TeamNeutral Team = "neutral"
+
+	TerritoryFortress TerritoryType = "fortress"
+	TerritoryBarracks TerritoryType = "barracks"
+	TerritoryStable   TerritoryType = "stable"
 )
 
 type Territory struct {
-	ID             string  `json:"id"`
-	Name           string  `json:"name"`
-	X              float64 `json:"x"`
-	Y              float64 `json:"y"`
-	Radius         float64 `json:"radius"`
-	Owner          Team    `json:"owner"`
-	Units          int     `json:"units"`
-	MaxUnits       int     `json:"maxUnits"`
-	ProductionRate float64 `json:"productionRate"`
-	Tier           int     `json:"tier"`
+	ID             string        `json:"id"`
+	Name           string        `json:"name"`
+	X              float64       `json:"x"`
+	Y              float64       `json:"y"`
+	Radius         float64       `json:"radius"`
+	Owner          Team          `json:"owner"`
+	Units          int           `json:"units"`
+	MaxUnits       int           `json:"maxUnits"`
+	ProductionRate float64       `json:"productionRate"`
+	Tier           int           `json:"tier"`
+	Type           TerritoryType `json:"type"`
 }
 
 type MarchingArmy struct {
