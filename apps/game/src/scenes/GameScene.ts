@@ -5,6 +5,7 @@ import {
   createInitialGameState,
   dispatchArmy,
   dispatchMultipleArmies,
+  consumeSimulationTicks,
   evaluateAiMove,
   GameState,
   getPlayerUpgradeModifiers,
@@ -17,6 +18,7 @@ import {
   MatchStats,
   MAX_PVP_ACTIONS,
   PVP_AI_TICK_SECONDS,
+  PVP_SIMULATION_TICK_SECONDS,
   PvpAction,
   stepSimulation,
   TERRITORY_TYPE_PRESENTATION,
@@ -97,6 +99,7 @@ export class GameScene extends Phaser.Scene {
   // Local AI: fixed match-time tick grid so the client prediction stays as
   // close as possible to the server's authoritative bot replay.
   private aiNextTick = PVP_AI_TICK_SECONDS;
+  private botStepRemainder = 0;
 
   // Recorded dispatch intents replayed server-side for settlement.
   private matchActions: PvpAction[] = [];
@@ -218,6 +221,7 @@ export class GameScene extends Phaser.Scene {
     this.lastHoveredFriendlyId = null;
     this.selectionRings.clear();
     this.aiNextTick = PVP_AI_TICK_SECONDS;
+    this.botStepRemainder = 0;
     this.lastHeartbeatSecond = -1;
 
     // Start atmospheric battle music
@@ -1244,26 +1248,22 @@ export class GameScene extends Phaser.Scene {
    * possible.
    */
   private stepBotMatch(deltaSeconds: number): void {
-    let remaining = deltaSeconds;
-    // Guards against pathological float states producing a spinning loop.
-    let iterations = 0;
-    while (
-      remaining > 0 &&
-      this.gameState.status === 'playing' &&
-      iterations < 128
-    ) {
-      iterations++;
-      const untilAiTick = this.aiNextTick - this.gameState.elapsedTimeSeconds;
-      const step = Math.min(remaining, Math.max(0, untilAiTick));
-      if (step > 0) {
-        const result = stepSimulation(this.gameState, this.accumulators, step);
-        this.gameState = result.state;
-        this.accumulators = result.accumulators;
-        result.resolvedArrivals.forEach((arrival) => {
-          this.onCombatArrival(arrival);
-        });
-        remaining -= step;
-      }
+    // Do not run thousands of combat ticks in one frame after a suspended
+    // WebView resumes. Bot match time is logical, not wall-clock time.
+    const budget = consumeSimulationTicks(this.botStepRemainder, Math.min(deltaSeconds, 0.25));
+    this.botStepRemainder = budget.remainderSeconds;
+    // Every gameplay mutation runs on the same 20 ms clock used by the
+    // authoritative replay. Render-frame size can no longer change combat.
+    const ticks = Math.min(budget.ticks, 20);
+    for (let index = 0; index < ticks && this.gameState.status === 'playing'; index++) {
+      const result = stepSimulation(
+        this.gameState,
+        this.accumulators,
+        PVP_SIMULATION_TICK_SECONDS
+      );
+      this.gameState = result.state;
+      this.accumulators = result.accumulators;
+      result.resolvedArrivals.forEach((arrival) => this.onCombatArrival(arrival));
       if (
         this.gameState.status === 'playing' &&
         this.gameState.elapsedTimeSeconds >= this.aiNextTick - 1e-9
@@ -1271,9 +1271,9 @@ export class GameScene extends Phaser.Scene {
         this.executeAiTurn();
         this.aiNextTick += PVP_AI_TICK_SECONDS;
       }
-      if (step <= 0 && remaining > 0 && this.gameState.status === 'playing') {
-        break;
-      }
+    }
+    if (budget.ticks > ticks) {
+      this.botStepRemainder += (budget.ticks - ticks) * PVP_SIMULATION_TICK_SECONDS;
     }
   }
 
@@ -2595,6 +2595,7 @@ export class GameScene extends Phaser.Scene {
     this.dragGraphics.clear();
     this.dragBadgeContainer.setVisible(false);
     this.aiNextTick = PVP_AI_TICK_SECONDS;
+    this.botStepRemainder = 0;
     this.lastHeartbeatSecond = -1;
 
     // Restart atmospheric battle music

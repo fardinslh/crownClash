@@ -9,6 +9,7 @@ import (
 const (
 	PvpTimeLimitSeconds = 90.0
 	PvpAITickSeconds    = 1.8
+	PvpSimulationTick   = 0.02
 	MaxPvpActions       = 120
 	baseArmyTravelSpeed = 140.0
 )
@@ -597,11 +598,18 @@ func simulateBattle(actions []PvpAction, player, enemy PlayerUpgradeModifiers) (
 	aiActionIndex := 0
 	actionsProcessed := 0
 	stepTo := func(timestamp float64) {
-		delta := timestamp - currentTime
-		if delta <= 0 {
-			return
+		for state.Status == "playing" && currentTime+PvpSimulationTick <= timestamp+1e-9 {
+			state, accumulators = stepSimulation(state, accumulators, PvpSimulationTick)
+			currentTime += PvpSimulationTick
 		}
-		state, accumulators = stepSimulation(state, accumulators, delta)
+		remainder := timestamp - currentTime
+		if state.Status == "playing" && remainder > 0 {
+			state, accumulators = stepSimulation(state, accumulators, remainder)
+		}
+		clockCorrection := timestamp - state.ElapsedTimeSeconds
+		if state.Status == "playing" && clockCorrection > 0 {
+			state, accumulators = stepSimulation(state, accumulators, clockCorrection)
+		}
 		currentTime = timestamp
 	}
 	executeAI := func() {

@@ -6,7 +6,27 @@ import type { GameState, MatchStats } from './types.js';
 
 export const PVP_TIME_LIMIT_SECONDS = 90;
 export const PVP_AI_TICK_SECONDS = 1.8;
+/** Fixed deterministic clock shared by local prediction and server replay. */
+export const PVP_SIMULATION_TICK_SECONDS = 0.02;
 export const MAX_PVP_ACTIONS = 120;
+
+export interface SimulationTickBudget {
+  readonly ticks: number;
+  readonly remainderSeconds: number;
+}
+
+/** Converts arbitrary render-frame time into cadence-independent simulation ticks. */
+export function consumeSimulationTicks(
+  previousRemainderSeconds: number,
+  deltaSeconds: number
+): SimulationTickBudget {
+  const total = Math.max(0, previousRemainderSeconds) + Math.max(0, deltaSeconds);
+  const ticks = Math.floor((total + 1e-9) / PVP_SIMULATION_TICK_SECONDS);
+  return {
+    ticks,
+    remainderSeconds: Math.max(0, total - ticks * PVP_SIMULATION_TICK_SECONDS),
+  };
+}
 
 export interface PvpAction {
   sequence: number;
@@ -177,11 +197,27 @@ export function simulatePvpBattle(options: PvpSimulationOptions): PvpSimulationR
   let actionIndex = 0;
 
   const stepTo = (timestamp: number): void => {
-    const delta = timestamp - currentTime;
-    if (delta <= 0) return;
-    const step = requirePlayingState(state, delta, accumulators);
-    state = step.state;
-    accumulators = step.accumulators;
+    while (
+      state.status === 'playing' &&
+      currentTime + PVP_SIMULATION_TICK_SECONDS <= timestamp + 1e-9
+    ) {
+      const step = requirePlayingState(state, PVP_SIMULATION_TICK_SECONDS, accumulators);
+      state = step.state;
+      accumulators = step.accumulators;
+      currentTime += PVP_SIMULATION_TICK_SECONDS;
+    }
+    const remainder = timestamp - currentTime;
+    if (state.status === 'playing' && remainder > 0) {
+      const step = requirePlayingState(state, remainder, accumulators);
+      state = step.state;
+      accumulators = step.accumulators;
+    }
+    const clockCorrection = timestamp - state.elapsedTimeSeconds;
+    if (state.status === 'playing' && clockCorrection > 0) {
+      const step = requirePlayingState(state, clockCorrection, accumulators);
+      state = step.state;
+      accumulators = step.accumulators;
+    }
     currentTime = timestamp;
   };
 
@@ -215,15 +251,21 @@ export function simulatePvpBattle(options: PvpSimulationOptions): PvpSimulationR
       throw new PvpSimulationError('action_after_battle_end');
     }
 
-    state = dispatchFromState(
-      state,
-      action.sourceId,
-      action.targetId,
-      'player',
-      options.playerModifiers?.armySpeedMultiplier ?? 1,
-      `pvp_player_${action.sequence}`
-    );
-    actionIndex++;
+    try {
+      state = dispatchFromState(
+        state,
+        action.sourceId,
+        action.targetId,
+        'player',
+        options.playerModifiers?.armySpeedMultiplier ?? 1,
+        `pvp_player_${action.sequence}`
+      );
+      actionIndex++;
+    } catch (error) {
+      // Match the authoritative Go replay: a structurally valid command
+      // that is no longer legal in the replayed state is ignored.
+      if (!(error instanceof PvpSimulationError)) throw error;
+    }
   }
 
   while (state.status === 'playing' && nextAiTick <= PVP_TIME_LIMIT_SECONDS) {

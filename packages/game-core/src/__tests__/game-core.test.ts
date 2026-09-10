@@ -10,6 +10,7 @@ import {
   stepSimulation,
   tickUnitGeneration,
   simulatePvpBattle,
+  consumeSimulationTicks,
   PvpSimulationError,
   Territory,
 } from '../index.js';
@@ -429,6 +430,20 @@ describe('Crown Clash - Domain Logic Tests', () => {
   });
 
   describe('Async PvP replay (simulatePvpBattle)', () => {
+    it('uses the same simulation ticks across irregular render frames', () => {
+      const frames = [0.016, 0.033, 0.008, 0.041, 0.102, 0.017, 0.063];
+      let remainder = 0;
+      let frameTicks = 0;
+      for (const frame of frames) {
+        const budget = consumeSimulationTicks(remainder, frame);
+        frameTicks += budget.ticks;
+        remainder = budget.remainderSeconds;
+      }
+      const singleBudget = consumeSimulationTicks(0, frames.reduce((sum, frame) => sum + frame, 0));
+      expect(frameTicks).toBe(singleBudget.ticks);
+      expect(remainder).toBeCloseTo(singleBudget.remainderSeconds, 10);
+    });
+
     it('replays the same attack deterministically', () => {
       const actions = [
         { sequence: 0, atSeconds: 0.1, sourceId: 'p_base', targetId: 'n_bot_left' },
@@ -441,6 +456,18 @@ describe('Crown Clash - Domain Logic Tests', () => {
       expect(second.summary).toEqual(first.summary);
       expect(second.finalState).toEqual(first.finalState);
       expect(first.summary.actionsProcessed).toBe(2);
+      expect(first.summary.durationSeconds).toBe(90);
+    });
+
+    it('skips state-invalid commands like the authoritative server', () => {
+      const result = simulatePvpBattle({
+        actions: [
+          { sequence: 0, atSeconds: 0, sourceId: 'p_base', targetId: 'n_bot_left' },
+          { sequence: 1, atSeconds: 5, sourceId: 'does_not_exist', targetId: 'n_center' },
+          { sequence: 2, atSeconds: 8, sourceId: 'p_base', targetId: 'n_bot_right' },
+        ],
+      });
+      expect(result.summary.actionsProcessed).toBe(2);
     });
 
     it('applies attacker and defender modifiers to the replay board', () => {
