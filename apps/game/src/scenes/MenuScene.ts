@@ -12,6 +12,7 @@ import { THEME } from '../theme.js';
 import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
 import { LiveMatchClient } from '../api/LiveMatchClient.js';
 import { LivePvpController, isValidRoomCode, sanitizeRoomCode } from '../pvp/LivePvpController.js';
+import { isTutorialCompleted } from '../tutorial/TutorialController.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 
@@ -199,11 +200,11 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     const playBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2, 518, 250, 56, 0x2563eb, 1)
+      .rectangle(LOGICAL_WIDTH / 2, 500, 250, 56, 0x2563eb, 1)
       .setStrokeStyle(2.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
     const playText = this.add
-      .text(LOGICAL_WIDTH / 2, 518, 'PLAY  ⚔', {
+      .text(LOGICAL_WIDTH / 2, 500, 'PLAY  ⚔', {
         fontFamily: FONT_FAMILY,
         fontSize: '22px',
         fontStyle: '900',
@@ -237,13 +238,13 @@ export class MenuScene extends Phaser.Scene {
 
     const liveStyle = secondaryButtonStyle(careerManager.isRemoteConnected());
     const liveBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2, 590, 250, 50, liveStyle.fill, 1)
+      .rectangle(LOGICAL_WIDTH / 2, 562, 250, 48, liveStyle.fill, 1)
       .setStrokeStyle(1.5, liveStyle.stroke, 1)
       .setInteractive({ useHandCursor: true });
     const liveText = this.add
       .text(
         LOGICAL_WIDTH / 2,
-        590,
+        562,
         careerManager.isRemoteConnected() ? 'LIVE PVP  ⚔' : 'LIVE PVP OFFLINE',
         {
           fontFamily: FONT_FAMILY,
@@ -267,13 +268,42 @@ export class MenuScene extends Phaser.Scene {
       });
     }
 
+    const trainingComplete = isTutorialCompleted(platform.getUser().id);
+    const trainingBg = this.add
+      .rectangle(LOGICAL_WIDTH / 2, 622, 250, 44, 0x1c1830, 1)
+      .setStrokeStyle(1.5, THEME.gold, 0.9)
+      .setInteractive({ useHandCursor: true });
+    const trainingText = this.add
+      .text(
+        LOGICAL_WIDTH / 2,
+        622,
+        trainingComplete ? 'WAR ACADEMY  ✓' : 'NEW  •  WAR ACADEMY',
+        {
+          fontFamily: FONT_FAMILY,
+          fontSize: '12px',
+          fontStyle: '900',
+          color: '#fde68a',
+          stroke: '#000000',
+          strokeThickness: 2,
+          resolution: 2,
+        }
+      )
+      .setOrigin(0.5);
+    this.bindPressFeedback(trainingBg, trainingText);
+    trainingBg.on('pointerdown', () => {
+      trainingBg.disableInteractive();
+      sounds.playReinforce();
+      platform.hapticSelection();
+      this.scene.start('TrainingScene');
+    });
+
     const dailyAvailable = careerManager.isRemoteConnected() || isLocalCareerFallbackAllowed();
     const dailyBg = this.add
-      .rectangle(104, 654, 88, 44, dailyAvailable ? 0x1c1830 : 0x273449, 1)
+      .rectangle(104, 680, 88, 44, dailyAvailable ? 0x1c1830 : 0x273449, 1)
       .setStrokeStyle(1.5, dailyAvailable ? THEME.gold : 0x475569, 0.9)
       .setInteractive({ useHandCursor: true });
     const dailyText = this.add
-      .text(104, 654, dailyAvailable ? '📜 DAILY' : 'OFFLINE', {
+      .text(104, 680, dailyAvailable ? '📜 DAILY' : 'OFFLINE', {
         fontFamily: FONT_FAMILY,
         fontSize: dailyAvailable ? '12px' : '10px',
         fontStyle: '900',
@@ -296,11 +326,11 @@ export class MenuScene extends Phaser.Scene {
     }
 
     const leagueBg = this.add
-      .rectangle(200, 654, 88, 44, 0x151d31, 1)
+      .rectangle(200, 680, 88, 44, 0x151d31, 1)
       .setStrokeStyle(1.5, 0x818cf8, 0.9)
       .setInteractive({ useHandCursor: true });
     const leagueText = this.add
-      .text(200, 654, '🏆 LEAGUE', {
+      .text(200, 680, '🏆 LEAGUE', {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: '900',
@@ -319,11 +349,11 @@ export class MenuScene extends Phaser.Scene {
     });
 
     const kingdomBg = this.add
-      .rectangle(296, 654, 88, 44, 0x111c33, 1)
+      .rectangle(296, 680, 88, 44, 0x111c33, 1)
       .setStrokeStyle(1.5, THEME.gold, 0.8)
       .setInteractive({ useHandCursor: true });
     const kingdomText = this.add
-      .text(296, 654, '🏰 KINGDOM', {
+      .text(296, 680, '🏰 KINGDOM', {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: '900',

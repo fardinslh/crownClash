@@ -38,12 +38,6 @@ import { purchaseUpgradeThroughCareer } from '../upgrades/UpgradePurchaseControl
 import { playUpgradeMilestoneCelebration } from '../upgrades/UpgradeMilestoneCelebration.js';
 import { deriveLiveCombatArrivals } from '../combat/LiveCombatFeedback.js';
 import { wholeMatchSeconds } from '../match/MatchPresentation.js';
-import {
-  TutorialController,
-  TutorialEvent,
-  TutorialStepInfo,
-  isTutorialCompleted,
-} from '../tutorial/TutorialController.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 const MONO_FONT_FAMILY = '"Segoe UI", monospace, -apple-system, sans-serif';
@@ -142,11 +136,6 @@ export class GameScene extends Phaser.Scene {
 
   // Audio Atmosphere Tension
   private lastHeartbeatSecond: number = -1;
-
-  // Tutorial Overlay
-  private tutorial?: TutorialController;
-  private tutorialOverlayContainer?: Phaser.GameObjects.Container;
-  private tutorialSkipBtn?: Phaser.GameObjects.Container;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -268,10 +257,6 @@ export class GameScene extends Phaser.Scene {
     // 5. Setup Pointer Input Listeners
     this.setupInputs();
 
-    // 6. Tutorial — only for first-time bot matches
-    if (!this.liveMode && !isTutorialCompleted(this.platform.getUser().id)) {
-      this.initTutorial();
-    }
   }
 
   private createArenaBackground(): void {
@@ -1086,7 +1071,6 @@ export class GameScene extends Phaser.Scene {
     const sourceCountLabel = selectedTerritories.length > 1 ? ` (${selectedTerritories.length} bases)` : '';
 
     if (isHoveringTarget && target) {
-      this.tutorial?.onPreviewShown();
       if (isFriendly) {
         this.dragBadgeText.setText(`+${totalUnitsToSend} REINFORCE${sourceCountLabel}`);
         this.dragBadgeText.setColor('#10b981');
@@ -1217,10 +1201,6 @@ export class GameScene extends Phaser.Scene {
             this.gameState.armies.push(...multiDispatch.armies);
             this.gameState.stats.playerUnitsDispatched += multiDispatch.totalUnitsDispatched;
             this.recordDispatchActions(multiDispatch.armies);
-            this.tutorial?.onDispatch(
-              sources.map((s) => s.id),
-              target.id
-            );
 
             if (target.owner === 'player') {
               sounds.playReinforce();
@@ -1237,14 +1217,8 @@ export class GameScene extends Phaser.Scene {
   update(_time: number, delta: number): void {
     const deltaSeconds = delta / 1000;
 
-    this.tutorial?.onTimerTick(deltaSeconds);
-
-    const isSimulationPaused = Boolean(!this.liveMode && this.tutorial?.shouldPauseSimulation);
-
     if (this.gameState.status === 'playing' && !this.liveMode) {
-      if (!isSimulationPaused) {
-        this.stepBotMatch(deltaSeconds);
-      }
+      this.stepBotMatch(deltaSeconds);
 
       // Update HUD
       this.updateHud();
@@ -1354,7 +1328,6 @@ export class GameScene extends Phaser.Scene {
 
     if (arrival.captured) {
       const capturedByPlayer = arrival.attackerOwner === 'player';
-      this.tutorial?.onCapture(arrival.targetId, capturedByPlayer);
       if (arrival.targetId === 'n_center' && capturedByPlayer) {
         sounds.playCrownCapture();
       } else if (capturedByPlayer) {
@@ -1892,10 +1865,6 @@ export class GameScene extends Phaser.Scene {
 
   private endMatch(): void {
     if (this.resultModalContainer || this.resultPending) return;
-
-    this.clearTutorialOverlay();
-    this.tutorial?.destroy();
-    this.tutorial = undefined;
 
     sounds.stopBattleMusic();
     this.resultPending = true;
@@ -2591,10 +2560,6 @@ export class GameScene extends Phaser.Scene {
       this.resultModalContainer = undefined;
     }
 
-    this.clearTutorialOverlay();
-    this.tutorial?.destroy();
-    this.tutorial = undefined;
-
     // Leave any finished live/raid session behind and start a fresh bot match.
     this.liveClient?.close();
     this.liveClient = undefined;
@@ -2641,10 +2606,6 @@ export class GameScene extends Phaser.Scene {
     // Small celebratory restart pop
     this.cameras.main.flash(200, 20, 30, 50);
 
-    // Re-initialize tutorial on rematch if it was not completed/skipped
-    if (!this.liveMode && !isTutorialCompleted(this.platform.getUser().id)) {
-      this.initTutorial();
-    }
   }
 
   private createUpgradedMatchState(): void {
@@ -2735,246 +2696,7 @@ export class GameScene extends Phaser.Scene {
     this.showSettlementError(new Error('live_connection_closed'));
   }
 
-  private initTutorial(): void {
-    const user = this.platform.getUser();
-    this.tutorial = new TutorialController(user.id, (event: TutorialEvent) => {
-      // Scene lifecycle safety: do not update stopped/inactive scene
-      if (!this.scene.isActive()) return;
-
-      switch (event.type) {
-        case 'started':
-          trackEvent({ name: 'tutorial_started' });
-          break;
-        case 'step_entered':
-          this.renderTutorialStep(this.tutorial?.currentStep ?? null);
-          break;
-        case 'step_completed':
-          if (event.stepId) {
-            trackEvent({
-              name: 'tutorial_step_completed',
-              stepId: event.stepId,
-            });
-          }
-          break;
-        case 'completed':
-          trackEvent({ name: 'tutorial_completed' });
-          this.clearTutorialOverlay();
-          break;
-        case 'skipped':
-          trackEvent({
-            name: 'tutorial_skipped',
-            lastStepId: event.stepId ?? 'drag_to_attack',
-          });
-          this.clearTutorialOverlay();
-          break;
-      }
-    });
-
-    this.tutorialOverlayContainer = this.add.container(0, 0).setDepth(85);
-    this.renderTutorialStep(this.tutorial.currentStep);
-  }
-
-  private renderTutorialStep(step: TutorialStepInfo | null): void {
-    if (!this.tutorialOverlayContainer || !this.scene.isActive()) return;
-
-    this.clearTutorialStepVisuals();
-
-    if (!step || !this.tutorial?.isActive) {
-      return;
-    }
-
-    if (!this.tutorialSkipBtn) {
-      this.createTutorialSkipButton();
-    }
-
-    // 1. Spotlight on territory if specified (e.g. p_base for first drag)
-    if (step.spotlightTarget) {
-      const territory = this.gameState.territories[step.spotlightTarget];
-      if (territory) {
-        const spotlightRing = this.add
-          .circle(territory.x, territory.y, territory.radius + 12, THEME.gold, 0.08)
-          .setStrokeStyle(3, THEME.gold, 0.95);
-        this.tutorialOverlayContainer.add(spotlightRing);
-
-        if (!this.reducedMotion) {
-          this.tweens.add({
-            targets: spotlightRing,
-            scale: 1.16,
-            alpha: 0.35,
-            duration: 650,
-            yoyo: true,
-            repeat: -1,
-            ease: 'Sine.easeInOut',
-          });
-        }
-
-        const arrowY = territory.y - territory.radius - 22;
-        const arrow = this.add
-          .text(territory.x, arrowY, '▲', {
-            fontFamily: FONT_FAMILY,
-            fontSize: '18px',
-            color: '#fbbf24',
-            resolution: 2,
-          })
-          .setOrigin(0.5);
-        this.tutorialOverlayContainer.add(arrow);
-
-        if (!this.reducedMotion) {
-          this.tweens.add({
-            targets: arrow,
-            y: arrowY - 8,
-            duration: 500,
-            yoyo: true,
-            repeat: -1,
-            ease: 'Sine.easeInOut',
-          });
-        }
-      }
-    }
-
-    // 2. Clear, compact tactical instruction banner
-    // Positioned so it doesn't block player base or neutral towers
-    const cardY = step.id === 'drag_to_attack' ? 525 : 440;
-    const cardWidth = 350;
-    const cardHeight = 56;
-
-    const cardShadow = this.add
-      .rectangle(LOGICAL_WIDTH / 2, cardY + 2, cardWidth + 4, cardHeight + 4, 0x000000, 0.45);
-    const cardBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2, cardY, cardWidth, cardHeight, 0x090f1d, 0.96)
-      .setStrokeStyle(1.5, THEME.gold, 0.9);
-
-    let stepTitle = 'TUTORIAL';
-    let stepSubtext = '';
-    if (step.id === 'drag_to_attack') {
-      stepTitle = '⚔ ATTACK';
-      stepSubtext = 'Drag to an outpost (gray or red) to launch half your army';
-    } else if (step.id === 'preview_result') {
-      stepTitle = '🎯 BATTLE PREVIEW';
-      stepSubtext = 'WIN = Victory • TIE = Equal loss • -N = Units missing';
-    } else if (step.id === 'tower_roles') {
-      stepTitle = '🏰 TOWER ROLES';
-      stepSubtext = 'DEF = Strong defense • PROD = Fast recruit • SPD = Fast march';
-    } else if (step.id === 'multi_dispatch') {
-      stepTitle = '⚡ COORDINATED STRIKE';
-      stepSubtext = 'Drag across friendly towers to combine armies into one attack!';
-    }
-
-    const titleText = this.add
-      .text(LOGICAL_WIDTH / 2, cardY - 14, stepTitle, {
-        fontFamily: MONO_FONT_FAMILY,
-        fontSize: '11px',
-        fontStyle: 'bold',
-        color: '#fbbf24',
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-
-    const mainText = this.add
-      .text(LOGICAL_WIDTH / 2, cardY + 2, step.instruction, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '12px',
-        fontStyle: 'bold',
-        color: '#ffffff',
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-
-    const subText = this.add
-      .text(LOGICAL_WIDTH / 2, cardY + 17, stepSubtext, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '9px',
-        color: '#94a3b8',
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-
-    this.tutorialOverlayContainer.add([cardShadow, cardBg, titleText, mainText, subText]);
-
-    if (!this.reducedMotion) {
-      cardBg.setScale(0.96).setAlpha(0);
-      titleText.setAlpha(0);
-      mainText.setAlpha(0);
-      subText.setAlpha(0);
-      this.tweens.add({
-        targets: [cardBg, titleText, mainText, subText],
-        scale: 1,
-        alpha: 1,
-        duration: 160,
-        ease: 'Cubic.easeOut',
-      });
-    }
-  }
-
-  private createTutorialSkipButton(): void {
-    if (this.tutorialSkipBtn) return;
-
-    // Minimum touch target 44x44 (width=64, height=44)
-    const btnWidth = 64;
-    const btnHeight = 32;
-    const btnX = LOGICAL_WIDTH - 44;
-    const btnY = 96;
-
-    const container = this.add.container(btnX, btnY).setDepth(99);
-
-    const bg = this.add
-      .rectangle(0, 0, btnWidth, btnHeight, 0x0f172a, 0.92)
-      .setStrokeStyle(1.5, 0x475569, 0.85);
-
-    const text = this.add
-      .text(0, 0, 'SKIP ⏭', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '11px',
-        fontStyle: 'bold',
-        color: '#94a3b8',
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-
-    container.add([bg, text]);
-
-    // Touch hit area padded to guarantee >= 40x40 touch target
-    bg.setSize(btnWidth, 44);
-    bg.setInteractive({ useHandCursor: true });
-
-    bg.on('pointerdown', () => {
-      this.platform.hapticSelection();
-      this.tutorial?.skip();
-    });
-
-    this.bindPressFeedback(bg, text);
-    this.tutorialSkipBtn = container;
-  }
-
-  private clearTutorialStepVisuals(): void {
-    if (!this.tutorialOverlayContainer) return;
-    for (const child of this.tutorialOverlayContainer.getAll()) {
-      this.tweens.killTweensOf(child);
-    }
-    this.tutorialOverlayContainer.removeAll(true);
-  }
-
-  private clearTutorialOverlay(): void {
-    this.clearTutorialStepVisuals();
-    if (this.tutorialSkipBtn) {
-      for (const child of this.tutorialSkipBtn.getAll()) {
-        this.tweens.killTweensOf(child);
-      }
-      this.tweens.killTweensOf(this.tutorialSkipBtn);
-      this.tutorialSkipBtn.destroy();
-      this.tutorialSkipBtn = undefined;
-    }
-    if (this.tutorialOverlayContainer) {
-      this.tweens.killTweensOf(this.tutorialOverlayContainer);
-      this.tutorialOverlayContainer.destroy();
-      this.tutorialOverlayContainer = undefined;
-    }
-  }
-
   private cleanup(): void {
-    this.clearTutorialOverlay();
-    this.tutorial?.destroy();
-    this.tutorial = undefined;
     this.careerSubscription?.();
     this.careerSubscription = undefined;
     for (const unsubscribe of this.liveUnsubscribers) {

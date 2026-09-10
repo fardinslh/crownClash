@@ -26,10 +26,10 @@ derives player identity from authentication and records receipt time separately.
 | `live_match_started` | Nakama match starts | `matchId` | Nakama match event | Live matches started |
 | `live_match_ended` | Server live result arrives | `matchId`, `status` | Server-confirmed result | Live completion and win rate |
 | `live_match_disconnected` | Connection ends before a result | `matchId` | Client connection state | Live connection reliability |
-| `tutorial_started` | Tutorial begins during first bot battle | None | Client action | Onboarding start |
-| `tutorial_step_completed` | Each tutorial step completes | `stepId` (`drag_to_attack`, `preview_result`, `tower_roles`, `multi_dispatch`) | Client action | Onboarding step progression |
-| `tutorial_completed` | All tutorial steps completed naturally | None | Client action | Onboarding completion |
-| `tutorial_skipped` | User taps SKIP on tutorial | `lastStepId` (`drag_to_attack`, `preview_result`, `tower_roles`, `multi_dispatch`) | Client action | Onboarding skip rate |
+| `tutorial_started` | First-time player opens War Academy | None | Client action | Onboarding start |
+| `tutorial_step_completed` | Each War Academy lesson is acknowledged | `stepId` (`drag_to_attack`, `preview_result`, `tower_roles`, `multi_dispatch`) | Client action | Onboarding step progression |
+| `tutorial_completed` | Player finishes all lessons and starts the practice battle | None | Client action | Onboarding completion |
+| `tutorial_skipped` | Player leaves War Academy before completion | `lastStepId` (`drag_to_attack`, `preview_result`, `tower_roles`, `multi_dispatch`) | Client action | Onboarding abandonment |
 
 Live events use the player-specific settlement ID, `live_<startedAt>_<playerId>`,
 while Nakama keeps its internal socket match ID unchanged. `match_end` and `match_quit` are mutually exclusive per match ID. Raw platform
