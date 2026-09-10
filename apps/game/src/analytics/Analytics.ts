@@ -1,4 +1,5 @@
 import type { UpgradeFailureReason, UpgradeType } from '@crown-clash/game-core';
+import type { TutorialStepId } from '../tutorial/TutorialController.js';
 
 export const ANALYTICS_SCHEMA_VERSION = 1;
 export const ANALYTICS_EVENT_NAME_MAX_LENGTH = 64;
@@ -52,7 +53,11 @@ export type AnalyticsEventInput =
       matchId: string;
       status: 'victory' | 'defeat' | 'draw';
     }
-  | { name: 'live_match_disconnected'; matchId: string };
+  | { name: 'live_match_disconnected'; matchId: string }
+  | { name: 'tutorial_started' }
+  | { name: 'tutorial_step_completed'; stepId: TutorialStepId }
+  | { name: 'tutorial_completed' }
+  | { name: 'tutorial_skipped'; lastStepId: TutorialStepId };
 
 export type UpgradeAnalyticsEvent = Extract<
   AnalyticsEventInput,
@@ -89,6 +94,10 @@ const EVENT_NAMES: ReadonlySet<AnalyticsEvent['name']> = new Set([
   'live_match_started',
   'live_match_ended',
   'live_match_disconnected',
+  'tutorial_started',
+  'tutorial_step_completed',
+  'tutorial_completed',
+  'tutorial_skipped',
 ]);
 
 const sessionId = createIdentifier('session');

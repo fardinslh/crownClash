@@ -70,4 +70,48 @@ describe('analytics events', () => {
     expect(events).toHaveLength(1);
     window.removeEventListener('crown-clash:analytics', listener);
   });
+
+  it('validates tutorial analytics event envelopes', async () => {
+    const analytics = await import('./Analytics.js');
+
+    const validStarted = {
+      eventId: 'event_1',
+      name: 'tutorial_started',
+      sessionId: 'session_1',
+      occurredAt: Date.now(),
+      schemaVersion: 1,
+      props: {},
+    };
+    expect(analytics.isAnalyticsEvent(validStarted)).toBe(true);
+
+    const validStep = {
+      eventId: 'event_2',
+      name: 'tutorial_step_completed',
+      sessionId: 'session_1',
+      occurredAt: Date.now(),
+      schemaVersion: 1,
+      props: { stepId: 'drag_to_attack' },
+    };
+    expect(analytics.isAnalyticsEvent(validStep)).toBe(true);
+
+    const validCompleted = {
+      eventId: 'event_3',
+      name: 'tutorial_completed',
+      sessionId: 'session_1',
+      occurredAt: Date.now(),
+      schemaVersion: 1,
+      props: {},
+    };
+    expect(analytics.isAnalyticsEvent(validCompleted)).toBe(true);
+
+    const validSkipped = {
+      eventId: 'event_4',
+      name: 'tutorial_skipped',
+      sessionId: 'session_1',
+      occurredAt: Date.now(),
+      schemaVersion: 1,
+      props: { lastStepId: 'drag_to_attack' },
+    };
+    expect(analytics.isAnalyticsEvent(validSkipped)).toBe(true);
+  });
 });
