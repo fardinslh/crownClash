@@ -413,14 +413,17 @@ func TestInsertAnalyticsEventsNormalizesUpgradeSuccessFromPurchase(t *testing.T)
 		Success: true,
 		Cost:    &cost,
 		NewCareer: PlayerCareer{
-			Coins:           325,
-			ProductionLevel: 3,
+			Coins:                 325,
+			StartingGarrisonLevel: 3,
+			ProductionLevel:       3,
+			ArmySpeedLevel:        2,
+			TreasuryLevel:         2,
 		},
 	}
 	purchaseJSON, _ := json.Marshal(purchase)
 	expectedProps := map[string]any{
 		"purchaseId": "purchase_1", "upgradeType": "production", "level": 3,
-		"cost": 175, "resultingCoins": 325,
+		"cost": 175, "resultingCoins": 325, "kingdomLevel": 10, "kingdomTierId": "stone_fort",
 	}
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT upgrade_type, result FROM upgrade_purchases")).

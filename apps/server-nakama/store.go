@@ -685,6 +685,8 @@ func normalizeAnalyticsEvent(ctx context.Context, tx *sql.Tx, userID string, eve
 			"level":          UpgradeLevel(result.NewCareer, upgradeType),
 			"cost":           *result.Cost,
 			"resultingCoins": result.NewCareer.Coins,
+			"kingdomLevel":   KingdomLevel(result.NewCareer),
+			"kingdomTierId":  KingdomTierID(KingdomLevel(result.NewCareer)),
 		}
 	case "daily_reward_claimed":
 		claimID, _ := event.Props["claimId"].(string)

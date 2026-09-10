@@ -23,6 +23,7 @@ import {
   getKingdomPower,
   getLeagueProgress,
 } from '../league.js';
+import { getKingdomLevel, getKingdomProgress, MAX_KINGDOM_LEVEL } from '../kingdom.js';
 
 describe('Progression & Economy Engine', () => {
   it('creates a clean default career with welcome capital', () => {
@@ -251,6 +252,64 @@ describe('Progression & Economy Engine', () => {
         milestoneLabel: 'M20 ✓',
         milestoneProgress: 1,
       });
+    });
+  });
+
+  describe('Kingdom Progression', () => {
+    it('derives kingdom level from all four normalized upgrades', () => {
+      const career = {
+        ...createDefaultCareer('realm_1'),
+        startingGarrisonLevel: 3,
+        productionLevel: 5,
+        armySpeedLevel: 7,
+        treasuryLevel: 9,
+      };
+
+      expect(getKingdomLevel(career)).toBe(24);
+      expect(MAX_KINGDOM_LEVEL).toBe(80);
+    });
+
+    it.each([
+      [0, 'war_camp', 10, 0],
+      [9, 'war_camp', 1, 0.9],
+      [10, 'stone_fort', 15, 0],
+      [24, 'stone_fort', 1, 14 / 15],
+      [25, 'royal_keep', 20, 0],
+      [45, 'grand_citadel', 20, 0],
+      [65, 'crown_capital', 0, 1],
+      [80, 'crown_capital', 0, 1],
+    ])(
+      'maps total level %i to %s',
+      (totalLevel, tierId, levelsToNextTier, tierProgress) => {
+        const perUpgrade = Math.floor(totalLevel / 4);
+        const remainder = totalLevel % 4;
+        const career = {
+          ...createDefaultCareer(`realm_${totalLevel}`),
+          startingGarrisonLevel: perUpgrade + (remainder > 0 ? 1 : 0),
+          productionLevel: perUpgrade + (remainder > 1 ? 1 : 0),
+          armySpeedLevel: perUpgrade + (remainder > 2 ? 1 : 0),
+          treasuryLevel: perUpgrade,
+        };
+
+        expect(getKingdomProgress(career)).toMatchObject({
+          totalLevel,
+          tier: { id: tierId },
+          levelsToNextTier,
+        });
+        expect(getKingdomProgress(career).tierProgress).toBeCloseTo(tierProgress, 5);
+      }
+    );
+
+    it('clamps invalid upgrade values before calculating progress', () => {
+      const career = {
+        ...createDefaultCareer('realm_invalid'),
+        startingGarrisonLevel: 99,
+        productionLevel: -4,
+        armySpeedLevel: Number.NaN,
+        treasuryLevel: 4.8,
+      };
+
+      expect(getKingdomLevel(career)).toBe(24);
     });
   });
 

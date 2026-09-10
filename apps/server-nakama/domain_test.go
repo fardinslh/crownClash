@@ -96,6 +96,44 @@ func TestUpgradeBalanceParityAndTreasuryRewards(t *testing.T) {
 	}
 }
 
+func TestKingdomProgressionMatchesClientThresholds(t *testing.T) {
+	cases := []struct {
+		level  int
+		tierID string
+	}{
+		{0, "war_camp"},
+		{9, "war_camp"},
+		{10, "stone_fort"},
+		{25, "royal_keep"},
+		{45, "grand_citadel"},
+		{65, "crown_capital"},
+		{80, "crown_capital"},
+	}
+	for _, test := range cases {
+		career := CreateDefaultCareer("kingdom")
+		career.StartingGarrisonLevel = test.level / 4
+		career.ProductionLevel = test.level / 4
+		career.ArmySpeedLevel = test.level / 4
+		career.TreasuryLevel = test.level / 4
+		for remainder := test.level % 4; remainder > 0; remainder-- {
+			switch remainder {
+			case 1:
+				career.StartingGarrisonLevel++
+			case 2:
+				career.ProductionLevel++
+			case 3:
+				career.ArmySpeedLevel++
+			}
+		}
+		if level := KingdomLevel(career); level != test.level {
+			t.Fatalf("expected kingdom level %d, got %d", test.level, level)
+		}
+		if tierID := KingdomTierID(test.level); tierID != test.tierID {
+			t.Fatalf("level %d: expected tier %s, got %s", test.level, test.tierID, tierID)
+		}
+	}
+}
+
 func TestTerritoryTypeRulesMatchClientBalance(t *testing.T) {
 	territories := CreateDefaultTerritories(DefaultModifiers(), DefaultModifiers())
 	if territories["p_base"].Type != TerritoryFortress || territories["n_bot_left"].Type != TerritoryBarracks || territories["n_bot_right"].Type != TerritoryStable {

@@ -8,6 +8,7 @@ export * from './ai.js';
 export * from './simulation.js';
 export * from './progression.js';
 export * from './upgrades.js';
+export * from './kingdom.js';
 export * from './pvp.js';
 export * from './daily.js';
 export * from './league.js';

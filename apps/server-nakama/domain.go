@@ -191,6 +191,28 @@ func UpgradeLevel(career PlayerCareer, upgrade UpgradeType) int {
 	return minInt(20, maxInt(0, level))
 }
 
+func KingdomLevel(career PlayerCareer) int {
+	return UpgradeLevel(career, UpgradeStartingGarrison) +
+		UpgradeLevel(career, UpgradeProduction) +
+		UpgradeLevel(career, UpgradeArmySpeed) +
+		UpgradeLevel(career, UpgradeTreasury)
+}
+
+func KingdomTierID(level int) string {
+	switch {
+	case level >= 65:
+		return "crown_capital"
+	case level >= 45:
+		return "grand_citadel"
+	case level >= 25:
+		return "royal_keep"
+	case level >= 10:
+		return "stone_fort"
+	default:
+		return "war_camp"
+	}
+}
+
 func UpgradeModifiers(career PlayerCareer) PlayerUpgradeModifiers {
 	garrisonLevel := UpgradeLevel(career, UpgradeStartingGarrison)
 	productionLevel := UpgradeLevel(career, UpgradeProduction)
