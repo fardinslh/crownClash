@@ -252,13 +252,13 @@ export class MenuScene extends Phaser.Scene {
 
     const dailyAvailable = careerManager.isRemoteConnected() || isLocalCareerFallbackAllowed();
     const dailyBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2 - 66, 654, 118, 44, dailyAvailable ? 0x1c1830 : 0x273449, 1)
+      .rectangle(104, 654, 88, 44, dailyAvailable ? 0x1c1830 : 0x273449, 1)
       .setStrokeStyle(1.5, dailyAvailable ? THEME.gold : 0x475569, 0.9)
       .setInteractive({ useHandCursor: true });
     const dailyText = this.add
-      .text(LOGICAL_WIDTH / 2 - 66, 654, dailyAvailable ? '📜 DAILY' : 'DAILY OFFLINE', {
+      .text(104, 654, dailyAvailable ? '📜 DAILY' : 'OFFLINE', {
         fontFamily: FONT_FAMILY,
-        fontSize: dailyAvailable ? '13px' : '10px',
+        fontSize: dailyAvailable ? '12px' : '10px',
         fontStyle: '900',
         color: dailyAvailable ? '#fde68a' : '#94a3b8',
         stroke: '#000000',
@@ -278,14 +278,37 @@ export class MenuScene extends Phaser.Scene {
       dailyBg.disableInteractive();
     }
 
+    const leagueBg = this.add
+      .rectangle(200, 654, 88, 44, 0x151d31, 1)
+      .setStrokeStyle(1.5, 0x818cf8, 0.9)
+      .setInteractive({ useHandCursor: true });
+    const leagueText = this.add
+      .text(200, 654, '🏆 LEAGUE', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '12px',
+        fontStyle: '900',
+        color: '#c7d2fe',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    this.bindPressFeedback(leagueBg, leagueText);
+    leagueBg.on('pointerdown', () => {
+      leagueBg.disableInteractive();
+      sounds.playTrophy();
+      platform.hapticSelection();
+      this.scene.start('LeagueScene');
+    });
+
     const kingdomBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2 + 66, 654, 118, 44, 0x111c33, 1)
+      .rectangle(296, 654, 88, 44, 0x111c33, 1)
       .setStrokeStyle(1.5, THEME.gold, 0.8)
       .setInteractive({ useHandCursor: true });
     const kingdomText = this.add
-      .text(LOGICAL_WIDTH / 2 + 66, 654, '🏰 KINGDOM', {
+      .text(296, 654, '🏰 KINGDOM', {
         fontFamily: FONT_FAMILY,
-        fontSize: '12px',
+        fontSize: '11px',
         fontStyle: '900',
         color: '#fde68a',
         stroke: '#000000',

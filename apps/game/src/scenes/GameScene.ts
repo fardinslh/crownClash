@@ -8,6 +8,7 @@ import {
   evaluateAiMove,
   GameState,
   getPlayerUpgradeModifiers,
+  getLeagueProgress,
   getUpgradeCardViewModel,
   LOGICAL_HEIGHT,
   LOGICAL_WIDTH,
@@ -1785,6 +1786,9 @@ export class GameScene extends Phaser.Scene {
         matchId: settlement.matchId,
         mode: 'bot',
       });
+      if (settlement.rankPromoted && this.careerManager.isRemoteConnected()) {
+        trackEvent({ name: 'rank_promoted', matchId: settlement.matchId });
+      }
       this.renderResultModal(settlement.status, stats, settlement);
     } catch (error) {
       this.resultPending = false;
@@ -1857,11 +1861,11 @@ export class GameScene extends Phaser.Scene {
     // Rank Tier Banner (e.g. ⚔️ SOLDIER RANK • 🏆 120)
     const rankTier = settlement.newRank;
     const rankBanner = this.add
-      .rectangle(0, -208, 280, 26, 0x111c33, 0.95)
+      .rectangle(0, -208, 280, 36, 0x111c33, 0.95)
       .setStrokeStyle(1.5, rankTier.color, 0.9);
 
     const rankText = this.add
-      .text(0, -208, `${rankTier.badge} ${rankTier.name.toUpperCase()} (🏆 ${settlement.newCareer.trophies})`, {
+      .text(0, -214, `${rankTier.badge} ${rankTier.name.toUpperCase()} (🏆 ${settlement.newCareer.trophies})`, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -1871,6 +1875,12 @@ export class GameScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
+
+    const leagueProgress = getLeagueProgress(settlement.newCareer.trophies);
+    const rankProgressTrack = this.add.rectangle(0, -198, 252, 4, 0x080d18, 1);
+    const rankProgressFill = this.add
+      .rectangle(-126, -198, Math.max(3, 252 * leagueProgress.progress), 3, rankTier.color, 1)
+      .setOrigin(0, 0.5);
 
     // Two Big Reward Cards: Trophies Card and Gold Card
     const trophyCardX = -72;
@@ -2216,6 +2226,8 @@ export class GameScene extends Phaser.Scene {
       subtitle,
       rankBanner,
       rankText,
+      rankProgressTrack,
+      rankProgressFill,
       trophyCardBg,
       trophyLabel,
       trophyValue,
@@ -2502,6 +2514,9 @@ export class GameScene extends Phaser.Scene {
             matchId: result.matchId,
             mode: 'live',
           });
+          if (result.settlement.rankPromoted) {
+            trackEvent({ name: 'rank_promoted', matchId: result.matchId });
+          }
           trackEvent({
             name: 'live_match_ended',
             matchId: result.matchId,

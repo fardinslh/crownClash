@@ -12,9 +12,13 @@ import {
   DailyRewardType,
   DailyState,
   EconomyLedgerEntry,
+  LeagueClaimResult,
+  LeagueState,
   MatchSettlement,
   MatchStats,
   normalizeDailyState,
+  claimLeagueRewardLocally,
+  createLeagueState,
   normalizeUpgradeLevel,
   PlayerCareer,
   PvpAction,
@@ -37,6 +41,7 @@ export class CareerManager {
   private readonly storageKey: string;
   private readonly ledgerStorageKey: string;
   private readonly dailyStorageKey: string;
+  private readonly leagueStorageKey: string;
   private dailyState: DailyState;
   private remoteApi: CareerApi | null = null;
   private remoteConnected = false;
@@ -46,6 +51,7 @@ export class CareerManager {
     this.storageKey = `crown_clash_career_${playerId}`;
     this.ledgerStorageKey = `crown_clash_ledger_${playerId}`;
     this.dailyStorageKey = `crown_clash_daily_${playerId}`;
+    this.leagueStorageKey = `crown_clash_league_${playerId}`;
     this.career = this.loadCareer(playerId);
     this.ledger = this.loadLedger();
     this.dailyState = this.loadDailyState();
@@ -195,6 +201,37 @@ export class CareerManager {
     return result;
   }
 
+  public async getLeagueState(): Promise<LeagueState> {
+    if (this.remoteConnected) return this.requireRemoteApi().getLeagueState();
+    if (!isLocalCareerFallbackAllowed()) throw new Error('backend_required_for_league');
+    return createLeagueState(this.career, this.loadLeagueClaims());
+  }
+
+  public async claimLeagueReward(rankId: string): Promise<LeagueClaimResult> {
+    const claimId = `league_${rankId}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    if (this.remoteConnected) {
+      const result = await this.requireRemoteApi().claimLeagueReward(rankId, claimId);
+      if (result.success && result.ledgerEntry) {
+        this.applyRemoteState(result.newCareer, [result.ledgerEntry]);
+      }
+      return result;
+    }
+    if (!isLocalCareerFallbackAllowed()) throw new Error('backend_required_for_league_claim');
+    const state = createLeagueState(this.career, this.loadLeagueClaims());
+    const result = claimLeagueRewardLocally(state, this.career, rankId, claimId);
+    if (result.success && result.ledgerEntry) {
+      this.career = result.newCareer;
+      this.ledger.push(result.ledgerEntry);
+      this.saveLeagueClaims(
+        result.state.tiers.filter((tier) => tier.claimed).map((tier) => tier.rankId)
+      );
+      this.saveCareer();
+      this.saveLedger();
+      this.emitChange();
+    }
+    return result;
+  }
+
   public openLiveMatchRemote(): LiveMatchClient {
     return this.requireRemoteApi().openLiveMatch();
   }
@@ -333,6 +370,27 @@ export class CareerManager {
       console.warn('[CareerManager] Failed to load daily progress:', error);
     }
     return createDailyState();
+  }
+
+  private loadLeagueClaims(): string[] {
+    if (typeof window === 'undefined' || !window.localStorage) return [];
+    try {
+      const raw = window.localStorage.getItem(this.leagueStorageKey);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as unknown;
+      return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private saveLeagueClaims(rankIds: readonly string[]): void {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+      window.localStorage.setItem(this.leagueStorageKey, JSON.stringify(rankIds));
+    } catch (error) {
+      console.error('[CareerManager] Failed to save league claims:', error);
+    }
   }
 
   private saveCareer(): void {

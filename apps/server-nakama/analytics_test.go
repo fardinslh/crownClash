@@ -81,6 +81,9 @@ func TestAnalyticsPayloadRejectsMalformedAndInvalidEvents(t *testing.T) {
 		{name: "forged daily reward value", payload: analyticsPayload([]AnalyticsEventRecord{
 			analyticsTestEvent("daily_reward_claimed", map[string]any{"claimId": "claim_1", "reward": 999999}),
 		}), wantErr: "invalid_event_props"},
+		{name: "forged league reward value", payload: analyticsPayload([]AnalyticsEventRecord{
+			analyticsTestEvent("league_reward_claimed", map[string]any{"claimId": "claim_1", "reward": 999999}),
+		}), wantErr: "invalid_event_props"},
 		{name: "invalid envelope", payload: analyticsPayload([]AnalyticsEventRecord{{
 			Name: "session_start", SessionID: "session_test", OccurredAt: analyticsTestNow, SchemaVersion: 1, Props: map[string]any{},
 		}}), wantErr: "invalid_event_envelope"},
@@ -120,6 +123,20 @@ func TestAnalyticsPayloadAcceptsDailyEvents(t *testing.T) {
 	}
 	if len(events) != 2 {
 		t.Fatalf("unexpected daily events: %+v", events)
+	}
+}
+
+func TestAnalyticsPayloadAcceptsLeagueEvents(t *testing.T) {
+	events, err := parseAnalyticsEventsPayload(analyticsPayload([]AnalyticsEventRecord{
+		analyticsTestEvent("league_panel_viewed", map[string]any{}),
+		analyticsTestEvent("league_reward_claimed", map[string]any{"claimId": "claim_1"}),
+		analyticsTestEvent("rank_promoted", map[string]any{"matchId": "match_1"}),
+	}), analyticsTestNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 3 {
+		t.Fatalf("unexpected league events: %+v", events)
 	}
 }
 
@@ -406,6 +423,78 @@ func TestInsertAnalyticsEventsNormalizesDailyRewardFromClaim(t *testing.T) {
 	_, err = NewStore(db).InsertAnalyticsEvents(context.Background(), "player_1", []AnalyticsEventRecord{{
 		EventID: "event_1", Name: "daily_reward_claimed", SessionID: "session_test", OccurredAt: analyticsTestNow, SchemaVersion: 1,
 		Props: map[string]any{"claimId": "claim_1", "reward": 999_999, "resultingCoins": 999_999},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInsertAnalyticsEventsNormalizesLeagueRewardFromClaim(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	claim := LeagueClaimResult{
+		ClaimID: "claim_1", Success: true, RankID: "knight", Reward: 150,
+		NewCareer: PlayerCareer{Coins: 350},
+	}
+	claimJSON, _ := json.Marshal(claim)
+	expectedProps := map[string]any{
+		"claimId": "claim_1", "rankId": "knight", "reward": 150, "resultingCoins": 350,
+	}
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT result FROM league_reward_claims")).
+		WithArgs("claim_1", "player_1").
+		WillReturnRows(sqlmock.NewRows([]string{"result"}).AddRow(claimJSON))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO analytics_events")).
+		WithArgs("player_1", "event_1", "session_test", "league_reward_claimed", analyticsTestNow, 1, analyticsPropsJSON(t, expectedProps)).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	_, err = NewStore(db).InsertAnalyticsEvents(context.Background(), "player_1", []AnalyticsEventRecord{{
+		EventID: "event_1", Name: "league_reward_claimed", SessionID: "session_test", OccurredAt: analyticsTestNow, SchemaVersion: 1,
+		Props: map[string]any{"claimId": "claim_1", "reward": 999_999, "resultingCoins": 999_999},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInsertAnalyticsEventsNormalizesRankPromotionFromSettlement(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	settlement := MatchSettlement{
+		MatchID: "match_1", RankPromoted: true,
+		NewRank: RankTierInfo{ID: "soldier"}, NewCareer: PlayerCareer{Trophies: 115},
+	}
+	settlementJSON, _ := json.Marshal(settlement)
+	expectedProps := map[string]any{
+		"matchId": "match_1", "rankId": "soldier", "resultingTrophies": 115,
+	}
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT settlement FROM match_settlements")).
+		WithArgs("match_1", "player_1").
+		WillReturnRows(sqlmock.NewRows([]string{"settlement"}).AddRow(settlementJSON))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO analytics_events")).
+		WithArgs("player_1", "event_1", "session_test", "rank_promoted", analyticsTestNow, 1, analyticsPropsJSON(t, expectedProps)).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	_, err = NewStore(db).InsertAnalyticsEvents(context.Background(), "player_1", []AnalyticsEventRecord{{
+		EventID: "event_1", Name: "rank_promoted", SessionID: "session_test", OccurredAt: analyticsTestNow, SchemaVersion: 1,
+		Props: map[string]any{"matchId": "match_1", "rankId": "forged"},
 	}})
 	if err != nil {
 		t.Fatal(err)

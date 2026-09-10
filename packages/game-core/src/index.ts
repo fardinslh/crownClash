@@ -9,3 +9,4 @@ export * from './progression.js';
 export * from './upgrades.js';
 export * from './pvp.js';
 export * from './daily.js';
+export * from './league.js';

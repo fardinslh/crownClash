@@ -7,6 +7,7 @@ import { getSharedGameApiClient } from './api/sharedClient.js';
 import { GameScene } from './scenes/GameScene.js';
 import { DailyScene } from './scenes/DailyScene.js';
 import { KingdomScene } from './scenes/KingdomScene.js';
+import { LeagueScene } from './scenes/LeagueScene.js';
 import { MenuScene } from './scenes/MenuScene.js';
 
 // 1. Initialize Platform Adapter (Bale -> Eitaa -> Telegram -> Browser).
@@ -59,7 +60,7 @@ const startApp = (): void => {
       createContainer: true,
     },
     backgroundColor: '#070b14',
-    scene: [MenuScene, GameScene, KingdomScene, DailyScene],
+    scene: [MenuScene, GameScene, KingdomScene, DailyScene, LeagueScene],
     render: {
       antialias: true,
       antialiasGL: true,

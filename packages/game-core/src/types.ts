@@ -93,3 +93,32 @@ export interface DailyState {
   missions: DailyMissionState[];
   chest: DailyChestState;
 }
+
+export interface LeagueTierState {
+  rankId: string;
+  name: string;
+  badge: string;
+  minTrophies: number;
+  reward: number;
+  unlocked: boolean;
+  claimed: boolean;
+}
+
+export interface LeagueState {
+  trophies: number;
+  kingdomPower: number;
+  currentRankId: string;
+  tiers: LeagueTierState[];
+}
+
+export interface LeagueClaimResult {
+  claimId: string;
+  success: boolean;
+  reason?: 'invalid_rank' | 'not_unlocked' | 'already_claimed';
+  rankId: string;
+  reward: number;
+  replayed: boolean;
+  state: LeagueState;
+  newCareer: import('./progression.js').PlayerCareer;
+  ledgerEntry?: import('./progression.js').EconomyLedgerEntry;
+}

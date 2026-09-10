@@ -195,6 +195,35 @@ type DailyClaimResult struct {
 	LedgerEntry *EconomyLedgerEntry `json:"ledgerEntry,omitempty"`
 }
 
+type LeagueTierState struct {
+	RankID      string `json:"rankId"`
+	Name        string `json:"name"`
+	Badge       string `json:"badge"`
+	MinTrophies int    `json:"minTrophies"`
+	Reward      int    `json:"reward"`
+	Unlocked    bool   `json:"unlocked"`
+	Claimed     bool   `json:"claimed"`
+}
+
+type LeagueState struct {
+	Trophies      int               `json:"trophies"`
+	KingdomPower  int               `json:"kingdomPower"`
+	CurrentRankID string            `json:"currentRankId"`
+	Tiers         []LeagueTierState `json:"tiers"`
+}
+
+type LeagueClaimResult struct {
+	ClaimID     string              `json:"claimId"`
+	Success     bool                `json:"success"`
+	Reason      string              `json:"reason,omitempty"`
+	RankID      string              `json:"rankId"`
+	Reward      int                 `json:"reward"`
+	Replayed    bool                `json:"replayed"`
+	State       LeagueState         `json:"state"`
+	NewCareer   PlayerCareer        `json:"newCareer"`
+	LedgerEntry *EconomyLedgerEntry `json:"ledgerEntry,omitempty"`
+}
+
 type PvpAttackResult struct {
 	AttackID   string           `json:"attackId"`
 	AttackerID string           `json:"attackerId"`

@@ -4,6 +4,8 @@ import type {
   DailyRewardType,
   DailyState,
   EconomyLedgerEntry,
+  LeagueClaimResult,
+  LeagueState,
   MatchSettlement,
   PlayerCareer,
   PvpAction,
@@ -102,6 +104,16 @@ export class NakamaClient implements CareerApi {
   ): Promise<DailyClaimResult> {
     const result = await this.rpc('daily/claim', JSON.stringify({ rewardType: type, claimId }));
     return (JSON.parse(result) as { result: DailyClaimResult }).result;
+  }
+
+  public async getLeagueState(): Promise<LeagueState> {
+    const result = await this.rpc('league/get', '');
+    return (JSON.parse(result) as { state: LeagueState }).state;
+  }
+
+  public async claimLeagueReward(rankId: string, claimId: string): Promise<LeagueClaimResult> {
+    const result = await this.rpc('league/claim', JSON.stringify({ rankId, claimId }));
+    return (JSON.parse(result) as { result: LeagueClaimResult }).result;
   }
 
   public async trackEvents(events: readonly TrackedAnalyticsEvent[]): Promise<void> {

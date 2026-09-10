@@ -17,6 +17,12 @@ import {
   purchaseUpgrade,
 } from '../upgrades.js';
 import { MatchStats } from '../types.js';
+import {
+  claimLeagueRewardLocally,
+  createLeagueState,
+  getKingdomPower,
+  getLeagueProgress,
+} from '../league.js';
 
 describe('Progression & Economy Engine', () => {
   it('creates a clean default career with welcome capital', () => {
@@ -263,6 +269,85 @@ describe('Progression & Economy Engine', () => {
 
     it('handles negative or clamped trophy values gracefully', () => {
       expect(getRankTier(-10).id).toBe('recruit');
+    });
+  });
+
+  describe('League Road', () => {
+    it('calculates kingdom power and progress to next rank', () => {
+      const career = {
+        ...createDefaultCareer('league_1'),
+        trophies: 175,
+        startingGarrisonLevel: 2,
+        productionLevel: 3,
+        armySpeedLevel: 4,
+        treasuryLevel: 1,
+      };
+      expect(getKingdomPower(career)).toBe(10);
+      expect(getLeagueProgress(career.trophies)).toMatchObject({
+        current: { id: 'soldier' },
+        next: { id: 'knight' },
+        progress: 0.5,
+        trophiesToNext: 75,
+      });
+    });
+
+    it('builds unlocked and claimed league tiers', () => {
+      const state = createLeagueState(
+        { ...createDefaultCareer('league_2'), trophies: 500 },
+        ['soldier']
+      );
+      expect(state.currentRankId).toBe('commander');
+      expect(state.tiers.find((tier) => tier.rankId === 'recruit')?.claimed).toBe(true);
+      expect(state.tiers.find((tier) => tier.rankId === 'soldier')).toMatchObject({
+        unlocked: true,
+        claimed: true,
+        reward: 75,
+      });
+      expect(state.tiers.find((tier) => tier.rankId === 'commander')).toMatchObject({
+        unlocked: true,
+        claimed: false,
+        reward: 250,
+      });
+      expect(state.tiers.find((tier) => tier.rankId === 'warlord')?.unlocked).toBe(false);
+    });
+
+    it('claims an unlocked reward once with an auditable ledger entry', () => {
+      const career = { ...createDefaultCareer('league_3'), trophies: 100 };
+      const result = claimLeagueRewardLocally(
+        createLeagueState(career),
+        career,
+        'soldier',
+        'claim_1',
+        1234
+      );
+      expect(result).toMatchObject({ success: true, reward: 75 });
+      expect(result.newCareer.coins).toBe(175);
+      expect(result.ledgerEntry).toMatchObject({
+        id: 'league_claim_1',
+        amount: 75,
+        reason: 'league_soldier',
+        source: 'league_reward',
+        previousBalance: 100,
+        resultingBalance: 175,
+        timestamp: 1234,
+      });
+      expect(
+        result.state.tiers.find((tier) => tier.rankId === 'soldier')?.claimed
+      ).toBe(true);
+      expect(
+        claimLeagueRewardLocally(result.state, result.newCareer, 'soldier', 'claim_2').reason
+      ).toBe('already_claimed');
+    });
+
+    it('rejects locked and unknown rewards without mutation', () => {
+      const career = createDefaultCareer('league_4');
+      const state = createLeagueState(career);
+      expect(claimLeagueRewardLocally(state, career, 'knight', 'claim_1').reason).toBe(
+        'not_unlocked'
+      );
+      expect(claimLeagueRewardLocally(state, career, 'recruit', 'claim_2').reason).toBe(
+        'invalid_rank'
+      );
     });
   });
 

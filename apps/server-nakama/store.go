@@ -20,6 +20,8 @@ var (
 	ErrUpgradePurchaseMismatch  = errors.New("upgrade_purchase_id_reused_for_different_upgrade")
 	ErrDailyClaimOwnership      = errors.New("daily_claim_id_owned_by_another_player")
 	ErrDailyClaimMismatch       = errors.New("daily_claim_id_reused_for_different_reward")
+	ErrLeagueClaimOwnership     = errors.New("league_claim_id_owned_by_another_player")
+	ErrLeagueClaimMismatch      = errors.New("league_claim_id_reused_for_different_rank")
 )
 
 type Store struct {
@@ -703,6 +705,46 @@ func normalizeAnalyticsEvent(ctx context.Context, tx *sql.Tx, userID string, eve
 		event.Props = map[string]any{
 			"claimId": claimID, "rewardType": string(result.RewardType),
 			"reward": result.Reward, "resultingCoins": result.NewCareer.Coins,
+		}
+	case "league_reward_claimed":
+		claimID, _ := event.Props["claimId"].(string)
+		var encoded []byte
+		if err := tx.QueryRowContext(ctx, `
+			SELECT result FROM league_reward_claims
+			WHERE claim_id = $1 AND player_id = $2
+		`, claimID, userID).Scan(&encoded); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return AnalyticsEventRecord{}, errors.New("analytics_league_claim_not_found")
+			}
+			return AnalyticsEventRecord{}, err
+		}
+		var result LeagueClaimResult
+		if err := json.Unmarshal(encoded, &result); err != nil || !result.Success {
+			return AnalyticsEventRecord{}, errors.New("invalid_stored_league_claim")
+		}
+		event.Props = map[string]any{
+			"claimId": claimID, "rankId": result.RankID,
+			"reward": result.Reward, "resultingCoins": result.NewCareer.Coins,
+		}
+	case "rank_promoted":
+		matchID, _ := event.Props["matchId"].(string)
+		var encoded []byte
+		if err := tx.QueryRowContext(ctx, `
+			SELECT settlement FROM match_settlements
+			WHERE match_id = $1 AND player_id = $2
+		`, matchID, userID).Scan(&encoded); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return AnalyticsEventRecord{}, errors.New("analytics_settlement_not_found")
+			}
+			return AnalyticsEventRecord{}, err
+		}
+		var settlement MatchSettlement
+		if err := json.Unmarshal(encoded, &settlement); err != nil || !settlement.RankPromoted {
+			return AnalyticsEventRecord{}, errors.New("invalid_rank_promotion")
+		}
+		event.Props = map[string]any{
+			"matchId": matchID, "rankId": settlement.NewRank.ID,
+			"resultingTrophies": settlement.NewCareer.Trophies,
 		}
 	}
 	return event, nil

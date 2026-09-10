@@ -17,6 +17,9 @@ derives player identity from authentication and records receipt time separately.
 | `upgrade_purchase_failed` | Server purchase rejects request | `upgradeType`, `reason` | Server response | Upgrade failure rate |
 | `daily_panel_viewed` | Royal Orders screen opens | None | Client view | Daily-loop discovery |
 | `daily_reward_claimed` | Server confirms a mission or Crown Chest claim | Client: `claimId`. Server: `rewardType`, `reward`, `resultingCoins` | Server-confirmed claim | Daily completion and reward conversion |
+| `league_panel_viewed` | League Road opens | None | Client view | League discovery |
+| `league_reward_claimed` | Server confirms a league milestone claim | Client: `claimId`. Server: `rankId`, `reward`, `resultingCoins` | Server-confirmed claim | League reward conversion |
+| `rank_promoted` | A settled match crosses a rank boundary | Client: `matchId`. Server: `rankId`, `resultingTrophies` | Server-confirmed settlement | Rank progression |
 | `live_queue_joined` | Server accepts queue entry | None | Server-confirmed client response | Live queue starts |
 | `live_invite_created` | Server creates and joins invite | None | Server-confirmed client response | Invite creation |
 | `live_invite_joined` | Server accepts invite join | None | Server-confirmed client response | Invite conversion |
@@ -34,6 +37,10 @@ then overwrites those properties before insertion.
 Daily mission progress and rewards use the server's `Asia/Tehran` calendar day.
 Nakama loads the stored idempotent claim for `daily_reward_claimed` and replaces
 all reward and resulting-balance values before analytics insertion.
+
+League rewards are permanent one-time claims. Nakama loads the stored claim for
+`league_reward_claimed`, and rank promotion analytics are normalized from the
+stored match settlement.
 
 ## Future event families
 

@@ -95,6 +95,12 @@ func InitModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runti
 	if err := rpc("daily/claim", rpcClaimDailyReward(store)); err != nil {
 		return err
 	}
+	if err := rpc("league/get", rpcGetLeagueState(store)); err != nil {
+		return err
+	}
+	if err := rpc("league/claim", rpcClaimLeagueReward(store)); err != nil {
+		return err
+	}
 	if err := rpc("pvp/defense/publish", rpcPublishDefense(store)); err != nil {
 		return err
 	}
@@ -517,6 +523,60 @@ func rpcClaimDailyReward(store *Store) rpcFn {
 	}
 }
 
+func rpcGetLeagueState(store *Store) rpcFn {
+	return func(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, payload string) (string, error) {
+		userID, ok := ctx.Value(runtime.RUNTIME_CTX_USER_ID).(string)
+		if !ok || userID == "" {
+			return "", errors.New("unauthenticated")
+		}
+		if payload != "" && payload != "{}" {
+			return "", errors.New("invalid_payload")
+		}
+		if _, err := store.GetOrCreateCareer(ctx, userID); err != nil {
+			return "", err
+		}
+		state, err := store.GetLeagueState(ctx, userID)
+		if err != nil {
+			return "", err
+		}
+		response, _ := json.Marshal(map[string]any{"state": state})
+		return string(response), nil
+	}
+}
+
+func rpcClaimLeagueReward(store *Store) rpcFn {
+	return func(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, payload string) (string, error) {
+		userID, ok := ctx.Value(runtime.RUNTIME_CTX_USER_ID).(string)
+		if !ok || userID == "" {
+			return "", errors.New("unauthenticated")
+		}
+		var request struct {
+			RankID  string `json:"rankId"`
+			ClaimID string `json:"claimId"`
+		}
+		decoder := json.NewDecoder(strings.NewReader(payload))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&request); err != nil {
+			return "", errors.New("invalid_payload")
+		}
+		if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+			return "", errors.New("invalid_payload")
+		}
+		if reward, valid := leagueRewards[request.RankID]; !valid || reward <= 0 {
+			return "", errors.New("invalid_rank_id")
+		}
+		if len(request.ClaimID) < 1 || len(request.ClaimID) > 128 {
+			return "", errors.New("invalid_claim_id")
+		}
+		result, err := store.ClaimLeagueReward(ctx, userID, request.RankID, request.ClaimID)
+		if err != nil {
+			return "", err
+		}
+		response, _ := json.Marshal(map[string]any{"result": result})
+		return string(response), nil
+	}
+}
+
 func rpcPublishDefense(store *Store) rpcFn {
 	return func(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, payload string) (string, error) {
 		userID, ok := ctx.Value(runtime.RUNTIME_CTX_USER_ID).(string)
@@ -688,6 +748,9 @@ var analyticsEventDefinitions = map[string]analyticsEventDefinition{
 	"upgrade_purchase_failed":    {properties: analyticsProperties("upgradeType", "reason")},
 	"daily_panel_viewed":         {properties: map[string]analyticsPropertyKind{}},
 	"daily_reward_claimed":       {properties: analyticsProperties("claimId")},
+	"league_panel_viewed":        {properties: map[string]analyticsPropertyKind{}},
+	"league_reward_claimed":      {properties: analyticsProperties("claimId")},
+	"rank_promoted":              {properties: analyticsProperties("matchId")},
 	"live_queue_joined":          {properties: map[string]analyticsPropertyKind{}},
 	"live_invite_created":        {properties: map[string]analyticsPropertyKind{}},
 	"live_invite_joined":         {properties: map[string]analyticsPropertyKind{}},

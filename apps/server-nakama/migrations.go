@@ -196,6 +196,21 @@ CREATE TABLE IF NOT EXISTS daily_reward_claims (
 CREATE INDEX IF NOT EXISTS idx_daily_reward_claims_player ON daily_reward_claims (player_id, day_key DESC);
 `,
 	},
+	{
+		name: "007_league_rewards",
+		sql: `
+CREATE TABLE IF NOT EXISTS league_reward_claims (
+  claim_id TEXT PRIMARY KEY,
+  player_id TEXT NOT NULL REFERENCES players(id),
+  rank_id TEXT NOT NULL CHECK (rank_id IN ('soldier', 'knight', 'commander', 'warlord', 'crown_lord')),
+  result JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (player_id, rank_id)
+);
+CREATE INDEX IF NOT EXISTS idx_league_reward_claims_player
+  ON league_reward_claims (player_id, created_at DESC);
+`,
+	},
 }
 
 func RunMigrations(ctx context.Context, db *sql.DB) error {

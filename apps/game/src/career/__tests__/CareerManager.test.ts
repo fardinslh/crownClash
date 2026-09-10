@@ -38,6 +38,35 @@ describe('CareerManager', () => {
     expect(career.matchesPlayed).toBe(0);
   });
 
+  it('supports permanent league claims through the dev local fallback', async () => {
+    const manager = CareerManager.getInstance('league_local_player');
+    const stats: MatchStats = {
+      matchDurationSeconds: 45,
+      playerUnitsDispatched: 10,
+      enemyUnitsDispatched: 5,
+      territoriesCapturedByPlayer: 4,
+      territoriesCapturedByEnemy: 1,
+    };
+    for (let index = 0; index < 4; index++) {
+      manager.recordMatchResult('victory', stats, `league_match_${index}`);
+    }
+
+    const before = await manager.getLeagueState();
+    expect(before.currentRankId).toBe('soldier');
+    expect(before.tiers.find((tier) => tier.rankId === 'soldier')).toMatchObject({
+      unlocked: true,
+      claimed: false,
+    });
+
+    const claim = await manager.claimLeagueReward('soldier');
+    expect(claim).toMatchObject({ success: true, reward: 75 });
+    expect(manager.getCareer().coins).toBe(claim.newCareer.coins);
+    expect((await manager.getLeagueState()).tiers.find((tier) => tier.rankId === 'soldier')?.claimed).toBe(true);
+
+    const duplicate = await manager.claimLeagueReward('soldier');
+    expect(duplicate).toMatchObject({ success: false, reason: 'already_claimed' });
+  });
+
   it('records match victory, updates balances, and appends to ledger', () => {
     const manager = CareerManager.getInstance('test_player_2');
     const stats: MatchStats = {
@@ -253,6 +282,12 @@ describe('CareerManager', () => {
       claimDailyReward: async () => {
         throw new Error('not_used_in_test');
       },
+      getLeagueState: async () => {
+        throw new Error('not_used_in_test');
+      },
+      claimLeagueReward: async () => {
+        throw new Error('not_used_in_test');
+      },
       trackEvents: async () => undefined,
       openLiveMatch: () => {
         throw new Error('not_used_in_test');
@@ -303,6 +338,12 @@ describe('CareerManager', () => {
       claimDailyReward: async () => {
         throw new Error('not_used_in_test');
       },
+      getLeagueState: async () => {
+        throw new Error('not_used_in_test');
+      },
+      claimLeagueReward: async () => {
+        throw new Error('not_used_in_test');
+      },
       trackEvents: async () => undefined,
       openLiveMatch: () => {
         throw new Error('not_used_in_test');
@@ -343,6 +384,12 @@ describe('CareerManager', () => {
         throw new Error('not_used_in_test');
       },
       claimDailyReward: async () => {
+        throw new Error('not_used_in_test');
+      },
+      getLeagueState: async () => {
+        throw new Error('not_used_in_test');
+      },
+      claimLeagueReward: async () => {
         throw new Error('not_used_in_test');
       },
       trackEvents: async () => undefined,

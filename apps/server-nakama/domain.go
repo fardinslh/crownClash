@@ -51,6 +51,34 @@ func GetRankTier(trophies int) RankTierInfo {
 	return rankTiers[0]
 }
 
+var leagueRewards = map[string]int{
+	"recruit": 0, "soldier": 75, "knight": 150,
+	"commander": 250, "warlord": 400, "crown_lord": 700,
+}
+
+func KingdomPower(career PlayerCareer) int {
+	return UpgradeLevel(career, UpgradeStartingGarrison) +
+		UpgradeLevel(career, UpgradeProduction) +
+		UpgradeLevel(career, UpgradeArmySpeed) +
+		UpgradeLevel(career, UpgradeTreasury)
+}
+
+func BuildLeagueState(career PlayerCareer, claimed map[string]bool) LeagueState {
+	tiers := make([]LeagueTierState, 0, len(rankTiers))
+	for _, tier := range rankTiers {
+		tiers = append(tiers, LeagueTierState{
+			RankID: tier.ID, Name: tier.Name, Badge: tier.Badge,
+			MinTrophies: tier.MinTrophies, Reward: leagueRewards[tier.ID],
+			Unlocked: career.Trophies >= tier.MinTrophies,
+			Claimed:  tier.ID == "recruit" || claimed[tier.ID],
+		})
+	}
+	return LeagueState{
+		Trophies: career.Trophies, KingdomPower: KingdomPower(career),
+		CurrentRankID: GetRankTier(career.Trophies).ID, Tiers: tiers,
+	}
+}
+
 func CalculateMatchRewards(status string, stats MatchStats, currentStreak int, treasuryLevel ...int) MatchRewardBreakdown {
 	level := 0
 	if len(treasuryLevel) > 0 {

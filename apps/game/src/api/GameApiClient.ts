@@ -3,6 +3,8 @@ import type {
   DailyRewardType,
   DailyState,
   EconomyLedgerEntry,
+  LeagueClaimResult,
+  LeagueState,
   MatchSettlement,
   PlayerCareer,
   PvpAction,
@@ -29,6 +31,8 @@ export interface CareerApi {
   purchaseUpgrade(type: UpgradeType, purchaseId: string): Promise<UpgradePurchaseResult>;
   getDailyState(): Promise<DailyState>;
   claimDailyReward(type: DailyRewardType, claimId: string): Promise<DailyClaimResult>;
+  getLeagueState(): Promise<LeagueState>;
+  claimLeagueReward(rankId: string, claimId: string): Promise<LeagueClaimResult>;
   trackEvents(events: readonly TrackedAnalyticsEvent[]): Promise<void>;
   openLiveMatch(): LiveMatchClient;
   isAuthenticated(): boolean;
