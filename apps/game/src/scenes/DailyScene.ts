@@ -35,6 +35,7 @@ export class DailyScene extends Phaser.Scene {
   private toastText!: Phaser.GameObjects.Text;
   private resetTimer?: Phaser.Time.TimerEvent;
   private active = true;
+  private visitId = 0;
   private loadingReset = false;
   private reducedMotion = false;
 
@@ -43,6 +44,15 @@ export class DailyScene extends Phaser.Scene {
   }
 
   create(): void {
+    // Phaser reuses Scene instances. Reset every visit-scoped field that was
+    // invalidated by the previous SHUTDOWN before starting new async work.
+    this.active = true;
+    this.visitId += 1;
+    this.loadingReset = false;
+    this.state = undefined;
+    this.content = undefined;
+    this.resetTimer = undefined;
+
     const renderScale = (this.registry.get('renderScale') as number) || 1;
     this.cameras.main.setZoom(renderScale);
     this.cameras.main.centerOn(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2);
@@ -199,12 +209,13 @@ export class DailyScene extends Phaser.Scene {
   }
 
   private async loadState(): Promise<void> {
+    const visitId = this.visitId;
     try {
       if (!this.careerManager.isRemoteConnected() && !isLocalCareerFallbackAllowed()) {
         await this.careerManager.connect(this.platform);
       }
       const state = await this.careerManager.getDailyState();
-      if (!this.active) return;
+      if (!this.active || visitId !== this.visitId) return;
       this.state = state;
       this.statusText.setVisible(false);
       this.renderContent();
@@ -218,7 +229,9 @@ export class DailyScene extends Phaser.Scene {
       }
     } catch (error) {
       console.error('[DailyScene] Failed to load daily state:', error);
-      if (this.active) this.showLoadError("Couldn't load today's orders.");
+      if (this.active && visitId === this.visitId) {
+        this.showLoadError("Couldn't load today's orders.");
+      }
     }
   }
 
