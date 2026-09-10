@@ -589,24 +589,38 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(96);
 
-    // Gold Coins Pill
-    const coinPillWidth = 60;
+    // Gold Coins Pill (or Live Opponent Pill in Live PvP)
+    const coinPillWidth = 68;
     const coinPillX = trophyPillX + trophyPillWidth / 2 + 5 + coinPillWidth / 2;
     this.add
-      .rectangle(coinPillX, 20, coinPillWidth, 24, 0x0f172a, 0.95)
-      .setStrokeStyle(1.5, 0xf59e0b, 0.9)
+      .rectangle(
+        coinPillX,
+        20,
+        coinPillWidth,
+        24,
+        this.liveMode ? 0x1e1520 : 0x0f172a,
+        0.95
+      )
+      .setStrokeStyle(1.5, this.liveMode ? 0xf87171 : 0xf59e0b, 0.9)
       .setDepth(95);
 
     this.hudCoinsText = this.add
-      .text(coinPillX, 20, `🪙 ${career.coins}`, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '11px',
-        fontStyle: 'bold',
-        color: '#fef08a',
-        stroke: '#030712',
-        strokeThickness: 2,
-        resolution: 2,
-      })
+      .text(
+        coinPillX,
+        20,
+        this.liveMode
+          ? `🔴 ${this.formatShortName(this.liveOpponentName, 6)}`
+          : `🪙 ${career.coins}`,
+        {
+          fontFamily: FONT_FAMILY,
+          fontSize: '11px',
+          fontStyle: 'bold',
+          color: this.liveMode ? '#fca5a5' : '#fef08a',
+          stroke: '#030712',
+          strokeThickness: 2,
+          resolution: 2,
+        }
+      )
       .setOrigin(0.5)
       .setDepth(96);
 
@@ -655,9 +669,9 @@ export class GameScene extends Phaser.Scene {
     });
     this.bindPressFeedback(muteBg, muteBtn);
 
-    // Auto-update HUD when career balance changes
+    // Auto-update HUD when career balance changes (bot battles only for coins)
     this.careerSubscription = this.careerManager.subscribe((updatedCareer) => {
-      if (this.hudCoinsText && this.hudCoinsText.active) {
+      if (this.hudCoinsText && this.hudCoinsText.active && !this.liveMode) {
         this.hudCoinsText.setText(`🪙 ${updatedCareer.coins}`);
       }
       if (this.hudTrophiesText && this.hudTrophiesText.active) {
@@ -748,12 +762,15 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(96);
 
+    const initialHint = this.liveMode
+      ? `⚔ Live battle vs ${this.formatShortName(this.liveOpponentName, 12)}`
+      : '⚔ Drag across towers to attack or reinforce';
     this.bottomHintText = this.add
-      .text(LOGICAL_WIDTH / 2, 701, '⚔ Drag across towers to attack or reinforce', {
+      .text(LOGICAL_WIDTH / 2, 701, initialHint, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
-        color: '#cbd5e1',
+        color: this.liveMode ? '#93c5fd' : '#cbd5e1',
         stroke: '#030712',
         strokeThickness: 2,
         resolution: 2,
@@ -763,16 +780,20 @@ export class GameScene extends Phaser.Scene {
   }
 
   private computePlayerHudLabel(): string {
-    let rawName = this.platform.getUser().username || 'Commander';
-    if (this.liveMode) {
-      rawName = `LIVE vs ${this.liveOpponentName}`;
+    const rawName = this.platform.getUser().username || this.platform.getUser().firstName || 'Commander';
+    return `🔵 ${this.formatShortName(rawName, 7)}`;
+  }
+
+  private formatShortName(name: string, maxLen = 8): string {
+    if (!name) return 'Player';
+    const trimmed = name.trim();
+    if (trimmed.startsWith('Commander_')) {
+      return 'Cmdr ' + trimmed.slice(10, 14);
     }
-    if (rawName.startsWith('Commander_')) {
-      rawName = 'Cmdr ' + rawName.slice(10);
-    } else if (rawName.length > 8) {
-      rawName = rawName.slice(0, 7) + '…';
+    if (trimmed.length > maxLen) {
+      return trimmed.slice(0, maxLen - 1) + '…';
     }
-    return `🔵 ${rawName}`;
+    return trimmed;
   }
 
   private getTerritoryUnderPointer(pointer: Phaser.Input.Pointer): Territory | null {

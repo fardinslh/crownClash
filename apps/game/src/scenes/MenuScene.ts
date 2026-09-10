@@ -11,14 +11,26 @@ import { sounds } from '../audio/SoundEffects.js';
 import { THEME } from '../theme.js';
 import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
 import { LiveMatchClient } from '../api/LiveMatchClient.js';
+import { LivePvpController, isValidRoomCode, sanitizeRoomCode } from '../pvp/LivePvpController.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 
 export class MenuScene extends Phaser.Scene {
   private liveClient?: LiveMatchClient;
+  private pvpController?: LivePvpController;
+  private backButtonUnregister?: () => void;
 
   constructor() {
     super({ key: 'MenuScene' });
+  }
+
+  shutdown(): void {
+    this.pvpController?.destroy();
+    this.pvpController = undefined;
+    this.liveClient?.close();
+    this.liveClient = undefined;
+    this.backButtonUnregister?.();
+    this.backButtonUnregister = undefined;
   }
 
   create(): void {
@@ -365,155 +377,364 @@ export class MenuScene extends Phaser.Scene {
     raidButton: Phaser.GameObjects.Rectangle,
     raidText: Phaser.GameObjects.Text
   ): void {
-    const overlay = this.add.container(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2).setDepth(150);
-    const backdrop = this.add
-      .rectangle(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT, 0x000000, 0.76)
-      .setInteractive();
-    const card = this.add
-      .rectangle(0, 0, 330, 430, 0x0c1322, 0.99)
-      .setStrokeStyle(2, 0x60a5fa, 0.95);
-    const title = this.add
-      .text(0, -190, 'LIVE PVP', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '24px',
-        fontStyle: '900',
-        color: '#bfdbfe',
-        stroke: '#000000',
-        strokeThickness: 3,
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    const subtitle = this.add
-      .text(0, -155, 'Play against a commander in real time', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '11px',
-        fontStyle: 'bold',
-        color: '#94a3b8',
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    const status = this.add
-      .text(0, 125, 'Choose how to enter the battle', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '13px',
-        fontStyle: 'bold',
-        color: '#60a5fa',
-        align: 'center',
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    const closeBg = this.add
-      .rectangle(140, -200, 40, 40, 0x000000, 0)
-      .setInteractive({ useHandCursor: true });
-    const close = this.add
-      .text(140, -200, '✕', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '20px',
-        color: '#94a3b8',
-        resolution: 2,
-      })
-      .setOrigin(0.5);
+    // ------------------------------------------------------------------ setup
+    const controller = new LivePvpController();
+    this.pvpController?.destroy();
+    this.pvpController = controller;
 
+    // Root overlay – centred coordinate system (0,0 = screen centre)
+    const overlay = this.add
+      .container(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2)
+      .setDepth(150);
+
+    // Dim the background; swallow all pointer events so nothing behind fires
+    const backdrop = this.add
+      .rectangle(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT, 0x000000, 0.78)
+      .setInteractive();
+    overlay.add(backdrop);
+
+    // View containers – only one is visible at a time
+    const lobbyView = this.add.container(0, 0);
+    const waitingView = this.add.container(0, 0);
+    const joinView = this.add.container(0, 0);
+    const loadingView = this.add.container(0, 0);
+    const errorView = this.add.container(0, 0);
+    overlay.add([lobbyView, waitingView, joinView, loadingView, errorView]);
+
+    const hideAll = (): void => {
+      [lobbyView, waitingView, joinView, loadingView, errorView].forEach((v) =>
+        v.setVisible(false)
+      );
+    };
+
+    // --------------------------------------------------- helpers
+    const TS = (
+      txt: string,
+      x: number,
+      y: number,
+      size: string,
+      color: string,
+      extra: Partial<Phaser.Types.GameObjects.Text.TextStyle> = {}
+    ) =>
+      this.add
+        .text(x, y, txt, {
+          fontFamily: FONT_FAMILY,
+          fontSize: size,
+          fontStyle: 'bold',
+          color,
+          stroke: '#000000',
+          strokeThickness: 2,
+          resolution: 2,
+          align: 'center',
+          ...extra,
+        })
+        .setOrigin(0.5);
+
+    const makeBtn = (
+      x: number,
+      y: number,
+      w: number,
+      h: number,
+      fill: number,
+      strokeColor: number,
+      label: string,
+      labelColor: string,
+      labelSize = '14px'
+    ): { bg: Phaser.GameObjects.Rectangle; txt: Phaser.GameObjects.Text } => {
+      const bg = this.add
+        .rectangle(x, y, w, h, fill, 1)
+        .setStrokeStyle(1.5, strokeColor, 1)
+        .setInteractive({ useHandCursor: true });
+      const txt = this.add
+        .text(x, y, label, {
+          fontFamily: FONT_FAMILY,
+          fontSize: labelSize,
+          fontStyle: '900',
+          color: labelColor,
+          stroke: '#000000',
+          strokeThickness: 2,
+          resolution: 2,
+        })
+        .setOrigin(0.5);
+      this.bindPressFeedback(bg, txt);
+      return { bg, txt };
+    };
+
+    // --------------------------------------------------- CLOSE / BACK helper
     const closeLobby = (): void => {
       this.liveClient?.close();
       this.liveClient = undefined;
+      controller.destroy();
+      this.pvpController = undefined;
+      this.backButtonUnregister?.();
+      this.backButtonUnregister = undefined;
+      platform.hideBackButton();
       overlay.destroy();
       raidButton.setInteractive({ useHandCursor: true });
       raidText.setText('LIVE PVP  ⚔');
     };
-    closeBg.on('pointerdown', closeLobby);
-    this.bindPressFeedback(closeBg, close);
-    const queueBg = this.add
-      .rectangle(0, -95, 250, 50, 0x2563eb, 1)
-      .setStrokeStyle(2, 0x60a5fa, 1)
+
+    // ---------------------------------------------------------------- LOBBY VIEW
+    const lobbyCard = this.add
+      .rectangle(0, 0, 320, 300, 0x0c1322, 0.99)
+      .setStrokeStyle(2, 0x60a5fa, 0.95);
+
+    TS('LIVE PVP', 0, -120, '22px', '#bfdbfe', { fontStyle: '900', strokeThickness: 3 });
+    TS('Challenge a Commander in real time', 0, -92, '10px', '#94a3b8', { strokeThickness: 1 });
+
+    const { bg: queueBg, txt: queueTxt } = makeBtn(
+      0, -42, 260, 52, 0x2563eb, 0x60a5fa, 'QUICK MATCH  ⚔', '#ffffff', '14px'
+    );
+    const { bg: createBg, txt: createTxt } = makeBtn(
+      0, 20, 260, 48, 0x0e2a1a, 0x34d399, 'CREATE BATTLE  🔗', '#6ee7b7', '13px'
+    );
+    const { bg: joinBg, txt: joinTxt } = makeBtn(
+      0, 75, 260, 48, 0x11153a, 0x818cf8, 'JOIN BATTLE  ↗', '#c7d2fe', '13px'
+    );
+
+    // Close ✕ in top-right of lobby card
+    const lobbyCloseBg = this.add
+      .rectangle(145, -135, 44, 44, 0x000000, 0)
       .setInteractive({ useHandCursor: true });
-    const queueText = this.add
-      .text(0, -95, 'FIND OPPONENT  ⚔', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '14px',
-        fontStyle: '900',
-        color: '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 2,
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    const createBg = this.add
-      .rectangle(0, -35, 250, 50, 0x111c33, 1)
-      .setStrokeStyle(1.5, 0x60a5fa, 1)
-      .setInteractive({ useHandCursor: true });
-    const createText = this.add
-      .text(0, -35, 'CREATE INVITE  🔗', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '14px',
-        fontStyle: '900',
-        color: '#bfdbfe',
-        stroke: '#000000',
-        strokeThickness: 2,
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    const joinBg = this.add
-      .rectangle(0, 25, 250, 50, 0x111c33, 1)
-      .setStrokeStyle(1.5, 0x60a5fa, 1)
-      .setInteractive({ useHandCursor: true });
-    const joinText = this.add
-      .text(0, 25, 'JOIN INVITE  ↗', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '14px',
-        fontStyle: '900',
-        color: '#bfdbfe',
-        stroke: '#000000',
-        strokeThickness: 2,
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    this.bindPressFeedback(queueBg, queueText);
-    this.bindPressFeedback(createBg, createText);
-    this.bindPressFeedback(joinBg, joinText);
-    overlay.add([
-      backdrop,
-      card,
-      title,
-      subtitle,
-      status,
-      closeBg,
-      close,
-      queueBg,
-      queueText,
-      createBg,
-      createText,
-      joinBg,
-      joinText,
+    const lobbyCloseBtn = TS('✕', 145, -135, '20px', '#94a3b8');
+    this.bindPressFeedback(lobbyCloseBg, lobbyCloseBtn);
+    lobbyCloseBg.on('pointerdown', closeLobby);
+
+    lobbyView.add([
+      lobbyCard, queueBg, queueTxt, createBg, createTxt, joinBg, joinTxt,
+      lobbyCloseBg, lobbyCloseBtn,
     ]);
 
+    // -------------------------------------------------------- WAITING VIEW (room host)
+    const waitCard = this.add
+      .rectangle(0, 0, 320, 340, 0x0c1322, 0.99)
+      .setStrokeStyle(2, 0x34d399, 0.9);
+    const waitTitle = TS('BATTLE ROOM CREATED', 0, -145, '14px', '#6ee7b7', { fontStyle: '900', strokeThickness: 2 });
+    const waitSubtitle = TS('Share this code with your opponent', 0, -122, '10px', '#94a3b8', { strokeThickness: 1 });
+
+    // Big mono room-code badge
+    const codeBadgeBg = this.add
+      .rectangle(0, -75, 260, 54, 0x071a10, 0.98)
+      .setStrokeStyle(2, 0x34d399, 0.85);
+    const codeText = this.add
+      .text(0, -75, '--------', {
+        fontFamily: '"Courier New", Courier, monospace',
+        fontSize: '26px',
+        fontStyle: 'bold',
+        color: '#86efac',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+        letterSpacing: 6,
+      })
+      .setOrigin(0.5);
+
+    const { bg: copyBg, txt: copyTxt } = makeBtn(
+      -67, -5, 120, 44, 0x1c2a1c, 0x34d399, '📋  COPY', '#86efac', '12px'
+    );
+    const { bg: shareBg, txt: shareTxt } = makeBtn(
+      67, -5, 120, 44, 0x111c33, 0x60a5fa, '🔗  SHARE', '#93c5fd', '12px'
+    );
+
+    // Pulsing waiting indicator
+    const waitDot = TS('⏳', 0, 52, '18px', '#fbbf24');
+    const waitStatus = TS('WAITING FOR OPPONENT…', 0, 80, '11px', '#94a3b8', { strokeThickness: 1 });
+    this.tweens.add({
+      targets: waitDot,
+      alpha: 0.3,
+      duration: 900,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+
+    const { bg: leaveRoomBg, txt: leaveRoomTxt } = makeBtn(
+      0, 130, 180, 42, 0x1f0a0a, 0xf87171, '✕  LEAVE ROOM', '#fca5a5', '12px'
+    );
+
+    waitingView.add([
+      waitCard, waitTitle, waitSubtitle,
+      codeBadgeBg, codeText,
+      copyBg, copyTxt,
+      shareBg, shareTxt,
+      waitDot, waitStatus,
+      leaveRoomBg, leaveRoomTxt,
+    ]);
+
+    // -------------------------------------------------------- JOIN CODE VIEW
+    // Position panel high (y = -120 from screen centre) so it sits above
+    // the virtual keyboard (typically 280–350 px tall on mobile)
+    const joinCard = this.add
+      .rectangle(0, -110, 300, 210, 0x0c1322, 0.99)
+      .setStrokeStyle(2, 0x818cf8, 0.9);
+    const joinTitle = TS('ENTER INVITE CODE', 0, -200, '14px', '#c7d2fe', { fontStyle: '900', strokeThickness: 2 });
+    const joinSubtitle = TS('8-character code your friend shared', 0, -182, '10px', '#94a3b8', { strokeThickness: 1 });
+
+    const joinInput = this.add.dom(
+      0,
+      -123,
+      'input',
+      'width: 230px; height: 46px; font-size: 22px; font-weight: 700; text-align: center; text-transform: uppercase; letter-spacing: 5px; border-radius: 8px; border: 2px solid #818cf8; background: #0f172a; color: #ffffff; outline: none; box-sizing: border-box;',
+      ''
+    );
+    const joinErrorText = TS('', 0, -87, '10px', '#f87171', { strokeThickness: 1 });
+
+    const { bg: joinSubmitBg, txt: joinSubmitTxt } = makeBtn(
+      55, -50, 130, 42, 0x2563eb, 0x60a5fa, 'JOIN  ↗', '#ffffff', '13px'
+    );
+    const { bg: joinCancelBg, txt: joinCancelTxt } = makeBtn(
+      -75, -50, 100, 42, 0x1a1a2e, 0x475569, 'CANCEL', '#94a3b8', '12px'
+    );
+
+    joinView.add([
+      joinCard, joinTitle, joinSubtitle,
+      joinInput, joinErrorText,
+      joinSubmitBg, joinSubmitTxt,
+      joinCancelBg, joinCancelTxt,
+    ]);
+
+    // -------------------------------------------------------- LOADING VIEW
+    const loadCard = this.add
+      .rectangle(0, 0, 280, 160, 0x0c1322, 0.99)
+      .setStrokeStyle(2, 0x60a5fa, 0.8);
+    const loadSpinner = TS('⏳', 0, -30, '32px', '#60a5fa');
+    const loadText = TS('CONNECTING…', 0, 18, '13px', '#93c5fd', { strokeThickness: 2 });
+    this.tweens.add({
+      targets: loadSpinner,
+      angle: 360,
+      duration: 1200,
+      repeat: -1,
+    });
+    const { bg: loadCancelBg, txt: loadCancelTxt } = makeBtn(
+      0, 58, 140, 38, 0x1f0a0a, 0xf87171, 'CANCEL', '#fca5a5', '12px'
+    );
+    loadingView.add([loadCard, loadSpinner, loadText, loadCancelBg, loadCancelTxt]);
+
+    // -------------------------------------------------------- ERROR VIEW
+    const errCard = this.add
+      .rectangle(0, 0, 300, 220, 0x0c1322, 0.99)
+      .setStrokeStyle(2, 0xf87171, 0.9);
+    const errIcon = TS('⚠', 0, -85, '28px', '#f87171');
+    const errMsg = this.add
+      .text(0, -38, '', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '12px',
+        fontStyle: 'bold',
+        color: '#fca5a5',
+        stroke: '#000000',
+        strokeThickness: 1,
+        resolution: 2,
+        align: 'center',
+        wordWrap: { width: 260 },
+      })
+      .setOrigin(0.5);
+    const { bg: retryBg, txt: retryTxt } = makeBtn(
+      -70, 62, 120, 42, 0x2563eb, 0x60a5fa, '↺  RETRY', '#ffffff', '12px'
+    );
+    const { bg: errBackBg, txt: errBackTxt } = makeBtn(
+      70, 62, 120, 42, 0x111c33, 0x475569, '← BACK', '#94a3b8', '12px'
+    );
+    errorView.add([errCard, errIcon, errMsg, retryBg, retryTxt, errBackBg, errBackTxt]);
+
+    // ------------------------------------------------ VIEW RENDERER
+    let lastRetryMode: 'queue' | 'create' | 'join' = 'queue';
+    let lastRetryCode = '';
+
+    const showView = (view: import('../pvp/LivePvpController.js').LivePvpView, opts: {
+      code?: string; error?: string; copied?: boolean;
+    } = {}): void => {
+      hideAll();
+      switch (view) {
+        case 'lobby':
+          lobbyView.setVisible(true);
+          this.backButtonUnregister?.();
+          platform.hideBackButton();
+          this.backButtonUnregister = platform.on('backButtonClicked', closeLobby);
+          platform.showBackButton(closeLobby);
+          break;
+        case 'creating':
+        case 'joining':
+        case 'queueing':
+          loadingView.setVisible(true);
+          loadText.setText(
+            view === 'creating' ? 'CREATING ROOM…' :
+            view === 'joining'  ? 'JOINING ROOM…' :
+                                   'FINDING OPPONENT…'
+          );
+          break;
+        case 'waiting': {
+          waitingView.setVisible(true);
+          const formatted = opts.code
+            ? opts.code.slice(0, 4) + '-' + opts.code.slice(4)
+            : '--------';
+          codeText.setText(formatted);
+          if (opts.copied) {
+            copyTxt.setText('COPIED! ✓');
+            copyBg.setFillStyle(0x065f46, 1);
+          } else {
+            copyTxt.setText('📋  COPY');
+            copyBg.setFillStyle(0x1c2a1c, 1);
+          }
+          const backToLobby = (): void => controller.cancel();
+          this.backButtonUnregister?.();
+          this.backButtonUnregister = platform.on('backButtonClicked', backToLobby);
+          platform.showBackButton(backToLobby);
+          break;
+        }
+        case 'entering_code': {
+          joinView.setVisible(true);
+          joinErrorText.setText(opts.error ?? '');
+          const backToLobby = (): void => controller.cancel();
+          this.backButtonUnregister?.();
+          this.backButtonUnregister = platform.on('backButtonClicked', backToLobby);
+          platform.showBackButton(backToLobby);
+          break;
+        }
+        case 'error':
+          errorView.setVisible(true);
+          errMsg.setText(opts.error ?? 'Could not connect to Live PvP.');
+          break;
+      }
+    };
+
+    // ------------------------------------------------ STATE SUBSCRIPTION
+    controller.subscribe((state) => {
+      showView(state.view, {
+        code: state.roomCode,
+        error: state.errorMessage,
+        copied: state.copied,
+      });
+    });
+
+    // ------------------------------------------------ LIVE CLIENT FACTORY
     const startClient = (mode: 'queue' | 'create' | 'join', roomCode?: string): void => {
       if (this.liveClient) return;
+      lastRetryMode = mode;
+      lastRetryCode = roomCode ?? '';
+
       let client: LiveMatchClient;
       try {
         client = careerManager.openLiveMatchRemote();
       } catch {
-        status.setText('COULD NOT CONNECT TO LIVE PVP');
-        raidButton.setInteractive({ useHandCursor: true });
-        raidText.setText('LIVE PVP  ⚔');
+        controller.onError('invite_create_failed');
         return;
       }
       this.liveClient = client;
+
       let matchStarted = false;
-      client.on('queue_waiting', () => status.setText('WAITING FOR AN OPPONENT...'));
-      client.on('invite_waiting', () => status.setText('SHARE THE INVITE CODE WITH YOUR FRIEND'));
+
       client.on('invite_created', ({ roomCode: createdCode }) => {
-        status.setText(`INVITE CODE: ${createdCode}\nWaiting for your friend...`);
-        const inviteUrl = new URL(window.location.href);
-        inviteUrl.searchParams.set('liveRoom', createdCode);
-        void platform.share({
-          text: `Join my live Crown Clash battle. Code: ${createdCode}`,
-          url: inviteUrl.toString(),
-        });
+        controller.onInviteCreated(createdCode);
       });
+
       client.on('match_started', (match) => {
         matchStarted = true;
         trackEvent({ name: 'live_match_started', matchId: match.matchId });
+        controller.destroy();
+        this.pvpController = undefined;
+        platform.hideBackButton();
+        this.backButtonUnregister?.();
+        this.backButtonUnregister = undefined;
         overlay.destroy();
         this.liveClient = undefined;
         this.scene.start('GameScene', {
@@ -523,122 +744,161 @@ export class MenuScene extends Phaser.Scene {
           liveMatch: match,
         });
       });
+
       client.on('error', ({ code }) => {
         if (matchStarted) return;
-        status.setText(`LIVE PVP ERROR\n${code}`);
+        controller.onError(code);
         client.close();
         this.liveClient = undefined;
-        raidButton.setInteractive({ useHandCursor: true });
-        raidText.setText('LIVE PVP  ⚔');
       });
+
       client.on('closed', () => {
         if (matchStarted) return;
-        status.setText('CONNECTION CLOSED');
+        controller.onError('connection_closed');
         this.liveClient = undefined;
-        raidButton.setInteractive({ useHandCursor: true });
-        raidText.setText('LIVE PVP  ⚔');
       });
-      void client.connect(mode, roomCode)
+
+      void client
+        .connect(mode, roomCode)
         .then(() => {
           if (mode === 'queue') trackEvent({ name: 'live_queue_joined' });
           if (mode === 'create') trackEvent({ name: 'live_invite_created' });
           if (mode === 'join') trackEvent({ name: 'live_invite_joined' });
         })
-        .catch(() => {
-          status.setText('COULD NOT CONNECT TO LIVE PVP');
+        .catch((err: unknown) => {
+          const code =
+            err instanceof Error ? err.message : 'invite_create_failed';
+          controller.onError(code);
           client.close();
           this.liveClient = undefined;
-          raidButton.setInteractive({ useHandCursor: true });
-          raidText.setText('LIVE PVP  ⚔');
         });
     };
 
-    queueBg.on('pointerdown', () => startClient('queue'));
-    createBg.on('pointerdown', () => startClient('create'));
+    // ------------------------------------------------ LOBBY BUTTON HANDLERS
+    queueBg.on('pointerdown', () => {
+      if (!controller.startQueueing()) return;
+      startClient('queue');
+    });
+
+    createBg.on('pointerdown', () => {
+      if (!controller.startCreating()) return;
+      startClient('create');
+    });
+
     joinBg.on('pointerdown', () => {
-      const linkedRoomCode = new URLSearchParams(window.location.search).get('liveRoom');
-      if (linkedRoomCode) {
-        startClient('join', linkedRoomCode);
+      const linked = new URLSearchParams(window.location.search).get('liveRoom');
+      if (linked) {
+        if (!controller.startJoining(linked).success) return;
+        startClient('join', linked);
         return;
       }
-      // window.prompt is unavailable in most messenger WebViews; use an
-      // in-scene input instead.
-      this.showJoinCodeEntry(overlay, (roomCode) => startClient('join', roomCode));
+      controller.startEnteringCode();
+      window.setTimeout(() => {
+        const el = joinInput.node as HTMLInputElement;
+        el.value = '';
+        el.focus();
+      }, 80);
     });
-  }
 
-  private showJoinCodeEntry(
-    overlay: Phaser.GameObjects.Container,
-    onStart: (roomCode: string) => void
-  ): void {
-    const panel = this.add.container(0, 0);
-    const backdrop = this.add
-      .rectangle(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT, 0x000000, 0.72)
-      .setInteractive();
-    const card = this.add
-      .rectangle(0, 0, 300, 210, 0x0c1322, 0.99)
-      .setStrokeStyle(2, 0x60a5fa, 0.95);
-    const title = this.add
-      .text(0, -72, 'ENTER INVITE CODE', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '15px',
-        fontStyle: '900',
-        color: '#bfdbfe',
-        stroke: '#000000',
-        strokeThickness: 2,
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    const input = this.add.dom(
-      0,
-      -15,
-      'input',
-      'width: 220px; height: 44px; font-size: 20px; font-weight: 700; text-align: center; text-transform: uppercase; letter-spacing: 4px; border-radius: 8px; border: 2px solid #60a5fa; background: #0f172a; color: #ffffff; outline: none; box-sizing: border-box;',
-      ''
-    );
-    const errorText = this.add
-      .text(0, 22, '', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '10px',
-        fontStyle: 'bold',
-        color: '#f87171',
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    const joinBg = this.add
-      .rectangle(0, 66, 180, 42, 0x2563eb, 1)
-      .setStrokeStyle(2, 0x60a5fa, 1)
-      .setInteractive({ useHandCursor: true });
-    const joinText = this.add
-      .text(0, 66, 'JOIN BATTLE', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '13px',
-        fontStyle: '900',
-        color: '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 2,
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    this.bindPressFeedback(joinBg, joinText);
-    panel.add([backdrop, card, title, input, errorText, joinBg, joinText]);
-    overlay.add(panel);
+    // ------------------------------------------------ WAITING VIEW HANDLERS
+    copyBg.on('pointerdown', () => {
+      const state = controller.getState();
+      if (!state.roomCode) return;
+      const bare = state.roomCode;
+      if (navigator.clipboard) {
+        void navigator.clipboard.writeText(bare).then(() => {
+          controller.markCopied();
+          platform.hapticNotification('success');
+        });
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = bare;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        controller.markCopied();
+        platform.hapticNotification('success');
+      }
+    });
 
-    const inputElement = input.node as HTMLInputElement;
-    const submit = (): void => {
-      const value = (inputElement.value || '').trim().toUpperCase();
-      if (!/^[0-9A-F]{8}$/.test(value)) {
-        errorText.setText('Enter the 8-character code your friend shared');
+    shareBg.on('pointerdown', () => {
+      const state = controller.getState();
+      if (!state.roomCode) return;
+      const code = state.roomCode;
+      const url = new URL(window.location.href);
+      url.searchParams.set('liveRoom', code);
+      void platform.share({
+        text: `Join my live Crown Clash battle! Code: ${code.slice(0,4)}-${code.slice(4)}`,
+        url: url.toString(),
+      });
+      platform.hapticSelection();
+    });
+
+    leaveRoomBg.on('pointerdown', () => {
+      this.liveClient?.close();
+      this.liveClient = undefined;
+      controller.cancel();
+      platform.hapticSelection();
+    });
+
+    // ------------------------------------------------ JOIN CODE VIEW HANDLERS
+    const joinInputEl = joinInput.node as HTMLInputElement;
+    joinInputEl.addEventListener('input', () => {
+      const sanitized = sanitizeRoomCode(joinInputEl.value);
+      if (joinInputEl.value !== sanitized) joinInputEl.value = sanitized;
+      joinErrorText.setText('');
+      const valid = isValidRoomCode(sanitized);
+      joinSubmitBg.setFillStyle(valid ? 0x2563eb : 0x1e293b, 1);
+    });
+    joinInputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') joinSubmitBg.emit('pointerdown');
+    });
+
+    joinSubmitBg.on('pointerdown', () => {
+      const code = sanitizeRoomCode(joinInputEl.value);
+      const result = controller.startJoining(code);
+      if (!result.success) {
+        joinErrorText.setText(result.error ?? 'Invalid code.');
+        platform.hapticNotification('error');
         return;
       }
-      panel.destroy();
-      onStart(value);
-    };
-    joinBg.on('pointerdown', submit);
-    inputElement.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') submit();
+      startClient('join', code);
     });
-    window.setTimeout(() => inputElement.focus(), 50);
+
+    joinCancelBg.on('pointerdown', () => {
+      controller.cancel();
+      platform.hapticSelection();
+    });
+
+    // ------------------------------------------------ LOADING CANCEL
+    loadCancelBg.on('pointerdown', () => {
+      this.liveClient?.close();
+      this.liveClient = undefined;
+      controller.cancel();
+      platform.hapticSelection();
+    });
+
+    // ------------------------------------------------ ERROR VIEW HANDLERS
+    retryBg.on('pointerdown', () => {
+      if (this.liveClient) return;
+      if (lastRetryMode === 'join') {
+        if (!controller.startJoining(lastRetryCode).success) return;
+      } else if (lastRetryMode === 'create') {
+        if (!controller.startCreating()) return;
+      } else {
+        if (!controller.startQueueing()) return;
+      }
+      startClient(lastRetryMode, lastRetryCode || undefined);
+      platform.hapticSelection();
+    });
+
+    errBackBg.on('pointerdown', () => {
+      this.liveClient?.close();
+      this.liveClient = undefined;
+      controller.returnToLobby();
+      platform.hapticSelection();
+    });
   }
 
   private showBackendUnavailable(): void {

@@ -70,6 +70,28 @@ const OP_MATCH_RESULT = 7;
 const OP_ERROR = 8;
 const OP_DISPATCH = 1;
 
+function parseLiveErrorCode(err: unknown, fallback: string): string {
+  if (!err) return fallback;
+  const raw = err instanceof Error ? err.message : String(err);
+  try {
+    const parsed = JSON.parse(raw) as { message?: string; error?: string };
+    if (parsed && typeof parsed.message === 'string' && parsed.message) {
+      return parsed.message;
+    }
+    if (parsed && typeof parsed.error === 'string' && parsed.error) {
+      return parsed.error;
+    }
+  } catch { /* ignore */ }
+  if (raw.includes('invite_not_found')) return 'invite_not_found';
+  if (raw.includes('live_match_full')) return 'live_match_full';
+  if (raw.includes('live_match_invalid_code')) return 'live_match_invalid_code';
+  if (raw.includes('live_match_finished')) return 'live_match_finished';
+  if (raw.includes('live_match_not_authorized')) return 'live_match_not_authorized';
+  if (raw.includes('live_connection_timeout')) return 'live_connection_timeout';
+  if (raw.includes('missing_room_code')) return 'missing_room_code';
+  return raw || fallback;
+}
+
 /**
  * Real-time live PvP client backed by the Nakama socket API.
  *
@@ -141,7 +163,7 @@ export class LiveMatchClient {
             this.emit({ type: 'queue_waiting' });
             settle();
           })
-          .catch((err) => settle(err instanceof Error ? err : new Error('matchmaker_failed')));
+          .catch((err) => settle(new Error(parseLiveErrorCode(err, 'matchmaker_failed'))));
         return;
       }
 
@@ -158,7 +180,7 @@ export class LiveMatchClient {
             this.emit({ type: 'invite_waiting' });
             settle();
           })
-          .catch((err) => settle(err instanceof Error ? err : new Error('invite_create_failed')));
+          .catch((err) => settle(new Error(parseLiveErrorCode(err, 'invite_create_failed'))));
         return;
       }
 
@@ -175,7 +197,7 @@ export class LiveMatchClient {
             return this.socket.joinMatch(data.matchId, undefined, { code: roomCode });
           })
           .then(() => settle())
-          .catch((err) => settle(err instanceof Error ? err : new Error('invite_join_failed')));
+          .catch((err) => settle(new Error(parseLiveErrorCode(err, 'invite_join_failed'))));
         return;
       }
 
@@ -205,6 +227,15 @@ export class LiveMatchClient {
     if (this.matchmakerTicket) {
       void this.socket.removeMatchmaker(this.matchmakerTicket).catch(() => undefined);
       this.matchmakerTicket = null;
+    }
+    if (this.socket.onmatchdata === this.onMatchData) {
+      this.socket.onmatchdata = () => {};
+    }
+    if (this.socket.onmatchmakermatched === this.onMatchmakerMatched) {
+      this.socket.onmatchmakermatched = () => {};
+    }
+    if (this.socket.ondisconnect === this.onDisconnect) {
+      this.socket.ondisconnect = () => {};
     }
   }
 
