@@ -37,6 +37,7 @@ import { LiveMatchClient, LiveMatchStarted } from '../api/LiveMatchClient.js';
 import { purchaseUpgradeThroughCareer } from '../upgrades/UpgradePurchaseController.js';
 import { playUpgradeMilestoneCelebration } from '../upgrades/UpgradeMilestoneCelebration.js';
 import { deriveLiveCombatArrivals } from '../combat/LiveCombatFeedback.js';
+import { wholeMatchSeconds } from '../match/MatchPresentation.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 const MONO_FONT_FAMILY = '"Segoe UI", monospace, -apple-system, sans-serif';
@@ -1910,7 +1911,7 @@ export class GameScene extends Phaser.Scene {
     stats: MatchStats,
     settlement: ReturnType<CareerManager['recordMatchResult']>
   ): void {
-    const duration = stats.matchDurationSeconds;
+    const duration = wholeMatchSeconds(stats.matchDurationSeconds);
     const isWin = status === 'victory';
 
     if (isWin) {
