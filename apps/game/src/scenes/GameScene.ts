@@ -135,6 +135,7 @@ export class GameScene extends Phaser.Scene {
   private liveClient?: LiveMatchClient;
   private liveOpponentName = 'Opponent';
   private liveUnsubscribers: Array<() => void> = [];
+  private lastAuthoritativeState: GameState | null = null;
 
   private enemyArmySpeedMultiplier = 1;
 
@@ -212,6 +213,7 @@ export class GameScene extends Phaser.Scene {
     this.createUpgradedMatchState();
     if (this.liveMode && launchData?.liveMatch) {
       this.gameState = launchData.liveMatch.state;
+      this.lastAuthoritativeState = launchData.liveMatch.state;
       this.activeMatchId = launchData.liveMatch.matchId;
       this.battlefieldId = launchData.liveMatch.state.battlefieldId ?? 'crown_cross';
     }
@@ -1212,11 +1214,7 @@ export class GameScene extends Phaser.Scene {
                 }
               }
 
-              if (target.owner === 'player') {
-                sounds.playReinforce();
-              } else {
-                sounds.playDispatch();
-              }
+              sounds.playDispatch();
               this.platform.hapticImpact(sources.length > 1 ? 'heavy' : 'medium');
             }
           } catch (error) {
@@ -1248,11 +1246,7 @@ export class GameScene extends Phaser.Scene {
             this.gameState.stats.playerUnitsDispatched += multiDispatch.totalUnitsDispatched;
             this.recordDispatchActions(multiDispatch.armies);
 
-            if (target.owner === 'player') {
-              sounds.playReinforce();
-            } else {
-              sounds.playDispatch();
-            }
+            sounds.playDispatch();
             this.platform.hapticImpact(multiDispatch.armies.length > 1 ? 'heavy' : 'medium');
           }
         }
@@ -2669,7 +2663,10 @@ export class GameScene extends Phaser.Scene {
     this.liveUnsubscribers.push(
       client.on('state', (state) => {
         if (this.resultModalContainer) return;
-        const arrivals = deriveLiveCombatArrivals(this.gameState, state);
+        const arrivals = this.lastAuthoritativeState
+          ? deriveLiveCombatArrivals(this.lastAuthoritativeState, state)
+          : [];
+        this.lastAuthoritativeState = state;
         const { reconciledArmies, matchedVisualRenames } = reconcileLiveArmies(
           this.gameState.armies,
           state.armies
@@ -2757,6 +2754,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private cleanup(): void {
+    this.lastAuthoritativeState = null;
     this.careerSubscription?.();
     this.careerSubscription = undefined;
     for (const unsubscribe of this.liveUnsubscribers) {

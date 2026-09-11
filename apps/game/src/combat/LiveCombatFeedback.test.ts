@@ -72,6 +72,22 @@ describe('deriveLiveCombatArrivals', () => {
       }),
     ]);
   });
+
+  it('ignores predicted client-only armies when deriving arrivals', () => {
+    const base = createInitialGameState();
+    const previous = withArmy(base, army({ id: 'pred_123456_0', units: 14, progress: 0.05 }));
+    const current = { ...base, armies: [] };
+
+    expect(deriveLiveCombatArrivals(previous, current)).toEqual([]);
+  });
+
+  it('ignores armies that disappear prematurely before completing their march', () => {
+    const base = createInitialGameState();
+    const previous = withArmy(base, army({ id: 'live-early', units: 14, progress: 0.2 }));
+    const current = { ...base, armies: [] };
+
+    expect(deriveLiveCombatArrivals(previous, current)).toEqual([]);
+  });
 });
 
 describe('stepLiveArmies', () => {

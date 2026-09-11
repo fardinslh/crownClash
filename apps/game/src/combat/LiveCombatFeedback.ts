@@ -19,7 +19,13 @@ export function deriveLiveCombatArrivals(
   const arrivals: CombatResult[] = [];
 
   for (const army of previous.armies) {
+    // Unconfirmed local predicted armies must never produce simulated server arrivals
+    if (army.id.startsWith('pred_')) continue;
     if (activeArmyIds.has(armyVisualId(army.owner, army.id))) continue;
+    // An army only arrives when its march has finished.
+    // Guard against premature resolution if an army was desynced or canceled early.
+    if (army.progress < 0.65) continue;
+
     const target = projectedTargets[army.targetId];
     if (!target) continue;
 
