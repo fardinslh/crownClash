@@ -403,7 +403,7 @@ describe('CareerManager', () => {
       getLedger: async () => [],
       startBotMatch: async () => {
         starts++;
-        if (starts === 1) throw new Error('socket_closed');
+        if (starts === 1) throw new StaleSocketError('socket_closed');
         return { matchId: 'bot_retry', battlefieldId: 'royal_ring' };
       },
       settleMatch: async () => { throw new Error('not_used_in_test'); },
@@ -447,7 +447,7 @@ describe('CareerManager', () => {
       startBotMatch: async () => ({ matchId: 'bot_test', battlefieldId: 'crown_cross' }),
       settleMatch: async (matchId) => {
         settles++;
-        if (settles === 1) throw new Error('socket_closed');
+        if (settles === 1) throw new StaleSocketError('socket_closed');
         return {
           matchId,
           status: 'victory',
@@ -563,41 +563,17 @@ describe('CareerManager', () => {
     expect(manager.getCareer().trophies).toBe(42);
   });
 
-  it('correctly discriminates stale socket errors from domain validation failures', () => {
-    // Exact @heroiclabs/nakama-js socket error strings
-    const notEstablished = 'Socket connection has not been established yet.';
-    const responseTimeout = 'The socket timed out while waiting for a response.';
-    const connectTimeout = 'The socket timed out when trying to connect.';
-
-    expect(isStaleSocketError(notEstablished)).toBe(true);
-    expect(isStaleSocketError(new Error(notEstablished))).toBe(true);
-    expect(isStaleSocketError(responseTimeout)).toBe(true);
-    expect(isStaleSocketError(new Error(responseTimeout))).toBe(true);
-    expect(isStaleSocketError(connectTimeout)).toBe(true);
-    expect(isStaleSocketError(new Error(connectTimeout))).toBe(true);
-
+  it('only recognizes normalized stale socket errors', () => {
     expect(isStaleSocketError(new StaleSocketError())).toBe(true);
-    expect(isStaleSocketError(new Error('socket_closed'))).toBe(true);
-    expect(isStaleSocketError(new Error('socket_not_connected'))).toBe(true);
-    expect(isStaleSocketError(new Error('live_socket_not_connected'))).toBe(true);
-    expect(isStaleSocketError(new Error('WebSocket is not open: readyState 3 (CLOSED)'))).toBe(true);
-    expect(isStaleSocketError(new Error('connection closed by peer'))).toBe(true);
-
-    // Domain / validation failures must never be recognized as stale socket errors
+    expect(isStaleSocketError({ isStaleSocket: true })).toBe(true);
+    expect(isStaleSocketError(new Error('Socket connection has not been established yet.'))).toBe(false);
+    expect(isStaleSocketError(new Error('socket_closed'))).toBe(false);
     expect(isStaleSocketError(new Error('bot_match_not_found'))).toBe(false);
-    expect(isStaleSocketError(new Error('bot_match_owned_by_another_player'))).toBe(false);
-    expect(isStaleSocketError(new Error('foreign ownership'))).toBe(false);
-    expect(isStaleSocketError(new Error('invalid_actions'))).toBe(false);
-    expect(isStaleSocketError(new Error('invalid_argument'))).toBe(false);
-    expect(isStaleSocketError(new Error('unauthorized'))).toBe(false);
-    expect(isStaleSocketError(new Error('unauthenticated'))).toBe(false);
-    expect(isStaleSocketError(new Error('commander_locked'))).toBe(false);
-    expect(isStaleSocketError(new Error('insufficient_coins'))).toBe(false);
     expect(isStaleSocketError(new TypeError('cannot read property of undefined'))).toBe(false);
     expect(isStaleSocketError(null)).toBe(false);
   });
 
-  it('reconnects and retries once when bot rematch encounters Nakama socket not established error', async () => {
+  it('reconnects and retries once when bot rematch receives a normalized socket error', async () => {
     const remoteCareer = createDefaultCareer('rematch_nakama_not_est');
     let logins = 0;
     let starts = 0;
@@ -610,7 +586,7 @@ describe('CareerManager', () => {
       getLedger: async () => [],
       startBotMatch: async () => {
         starts++;
-        if (starts === 1) throw new Error('Socket connection has not been established yet.');
+        if (starts === 1) throw new StaleSocketError('Socket connection has not been established yet.');
         return { matchId: 'bot_retry_not_est', battlefieldId: 'crown_cross' };
       },
       settleMatch: async () => { throw new Error('not_used_in_test'); },
@@ -639,7 +615,7 @@ describe('CareerManager', () => {
     expect(starts).toBe(2);
   });
 
-  it('reconnects and retries once when bot rematch encounters Nakama socket timeout', async () => {
+  it('reconnects and retries once when bot rematch receives a normalized timeout', async () => {
     const remoteCareer = createDefaultCareer('rematch_nakama_timeout');
     let logins = 0;
     let starts = 0;
@@ -652,7 +628,7 @@ describe('CareerManager', () => {
       getLedger: async () => [],
       startBotMatch: async () => {
         starts++;
-        if (starts === 1) throw new Error('The socket timed out while waiting for a response.');
+        if (starts === 1) throw new StaleSocketError('The socket timed out while waiting for a response.');
         return { matchId: 'bot_retry_timeout', battlefieldId: 'twin_passes' };
       },
       settleMatch: async () => { throw new Error('not_used_in_test'); },
@@ -681,7 +657,7 @@ describe('CareerManager', () => {
     expect(starts).toBe(2);
   });
 
-  it('reconnects and retries once when settlement encounters Nakama socket not established error', async () => {
+  it('reconnects and retries once when settlement receives a normalized socket error', async () => {
     const remoteCareer = createDefaultCareer('settle_nakama_not_est');
     let logins = 0;
     let settles = 0;
@@ -695,7 +671,7 @@ describe('CareerManager', () => {
       startBotMatch: async () => ({ matchId: 'bot_test', battlefieldId: 'crown_cross' }),
       settleMatch: async (matchId) => {
         settles++;
-        if (settles === 1) throw new Error('Socket connection has not been established yet.');
+        if (settles === 1) throw new StaleSocketError('Socket connection has not been established yet.');
         return {
           matchId,
           status: 'victory',
@@ -733,7 +709,7 @@ describe('CareerManager', () => {
     expect(settles).toBe(2);
   });
 
-  it('reconnects and retries once when settlement encounters Nakama socket response timeout', async () => {
+  it('reconnects and retries once when settlement receives a normalized timeout', async () => {
     const remoteCareer = createDefaultCareer('settle_nakama_timeout');
     let logins = 0;
     let settles = 0;
@@ -747,7 +723,7 @@ describe('CareerManager', () => {
       startBotMatch: async () => ({ matchId: 'bot_test', battlefieldId: 'crown_cross' }),
       settleMatch: async (matchId) => {
         settles++;
-        if (settles === 1) throw new Error('The socket timed out while waiting for a response.');
+        if (settles === 1) throw new StaleSocketError('The socket timed out while waiting for a response.');
         return {
           matchId,
           status: 'victory',

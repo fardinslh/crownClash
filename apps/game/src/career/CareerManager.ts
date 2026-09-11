@@ -41,60 +41,9 @@ import { getSharedGameApiClient } from '../api/sharedClient.js';
 import { LiveMatchClient } from '../api/LiveMatchClient.js';
 
 export function isStaleSocketError(error: unknown): boolean {
-  if (!error) return false;
-  if (error instanceof StaleSocketError || (error as { isStaleSocket?: boolean })?.isStaleSocket === true) {
-    return true;
-  }
-
-  const err = error as Record<string, unknown>;
-  const text = [
-    error instanceof Error ? error.message : '',
-    typeof err.message === 'string' ? err.message : '',
-    typeof err.code === 'string' ? err.code : '',
-    String(error),
-  ].join(' ').toLowerCase();
-
-  const domainValidationErrors = [
-    'bot_match_not_found',
-    'bot_match_owned_by_another_player',
-    'foreign ownership',
-    'invalid_action',
-    'invalid_actions',
-    'invalid_argument',
-    'invalid_payload',
-    'invalid_upgrade_type',
-    'invalid_purchase_id',
-    'commander_locked',
-    'insufficient_funds',
-    'insufficient_coins',
-    'already_claimed',
-    'mission_incomplete',
-    'rank_locked',
-    'unauthenticated',
-    'unauthorized',
-  ];
-  if (domainValidationErrors.some((code) => text.includes(code))) {
-    return false;
-  }
-
   return (
-    text.includes('socket connection has not been established yet') ||
-    text.includes('timed out while waiting for a response') ||
-    text.includes('timed out when trying to connect') ||
-    text.includes('socket_closed') ||
-    text.includes('socket_not_connected') ||
-    text.includes('live_socket_not_connected') ||
-    text.includes('connection closed') ||
-    text.includes('connection lost') ||
-    text.includes('closed socket') ||
-    text.includes('network error') ||
-    text.includes('failed to fetch') ||
-    text.includes('econnreset') ||
-    text.includes('econnrefused') ||
-    text.includes('etimedout') ||
-    text.includes('timed out') ||
-    text.includes('timeout') ||
-    /websocket.*(?:closed|not open)/i.test(text)
+    error instanceof StaleSocketError ||
+    (typeof error === 'object' && error !== null && (error as { isStaleSocket?: boolean }).isStaleSocket === true)
   );
 }
 
