@@ -90,6 +90,17 @@ describe('deriveLiveCombatArrivals', () => {
 
     expect(deriveLiveCombatArrivals(previous, current)).toEqual([]);
   });
+
+  it('discards duplicate or out-of-order snapshots with equal or decreasing elapsed time', () => {
+    const base = createInitialGameState();
+    base.territories.n_center = { ...base.territories.n_center, units: 5 };
+    const previous = { ...withArmy(base, army({ units: 20 })), elapsedTimeSeconds: 10 };
+    const duplicate = { ...base, armies: [], elapsedTimeSeconds: 10 };
+    const outOfOrder = { ...base, armies: [], elapsedTimeSeconds: 9.5 };
+
+    expect(deriveLiveCombatArrivals(previous, duplicate)).toEqual([]);
+    expect(deriveLiveCombatArrivals(previous, outOfOrder)).toEqual([]);
+  });
 });
 
 describe('live dispatch prediction', () => {

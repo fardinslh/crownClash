@@ -40,6 +40,38 @@ import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { getSharedGameApiClient } from '../api/sharedClient.js';
 import { LiveMatchClient } from '../api/LiveMatchClient.js';
 
+export function isStaleSocketError(error: unknown): boolean {
+  if (!error) return false;
+  const err = error as Record<string, unknown>;
+  const text = [
+    error instanceof Error ? error.message : '',
+    typeof err.message === 'string' ? err.message : '',
+    typeof err.code === 'string' ? err.code : '',
+    String(error),
+  ].join(' ');
+
+  const domainValidationErrors = [
+    'bot_match_not_found',
+    'bot_match_owned_by_another_player',
+    'commander_locked',
+    'insufficient_funds',
+    'insufficient_coins',
+    'already_claimed',
+    'mission_incomplete',
+    'rank_locked',
+    'invalid_',
+    'unauthenticated',
+    'unauthorized',
+  ];
+  if (domainValidationErrors.some((code) => text.includes(code))) {
+    return false;
+  }
+
+  return /socket_closed|socket_not_connected|live_socket_not_connected|socket closed|connection closed|connection lost|closed socket|network error|failed to fetch|econnreset|econnrefused|etimedout|websocket.*(?:closed|not open)/i.test(
+    text
+  );
+}
+
 export class CareerManager {
   private static instance: CareerManager | null = null;
   private career: PlayerCareer;
@@ -149,7 +181,7 @@ export class CareerManager {
       this.applyRemoteState(settlement.newCareer, settlement.ledgerEntries);
       return settlement;
     } catch (error) {
-      if (!platform) throw error;
+      if (!platform || !isStaleSocketError(error)) throw error;
 
       // Messenger/CDN proxies may silently drop an otherwise authenticated
       // WebSocket during a match. Re-authenticate once and retry settlement
@@ -168,7 +200,7 @@ export class CareerManager {
       try {
         return await api.startBotMatch();
       } catch (error) {
-        if (!platform) throw error;
+        if (!platform || !isStaleSocketError(error)) throw error;
 
         // Messenger/CDN proxies may silently drop an otherwise authenticated
         // WebSocket while the player is in a bot battle or viewing results.

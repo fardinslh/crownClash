@@ -76,3 +76,50 @@ func TestForfeitStatusAwardsVictoryToRemainingPlayer(t *testing.T) {
 		})
 	}
 }
+
+func TestLiveMatchStartsMirroredRolesAndPreservesBattlefield(t *testing.T) {
+	startedAt := int64(1_725_000_000_000)
+	battlefieldID := "royal_ring"
+	initialState := CreateInitialGameStateForBattlefield(PlayerUpgradeModifiers{}, PlayerUpgradeModifiers{}, battlefieldID)
+
+	state := liveMatchState{
+		startedAt:     startedAt,
+		started:       true,
+		battlefieldID: battlefieldID,
+		state:         initialState,
+		players: [liveMaxPlayers]*livePlayerState{
+			{userID: "player_1", displayName: "Player 1", role: TeamPlayer},
+			{userID: "player_2", displayName: "Player 2", role: TeamEnemy},
+		},
+	}
+
+	p1Payload := state.matchStartedPayload(state.players[0])
+	if p1Payload["role"] != TeamPlayer {
+		t.Fatalf("expected player 1 role to be TeamPlayer, got %v", p1Payload["role"])
+	}
+	p1State, ok := p1Payload["state"].(GameState)
+	if !ok || p1State.BattlefieldID != battlefieldID {
+		t.Fatalf("expected player 1 battlefieldID %q, got %v", battlefieldID, p1State.BattlefieldID)
+	}
+	if p1State.Territories["p_base"].Owner != TeamPlayer {
+		t.Fatalf("expected player 1 to see p_base as player, got %v", p1State.Territories["p_base"].Owner)
+	}
+	if p1State.Territories["e_base"].Owner != TeamEnemy {
+		t.Fatalf("expected player 1 to see e_base as enemy, got %v", p1State.Territories["e_base"].Owner)
+	}
+
+	p2Payload := state.matchStartedPayload(state.players[1])
+	if p2Payload["role"] != TeamEnemy {
+		t.Fatalf("expected player 2 role to be TeamEnemy, got %v", p2Payload["role"])
+	}
+	p2State, ok := p2Payload["state"].(GameState)
+	if !ok || p2State.BattlefieldID != battlefieldID {
+		t.Fatalf("expected player 2 battlefieldID %q, got %v", battlefieldID, p2State.BattlefieldID)
+	}
+	if p2State.Territories["e_base"].Owner != TeamPlayer {
+		t.Fatalf("expected player 2 to see e_base as player, got %v", p2State.Territories["e_base"].Owner)
+	}
+	if p2State.Territories["p_base"].Owner != TeamEnemy {
+		t.Fatalf("expected player 2 to see p_base as enemy, got %v", p2State.Territories["p_base"].Owner)
+	}
+}

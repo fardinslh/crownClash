@@ -18,6 +18,16 @@ export function deriveLiveCombatArrivals(
   previous: GameState,
   current: GameState
 ): CombatResult[] {
+  // Guard against duplicate, delayed, or out-of-order snapshots
+  if (
+    typeof current.elapsedTimeSeconds === 'number' &&
+    typeof previous.elapsedTimeSeconds === 'number' &&
+    (current.elapsedTimeSeconds > 0 || previous.elapsedTimeSeconds > 0) &&
+    current.elapsedTimeSeconds <= previous.elapsedTimeSeconds
+  ) {
+    return [];
+  }
+
   const activeArmyIds = new Set(
     current.armies.map((army) => armyVisualId(army.owner, army.id))
   );

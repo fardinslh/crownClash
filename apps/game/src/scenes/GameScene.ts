@@ -210,6 +210,7 @@ export class GameScene extends Phaser.Scene {
     this.liveUnsubscribers = [];
     this.livePredictions = [];
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.cleanup());
+    this.events.once(Phaser.Scenes.Events.DESTROY, () => this.cleanup());
     this.backendConnectPromise = !this.liveMode
       ? this.careerManager
           .connect(this.platform)
@@ -2707,6 +2708,12 @@ export class GameScene extends Phaser.Scene {
     this.liveUnsubscribers.push(
       client.on('state', (state) => {
         if (this.resultModalContainer) return;
+        if (
+          this.lastAuthoritativeState &&
+          state.elapsedTimeSeconds <= this.lastAuthoritativeState.elapsedTimeSeconds
+        ) {
+          return;
+        }
         const arrivals = this.lastAuthoritativeState
           ? deriveLiveCombatArrivals(this.lastAuthoritativeState, state)
           : [];
@@ -2757,6 +2764,7 @@ export class GameScene extends Phaser.Scene {
         }
       }),
       client.on('match_result', (result) => {
+        if (this.resultModalContainer) return;
         const terminalEventRecorded = trackTerminalMatchEvent({
           name: 'match_end',
           matchId: result.matchId,
@@ -2822,6 +2830,7 @@ export class GameScene extends Phaser.Scene {
 
   private cleanup(): void {
     sounds.stopBattleMusic();
+    this.time.removeAllEvents();
     this.tweens.killAll();
     for (const visual of this.armyVisuals.values()) {
       this.destroyArmyVisual(visual);

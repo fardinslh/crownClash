@@ -132,6 +132,39 @@ func TestSettleMatchReplayRejectsAnotherPlayersSettlement(t *testing.T) {
 	}
 }
 
+func TestSettleMatchReplayReturnsStoredResultWithoutCareerMutation(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	stored, err := json.Marshal(MatchSettlement{
+		MatchID:   "bot_settled",
+		Status:    "victory",
+		NewCareer: PlayerCareer{PlayerID: "player_1", Coins: 250},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT settlement FROM match_settlements WHERE match_id = $1")).
+		WithArgs("bot_settled").
+		WillReturnRows(sqlmock.NewRows([]string{"settlement"}).AddRow(stored))
+	mock.ExpectRollback()
+
+	settlement, err := NewStore(db).SettleMatchVerified(context.Background(), "player_1", "bot_settled", nil)
+	if err != nil {
+		t.Fatalf("unexpected replay error: %v", err)
+	}
+	if settlement.NewCareer.Coins != 250 || settlement.Status != "victory" {
+		t.Fatalf("unexpected replayed settlement: %+v", settlement)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("replay touched career state: %v", err)
+	}
+}
+
 func TestCreateBotMatchPersistsOpaqueServerSelectedTicket(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

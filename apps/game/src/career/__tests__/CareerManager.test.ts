@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { CareerManager } from '../CareerManager.js';
+import { CareerManager, isStaleSocketError } from '../CareerManager.js';
 import { MatchStats, createDefaultCareer } from '@crown-clash/game-core';
 import type { PlatformAdapter } from '@crown-clash/platform';
 import type { CareerApi } from '../../api/GameApiClient.js';
@@ -561,5 +561,102 @@ describe('CareerManager', () => {
     await manager.refreshRemoteCareer();
     expect(manager.getCareer().coins).toBe(777);
     expect(manager.getCareer().trophies).toBe(42);
+  });
+
+  it('correctly discriminates stale socket errors from domain validation failures', () => {
+    expect(isStaleSocketError(new Error('socket_closed'))).toBe(true);
+    expect(isStaleSocketError(new Error('socket_not_connected'))).toBe(true);
+    expect(isStaleSocketError(new Error('live_socket_not_connected'))).toBe(true);
+    expect(isStaleSocketError(new Error('WebSocket is not open: readyState 3 (CLOSED)'))).toBe(true);
+    expect(isStaleSocketError(new Error('connection closed by peer'))).toBe(true);
+
+    expect(isStaleSocketError(new Error('bot_match_not_found'))).toBe(false);
+    expect(isStaleSocketError(new Error('bot_match_owned_by_another_player'))).toBe(false);
+    expect(isStaleSocketError(new Error('commander_locked'))).toBe(false);
+    expect(isStaleSocketError(new Error('insufficient_coins'))).toBe(false);
+    expect(isStaleSocketError(new Error('invalid_argument'))).toBe(false);
+    expect(isStaleSocketError(new Error('unauthenticated'))).toBe(false);
+    expect(isStaleSocketError(new TypeError('cannot read property of undefined'))).toBe(false);
+    expect(isStaleSocketError(null)).toBe(false);
+  });
+
+  it('rethrows validation errors without reconnecting or retrying during match settlement', async () => {
+    const remoteCareer = createDefaultCareer('settle_validation_player');
+    let logins = 0;
+    let settles = 0;
+    const remoteApi: CareerApi = {
+      login: async () => {
+        logins++;
+        return remoteCareer;
+      },
+      getCareer: async () => remoteCareer,
+      getLedger: async () => [],
+      startBotMatch: async () => ({ matchId: 'bot_test', battlefieldId: 'crown_cross' }),
+      settleMatch: async () => {
+        settles++;
+        throw new Error('bot_match_not_found');
+      },
+      purchaseUpgrade: async () => { throw new Error('not_used_in_test'); },
+      selectCommander: async () => { throw new Error('not_used_in_test'); },
+      getDailyState: async () => { throw new Error('not_used_in_test'); },
+      claimDailyReward: async () => { throw new Error('not_used_in_test'); },
+      getLeagueState: async () => { throw new Error('not_used_in_test'); },
+      claimLeagueReward: async () => { throw new Error('not_used_in_test'); },
+      trackEvents: async () => undefined,
+      openLiveMatch: () => { throw new Error('not_used_in_test'); },
+      isAuthenticated: () => true,
+    };
+    const adapter = {
+      platform: 'browser',
+      getInitDataRaw: () => 'user=settle_validation_player',
+    } as PlatformAdapter;
+    const manager = CareerManager.getInstance('settle_validation_player');
+
+    await manager.connect(adapter, remoteApi);
+    await expect(
+      manager.recordMatchResultRemote([], 'forged_match_ticket', adapter)
+    ).rejects.toThrow('bot_match_not_found');
+
+    expect(logins).toBe(1);
+    expect(settles).toBe(1);
+  });
+
+  it('rethrows validation errors without reconnecting or retrying during bot match start', async () => {
+    const remoteCareer = createDefaultCareer('start_validation_player');
+    let logins = 0;
+    let starts = 0;
+    const remoteApi: CareerApi = {
+      login: async () => {
+        logins++;
+        return remoteCareer;
+      },
+      getCareer: async () => remoteCareer,
+      getLedger: async () => [],
+      startBotMatch: async () => {
+        starts++;
+        throw new Error('commander_locked');
+      },
+      settleMatch: async () => { throw new Error('not_used_in_test'); },
+      purchaseUpgrade: async () => { throw new Error('not_used_in_test'); },
+      selectCommander: async () => { throw new Error('not_used_in_test'); },
+      getDailyState: async () => { throw new Error('not_used_in_test'); },
+      claimDailyReward: async () => { throw new Error('not_used_in_test'); },
+      getLeagueState: async () => { throw new Error('not_used_in_test'); },
+      claimLeagueReward: async () => { throw new Error('not_used_in_test'); },
+      trackEvents: async () => undefined,
+      openLiveMatch: () => { throw new Error('not_used_in_test'); },
+      isAuthenticated: () => true,
+    };
+    const adapter = {
+      platform: 'browser',
+      getInitDataRaw: () => 'user=start_validation_player',
+    } as PlatformAdapter;
+    const manager = CareerManager.getInstance('start_validation_player');
+
+    await manager.connect(adapter, remoteApi);
+    await expect(manager.startBotMatch(adapter)).rejects.toThrow('commander_locked');
+
+    expect(logins).toBe(1);
+    expect(starts).toBe(1);
   });
 });
