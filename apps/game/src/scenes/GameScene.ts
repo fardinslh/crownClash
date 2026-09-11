@@ -26,6 +26,7 @@ import {
   stepSimulation,
   TERRITORY_TYPE_PRESENTATION,
   Territory,
+  Team,
   UpgradeType,
 } from '@crown-clash/game-core';
 import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
@@ -60,6 +61,8 @@ interface TerritoryVisual {
   unitBadge: Phaser.GameObjects.Rectangle;
   unitText: Phaser.GameObjects.Text;
   typeText: Phaser.GameObjects.Text;
+  lastOwner?: Team;
+  lastUnits?: number;
 }
 
 interface ArmyFollower {
@@ -1631,7 +1634,11 @@ export class GameScene extends Phaser.Scene {
         stateTerritory.units > vis.territory.units &&
         stateTerritory.owner === vis.territory.owner;
       vis.territory = stateTerritory;
-      vis.unitText.setText(stateTerritory.units.toString());
+
+      if (vis.lastUnits !== stateTerritory.units) {
+        vis.lastUnits = stateTerritory.units;
+        vis.unitText.setText(stateTerritory.units.toString());
+      }
 
       if (producedUnit) {
         this.pulseTerritoryRole(
@@ -1640,15 +1647,18 @@ export class GameScene extends Phaser.Scene {
         );
       }
 
-      const teamStyle = THEME.teams[stateTerritory.owner];
-      vis.basePlate.setStrokeStyle(2, teamStyle.dark, 0.95);
-      vis.ring.setStrokeStyle(2.5, teamStyle.primary, 0.95);
-      vis.ring.setFillStyle(teamStyle.glow, 0.12);
-      vis.unitBadge.setStrokeStyle(1.5, teamStyle.primary);
+      if (vis.lastOwner !== stateTerritory.owner) {
+        vis.lastOwner = stateTerritory.owner;
+        const teamStyle = THEME.teams[stateTerritory.owner];
+        vis.basePlate.setStrokeStyle(2, teamStyle.dark, 0.95);
+        vis.ring.setStrokeStyle(2.5, teamStyle.primary, 0.95);
+        vis.ring.setFillStyle(teamStyle.glow, 0.12);
+        vis.unitBadge.setStrokeStyle(1.5, teamStyle.primary);
 
-      const targetTexture = this.getTerritoryTextureKey(stateTerritory);
-      if (vis.sprite.texture.key !== targetTexture) {
-        vis.sprite.setTexture(targetTexture);
+        const targetTexture = this.getTerritoryTextureKey(stateTerritory);
+        if (vis.sprite.texture.key !== targetTexture) {
+          vis.sprite.setTexture(targetTexture);
+        }
       }
     }
   }
@@ -1666,9 +1676,26 @@ export class GameScene extends Phaser.Scene {
       alpha: 0,
       y: dust.y - 4,
       duration: 220,
-      ease: 'Quad.easeOut',
-      onComplete: () => dust.destroy(),
+      onComplete: () => {
+        this.tweens.killTweensOf(dust);
+        dust.destroy();
+      },
     });
+  }
+
+  private destroyArmyVisual(visual: ArmyVisual): void {
+    this.tweens.killTweensOf(visual.container);
+    this.tweens.killTweensOf(visual.leaderSprite);
+    for (const f of visual.followers) {
+      this.tweens.killTweensOf(f.sprite);
+      f.sprite.destroy();
+      f.shadow.destroy();
+    }
+    visual.leaderSprite.destroy();
+    visual.leaderShadow.destroy();
+    visual.badgeText.destroy();
+    visual.badgeBg.destroy();
+    visual.container.destroy();
   }
 
   private updateArmyVisuals(deltaSeconds: number): void {
@@ -1681,7 +1708,7 @@ export class GameScene extends Phaser.Scene {
     // Destroy visuals for finished armies
     for (const [id, visual] of this.armyVisuals.entries()) {
       if (!activeArmyIds.has(id)) {
-        visual.container.destroy();
+        this.destroyArmyVisual(visual);
         this.armyVisuals.delete(id);
       }
     }
@@ -1877,7 +1904,10 @@ export class GameScene extends Phaser.Scene {
     const remaining = Math.max(0, this.gameState.timeLimitSeconds - this.gameState.elapsedTimeSeconds);
     const mins = Math.floor(remaining / 60);
     const secs = Math.floor(remaining % 60);
-    this.timerText.setText(`⏱ ${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
+    const timerStr = `⏱ ${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    if (this.timerText.text !== timerStr) {
+      this.timerText.setText(timerStr);
+    }
 
     if (remaining <= 15 && this.gameState.status === 'playing') {
       const currentSec = Math.floor(remaining);
@@ -1933,8 +1963,14 @@ export class GameScene extends Phaser.Scene {
     this.neutralBar.setPosition(barStartX + playerWidth, this.neutralBar.y).setDisplaySize(neutralWidth, 12);
     this.enemyBar.setPosition(barStartX + playerWidth + neutralWidth, this.enemyBar.y).setDisplaySize(enemyWidth, 12);
 
-    this.playerDomText.setText(`${playerPct}%`);
-    this.enemyDomText.setText(`${enemyPct}%`);
+    const playerDomStr = `${playerPct}%`;
+    if (this.playerDomText.text !== playerDomStr) {
+      this.playerDomText.setText(playerDomStr);
+    }
+    const enemyDomStr = `${enemyPct}%`;
+    if (this.enemyDomText.text !== enemyDomStr) {
+      this.enemyDomText.setText(enemyDomStr);
+    }
 
     // Smooth Tug-of-War Crown Needle glide towards the leading front
     const targetCrownX = barStartX + playerWidth + neutralWidth / 2;
@@ -2754,6 +2790,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   private cleanup(): void {
+    sounds.stopBattleMusic();
+    this.tweens.killAll();
+    for (const visual of this.armyVisuals.values()) {
+      this.destroyArmyVisual(visual);
+    }
+    this.armyVisuals.clear();
+    for (const vis of this.territoryVisuals.values()) {
+      this.tweens.killTweensOf([vis.container, vis.ring, vis.typeText, vis.unitBadge]);
+      vis.container.destroy();
+    }
+    this.territoryVisuals.clear();
+    this.input.removeAllListeners();
     this.lastAuthoritativeState = null;
     this.careerSubscription?.();
     this.careerSubscription = undefined;

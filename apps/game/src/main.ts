@@ -71,7 +71,7 @@ const startApp = (): void => {
     },
     fps: {
       target: 60,
-      forceSetTimeOut: true,
+      forceSetTimeOut: false,
     },
     callbacks: {
       // preBoot (not postBoot) because the first scene's create() runs as
