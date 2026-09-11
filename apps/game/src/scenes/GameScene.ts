@@ -1939,7 +1939,8 @@ export class GameScene extends Phaser.Scene {
         // Server replays the recorded actions and derives the outcome.
         settlement = await this.careerManager.recordMatchResultRemote(
           this.matchActions,
-          this.activeMatchId
+          this.activeMatchId,
+          this.platform
         );
       } else if (isLocalCareerFallbackAllowed()) {
         settlement = this.careerManager.recordMatchResult(

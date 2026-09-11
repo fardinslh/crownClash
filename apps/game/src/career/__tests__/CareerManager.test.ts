@@ -433,6 +433,87 @@ describe('CareerManager', () => {
     expect(manager.isRemoteConnected()).toBe(true);
   });
 
+  it('reconnects once when match settlement uses a stale remote socket', async () => {
+    const remoteCareer = createDefaultCareer('settle_reconnect_player');
+    let logins = 0;
+    let settles = 0;
+    const remoteApi: CareerApi = {
+      login: async () => {
+        logins++;
+        return remoteCareer;
+      },
+      getCareer: async () => remoteCareer,
+      getLedger: async () => [],
+      startBotMatch: async () => ({ matchId: 'bot_test', battlefieldId: 'crown_cross' }),
+      settleMatch: async (matchId) => {
+        settles++;
+        if (settles === 1) throw new Error('socket_closed');
+        return {
+          matchId,
+          status: 'victory',
+          breakdown: {
+            baseCoins: 40,
+            speedBonus: 0,
+            dominationBonus: 0,
+            streakBonus: 0,
+            treasuryBonus: 0,
+            totalCoins: 40,
+            trophyDelta: 30,
+          },
+          stats: {
+            matchDurationSeconds: 19,
+            playerUnitsDispatched: 5,
+            enemyUnitsDispatched: 5,
+            territoriesCapturedByPlayer: 3,
+            territoriesCapturedByEnemy: 1,
+          },
+          previousCareer: remoteCareer,
+          newCareer: { ...remoteCareer, coins: remoteCareer.coins + 40 },
+          previousRank: {
+            id: 'recruit',
+            name: 'Recruit',
+            badge: '🛡️',
+            minTrophies: 0,
+            maxTrophies: 99,
+            color: 0x94a3b8,
+          },
+          newRank: {
+            id: 'recruit',
+            name: 'Recruit',
+            badge: '🛡️',
+            minTrophies: 0,
+            maxTrophies: 99,
+            color: 0x94a3b8,
+          },
+          ledgerEntries: [],
+          promotedTier: null,
+          rankPromoted: false,
+        };
+      },
+      purchaseUpgrade: async () => { throw new Error('not_used_in_test'); },
+      selectCommander: async () => { throw new Error('not_used_in_test'); },
+      getDailyState: async () => { throw new Error('not_used_in_test'); },
+      claimDailyReward: async () => { throw new Error('not_used_in_test'); },
+      getLeagueState: async () => { throw new Error('not_used_in_test'); },
+      claimLeagueReward: async () => { throw new Error('not_used_in_test'); },
+      trackEvents: async () => undefined,
+      openLiveMatch: () => { throw new Error('not_used_in_test'); },
+      isAuthenticated: () => true,
+    };
+    const adapter = {
+      platform: 'browser',
+      getInitDataRaw: () => 'user=settle_reconnect_player',
+    } as PlatformAdapter;
+    const manager = CareerManager.getInstance('settle_reconnect_player');
+
+    await manager.connect(adapter, remoteApi);
+    const result = await manager.recordMatchResultRemote([], 'bot_settle_test', adapter);
+    expect(result.status).toBe('victory');
+    expect(logins).toBe(2);
+    expect(settles).toBe(2);
+    expect(manager.isRemoteConnected()).toBe(true);
+  });
+
   it('refreshes the remote career without local overwrite', async () => {
     const remoteCareer = createDefaultCareer('refresh_player');
     const updatedCareer = { ...remoteCareer, coins: 777, trophies: 42 };

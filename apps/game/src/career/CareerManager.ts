@@ -140,11 +140,26 @@ export class CareerManager {
 
   public async recordMatchResultRemote(
     actions: readonly PvpAction[],
-    matchId: string
+    matchId: string,
+    platform?: PlatformAdapter
   ): Promise<MatchSettlement> {
-    const settlement = await this.requireRemoteApi().settleMatch(matchId, actions);
-    this.applyRemoteState(settlement.newCareer, settlement.ledgerEntries);
-    return settlement;
+    const api = this.requireRemoteApi();
+    try {
+      const settlement = await api.settleMatch(matchId, actions);
+      this.applyRemoteState(settlement.newCareer, settlement.ledgerEntries);
+      return settlement;
+    } catch (error) {
+      if (!platform) throw error;
+
+      // Messenger/CDN proxies may silently drop an otherwise authenticated
+      // WebSocket during a match. Re-authenticate once and retry settlement
+      // so victory progress is preserved.
+      this.remoteConnected = false;
+      await this.connect(platform, api);
+      const settlement = await api.settleMatch(matchId, actions);
+      this.applyRemoteState(settlement.newCareer, settlement.ledgerEntries);
+      return settlement;
+    }
   }
 
   public async startBotMatch(platform?: PlatformAdapter): Promise<BotMatchTicket> {
