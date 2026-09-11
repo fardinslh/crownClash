@@ -8,6 +8,11 @@ import { trackEvent } from '../analytics/Analytics.js';
 import { sounds } from '../audio/SoundEffects.js';
 import { CareerManager } from '../career/CareerManager.js';
 import { THEME } from '../theme.js';
+import {
+  bindSceneViewportResize,
+  getSceneViewport,
+  setupSceneCamera,
+} from '../ui/Viewport.js';
 
 const FONT = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif';
 
@@ -22,9 +27,8 @@ export class CommanderScene extends Phaser.Scene {
   constructor() { super({ key: 'CommanderScene' }); }
 
   create(): void {
-    const renderScale = (this.registry.get('renderScale') as number) || 1;
-    this.cameras.main.setZoom(renderScale);
-    this.cameras.main.centerOn(200, 360);
+    setupSceneCamera(this);
+    bindSceneViewportResize(this);
     this.platform = (this.registry.get('platform') as PlatformAdapter) || createPlatformAdapter();
     this.careerManager = CareerManager.getInstance(this.platform.getUser().id);
     this.active = true;
@@ -38,7 +42,8 @@ export class CommanderScene extends Phaser.Scene {
   }
 
   private buildScene(): void {
-    this.add.rectangle(200, 360, 400, 720, THEME.background);
+    const { visibleWidth, visibleHeight } = getSceneViewport(this);
+    this.add.rectangle(visibleWidth / 2, visibleHeight / 2, visibleWidth, visibleHeight, THEME.background);
     const glow = this.add.graphics();
     glow.fillStyle(0x172554, 0.4).fillCircle(200, 72, 180);
     const back = this.add.rectangle(42, 42, 48, 44, 0x111827).setStrokeStyle(1.5, 0x475569);

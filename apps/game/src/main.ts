@@ -41,22 +41,9 @@ const startApp = (): void => {
     width: LOGICAL_WIDTH * RENDER_SCALE,
     height: LOGICAL_HEIGHT * RENDER_SCALE,
     scale: {
-      mode: Phaser.Scale.FIT,
+      mode: Phaser.Scale.EXPAND,
       autoCenter: Phaser.Scale.CENTER_BOTH,
-      autoRound: true,
-      // FIT stretches the canvas up to fill whatever parent size it's
-      // given, regardless of devicePixelRatio. On a viewport wider than
-      // our RENDER_SCALE compensates for (e.g. a desktop window, or a
-      // low-DPI screen bigger than a phone), that stretch can exceed the
-      // canvas's actual backing-store resolution, upscaling it and
-      // producing visible smearing/tiling artifacts. Capping the CSS
-      // size to the backing-store size guarantees we only ever scale
-      // down, never up, and simply letterboxes on oversized viewports
-      // (acceptable for a portrait, mobile-first game).
-      max: {
-        width: LOGICAL_WIDTH * RENDER_SCALE,
-        height: LOGICAL_HEIGHT * RENDER_SCALE,
-      },
+      autoRound: false,
     },
     dom: {
       createContainer: true,
@@ -85,7 +72,8 @@ const startApp = (): void => {
     },
   };
 
-  new Phaser.Game(config);
+  const game = new Phaser.Game(config);
+  (window as unknown as { __PHASER_GAME__?: Phaser.Game }).__PHASER_GAME__ = game;
 };
 
 void platform.initialize()

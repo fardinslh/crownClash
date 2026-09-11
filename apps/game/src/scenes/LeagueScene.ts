@@ -1,7 +1,6 @@
 import Phaser from 'phaser';
 import {
   getLeagueProgress,
-  LOGICAL_HEIGHT,
   LOGICAL_WIDTH,
   RANK_TIERS,
   type LeagueState,
@@ -13,6 +12,11 @@ import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { sounds } from '../audio/SoundEffects.js';
 import { CareerManager } from '../career/CareerManager.js';
 import { THEME } from '../theme.js';
+import {
+  bindSceneViewportResize,
+  getSceneViewport,
+  setupSceneCamera,
+} from '../ui/Viewport.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 
@@ -44,9 +48,8 @@ export class LeagueScene extends Phaser.Scene {
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
 
-    const renderScale = (this.registry.get('renderScale') as number) || 1;
-    this.cameras.main.setZoom(renderScale);
-    this.cameras.main.centerOn(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2);
+    setupSceneCamera(this);
+    bindSceneViewportResize(this);
     this.platform = (this.registry.get('platform') as PlatformAdapter) || createPlatformAdapter();
     this.careerManager = CareerManager.getInstance(this.platform.getUser().id);
 
@@ -61,7 +64,8 @@ export class LeagueScene extends Phaser.Scene {
   }
 
   private buildShell(): void {
-    this.add.rectangle(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2, LOGICAL_WIDTH, LOGICAL_HEIGHT, 0x070b14);
+    const { visibleWidth, visibleHeight } = getSceneViewport(this);
+    this.add.rectangle(visibleWidth / 2, visibleHeight / 2, visibleWidth, visibleHeight, 0x070b14);
     const glow = this.add.graphics();
     glow.fillStyle(THEME.gold, 0.1);
     glow.fillCircle(LOGICAL_WIDTH / 2, 30, 210);

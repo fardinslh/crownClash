@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { LOGICAL_HEIGHT, LOGICAL_WIDTH } from '@crown-clash/game-core';
+import { LOGICAL_WIDTH } from '@crown-clash/game-core';
 import { createPlatformAdapter, type PlatformAdapter } from '@crown-clash/platform';
 import { trackEvent } from '../analytics/Analytics.js';
 import { sounds } from '../audio/SoundEffects.js';
@@ -9,6 +9,11 @@ import {
   markTutorialCompleted,
   type TutorialStepId,
 } from '../tutorial/TutorialController.js';
+import {
+  bindSceneViewportResize,
+  getSceneViewport,
+  setupSceneCamera,
+} from '../ui/Viewport.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 
@@ -70,9 +75,8 @@ export class TrainingScene extends Phaser.Scene {
   }
 
   create(): void {
-    const renderScale = (this.registry.get('renderScale') as number) || 1;
-    this.cameras.main.setZoom(renderScale);
-    this.cameras.main.centerOn(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2);
+    setupSceneCamera(this);
+    bindSceneViewportResize(this);
     this.reducedMotion =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
@@ -89,7 +93,8 @@ export class TrainingScene extends Phaser.Scene {
   }
 
   private buildScene(): void {
-    this.add.rectangle(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2, LOGICAL_WIDTH, LOGICAL_HEIGHT, 0x070b14);
+    const { visibleWidth, visibleHeight } = getSceneViewport(this);
+    this.add.rectangle(visibleWidth / 2, visibleHeight / 2, visibleWidth, visibleHeight, 0x070b14);
     const glow = this.add.graphics();
     glow.fillStyle(THEME.gold, 0.08);
     glow.fillCircle(LOGICAL_WIDTH / 2, 150, 220);

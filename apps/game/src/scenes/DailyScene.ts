@@ -3,7 +3,6 @@ import {
   DailyMissionState,
   DailyState,
   formatDailyReset,
-  LOGICAL_HEIGHT,
   LOGICAL_WIDTH,
 } from '@crown-clash/game-core';
 import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
@@ -13,6 +12,11 @@ import { sounds } from '../audio/SoundEffects.js';
 import { CareerManager } from '../career/CareerManager.js';
 import { DailyClaimRunner } from '../daily/DailyClaimRunner.js';
 import { THEME } from '../theme.js';
+import {
+  bindSceneViewportResize,
+  getSceneViewport,
+  setupSceneCamera,
+} from '../ui/Viewport.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 const MISSION_ICONS: Record<DailyMissionState['id'], string> = {
@@ -53,9 +57,8 @@ export class DailyScene extends Phaser.Scene {
     this.content = undefined;
     this.resetTimer = undefined;
 
-    const renderScale = (this.registry.get('renderScale') as number) || 1;
-    this.cameras.main.setZoom(renderScale);
-    this.cameras.main.centerOn(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2);
+    setupSceneCamera(this);
+    bindSceneViewportResize(this);
     this.reducedMotion =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
@@ -101,11 +104,12 @@ export class DailyScene extends Phaser.Scene {
   }
 
   private buildShell(): void {
+    const { visibleWidth, visibleHeight } = getSceneViewport(this);
     this.add.rectangle(
-      LOGICAL_WIDTH / 2,
-      LOGICAL_HEIGHT / 2,
-      LOGICAL_WIDTH,
-      LOGICAL_HEIGHT,
+      visibleWidth / 2,
+      visibleHeight / 2,
+      visibleWidth,
+      visibleHeight,
       0x070b14
     );
     const glow = this.add.graphics();

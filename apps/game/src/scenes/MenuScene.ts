@@ -15,6 +15,11 @@ import { LiveMatchClient } from '../api/LiveMatchClient.js';
 import { LivePvpController, isValidRoomCode, sanitizeRoomCode } from '../pvp/LivePvpController.js';
 import { isTutorialCompleted } from '../tutorial/TutorialController.js';
 import { dismissStartupLoadingShell } from '../ui/StartupLoadingShell.js';
+import {
+  bindSceneViewportResize,
+  getSceneViewport,
+  setupSceneCamera,
+} from '../ui/Viewport.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 
@@ -42,9 +47,8 @@ export class MenuScene extends Phaser.Scene {
   }
 
   create(): void {
-    const renderScale = this.registry.get('renderScale') as number || 1;
-    this.cameras.main.setZoom(renderScale);
-    this.cameras.main.centerOn(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2);
+    setupSceneCamera(this);
+    bindSceneViewportResize(this);
 
     const platform: PlatformAdapter =
       (this.registry.get('platform') as PlatformAdapter) || createPlatformAdapter();
@@ -77,11 +81,12 @@ export class MenuScene extends Phaser.Scene {
       rankId: rank.id,
     });
 
+    const { visibleWidth, visibleHeight } = getSceneViewport(this);
     this.add.rectangle(
-      LOGICAL_WIDTH / 2,
-      LOGICAL_HEIGHT / 2,
-      LOGICAL_WIDTH,
-      LOGICAL_HEIGHT,
+      visibleWidth / 2,
+      visibleHeight / 2,
+      visibleWidth,
+      visibleHeight,
       0x070b14
     );
 
@@ -465,13 +470,14 @@ export class MenuScene extends Phaser.Scene {
     this.pvpController = controller;
 
     // Root overlay – centred coordinate system (0,0 = screen centre)
+    const { visibleWidth, visibleHeight } = getSceneViewport(this);
     const overlay = this.add
-      .container(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2)
+      .container(visibleWidth / 2, visibleHeight / 2)
       .setDepth(150);
 
     // Dim the background; swallow all pointer events so nothing behind fires
     const backdrop = this.add
-      .rectangle(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT, 0x000000, 0.78)
+      .rectangle(0, 0, visibleWidth, visibleHeight, 0x000000, 0.78)
       .setInteractive();
     overlay.add(backdrop);
 

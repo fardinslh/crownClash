@@ -55,6 +55,12 @@ import {
   MatchMenuController,
   type MatchMenuState,
 } from '../match/MatchMenuController.js';
+import { computeHudLayout } from '../ui/HudLayout.js';
+import {
+  bindSceneViewportResize,
+  getSceneViewport,
+  setupSceneCamera,
+} from '../ui/Viewport.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 const MONO_FONT_FAMILY = '"Segoe UI", monospace, -apple-system, sans-serif';
@@ -132,6 +138,8 @@ export class GameScene extends Phaser.Scene {
   private bottomHintText!: Phaser.GameObjects.Text;
   private hudCoinsText!: Phaser.GameObjects.Text;
   private hudTrophiesText!: Phaser.GameObjects.Text;
+  private dominanceBarTotalWidth = 350;
+  private dominanceBarStartX = 25;
 
   // Career & Economy
   private careerManager!: CareerManager;
@@ -187,9 +195,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
-    const renderScale = this.registry.get('renderScale') as number || 1;
-    this.cameras.main.setZoom(renderScale);
-    this.cameras.main.centerOn(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2);
+    setupSceneCamera(this);
+    bindSceneViewportResize(this);
     this.reducedMotion =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
@@ -335,12 +342,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createArenaBackground(): void {
+    const { visibleWidth, visibleHeight } = getSceneViewport(this);
+
     this.add
       .rectangle(
-        LOGICAL_WIDTH / 2,
-        LOGICAL_HEIGHT / 2,
-        LOGICAL_WIDTH,
-        LOGICAL_HEIGHT,
+        visibleWidth / 2,
+        visibleHeight / 2,
+        visibleWidth,
+        visibleHeight,
         0x060a13
       )
       .setDepth(0);
@@ -348,24 +357,24 @@ export class GameScene extends Phaser.Scene {
     // Broad team-colored light pools make the two fronts readable without
     // competing with the territory ownership colors.
     this.add
-      .ellipse(LOGICAL_WIDTH / 2, 112, 470, 260, THEME.teams.enemy.dark, 0.12)
+      .ellipse(visibleWidth / 2, 112, 470, 260, THEME.teams.enemy.dark, 0.12)
       .setDepth(0);
     this.add
-      .ellipse(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT - 70, 500, 290, THEME.teams.player.dark, 0.14)
+      .ellipse(visibleWidth / 2, visibleHeight - 70, 500, 290, THEME.teams.player.dark, 0.14)
       .setDepth(0);
 
     const fieldGraphics = this.add.graphics().setDepth(1);
     fieldGraphics.fillStyle(0x101827, 0.42);
-    fieldGraphics.fillRoundedRect(10, 78, LOGICAL_WIDTH - 20, LOGICAL_HEIGHT - 132, 18);
+    fieldGraphics.fillRoundedRect(10, 78, visibleWidth - 20, visibleHeight - 98, 18);
 
     // Subtle command-grid structure adds scale and keeps the empty arena from
     // looking like a flat color fill.
     fieldGraphics.lineStyle(1, 0x334155, 0.12);
-    for (let x = 28; x < LOGICAL_WIDTH; x += 36) {
-      fieldGraphics.lineBetween(x, 88, x, LOGICAL_HEIGHT - 66);
+    for (let x = 28; x < visibleWidth; x += 36) {
+      fieldGraphics.lineBetween(x, 88, x, visibleHeight - 30);
     }
-    for (let y = 94; y < LOGICAL_HEIGHT - 64; y += 36) {
-      fieldGraphics.lineBetween(18, y, LOGICAL_WIDTH - 18, y);
+    for (let y = 94; y < visibleHeight - 28; y += 36) {
+      fieldGraphics.lineBetween(18, y, visibleWidth - 18, y);
     }
 
     const lanesGraphics = this.add.graphics().setDepth(2);
@@ -571,26 +580,43 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createHud(): void {
+    const { visibleWidth, visibleHeight } = getSceneViewport(this);
+
+    // Compute player HUD label width for dynamic pill sizing
+    const playerLabel = this.computePlayerHudLabel();
+    const tempText = this.add.text(0, 0, playerLabel, {
+      fontFamily: FONT_FAMILY,
+      fontSize: '11px',
+      fontStyle: 'bold',
+      resolution: 2,
+    }).setVisible(false);
+    const textWidth = Math.ceil(tempText.width);
+    tempText.destroy();
+
+    const hudLayout = computeHudLayout(visibleWidth, textWidth);
+    this.dominanceBarTotalWidth = hudLayout.dominanceBar.trackWidth;
+    this.dominanceBarStartX = hudLayout.dominanceBar.bounds.x;
+
     // 1. Header Glass Panel Bar (y: 0 to 70)
     this.add
-      .rectangle(LOGICAL_WIDTH / 2, 39, LOGICAL_WIDTH, 74, 0x000000, 0.36)
+      .rectangle(visibleWidth / 2, 39, visibleWidth, 74, 0x000000, 0.36)
       .setDepth(89);
 
     this.add
-      .rectangle(LOGICAL_WIDTH / 2, 35, LOGICAL_WIDTH, 70, 0x090f1d, 0.96)
+      .rectangle(visibleWidth / 2, 35, visibleWidth, 70, 0x090f1d, 0.96)
       .setDepth(90);
 
     this.add
-      .rectangle(LOGICAL_WIDTH / 2, 70, LOGICAL_WIDTH, 1.5, 0x1e293b, 1)
+      .rectangle(visibleWidth / 2, 70, visibleWidth, 1.5, 0x1e293b, 1)
       .setDepth(91);
     this.add
-      .rectangle(LOGICAL_WIDTH / 4, 70, LOGICAL_WIDTH / 2, 1.5, THEME.teams.player.primary, 0.58)
+      .rectangle(visibleWidth / 4, 70, visibleWidth / 2, 1.5, THEME.teams.player.primary, 0.58)
       .setDepth(92);
     this.add
       .rectangle(
-        (LOGICAL_WIDTH * 3) / 4,
+        (visibleWidth * 3) / 4,
         70,
-        LOGICAL_WIDTH / 2,
+        visibleWidth / 2,
         1.5,
         THEME.teams.enemy.primary,
         0.58
@@ -601,10 +627,20 @@ export class GameScene extends Phaser.Scene {
     const career = this.careerManager.getCareer();
 
     // Left: Player Profile Pill with dynamic sizing
-    const playerLabel = this.computePlayerHudLabel();
+    this.add
+      .rectangle(
+        hudLayout.playerPill.center.x,
+        hudLayout.playerPill.center.y,
+        hudLayout.playerPill.visibleBounds.width,
+        hudLayout.playerPill.visibleBounds.height,
+        0x0f172a,
+        0.95
+      )
+      .setStrokeStyle(1.5, 0x3b82f6, 0.9)
+      .setDepth(95);
 
-    const playerText = this.add
-      .text(0, 0, playerLabel, {
+    this.add
+      .text(hudLayout.playerPill.center.x, hudLayout.playerPill.center.y, playerLabel, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -616,48 +652,44 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(96);
 
-
-    const textWidth = Math.ceil(playerText.width);
-    const playerPillWidth = Math.min(100, Math.max(74, textWidth + 14));
-    const playerPillCenterX = 10 + playerPillWidth / 2;
-
-    this.add
-      .rectangle(playerPillCenterX, 20, playerPillWidth, 24, 0x0f172a, 0.95)
-      .setStrokeStyle(1.5, 0x3b82f6, 0.9)
-      .setDepth(95);
-
-    playerText.setPosition(playerPillCenterX, 20);
-
     // Trophies Pill
-    const trophyPillWidth = 56;
-    const trophyPillX = playerPillCenterX + playerPillWidth / 2 + 5 + trophyPillWidth / 2;
     this.add
-      .rectangle(trophyPillX, 20, trophyPillWidth, 24, 0x0f172a, 0.95)
+      .rectangle(
+        hudLayout.trophyPill.center.x,
+        hudLayout.trophyPill.center.y,
+        hudLayout.trophyPill.visibleBounds.width,
+        hudLayout.trophyPill.visibleBounds.height,
+        0x0f172a,
+        0.95
+      )
       .setStrokeStyle(1.5, 0x818cf8, 0.9)
       .setDepth(95);
 
     this.hudTrophiesText = this.add
-      .text(trophyPillX, 20, `🏆 ${career.trophies}`, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '11px',
-        fontStyle: 'bold',
-        color: '#c7d2fe',
-        stroke: '#030712',
-        strokeThickness: 2,
-        resolution: 2,
-      })
+      .text(
+        hudLayout.trophyPill.center.x,
+        hudLayout.trophyPill.center.y,
+        `🏆 ${career.trophies}`,
+        {
+          fontFamily: FONT_FAMILY,
+          fontSize: '11px',
+          fontStyle: 'bold',
+          color: '#c7d2fe',
+          stroke: '#030712',
+          strokeThickness: 2,
+          resolution: 2,
+        }
+      )
       .setOrigin(0.5)
       .setDepth(96);
 
     // Gold Coins Pill (or Live Opponent Pill in Live PvP)
-    const coinPillWidth = 68;
-    const coinPillX = trophyPillX + trophyPillWidth / 2 + 5 + coinPillWidth / 2;
     this.add
       .rectangle(
-        coinPillX,
-        20,
-        coinPillWidth,
-        24,
+        hudLayout.coinPill.center.x,
+        hudLayout.coinPill.center.y,
+        hudLayout.coinPill.visibleBounds.width,
+        hudLayout.coinPill.visibleBounds.height,
         this.liveMode ? 0x1e1520 : 0x0f172a,
         0.95
       )
@@ -666,8 +698,8 @@ export class GameScene extends Phaser.Scene {
 
     this.hudCoinsText = this.add
       .text(
-        coinPillX,
-        20,
+        hudLayout.coinPill.center.x,
+        hudLayout.coinPill.center.y,
         this.liveMode
           ? `🔴 ${this.formatShortName(this.liveOpponentName, 6)}`
           : `🪙 ${career.coins}`,
@@ -685,53 +717,74 @@ export class GameScene extends Phaser.Scene {
       .setDepth(96);
 
     // Royal Match Clock Pill
-    const clockPillWidth = 72;
-    const clockPillX = coinPillX + coinPillWidth / 2 + 5 + clockPillWidth / 2;
     this.add
-      .rectangle(clockPillX, 20, clockPillWidth, 24, 0x111827, 0.95)
+      .rectangle(
+        hudLayout.clockPill.center.x,
+        hudLayout.clockPill.center.y,
+        hudLayout.clockPill.visibleBounds.width,
+        hudLayout.clockPill.visibleBounds.height,
+        0x111827,
+        0.95
+      )
       .setStrokeStyle(1.5, 0xf59e0b, 0.9)
       .setDepth(95);
 
     this.timerText = this.add
-      .text(clockPillX, 20, '⏱ 01:30', {
-        fontFamily: MONO_FONT_FAMILY,
-        fontSize: '12px',
-        fontStyle: 'bold',
-        color: '#fbbf24',
-        stroke: '#030712',
-        strokeThickness: 2,
-        resolution: 2,
-      })
+      .text(
+        hudLayout.clockPill.center.x,
+        hudLayout.clockPill.center.y,
+        '⏱ 01:30',
+        {
+          fontFamily: MONO_FONT_FAMILY,
+          fontSize: '12px',
+          fontStyle: 'bold',
+          color: '#fbbf24',
+          stroke: '#030712',
+          strokeThickness: 2,
+          resolution: 2,
+        }
+      )
       .setOrigin(0.5)
       .setDepth(96);
 
-    // Right: Match Menu Button (minimum 44x44 hit target using Phaser graphics)
-    const menuBtnX = LOGICAL_WIDTH - 25;
-    const menuBtnY = 22;
+    // Right: Match Menu Button
+    // Compact visible button (36x26) centered at (visibleWidth - 25, 20) with >= 44x44 touch hit zone
+    const menuBtnX = hudLayout.menuButton.center.x;
+    const menuBtnY = hudLayout.menuButton.center.y;
+    const menuVisW = hudLayout.menuButton.visibleBounds.width;
+    const menuVisH = hudLayout.menuButton.visibleBounds.height;
+    const menuHitW = hudLayout.menuButton.hitBounds.width;
+    const menuHitH = hudLayout.menuButton.hitBounds.height;
+
     const menuBg = this.add
-      .rectangle(menuBtnX, menuBtnY, 44, 44, 0x0f172a, 0.95)
+      .rectangle(menuBtnX, menuBtnY, menuVisW, menuVisH, 0x0f172a, 0.95)
       .setStrokeStyle(1.5, 0x334155, 0.9)
       .setDepth(95);
 
     const menuIcon = this.add.graphics().setDepth(96);
     menuIcon.setPosition(menuBtnX, menuBtnY);
-    menuIcon.lineStyle(2.5, 0xf8fafc, 0.95);
+    menuIcon.lineStyle(2, 0xf8fafc, 0.95);
     menuIcon.beginPath();
-    menuIcon.moveTo(-9, -6);
-    menuIcon.lineTo(9, -6);
-    menuIcon.moveTo(-9, 0);
-    menuIcon.lineTo(9, 0);
-    menuIcon.moveTo(-9, 6);
-    menuIcon.lineTo(9, 6);
+    menuIcon.moveTo(-7, -5);
+    menuIcon.lineTo(7, -5);
+    menuIcon.moveTo(-7, 0);
+    menuIcon.lineTo(7, 0);
+    menuIcon.moveTo(-7, 5);
+    menuIcon.lineTo(7, 5);
     menuIcon.strokePath();
 
-    menuBg.setInteractive({ useHandCursor: true });
-    menuBg.on('pointerdown', () => {
+    // 44x44 interactive zone guarantees >= 44x44 touch target strictly aligned with icon and button
+    const menuHit = this.add
+      .zone(menuBtnX, menuBtnY, menuHitW, menuHitH)
+      .setInteractive({ useHandCursor: true })
+      .setDepth(97);
+
+    menuHit.on('pointerdown', () => {
       if (this.resultModalContainer || this.isExiting) return;
       this.platform.hapticSelection();
       this.matchMenuController.openMenu();
     });
-    this.bindPressFeedback(menuBg, menuIcon);
+    this.bindPressFeedback(menuHit, menuIcon, menuBg);
 
     // Auto-update HUD when career balance changes (bot battles only for coins)
     this.careerSubscription = this.careerManager.subscribe((updatedCareer) => {
@@ -743,15 +796,15 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    // 3. Row 2 (y: 48): The Dynamic Tug-of-War Dominance Bar
-    const barTotalWidth = 350;
-    const barHeight = 14;
-    const barY = 48;
-    const barStartX = LOGICAL_WIDTH / 2 - barTotalWidth / 2;
+    // 3. Row 2 (y: 50): The Dynamic Tug-of-War Dominance Bar
+    const barTotalWidth = hudLayout.dominanceBar.trackWidth;
+    const barHeight = hudLayout.dominanceBar.trackHeight;
+    const barY = hudLayout.dominanceBar.center.y;
+    const barStartX = hudLayout.dominanceBar.bounds.x;
 
     // Dominance Bar Track Background
     this.add
-      .rectangle(LOGICAL_WIDTH / 2, barY, barTotalWidth, barHeight, 0x0b1120, 1)
+      .rectangle(hudLayout.dominanceBar.center.x, barY, barTotalWidth, barHeight, 0x0b1120, 1)
       .setStrokeStyle(1, 0x1e293b, 1)
       .setDepth(92);
 
@@ -799,7 +852,7 @@ export class GameScene extends Phaser.Scene {
 
     // The Tug-of-War Crown Needle!
     this.tugCrown = this.add
-      .text(LOGICAL_WIDTH / 2, barY - 1, '👑', {
+      .text(hudLayout.dominanceBar.center.x, barY - 1, '👑', {
         fontSize: '14px',
         resolution: 2,
       })
@@ -807,16 +860,17 @@ export class GameScene extends Phaser.Scene {
       .setDepth(98);
 
     // 4. Bottom Tactical Control Hint Bar
+    const bottomBarY = Math.max(691, visibleHeight - 28);
     this.add
-      .rectangle(LOGICAL_WIDTH / 2, 694, 364, 42, 0x000000, 0.34)
+      .rectangle(visibleWidth / 2, bottomBarY + 3, Math.min(364, visibleWidth - 36), 42, 0x000000, 0.34)
       .setDepth(94);
     this.add
-      .rectangle(LOGICAL_WIDTH / 2, 691, 360, 40, 0x090f1d, 0.94)
+      .rectangle(visibleWidth / 2, bottomBarY, Math.min(360, visibleWidth - 40), 40, 0x090f1d, 0.94)
       .setStrokeStyle(1.5, 0x334155, 0.92)
       .setDepth(95);
 
     this.add
-      .text(LOGICAL_WIDTH / 2, 682, 'DEF shields  •  PROD trains  •  SPD marches', {
+      .text(visibleWidth / 2, bottomBarY - 9, 'DEF shields  •  PROD trains  •  SPD marches', {
         fontFamily: MONO_FONT_FAMILY,
         fontSize: '10px',
         fontStyle: 'bold',
@@ -830,7 +884,7 @@ export class GameScene extends Phaser.Scene {
       ? `⚔ Live battle vs ${this.formatShortName(this.liveOpponentName, 12)}`
       : '⚔ Drag across towers to attack or reinforce';
     this.bottomHintText = this.add
-      .text(LOGICAL_WIDTH / 2, 701, initialHint, {
+      .text(visibleWidth / 2, bottomBarY + 10, initialHint, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -2022,12 +2076,12 @@ export class GameScene extends Phaser.Scene {
     const enemyPct = Math.round((enemyStrength / totalStrength) * 100);
     const neutralPct = Math.max(0, 100 - playerPct - enemyPct);
 
-    const barTotalWidth = 350;
+    const barTotalWidth = this.dominanceBarTotalWidth;
     const playerWidth = Math.max(14, (playerPct / 100) * barTotalWidth);
     const neutralWidth = Math.max(8, (neutralPct / 100) * barTotalWidth);
     const enemyWidth = Math.max(14, barTotalWidth - playerWidth - neutralWidth);
 
-    const barStartX = LOGICAL_WIDTH / 2 - barTotalWidth / 2;
+    const barStartX = this.dominanceBarStartX;
     this.playerBar.setPosition(barStartX, this.playerBar.y).setDisplaySize(playerWidth, 12);
     this.neutralBar.setPosition(barStartX + playerWidth, this.neutralBar.y).setDisplaySize(neutralWidth, 12);
     this.enemyBar.setPosition(barStartX + playerWidth + neutralWidth, this.enemyBar.y).setDisplaySize(enemyWidth, 12);
@@ -2129,14 +2183,15 @@ export class GameScene extends Phaser.Scene {
       this.platform.hapticNotification('warning');
     }
 
-    const modal = this.add.container(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2).setDepth(200);
+    const { visibleWidth, visibleHeight } = getSceneViewport(this);
+    const modal = this.add.container(visibleWidth / 2, visibleHeight / 2).setDepth(200);
     this.resultModalContainer = modal;
     modal.setScale(0.8);
     modal.setAlpha(0);
 
     // Dark backdrop overlay
     const backdrop = this.add
-      .rectangle(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT, 0x000000, 0.78)
+      .rectangle(0, 0, visibleWidth, visibleHeight, 0x000000, 0.78)
       .setInteractive();
 
     // Modal Card
@@ -2597,7 +2652,8 @@ export class GameScene extends Phaser.Scene {
   private showSettlementError(error: unknown): void {
     console.error('[GameScene] Match settlement failed:', error);
 
-    const modal = this.add.container(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2).setDepth(220);
+    const { visibleWidth, visibleHeight } = getSceneViewport(this);
+    const modal = this.add.container(visibleWidth / 2, visibleHeight / 2).setDepth(220);
     this.resultModalContainer = modal;
 
     const card = this.add
@@ -2694,19 +2750,21 @@ export class GameScene extends Phaser.Scene {
   }
 
   private bindPressFeedback(
-    background: Phaser.GameObjects.Rectangle,
-    label: Phaser.GameObjects.Text | Phaser.GameObjects.Graphics
+    interactiveTarget: Phaser.GameObjects.Rectangle | Phaser.GameObjects.Zone,
+    label: Phaser.GameObjects.Text | Phaser.GameObjects.Graphics,
+    visualBg?: Phaser.GameObjects.Rectangle
   ): void {
+    const bg = visualBg || (interactiveTarget as Phaser.GameObjects.Rectangle);
     const reset = (): void => {
-      background.setScale(1);
+      bg.setScale(1);
       label.setScale(1);
     };
-    background.on('pointerdown', () => {
-      background.setScale(0.96);
+    interactiveTarget.on('pointerdown', () => {
+      bg.setScale(0.96);
       label.setScale(0.96);
     });
-    background.on('pointerup', reset);
-    background.on('pointerout', reset);
+    interactiveTarget.on('pointerup', reset);
+    interactiveTarget.on('pointerout', reset);
   }
 
   private returnToMenu(): void {
@@ -2768,11 +2826,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private renderMatchMenuModal(): void {
-    const modal = this.add.container(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2).setDepth(150);
+    const { visibleWidth, visibleHeight } = getSceneViewport(this);
+    const modal = this.add.container(visibleWidth / 2, visibleHeight / 2).setDepth(150);
     this.matchMenuModalContainer = modal;
 
     const backdrop = this.add
-      .rectangle(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT, 0x070b14, 0.82)
+      .rectangle(0, 0, visibleWidth, visibleHeight, 0x070b14, 0.82)
       .setInteractive();
     backdrop.on('pointerdown', () => {
       this.platform.hapticSelection();
@@ -2910,11 +2969,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private renderMatchConfirmModal(): void {
-    const modal = this.add.container(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2).setDepth(150);
+    const { visibleWidth, visibleHeight } = getSceneViewport(this);
+    const modal = this.add.container(visibleWidth / 2, visibleHeight / 2).setDepth(150);
     this.matchMenuModalContainer = modal;
 
     const backdrop = this.add
-      .rectangle(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT, 0x070b14, 0.82)
+      .rectangle(0, 0, visibleWidth, visibleHeight, 0x070b14, 0.82)
       .setInteractive();
     backdrop.on('pointerdown', () => {
       this.platform.hapticSelection();
