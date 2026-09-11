@@ -16,8 +16,93 @@ import type {
   BotMatchTicket,
 } from '@crown-clash/game-core';
 import type { PlatformAdapter } from '@crown-clash/platform';
-import type { CareerApi, TrackedAnalyticsEvent } from './GameApiClient.js';
+import { StaleSocketError, type CareerApi, type TrackedAnalyticsEvent } from './GameApiClient.js';
 import { LiveMatchClient } from './LiveMatchClient.js';
+
+export function isNakamaTransportError(error: unknown): boolean {
+  if (!error) return false;
+  if (error instanceof StaleSocketError || (error as { isStaleSocket?: boolean })?.isStaleSocket === true) {
+    return true;
+  }
+
+  const domainValidationErrors = [
+    'bot_match_not_found',
+    'bot_match_owned_by_another_player',
+    'foreign ownership',
+    'invalid_action',
+    'invalid_actions',
+    'invalid_argument',
+    'invalid_payload',
+    'invalid_upgrade_type',
+    'invalid_purchase_id',
+    'commander_locked',
+    'insufficient_funds',
+    'insufficient_coins',
+    'already_claimed',
+    'mission_incomplete',
+    'rank_locked',
+    'unauthenticated',
+    'unauthorized',
+  ];
+
+  const errObj = typeof error === 'object' && error !== null ? (error as Record<string, unknown>) : null;
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof errObj?.message === 'string'
+        ? errObj.message
+        : String(error);
+
+  const code = typeof errObj?.code === 'string' ? errObj.code : '';
+  const text = `${message} ${code}`.toLowerCase();
+
+  if (domainValidationErrors.some((d) => text.includes(d))) {
+    return false;
+  }
+
+  return (
+    text.includes('socket connection has not been established yet') ||
+    text.includes('timed out while waiting for a response') ||
+    text.includes('timed out when trying to connect') ||
+    text.includes('socket_closed') ||
+    text.includes('socket_not_connected') ||
+    text.includes('live_socket_not_connected') ||
+    text.includes('connection closed') ||
+    text.includes('connection lost') ||
+    text.includes('closed socket') ||
+    text.includes('network error') ||
+    text.includes('failed to fetch') ||
+    text.includes('econnreset') ||
+    text.includes('econnrefused') ||
+    text.includes('etimedout') ||
+    text.includes('timed out') ||
+    text.includes('timeout') ||
+    /websocket.*(?:closed|not open)/i.test(text)
+  );
+}
+
+export function normalizeNakamaError(error: unknown): Error {
+  if (error instanceof StaleSocketError) {
+    return error;
+  }
+  if (isNakamaTransportError(error)) {
+    const rawMessage =
+      error instanceof Error
+        ? error.message
+        : typeof error === 'string'
+          ? error
+          : (error as { message?: string })?.message || 'stale_socket_connection';
+    return new StaleSocketError(rawMessage, error);
+  }
+  if (error instanceof Error) {
+    return error;
+  }
+  const rawMessage =
+    typeof error === 'string'
+      ? error
+      : (error as { message?: string })?.message || String(error);
+  return new Error(rawMessage);
+}
 
 /**
  * CareerApi implementation backed by Nakama RPC and socket APIs.
@@ -66,8 +151,8 @@ export class NakamaClient implements CareerApi {
     this.socket = this.client.createSocket(this.useSSL, false);
     await this.socket.connect(this.session, false);
 
-    const rpcResult = await this.socket.rpc('career/get', '');
-    const data = JSON.parse(rpcResult.payload ?? '') as { career: PlayerCareer };
+    const result = await this.rpc('career/get', '');
+    const data = JSON.parse(result) as { career: PlayerCareer };
     return data.career;
   }
 
@@ -137,7 +222,7 @@ export class NakamaClient implements CareerApi {
 
   public openLiveMatch(): LiveMatchClient {
     if (!this.socket) {
-      throw new Error('live_socket_not_connected');
+      throw new StaleSocketError('live_socket_not_connected');
     }
     return new LiveMatchClient(this.socket);
   }
@@ -148,9 +233,13 @@ export class NakamaClient implements CareerApi {
 
   private async rpc(id: string, payload: string): Promise<string> {
     if (!this.socket) {
-      throw new Error('socket_not_connected');
+      throw new StaleSocketError('socket_not_connected');
     }
-    const result = await this.socket.rpc(id, payload);
-    return result.payload ?? '';
+    try {
+      const result = await this.socket.rpc(id, payload);
+      return result.payload ?? '';
+    } catch (error: unknown) {
+      throw normalizeNakamaError(error);
+    }
   }
 }

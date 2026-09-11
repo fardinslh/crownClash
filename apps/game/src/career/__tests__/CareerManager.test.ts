@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { CareerManager, isStaleSocketError } from '../CareerManager.js';
 import { MatchStats, createDefaultCareer } from '@crown-clash/game-core';
 import type { PlatformAdapter } from '@crown-clash/platform';
-import type { CareerApi } from '../../api/GameApiClient.js';
+import { StaleSocketError, type CareerApi } from '../../api/GameApiClient.js';
 
 const storage = new Map<string, string>();
 const localStorageMock: Storage = {
@@ -564,65 +564,41 @@ describe('CareerManager', () => {
   });
 
   it('correctly discriminates stale socket errors from domain validation failures', () => {
+    // Exact @heroiclabs/nakama-js socket error strings
+    const notEstablished = 'Socket connection has not been established yet.';
+    const responseTimeout = 'The socket timed out while waiting for a response.';
+    const connectTimeout = 'The socket timed out when trying to connect.';
+
+    expect(isStaleSocketError(notEstablished)).toBe(true);
+    expect(isStaleSocketError(new Error(notEstablished))).toBe(true);
+    expect(isStaleSocketError(responseTimeout)).toBe(true);
+    expect(isStaleSocketError(new Error(responseTimeout))).toBe(true);
+    expect(isStaleSocketError(connectTimeout)).toBe(true);
+    expect(isStaleSocketError(new Error(connectTimeout))).toBe(true);
+
+    expect(isStaleSocketError(new StaleSocketError())).toBe(true);
     expect(isStaleSocketError(new Error('socket_closed'))).toBe(true);
     expect(isStaleSocketError(new Error('socket_not_connected'))).toBe(true);
     expect(isStaleSocketError(new Error('live_socket_not_connected'))).toBe(true);
     expect(isStaleSocketError(new Error('WebSocket is not open: readyState 3 (CLOSED)'))).toBe(true);
     expect(isStaleSocketError(new Error('connection closed by peer'))).toBe(true);
 
+    // Domain / validation failures must never be recognized as stale socket errors
     expect(isStaleSocketError(new Error('bot_match_not_found'))).toBe(false);
     expect(isStaleSocketError(new Error('bot_match_owned_by_another_player'))).toBe(false);
+    expect(isStaleSocketError(new Error('foreign ownership'))).toBe(false);
+    expect(isStaleSocketError(new Error('invalid_actions'))).toBe(false);
+    expect(isStaleSocketError(new Error('invalid_argument'))).toBe(false);
+    expect(isStaleSocketError(new Error('unauthorized'))).toBe(false);
+    expect(isStaleSocketError(new Error('unauthenticated'))).toBe(false);
     expect(isStaleSocketError(new Error('commander_locked'))).toBe(false);
     expect(isStaleSocketError(new Error('insufficient_coins'))).toBe(false);
-    expect(isStaleSocketError(new Error('invalid_argument'))).toBe(false);
-    expect(isStaleSocketError(new Error('unauthenticated'))).toBe(false);
     expect(isStaleSocketError(new TypeError('cannot read property of undefined'))).toBe(false);
     expect(isStaleSocketError(null)).toBe(false);
   });
 
-  it('rethrows validation errors without reconnecting or retrying during match settlement', async () => {
-    const remoteCareer = createDefaultCareer('settle_validation_player');
-    let logins = 0;
-    let settles = 0;
-    const remoteApi: CareerApi = {
-      login: async () => {
-        logins++;
-        return remoteCareer;
-      },
-      getCareer: async () => remoteCareer,
-      getLedger: async () => [],
-      startBotMatch: async () => ({ matchId: 'bot_test', battlefieldId: 'crown_cross' }),
-      settleMatch: async () => {
-        settles++;
-        throw new Error('bot_match_not_found');
-      },
-      purchaseUpgrade: async () => { throw new Error('not_used_in_test'); },
-      selectCommander: async () => { throw new Error('not_used_in_test'); },
-      getDailyState: async () => { throw new Error('not_used_in_test'); },
-      claimDailyReward: async () => { throw new Error('not_used_in_test'); },
-      getLeagueState: async () => { throw new Error('not_used_in_test'); },
-      claimLeagueReward: async () => { throw new Error('not_used_in_test'); },
-      trackEvents: async () => undefined,
-      openLiveMatch: () => { throw new Error('not_used_in_test'); },
-      isAuthenticated: () => true,
-    };
-    const adapter = {
-      platform: 'browser',
-      getInitDataRaw: () => 'user=settle_validation_player',
-    } as PlatformAdapter;
-    const manager = CareerManager.getInstance('settle_validation_player');
-
-    await manager.connect(adapter, remoteApi);
-    await expect(
-      manager.recordMatchResultRemote([], 'forged_match_ticket', adapter)
-    ).rejects.toThrow('bot_match_not_found');
-
-    expect(logins).toBe(1);
-    expect(settles).toBe(1);
-  });
-
-  it('rethrows validation errors without reconnecting or retrying during bot match start', async () => {
-    const remoteCareer = createDefaultCareer('start_validation_player');
+  it('reconnects and retries once when bot rematch encounters Nakama socket not established error', async () => {
+    const remoteCareer = createDefaultCareer('rematch_nakama_not_est');
     let logins = 0;
     let starts = 0;
     const remoteApi: CareerApi = {
@@ -634,7 +610,8 @@ describe('CareerManager', () => {
       getLedger: async () => [],
       startBotMatch: async () => {
         starts++;
-        throw new Error('commander_locked');
+        if (starts === 1) throw new Error('Socket connection has not been established yet.');
+        return { matchId: 'bot_retry_not_est', battlefieldId: 'crown_cross' };
       },
       settleMatch: async () => { throw new Error('not_used_in_test'); },
       purchaseUpgrade: async () => { throw new Error('not_used_in_test'); },
@@ -649,14 +626,222 @@ describe('CareerManager', () => {
     };
     const adapter = {
       platform: 'browser',
-      getInitDataRaw: () => 'user=start_validation_player',
+      getInitDataRaw: () => 'user=rematch_nakama_not_est',
     } as PlatformAdapter;
-    const manager = CareerManager.getInstance('start_validation_player');
+    const manager = CareerManager.getInstance('rematch_nakama_not_est');
 
     await manager.connect(adapter, remoteApi);
-    await expect(manager.startBotMatch(adapter)).rejects.toThrow('commander_locked');
+    await expect(manager.startBotMatch(adapter)).resolves.toEqual({
+      matchId: 'bot_retry_not_est',
+      battlefieldId: 'crown_cross',
+    });
+    expect(logins).toBe(2);
+    expect(starts).toBe(2);
+  });
 
-    expect(logins).toBe(1);
-    expect(starts).toBe(1);
+  it('reconnects and retries once when bot rematch encounters Nakama socket timeout', async () => {
+    const remoteCareer = createDefaultCareer('rematch_nakama_timeout');
+    let logins = 0;
+    let starts = 0;
+    const remoteApi: CareerApi = {
+      login: async () => {
+        logins++;
+        return remoteCareer;
+      },
+      getCareer: async () => remoteCareer,
+      getLedger: async () => [],
+      startBotMatch: async () => {
+        starts++;
+        if (starts === 1) throw new Error('The socket timed out while waiting for a response.');
+        return { matchId: 'bot_retry_timeout', battlefieldId: 'twin_passes' };
+      },
+      settleMatch: async () => { throw new Error('not_used_in_test'); },
+      purchaseUpgrade: async () => { throw new Error('not_used_in_test'); },
+      selectCommander: async () => { throw new Error('not_used_in_test'); },
+      getDailyState: async () => { throw new Error('not_used_in_test'); },
+      claimDailyReward: async () => { throw new Error('not_used_in_test'); },
+      getLeagueState: async () => { throw new Error('not_used_in_test'); },
+      claimLeagueReward: async () => { throw new Error('not_used_in_test'); },
+      trackEvents: async () => undefined,
+      openLiveMatch: () => { throw new Error('not_used_in_test'); },
+      isAuthenticated: () => true,
+    };
+    const adapter = {
+      platform: 'browser',
+      getInitDataRaw: () => 'user=rematch_nakama_timeout',
+    } as PlatformAdapter;
+    const manager = CareerManager.getInstance('rematch_nakama_timeout');
+
+    await manager.connect(adapter, remoteApi);
+    await expect(manager.startBotMatch(adapter)).resolves.toEqual({
+      matchId: 'bot_retry_timeout',
+      battlefieldId: 'twin_passes',
+    });
+    expect(logins).toBe(2);
+    expect(starts).toBe(2);
+  });
+
+  it('reconnects and retries once when settlement encounters Nakama socket not established error', async () => {
+    const remoteCareer = createDefaultCareer('settle_nakama_not_est');
+    let logins = 0;
+    let settles = 0;
+    const remoteApi: CareerApi = {
+      login: async () => {
+        logins++;
+        return remoteCareer;
+      },
+      getCareer: async () => remoteCareer,
+      getLedger: async () => [],
+      startBotMatch: async () => ({ matchId: 'bot_test', battlefieldId: 'crown_cross' }),
+      settleMatch: async (matchId) => {
+        settles++;
+        if (settles === 1) throw new Error('Socket connection has not been established yet.');
+        return {
+          matchId,
+          status: 'victory',
+          breakdown: { baseCoins: 40, speedBonus: 0, dominationBonus: 0, streakBonus: 0, treasuryBonus: 0, totalCoins: 40, trophyDelta: 30 },
+          stats: { matchDurationSeconds: 10, playerUnitsDispatched: 5, enemyUnitsDispatched: 5, territoriesCapturedByPlayer: 3, territoriesCapturedByEnemy: 1 },
+          previousCareer: remoteCareer,
+          newCareer: { ...remoteCareer, coins: remoteCareer.coins + 40 },
+          previousRank: { id: 'recruit', name: 'Recruit', badge: '🛡️', minTrophies: 0, maxTrophies: 99, color: 0x94a3b8 },
+          newRank: { id: 'recruit', name: 'Recruit', badge: '🛡️', minTrophies: 0, maxTrophies: 99, color: 0x94a3b8 },
+          ledgerEntries: [],
+          promotedTier: null,
+          rankPromoted: false,
+        };
+      },
+      purchaseUpgrade: async () => { throw new Error('not_used_in_test'); },
+      selectCommander: async () => { throw new Error('not_used_in_test'); },
+      getDailyState: async () => { throw new Error('not_used_in_test'); },
+      claimDailyReward: async () => { throw new Error('not_used_in_test'); },
+      getLeagueState: async () => { throw new Error('not_used_in_test'); },
+      claimLeagueReward: async () => { throw new Error('not_used_in_test'); },
+      trackEvents: async () => undefined,
+      openLiveMatch: () => { throw new Error('not_used_in_test'); },
+      isAuthenticated: () => true,
+    };
+    const adapter = {
+      platform: 'browser',
+      getInitDataRaw: () => 'user=settle_nakama_not_est',
+    } as PlatformAdapter;
+    const manager = CareerManager.getInstance('settle_nakama_not_est');
+
+    await manager.connect(adapter, remoteApi);
+    const result = await manager.recordMatchResultRemote([], 'bot_settle_not_est', adapter);
+    expect(result.status).toBe('victory');
+    expect(logins).toBe(2);
+    expect(settles).toBe(2);
+  });
+
+  it('reconnects and retries once when settlement encounters Nakama socket response timeout', async () => {
+    const remoteCareer = createDefaultCareer('settle_nakama_timeout');
+    let logins = 0;
+    let settles = 0;
+    const remoteApi: CareerApi = {
+      login: async () => {
+        logins++;
+        return remoteCareer;
+      },
+      getCareer: async () => remoteCareer,
+      getLedger: async () => [],
+      startBotMatch: async () => ({ matchId: 'bot_test', battlefieldId: 'crown_cross' }),
+      settleMatch: async (matchId) => {
+        settles++;
+        if (settles === 1) throw new Error('The socket timed out while waiting for a response.');
+        return {
+          matchId,
+          status: 'victory',
+          breakdown: { baseCoins: 40, speedBonus: 0, dominationBonus: 0, streakBonus: 0, treasuryBonus: 0, totalCoins: 40, trophyDelta: 30 },
+          stats: { matchDurationSeconds: 10, playerUnitsDispatched: 5, enemyUnitsDispatched: 5, territoriesCapturedByPlayer: 3, territoriesCapturedByEnemy: 1 },
+          previousCareer: remoteCareer,
+          newCareer: { ...remoteCareer, coins: remoteCareer.coins + 40 },
+          previousRank: { id: 'recruit', name: 'Recruit', badge: '🛡️', minTrophies: 0, maxTrophies: 99, color: 0x94a3b8 },
+          newRank: { id: 'recruit', name: 'Recruit', badge: '🛡️', minTrophies: 0, maxTrophies: 99, color: 0x94a3b8 },
+          ledgerEntries: [],
+          promotedTier: null,
+          rankPromoted: false,
+        };
+      },
+      purchaseUpgrade: async () => { throw new Error('not_used_in_test'); },
+      selectCommander: async () => { throw new Error('not_used_in_test'); },
+      getDailyState: async () => { throw new Error('not_used_in_test'); },
+      claimDailyReward: async () => { throw new Error('not_used_in_test'); },
+      getLeagueState: async () => { throw new Error('not_used_in_test'); },
+      claimLeagueReward: async () => { throw new Error('not_used_in_test'); },
+      trackEvents: async () => undefined,
+      openLiveMatch: () => { throw new Error('not_used_in_test'); },
+      isAuthenticated: () => true,
+    };
+    const adapter = {
+      platform: 'browser',
+      getInitDataRaw: () => 'user=settle_nakama_timeout',
+    } as PlatformAdapter;
+    const manager = CareerManager.getInstance('settle_nakama_timeout');
+
+    await manager.connect(adapter, remoteApi);
+    const result = await manager.recordMatchResultRemote([], 'bot_settle_timeout', adapter);
+    expect(result.status).toBe('victory');
+    expect(logins).toBe(2);
+    expect(settles).toBe(2);
+  });
+
+  it('rethrows validation and domain failures without reconnecting or retrying', async () => {
+    const domainErrorCodes = [
+      'bot_match_not_found',
+      'bot_match_owned_by_another_player',
+      'foreign ownership',
+      'invalid_actions',
+      'unauthorized',
+    ];
+
+    for (const code of domainErrorCodes) {
+      const playerId = `val_player_${code.replaceAll(/[^a-z0-9]/g, '_')}`;
+      const remoteCareer = createDefaultCareer(playerId);
+      let logins = 0;
+      let settles = 0;
+      let starts = 0;
+      const remoteApi: CareerApi = {
+        login: async () => {
+          logins++;
+          return remoteCareer;
+        },
+        getCareer: async () => remoteCareer,
+        getLedger: async () => [],
+        startBotMatch: async () => {
+          starts++;
+          throw new Error(code);
+        },
+        settleMatch: async () => {
+          settles++;
+          throw new Error(code);
+        },
+        purchaseUpgrade: async () => { throw new Error('not_used_in_test'); },
+        selectCommander: async () => { throw new Error('not_used_in_test'); },
+        getDailyState: async () => { throw new Error('not_used_in_test'); },
+        claimDailyReward: async () => { throw new Error('not_used_in_test'); },
+        getLeagueState: async () => { throw new Error('not_used_in_test'); },
+        claimLeagueReward: async () => { throw new Error('not_used_in_test'); },
+        trackEvents: async () => undefined,
+        openLiveMatch: () => { throw new Error('not_used_in_test'); },
+        isAuthenticated: () => true,
+      };
+      const adapter = {
+        platform: 'browser',
+        getInitDataRaw: () => `user=${playerId}`,
+      } as PlatformAdapter;
+      const manager = CareerManager.getInstance(playerId);
+
+      await manager.connect(adapter, remoteApi);
+
+      await expect(
+        manager.recordMatchResultRemote([], 'forged_ticket', adapter)
+      ).rejects.toThrow(code);
+      expect(settles).toBe(1);
+      expect(logins).toBe(1);
+
+      await expect(manager.startBotMatch(adapter)).rejects.toThrow(code);
+      expect(starts).toBe(1);
+      expect(logins).toBe(1);
+    }
   });
 });

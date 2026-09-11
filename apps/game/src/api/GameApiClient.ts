@@ -52,6 +52,15 @@ export class GameApiError extends Error {
   }
 }
 
+export class StaleSocketError extends Error {
+  readonly isStaleSocket = true;
+  constructor(message = 'stale_socket_connection', public readonly cause?: unknown) {
+    super(message);
+    this.name = 'StaleSocketError';
+    Object.setPrototypeOf(this, StaleSocketError.prototype);
+  }
+}
+
 export function isLocalCareerFallbackAllowed(): boolean {
   return import.meta.env.DEV && import.meta.env.VITE_ALLOW_LOCAL_FALLBACK !== 'false';
 }
