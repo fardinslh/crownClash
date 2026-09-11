@@ -67,7 +67,22 @@ describe('analytics events', () => {
       durationSeconds: 12,
     })).toBe(false);
 
-    expect(events).toHaveLength(1);
+    expect(analytics.trackTerminalMatchEvent({
+      name: 'match_quit',
+      matchId: 'match_bot_quit',
+      mode: 'bot',
+      durationSeconds: 24,
+    })).toBe(true);
+
+    expect(events).toHaveLength(2);
+    expect(events[1]).toMatchObject({
+      name: 'match_quit',
+      props: {
+        matchId: 'match_bot_quit',
+        mode: 'bot',
+        durationSeconds: 24,
+      },
+    });
     window.removeEventListener('crown-clash:analytics', listener);
   });
 

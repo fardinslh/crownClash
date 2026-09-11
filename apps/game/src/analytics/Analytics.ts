@@ -29,7 +29,7 @@ export type AnalyticsEventInput =
   | {
       name: 'match_quit';
       matchId: string;
-      mode: 'live';
+      mode: 'bot' | 'live';
       durationSeconds: number;
     }
   | { name: 'match_reward_received'; matchId: string; mode: 'bot' | 'live' }

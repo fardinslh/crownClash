@@ -51,6 +51,10 @@ import {
   type PendingLiveDispatch,
 } from '../combat/LiveCombatFeedback.js';
 import { wholeMatchSeconds } from '../match/MatchPresentation.js';
+import {
+  MatchMenuController,
+  type MatchMenuState,
+} from '../match/MatchMenuController.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 const MONO_FONT_FAMILY = '"Segoe UI", monospace, -apple-system, sans-serif';
@@ -149,6 +153,11 @@ export class GameScene extends Phaser.Scene {
   // Result Modal
   private resultModalContainer?: Phaser.GameObjects.Container;
 
+  // Match Menu & Navigation
+  private matchMenuController!: MatchMenuController;
+  private matchMenuModalContainer?: Phaser.GameObjects.Container;
+  private isExiting = false;
+
   // Platform Adapter
   private platform!: PlatformAdapter;
 
@@ -209,8 +218,14 @@ export class GameScene extends Phaser.Scene {
     this.matchActions = [];
     this.liveUnsubscribers = [];
     this.livePredictions = [];
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.cleanup());
-    this.events.once(Phaser.Scenes.Events.DESTROY, () => this.cleanup());
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.platform.hideBackButton();
+      this.cleanup();
+    });
+    this.events.once(Phaser.Scenes.Events.DESTROY, () => {
+      this.platform.hideBackButton();
+      this.cleanup();
+    });
     this.backendConnectPromise = !this.liveMode
       ? this.careerManager
           .connect(this.platform)
@@ -226,6 +241,29 @@ export class GameScene extends Phaser.Scene {
       this.activeMatchId = launchData.liveMatch.matchId;
       this.battlefieldId = launchData.liveMatch.state.battlefieldId ?? 'crown_cross';
     }
+    this.isExiting = false;
+    this.matchMenuController = new MatchMenuController({
+      liveMode: this.liveMode,
+      matchId: this.activeMatchId,
+      getDurationSeconds: () => wholeMatchSeconds(this.gameState?.elapsedTimeSeconds ?? 0),
+      closeLiveClient: () => {
+        if (this.liveClient) {
+          this.liveClient.close();
+          this.liveClient = undefined;
+        }
+      },
+      trackQuit: (event) => trackTerminalMatchEvent(event),
+      onStateChange: (state) => this.handleMatchMenuStateChange(state),
+      onExitConfirmed: () => this.handleMatchExitConfirmed(),
+    });
+    this.platform.showBackButton(() => {
+      if (this.isExiting) return;
+      if (this.resultModalContainer) {
+        this.returnToMenu();
+        return;
+      }
+      this.matchMenuController.handleBackButton();
+    });
     trackEvent({
       name: 'match_start',
       matchId: this.activeMatchId,
@@ -494,6 +532,7 @@ export class GameScene extends Phaser.Scene {
       container.setInteractive({ useHandCursor: true });
 
       container.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+        if (this.isExiting || this.matchMenuController?.isOpen()) return;
         this.startDragFromTerritory(territory.id, pointer);
       });
 
@@ -666,29 +705,33 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(96);
 
-    // Right: Audio Toggle Pill
-    const rightPillX = LOGICAL_WIDTH - 22;
-    const muteBg = this.add
-      .rectangle(rightPillX, 20, 40, 32, 0x0f172a, 0.95)
-      .setStrokeStyle(1.5, 0x334155, 0.8)
+    // Right: Match Menu Button (minimum 44x44 hit target using Phaser graphics)
+    const menuBtnX = LOGICAL_WIDTH - 25;
+    const menuBtnY = 22;
+    const menuBg = this.add
+      .rectangle(menuBtnX, menuBtnY, 44, 44, 0x0f172a, 0.95)
+      .setStrokeStyle(1.5, 0x334155, 0.9)
       .setDepth(95);
 
-    const muteIcon = sounds.isMuted() ? '🔇' : '🔊';
-    const muteBtn = this.add
-      .text(rightPillX, 20, muteIcon, {
-        fontSize: '13px',
-        resolution: 2,
-      })
-      .setOrigin(0.5)
-      .setDepth(96);
+    const menuIcon = this.add.graphics().setDepth(96);
+    menuIcon.setPosition(menuBtnX, menuBtnY);
+    menuIcon.lineStyle(2.5, 0xf8fafc, 0.95);
+    menuIcon.beginPath();
+    menuIcon.moveTo(-9, -6);
+    menuIcon.lineTo(9, -6);
+    menuIcon.moveTo(-9, 0);
+    menuIcon.lineTo(9, 0);
+    menuIcon.moveTo(-9, 6);
+    menuIcon.lineTo(9, 6);
+    menuIcon.strokePath();
 
-    muteBg.setInteractive({ useHandCursor: true });
-    muteBg.on('pointerdown', () => {
-      const isMuted = sounds.toggleMute();
-      muteBtn.setText(isMuted ? '🔇' : '🔊');
+    menuBg.setInteractive({ useHandCursor: true });
+    menuBg.on('pointerdown', () => {
+      if (this.resultModalContainer || this.isExiting) return;
       this.platform.hapticSelection();
+      this.matchMenuController.openMenu();
     });
-    this.bindPressFeedback(muteBg, muteBtn);
+    this.bindPressFeedback(menuBg, menuIcon);
 
     // Auto-update HUD when career balance changes (bot battles only for coins)
     this.careerSubscription = this.careerManager.subscribe((updatedCareer) => {
@@ -841,7 +884,14 @@ export class GameScene extends Phaser.Scene {
   private setupInputs(): void {
     // Global scene pointerdown for responsive touch targets
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (this.gameState.status !== 'playing' || this.selectedSourceIds.length > 0) return;
+      if (
+        this.isExiting ||
+        this.matchMenuController?.isOpen() ||
+        this.gameState.status !== 'playing' ||
+        this.selectedSourceIds.length > 0
+      ) {
+        return;
+      }
 
       const territory = this.getTerritoryUnderPointer(pointer);
       if (territory) {
@@ -850,7 +900,9 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
-      if (this.selectedSourceIds.length === 0) return;
+      if (this.isExiting || this.matchMenuController?.isOpen() || this.selectedSourceIds.length === 0) {
+        return;
+      }
 
       const hoveredTerritory = this.getTerritoryUnderPointer(pointer);
       const previousTargetId = this.hoveredTargetId;
@@ -918,12 +970,16 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.input.on('pointerup', () => {
+      if (this.isExiting || this.matchMenuController?.isOpen()) {
+        this.cancelDragSelection();
+        return;
+      }
       this.handlePointerRelease();
     });
   }
 
   private startDragFromTerritory(territoryId: string, _pointer?: Phaser.Input.Pointer): void {
-    if (this.gameState.status !== 'playing') return;
+    if (this.isExiting || this.matchMenuController?.isOpen() || this.gameState.status !== 'playing') return;
 
     const territory = this.gameState.territories[territoryId];
     if (!territory) return;
@@ -1270,14 +1326,16 @@ export class GameScene extends Phaser.Scene {
     const deltaSeconds = delta / 1000;
 
     if (this.gameState.status === 'playing' && !this.liveMode) {
-      this.stepBotMatch(deltaSeconds);
+      if (!this.matchMenuController?.isPaused()) {
+        this.stepBotMatch(deltaSeconds);
 
-      // Update HUD
-      this.updateHud();
+        // Update HUD
+        this.updateHud();
 
-      // Check Game Over
-      if (this.gameState.status !== 'playing') {
-        this.endMatch();
+        // Check Game Over
+        if (this.gameState.status !== 'playing') {
+          this.endMatch();
+        }
       }
     }
     if (this.liveMode && this.gameState.status === 'playing') {
@@ -1287,7 +1345,9 @@ export class GameScene extends Phaser.Scene {
 
     // 6. Update Visuals
     this.updateTerritoryVisuals();
-    this.updateArmyVisuals(deltaSeconds);
+    if (!this.matchMenuController?.isPaused()) {
+      this.updateArmyVisuals(deltaSeconds);
+    }
   }
 
   /**
@@ -1987,7 +2047,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private endMatch(): void {
-    if (this.resultModalContainer || this.resultPending) return;
+    if (this.isExiting || this.resultModalContainer || this.resultPending) return;
 
     sounds.stopBattleMusic();
     this.resultPending = true;
@@ -2635,7 +2695,7 @@ export class GameScene extends Phaser.Scene {
 
   private bindPressFeedback(
     background: Phaser.GameObjects.Rectangle,
-    label: Phaser.GameObjects.Text
+    label: Phaser.GameObjects.Text | Phaser.GameObjects.Graphics
   ): void {
     const reset = (): void => {
       background.setScale(1);
@@ -2655,7 +2715,328 @@ export class GameScene extends Phaser.Scene {
     this.input.enabled = false;
     this.resultModalContainer?.destroy();
     this.resultModalContainer = undefined;
+    this.matchMenuModalContainer?.destroy();
+    this.matchMenuModalContainer = undefined;
     this.scene.start('MenuScene');
+  }
+
+  private handleMatchMenuStateChange(state: MatchMenuState): void {
+    this.matchMenuModalContainer?.destroy();
+    this.matchMenuModalContainer = undefined;
+
+    if (state === 'menu') {
+      this.cancelDragSelection();
+      this.renderMatchMenuModal();
+    } else if (state === 'confirm') {
+      this.cancelDragSelection();
+      this.renderMatchConfirmModal();
+    }
+  }
+
+  private handleMatchExitConfirmed(): void {
+    this.isExiting = true;
+    this.matchMenuModalContainer?.destroy();
+    this.matchMenuModalContainer = undefined;
+    this.returnToMenu();
+  }
+
+  private cancelDragSelection(): void {
+    for (const id of this.selectedSourceIds) {
+      const ring = this.selectionRings.get(id);
+      if (ring) {
+        this.tweens.killTweensOf(ring);
+        ring.setVisible(false);
+      }
+      const vis = this.territoryVisuals.get(id);
+      if (vis) {
+        this.tweens.killTweensOf(vis.container);
+        vis.container.setScale(1);
+      }
+    }
+    if (this.hoveredTargetId) {
+      const targetVisual = this.territoryVisuals.get(this.hoveredTargetId);
+      if (targetVisual) {
+        this.tweens.killTweensOf(targetVisual.ring);
+        targetVisual.ring.setScale(1).setAlpha(1);
+      }
+    }
+    this.selectedSourceIds = [];
+    this.hoveredTargetId = null;
+    this.lastHoveredFriendlyId = null;
+    this.dragGraphics?.clear();
+    this.dragBadgeContainer?.setVisible(false);
+  }
+
+  private renderMatchMenuModal(): void {
+    const modal = this.add.container(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2).setDepth(150);
+    this.matchMenuModalContainer = modal;
+
+    const backdrop = this.add
+      .rectangle(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT, 0x070b14, 0.82)
+      .setInteractive();
+    backdrop.on('pointerdown', () => {
+      this.platform.hapticSelection();
+      this.matchMenuController.closeMenu();
+    });
+
+    const cardHeight = this.liveMode ? 284 : 244;
+    const card = this.add
+      .rectangle(0, 0, 276, cardHeight, 0x0c1322, 0.98)
+      .setStrokeStyle(1.5, 0x2563eb, 0.95);
+    const cardGlow = this.add
+      .rectangle(0, 0, 276, cardHeight, 0x111c33, 0.35)
+      .setStrokeStyle(1, 0x60a5fa, 0.35);
+
+    const titleY = -cardHeight / 2 + 28;
+    const titleText = this.liveMode ? 'BATTLE MENU' : 'PAUSED';
+    const title = this.add
+      .text(0, titleY, titleText, {
+        fontFamily: FONT_FAMILY,
+        fontSize: '18px',
+        fontStyle: '900',
+        color: '#f8fafc',
+        stroke: '#030712',
+        strokeThickness: 3,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+
+    const elements: Phaser.GameObjects.GameObject[] = [backdrop, card, cardGlow, title];
+
+    let startBtnY = titleY + 34;
+
+    if (this.liveMode) {
+      const warningBg = this.add
+        .rectangle(0, startBtnY + 4, 234, 26, 0x450a0a, 0.95)
+        .setStrokeStyle(1, 0xef4444, 0.9);
+      const warningText = this.add
+        .text(0, startBtnY + 4, '● LIVE BATTLE CONTINUES', {
+          fontFamily: MONO_FONT_FAMILY,
+          fontSize: '11px',
+          fontStyle: 'bold',
+          color: '#fca5a5',
+          resolution: 2,
+        })
+        .setOrigin(0.5);
+      elements.push(warningBg, warningText);
+      startBtnY += 40;
+    }
+
+    // 1. RESUME BUTTON (min 44 height)
+    const resumeY = startBtnY + 12;
+    const resumeBg = this.add
+      .rectangle(0, resumeY, 234, 44, 0x2563eb, 1)
+      .setStrokeStyle(1.5, 0x60a5fa, 1)
+      .setInteractive({ useHandCursor: true });
+    const resumeText = this.add
+      .text(0, resumeY, 'RESUME', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    this.bindPressFeedback(resumeBg, resumeText);
+    resumeBg.on('pointerdown', () => {
+      this.platform.hapticSelection();
+      this.matchMenuController.closeMenu();
+    });
+    elements.push(resumeBg, resumeText);
+
+    // 2. SOUND TOGGLE BUTTON (min 44 height)
+    const soundY = resumeY + 52;
+    const soundBg = this.add
+      .rectangle(0, soundY, 234, 44, 0x111c33, 1)
+      .setStrokeStyle(1.5, 0x334155, 1)
+      .setInteractive({ useHandCursor: true });
+    const soundText = this.add
+      .text(0, soundY, sounds.isMuted() ? 'SOUND: OFF' : 'SOUND: ON', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: '#cbd5e1',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    this.bindPressFeedback(soundBg, soundText);
+    soundBg.on('pointerdown', () => {
+      const isMuted = sounds.toggleMute();
+      soundText.setText(isMuted ? 'SOUND: OFF' : 'SOUND: ON');
+      this.platform.hapticSelection();
+    });
+    elements.push(soundBg, soundText);
+
+    // 3. LEAVE MATCH BUTTON (min 44 height)
+    const leaveY = soundY + 52;
+    const leaveBg = this.add
+      .rectangle(0, leaveY, 234, 44, 0x1e1520, 1)
+      .setStrokeStyle(1.5, 0xef4444, 0.9)
+      .setInteractive({ useHandCursor: true });
+    const leaveText = this.add
+      .text(0, leaveY, 'LEAVE MATCH', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: '#f87171',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    this.bindPressFeedback(leaveBg, leaveText);
+    leaveBg.on('pointerdown', () => {
+      this.platform.hapticSelection();
+      this.matchMenuController.openConfirm();
+    });
+    elements.push(leaveBg, leaveText);
+
+    modal.add(elements);
+
+    if (!this.reducedMotion) {
+      modal.setScale(0.95).setAlpha(0);
+      this.tweens.add({
+        targets: modal,
+        scale: 1,
+        alpha: 1,
+        duration: 120,
+        ease: 'Cubic.easeOut',
+      });
+    }
+  }
+
+  private renderMatchConfirmModal(): void {
+    const modal = this.add.container(LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2).setDepth(150);
+    this.matchMenuModalContainer = modal;
+
+    const backdrop = this.add
+      .rectangle(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT, 0x070b14, 0.82)
+      .setInteractive();
+    backdrop.on('pointerdown', () => {
+      this.platform.hapticSelection();
+      this.matchMenuController.backToMenu();
+    });
+
+    const cardHeight = this.liveMode ? 290 : 250;
+    const card = this.add
+      .rectangle(0, 0, 276, cardHeight, 0x0c1322, 0.98)
+      .setStrokeStyle(1.5, 0xef4444, 0.95);
+    const cardGlow = this.add
+      .rectangle(0, 0, 276, cardHeight, 0x22131b, 0.35)
+      .setStrokeStyle(1, 0xf87171, 0.35);
+
+    const titleY = -cardHeight / 2 + 28;
+    const title = this.add
+      .text(0, titleY, 'LEAVE MATCH?', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '18px',
+        fontStyle: '900',
+        color: '#f8fafc',
+        stroke: '#030712',
+        strokeThickness: 3,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+
+    const message = this.matchMenuController.getConfirmationMessage();
+    const subtitleY = titleY + 28;
+    const subtitle = this.add
+      .text(0, subtitleY, message, {
+        fontFamily: FONT_FAMILY,
+        fontSize: '12px',
+        color: this.liveMode ? '#fca5a5' : '#94a3b8',
+        align: 'center',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+
+    const elements: Phaser.GameObjects.GameObject[] = [backdrop, card, cardGlow, title, subtitle];
+
+    let btnStartY = subtitleY + 26;
+
+    if (this.liveMode) {
+      const warningBg = this.add
+        .rectangle(0, btnStartY + 4, 234, 26, 0x450a0a, 0.95)
+        .setStrokeStyle(1, 0xef4444, 0.9);
+      const warningText = this.add
+        .text(0, btnStartY + 4, '● LIVE BATTLE CONTINUES', {
+          fontFamily: MONO_FONT_FAMILY,
+          fontSize: '11px',
+          fontStyle: 'bold',
+          color: '#fca5a5',
+          resolution: 2,
+        })
+        .setOrigin(0.5);
+      elements.push(warningBg, warningText);
+      btnStartY += 40;
+    }
+
+    // 1. KEEP PLAYING BUTTON (min 44 height)
+    const keepY = btnStartY + 14;
+    const keepBg = this.add
+      .rectangle(0, keepY, 234, 44, 0x2563eb, 1)
+      .setStrokeStyle(1.5, 0x60a5fa, 1)
+      .setInteractive({ useHandCursor: true });
+    const keepText = this.add
+      .text(0, keepY, 'KEEP PLAYING', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    this.bindPressFeedback(keepBg, keepText);
+    keepBg.on('pointerdown', () => {
+      this.platform.hapticSelection();
+      this.matchMenuController.backToMenu();
+    });
+    elements.push(keepBg, keepText);
+
+    // 2. LEAVE MATCH CONFIRM BUTTON (min 44 height)
+    const confirmLeaveY = keepY + 52;
+    const confirmLeaveBg = this.add
+      .rectangle(0, confirmLeaveY, 234, 44, 0xdc2626, 1)
+      .setStrokeStyle(1.5, 0xf87171, 1)
+      .setInteractive({ useHandCursor: true });
+    const confirmLeaveText = this.add
+      .text(0, confirmLeaveY, 'LEAVE MATCH', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    this.bindPressFeedback(confirmLeaveBg, confirmLeaveText);
+    confirmLeaveBg.on('pointerdown', () => {
+      this.platform.hapticNotification('warning');
+      this.matchMenuController.confirmExit();
+    });
+    elements.push(confirmLeaveBg, confirmLeaveText);
+
+    modal.add(elements);
+
+    if (!this.reducedMotion) {
+      modal.setScale(0.95).setAlpha(0);
+      this.tweens.add({
+        targets: modal,
+        scale: 1,
+        alpha: 1,
+        duration: 120,
+        ease: 'Cubic.easeOut',
+      });
+    }
   }
 
   private async purchaseUpgrade(
@@ -2764,7 +3145,7 @@ export class GameScene extends Phaser.Scene {
         }
       }),
       client.on('match_result', (result) => {
-        if (this.resultModalContainer) return;
+        if (this.isExiting || this.resultModalContainer) return;
         const terminalEventRecorded = trackTerminalMatchEvent({
           name: 'match_end',
           matchId: result.matchId,
@@ -2794,6 +3175,7 @@ export class GameScene extends Phaser.Scene {
         client.close();
       }),
       client.on('closed', () => {
+        if (this.isExiting) return;
         if (!this.resultModalContainer && this.gameState.status === 'playing') {
           const durationSeconds = this.gameState.elapsedTimeSeconds;
           if (trackTerminalMatchEvent({
@@ -2808,6 +3190,7 @@ export class GameScene extends Phaser.Scene {
         }
       }),
       client.on('error', ({ code }) => {
+        if (this.isExiting) return;
         if (code === 'settlement_failed') {
           this.showLiveConnectionError();
         }
@@ -2816,7 +3199,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showLiveConnectionError(): void {
-    if (this.resultModalContainer) return;
+    if (this.isExiting || this.resultModalContainer) return;
     this.liveClient?.close();
     this.liveClient = undefined;
     this.gameState.status = 'defeat';
@@ -2829,6 +3212,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private cleanup(): void {
+    this.platform.hideBackButton();
+    this.matchMenuModalContainer?.destroy();
+    this.matchMenuModalContainer = undefined;
     sounds.stopBattleMusic();
     this.time.removeAllEvents();
     this.tweens.killAll();
