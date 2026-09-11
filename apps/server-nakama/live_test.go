@@ -57,21 +57,22 @@ func TestStateForEnemyRoleProjectsBothArmyOwners(t *testing.T) {
 }
 
 func TestForfeitStatusAwardsVictoryToRemainingPlayer(t *testing.T) {
-	// Case 1: Player 0 (TeamPlayer) leaves mid-match -> canonical status is "defeat"
-	statusPlayer0Leaves := "defeat"
-	if leaverStatus := statusForRole(statusPlayer0Leaves, TeamPlayer); leaverStatus != "defeat" {
-		t.Fatalf("expected leaver (TeamPlayer) to get defeat, got %q", leaverStatus)
-	}
-	if remainingStatus := statusForRole(statusPlayer0Leaves, TeamEnemy); remainingStatus != "victory" {
-		t.Fatalf("expected remaining (TeamEnemy) to get victory, got %q", remainingStatus)
-	}
-
-	// Case 2: Player 1 (TeamEnemy) leaves mid-match -> canonical status is "victory"
-	statusPlayer1Leaves := "victory"
-	if leaverStatus := statusForRole(statusPlayer1Leaves, TeamEnemy); leaverStatus != "defeat" {
-		t.Fatalf("expected leaver (TeamEnemy) to get defeat, got %q", leaverStatus)
-	}
-	if remainingStatus := statusForRole(statusPlayer1Leaves, TeamPlayer); remainingStatus != "victory" {
-		t.Fatalf("expected remaining (TeamPlayer) to get victory, got %q", remainingStatus)
+	for _, test := range []struct {
+		name          string
+		leaverRole    Team
+		remainingRole Team
+	}{
+		{name: "canonical player leaves", leaverRole: TeamPlayer, remainingRole: TeamEnemy},
+		{name: "canonical enemy leaves", leaverRole: TeamEnemy, remainingRole: TeamPlayer},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			canonical := canonicalForfeitStatus(test.leaverRole)
+			if leaverStatus := statusForRole(canonical, test.leaverRole); leaverStatus != "defeat" {
+				t.Fatalf("expected leaver to get defeat, got %q", leaverStatus)
+			}
+			if remainingStatus := statusForRole(canonical, test.remainingRole); remainingStatus != "victory" {
+				t.Fatalf("expected remaining player to get victory, got %q", remainingStatus)
+			}
+		})
 	}
 }

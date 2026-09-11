@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { createInitialGameState, type GameState, type MarchingArmy } from '@crown-clash/game-core';
 import {
+  applyPendingLiveDispatches,
   deriveLiveCombatArrivals,
+  rejectLivePrediction,
   reconcileLiveArmies,
   stepLiveArmies,
 } from './LiveCombatFeedback.js';
@@ -87,6 +89,34 @@ describe('deriveLiveCombatArrivals', () => {
     const current = { ...base, armies: [] };
 
     expect(deriveLiveCombatArrivals(previous, current)).toEqual([]);
+  });
+});
+
+describe('live dispatch prediction', () => {
+  it('projects only outstanding dispatches from authoritative territory units', () => {
+    const base = createInitialGameState();
+    const projected = applyPendingLiveDispatches(base.territories, [
+      { sequence: 0, armyId: 'pred_0', sourceId: 'p_base', units: 10 },
+      { sequence: 1, armyId: 'pred_1', sourceId: 'p_base', units: 5 },
+    ]);
+
+    expect(projected.p_base.units).toBe(base.territories.p_base.units - 15);
+    expect(base.territories.p_base.units).toBe(20);
+  });
+
+  it('removes only the prediction belonging to a rejected sequence', () => {
+    const predictions = [
+      { sequence: 0, armyId: 'pred_0', sourceId: 'p_base', units: 10 },
+      { sequence: 1, armyId: 'pred_1', sourceId: 'p_base', units: 5 },
+    ];
+    const result = rejectLivePrediction(
+      [army({ id: 'pred_0' }), army({ id: 'pred_1' })],
+      predictions,
+      1
+    );
+
+    expect(result.armies.map(({ id }) => id)).toEqual(['pred_0']);
+    expect(result.pendingDispatches).toEqual([predictions[0]]);
   });
 });
 

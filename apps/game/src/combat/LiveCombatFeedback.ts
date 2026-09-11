@@ -1,4 +1,10 @@
-import { GameState, MarchingArmy, resolveArrival, type CombatResult } from '@crown-clash/game-core';
+import {
+  GameState,
+  MarchingArmy,
+  resolveArrival,
+  type CombatResult,
+  type Territory,
+} from '@crown-clash/game-core';
 
 export function armyVisualId(owner: string, id: string): string {
   return `${owner}:${id}`;
@@ -62,6 +68,44 @@ export function stepLiveArmies(
 export interface LiveReconciliationResult {
   reconciledArmies: MarchingArmy[];
   matchedVisualRenames: Array<{ fromId: string; toId: string }>;
+}
+
+export interface PendingLiveDispatch {
+  sequence: number;
+  armyId: string;
+  sourceId: string;
+  units: number;
+}
+
+export function applyPendingLiveDispatches(
+  authoritativeTerritories: Readonly<Record<string, Territory>>,
+  pendingDispatches: readonly PendingLiveDispatch[]
+): Record<string, Territory> {
+  const projected = { ...authoritativeTerritories };
+  for (const pending of pendingDispatches) {
+    const source = projected[pending.sourceId];
+    if (!source || source.owner !== 'player') continue;
+    projected[pending.sourceId] = {
+      ...source,
+      units: Math.max(0, source.units - pending.units),
+    };
+  }
+  return projected;
+}
+
+export function rejectLivePrediction(
+  armies: readonly MarchingArmy[],
+  pendingDispatches: readonly PendingLiveDispatch[],
+  sequence: number
+): { armies: MarchingArmy[]; pendingDispatches: PendingLiveDispatch[] } {
+  const rejected = pendingDispatches.find((pending) => pending.sequence === sequence);
+  if (!rejected) {
+    return { armies: [...armies], pendingDispatches: [...pendingDispatches] };
+  }
+  return {
+    armies: armies.filter((army) => army.id !== rejected.armyId),
+    pendingDispatches: pendingDispatches.filter((pending) => pending.sequence !== sequence),
+  };
 }
 
 /**

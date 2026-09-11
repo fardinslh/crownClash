@@ -203,11 +203,7 @@ func (m *liveMatch) MatchLeave(ctx context.Context, logger runtime.Logger, db *s
 			// Disconnect mid-match = forfeit for the leaver; settle on the
 			// server for both players.
 			s.finished = true
-			if player.role == TeamPlayer {
-				s.state.Status = "defeat"
-			} else {
-				s.state.Status = "victory"
-			}
+			s.state.Status = canonicalForfeitStatus(player.role)
 			s.finishSettlements(ctx, logger, dispatcher)
 			s.players[slot] = nil
 			return state
@@ -218,6 +214,13 @@ func (m *liveMatch) MatchLeave(ctx context.Context, logger runtime.Logger, db *s
 		s.finished = true
 	}
 	return state
+}
+
+func canonicalForfeitStatus(leaverRole Team) string {
+	if leaverRole == TeamPlayer {
+		return "defeat"
+	}
+	return "victory"
 }
 
 func (m *liveMatch) MatchLoop(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, dispatcher runtime.MatchDispatcher, tick int64, state interface{}, messages []runtime.MatchData) interface{} {

@@ -43,9 +43,12 @@ import { LiveMatchClient, LiveMatchStarted } from '../api/LiveMatchClient.js';
 import { purchaseUpgradeThroughCareer } from '../upgrades/UpgradePurchaseController.js';
 import { playUpgradeMilestoneCelebration } from '../upgrades/UpgradeMilestoneCelebration.js';
 import {
+  applyPendingLiveDispatches,
   deriveLiveCombatArrivals,
+  rejectLivePrediction,
   reconcileLiveArmies,
   stepLiveArmies,
+  type PendingLiveDispatch,
 } from '../combat/LiveCombatFeedback.js';
 import { wholeMatchSeconds } from '../match/MatchPresentation.js';
 
@@ -138,6 +141,7 @@ export class GameScene extends Phaser.Scene {
   private liveClient?: LiveMatchClient;
   private liveOpponentName = 'Opponent';
   private liveUnsubscribers: Array<() => void> = [];
+  private livePredictions: PendingLiveDispatch[] = [];
   private lastAuthoritativeState: GameState | null = null;
 
   private enemyArmySpeedMultiplier = 1;
@@ -204,6 +208,7 @@ export class GameScene extends Phaser.Scene {
     this.battlefieldId = launchData?.botMatch?.battlefieldId ?? 'crown_cross';
     this.matchActions = [];
     this.liveUnsubscribers = [];
+    this.livePredictions = [];
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.cleanup());
     this.backendConnectPromise = !this.liveMode
       ? this.careerManager
@@ -1203,19 +1208,22 @@ export class GameScene extends Phaser.Scene {
             );
 
             if (multiDispatch.armies.length > 0) {
-              const predictedArmies = multiDispatch.armies.map((army, idx) => ({
-                ...army,
-                id: `pred_${Date.now()}_${idx}`,
-              }));
+              const liveClient = this.liveClient;
+              if (!liveClient) throw new Error('live_connection_not_open');
+              const predictedArmies = multiDispatch.armies.map((army) => {
+                const sequence = liveClient.sendDispatch(army.sourceId, army.targetId);
+                const predictedArmy = { ...army, id: `pred_${sequence}` };
+                this.livePredictions.push({
+                  sequence,
+                  armyId: predictedArmy.id,
+                  sourceId: predictedArmy.sourceId,
+                  units: predictedArmy.units,
+                });
+                return predictedArmy;
+              });
               Object.assign(this.gameState.territories, multiDispatch.updatedSources);
               this.gameState.armies.push(...predictedArmies);
               this.updateTerritoryVisuals();
-
-              for (const success of multiDispatch.successes) {
-                if (success.army) {
-                  this.liveClient?.sendDispatch(success.army.sourceId, success.army.targetId);
-                }
-              }
 
               sounds.playDispatch();
               this.platform.hapticImpact(sources.length > 1 ? 'heavy' : 'medium');
@@ -2715,15 +2723,38 @@ export class GameScene extends Phaser.Scene {
             this.armyVisuals.set(toId, vis);
           }
         }
+        const retainedPredictionIds = new Set(
+          reconciledArmies
+            .filter((army) => army.id.startsWith('pred_'))
+            .map((army) => army.id)
+        );
+        this.livePredictions = this.livePredictions.filter((prediction) =>
+          retainedPredictionIds.has(prediction.armyId)
+        );
         this.gameState = {
           ...state,
+          territories: applyPendingLiveDispatches(state.territories, this.livePredictions),
           armies: reconciledArmies,
         };
         arrivals.forEach((arrival) => this.onCombatArrival(arrival));
       }),
-      client.on('command_rejected', ({ code }) => {
+      client.on('command_rejected', ({ code, sequence }) => {
         this.spawnFloatingText(LOGICAL_WIDTH / 2, 96, code.replaceAll('_', ' '), '#f87171');
-        this.gameState.armies = this.gameState.armies.filter((a) => !a.id.startsWith('pred_'));
+        if (sequence === undefined) return;
+        const rejected = rejectLivePrediction(
+          this.gameState.armies,
+          this.livePredictions,
+          sequence
+        );
+        this.livePredictions = rejected.pendingDispatches;
+        this.gameState.armies = rejected.armies;
+        if (this.lastAuthoritativeState) {
+          this.gameState.territories = applyPendingLiveDispatches(
+            this.lastAuthoritativeState.territories,
+            this.livePredictions
+          );
+          this.updateTerritoryVisuals();
+        }
       }),
       client.on('match_result', (result) => {
         const terminalEventRecorded = trackTerminalMatchEvent({
@@ -2802,6 +2833,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.territoryVisuals.clear();
     this.input.removeAllListeners();
+    this.livePredictions = [];
     this.lastAuthoritativeState = null;
     this.careerSubscription?.();
     this.careerSubscription = undefined;

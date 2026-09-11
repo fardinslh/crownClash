@@ -80,6 +80,29 @@ func TestSettleMatchRejectsForeignBotTicketBeforeCareerMutation(t *testing.T) {
 	}
 }
 
+func TestSettleMatchRejectsMissingBotTicketBeforeCareerMutation(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT settlement FROM match_settlements WHERE match_id = $1")).
+		WithArgs("forged_match").WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT player_id, battlefield_id")).
+		WithArgs("forged_match").WillReturnError(sql.ErrNoRows)
+	mock.ExpectRollback()
+
+	_, err = NewStore(db).SettleMatchVerified(context.Background(), "player_1", "forged_match", nil)
+	if !errors.Is(err, ErrBotMatchNotFound) {
+		t.Fatalf("expected missing ticket error, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("missing ticket touched career state: %v", err)
+	}
+}
+
 func TestSettleMatchReplayRejectsAnotherPlayersSettlement(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

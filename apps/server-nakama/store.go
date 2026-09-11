@@ -26,6 +26,7 @@ var (
 	ErrLeagueClaimMismatch      = errors.New("league_claim_id_reused_for_different_rank")
 	ErrCommanderInvalid         = errors.New("invalid_commander")
 	ErrCommanderLocked          = errors.New("commander_locked")
+	ErrBotMatchNotFound         = errors.New("bot_match_not_found")
 	ErrBotMatchOwnership        = errors.New("bot_match_owned_by_another_player")
 )
 
@@ -306,16 +307,19 @@ func (s *Store) SettleMatchVerified(ctx context.Context, userID, matchID string,
 		return *existing, nil
 	}
 
-	battlefieldID := "crown_cross"
+	var battlefieldID string
 	var ticketOwner string
 	ticketErr := tx.QueryRowContext(ctx, `
 		SELECT player_id, battlefield_id
 		FROM bot_matches WHERE match_id = $1 FOR UPDATE
 	`, matchID).Scan(&ticketOwner, &battlefieldID)
-	if ticketErr != nil && !errors.Is(ticketErr, sql.ErrNoRows) {
+	if errors.Is(ticketErr, sql.ErrNoRows) {
+		return MatchSettlement{}, ErrBotMatchNotFound
+	}
+	if ticketErr != nil {
 		return MatchSettlement{}, ticketErr
 	}
-	if ticketErr == nil && ticketOwner != userID {
+	if ticketOwner != userID {
 		return MatchSettlement{}, ErrBotMatchOwnership
 	}
 
@@ -342,10 +346,8 @@ func (s *Store) SettleMatchVerified(ctx context.Context, userID, matchID string,
 	if err != nil {
 		return MatchSettlement{}, err
 	}
-	if ticketOwner != "" {
-		if _, err := tx.ExecContext(ctx, `UPDATE bot_matches SET settled_at = now() WHERE match_id = $1`, matchID); err != nil {
-			return MatchSettlement{}, err
-		}
+	if _, err := tx.ExecContext(ctx, `UPDATE bot_matches SET settled_at = now() WHERE match_id = $1`, matchID); err != nil {
+		return MatchSettlement{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return MatchSettlement{}, err
