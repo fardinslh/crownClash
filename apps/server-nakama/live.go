@@ -198,20 +198,21 @@ func (m *liveMatch) MatchLeave(ctx context.Context, logger runtime.Logger, db *s
 		}
 		player := s.players[slot]
 		delete(s.presenceByID, presence.GetUserId())
-		s.players[slot] = nil
 
 		if player != nil && s.started {
 			// Disconnect mid-match = forfeit for the leaver; settle on the
 			// server for both players.
 			s.finished = true
 			if player.role == TeamPlayer {
-				s.state.Status = "victory"
-			} else {
 				s.state.Status = "defeat"
+			} else {
+				s.state.Status = "victory"
 			}
 			s.finishSettlements(ctx, logger, dispatcher)
+			s.players[slot] = nil
 			return state
 		}
+		s.players[slot] = nil
 	}
 	if s.players[0] == nil && s.players[1] == nil {
 		s.finished = true

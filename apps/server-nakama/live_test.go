@@ -55,3 +55,23 @@ func TestStateForEnemyRoleProjectsBothArmyOwners(t *testing.T) {
 		t.Fatalf("projected armies shared ID %q", projected.Armies[0].ID)
 	}
 }
+
+func TestForfeitStatusAwardsVictoryToRemainingPlayer(t *testing.T) {
+	// Case 1: Player 0 (TeamPlayer) leaves mid-match -> canonical status is "defeat"
+	statusPlayer0Leaves := "defeat"
+	if leaverStatus := statusForRole(statusPlayer0Leaves, TeamPlayer); leaverStatus != "defeat" {
+		t.Fatalf("expected leaver (TeamPlayer) to get defeat, got %q", leaverStatus)
+	}
+	if remainingStatus := statusForRole(statusPlayer0Leaves, TeamEnemy); remainingStatus != "victory" {
+		t.Fatalf("expected remaining (TeamEnemy) to get victory, got %q", remainingStatus)
+	}
+
+	// Case 2: Player 1 (TeamEnemy) leaves mid-match -> canonical status is "victory"
+	statusPlayer1Leaves := "victory"
+	if leaverStatus := statusForRole(statusPlayer1Leaves, TeamEnemy); leaverStatus != "defeat" {
+		t.Fatalf("expected leaver (TeamEnemy) to get defeat, got %q", leaverStatus)
+	}
+	if remainingStatus := statusForRole(statusPlayer1Leaves, TeamPlayer); remainingStatus != "victory" {
+		t.Fatalf("expected remaining (TeamPlayer) to get victory, got %q", remainingStatus)
+	}
+}

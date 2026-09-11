@@ -201,12 +201,14 @@ export class GameScene extends Phaser.Scene {
     this.matchActions = [];
     this.liveUnsubscribers = [];
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.cleanup());
-    this.backendConnectPromise = this.careerManager
-      .connect(this.platform)
-      .then(() => undefined)
-      .catch((error: unknown) => {
-        console.warn('[GameScene] Backend unavailable, using local career cache:', error);
-      });
+    this.backendConnectPromise = !this.liveMode
+      ? this.careerManager
+          .connect(this.platform)
+          .then(() => undefined)
+          .catch((error: unknown) => {
+            console.warn('[GameScene] Backend unavailable, using local career cache:', error);
+          })
+      : Promise.resolve();
     this.createUpgradedMatchState();
     if (this.liveMode && launchData?.liveMatch) {
       this.gameState = launchData.liveMatch.state;
