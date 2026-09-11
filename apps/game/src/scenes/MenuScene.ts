@@ -239,7 +239,7 @@ export class MenuScene extends Phaser.Scene {
     playBg.on('pointerdown', () => {
       playBg.disableInteractive();
       playText.setText('SCOUTING...');
-      void careerManager.startBotMatch().then((botMatch) => {
+      void careerManager.startBotMatch(platform).then((botMatch) => {
         if (!this.scene.isActive()) return;
         sounds.playDispatch();
         platform.hapticImpact('medium');

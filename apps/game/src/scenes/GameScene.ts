@@ -2609,7 +2609,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private async restartMatch(): Promise<void> {
-    const botMatch = await this.careerManager.startBotMatch();
+    const botMatch = await this.careerManager.startBotMatch(this.platform);
     if (!this.scene.isActive()) return;
     this.liveClient?.close();
     this.liveClient = undefined;

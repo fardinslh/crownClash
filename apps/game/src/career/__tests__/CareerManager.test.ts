@@ -390,6 +390,49 @@ describe('CareerManager', () => {
     expect(second).toEqual(third);
   });
 
+  it('reconnects once when a bot rematch uses a stale remote socket', async () => {
+    const remoteCareer = createDefaultCareer('rematch_reconnect_player');
+    let logins = 0;
+    let starts = 0;
+    const remoteApi: CareerApi = {
+      login: async () => {
+        logins++;
+        return remoteCareer;
+      },
+      getCareer: async () => remoteCareer,
+      getLedger: async () => [],
+      startBotMatch: async () => {
+        starts++;
+        if (starts === 1) throw new Error('socket_closed');
+        return { matchId: 'bot_retry', battlefieldId: 'royal_ring' };
+      },
+      settleMatch: async () => { throw new Error('not_used_in_test'); },
+      purchaseUpgrade: async () => { throw new Error('not_used_in_test'); },
+      selectCommander: async () => { throw new Error('not_used_in_test'); },
+      getDailyState: async () => { throw new Error('not_used_in_test'); },
+      claimDailyReward: async () => { throw new Error('not_used_in_test'); },
+      getLeagueState: async () => { throw new Error('not_used_in_test'); },
+      claimLeagueReward: async () => { throw new Error('not_used_in_test'); },
+      trackEvents: async () => undefined,
+      openLiveMatch: () => { throw new Error('not_used_in_test'); },
+      isAuthenticated: () => true,
+    };
+    const adapter = {
+      platform: 'browser',
+      getInitDataRaw: () => 'user=rematch_reconnect_player',
+    } as PlatformAdapter;
+    const manager = CareerManager.getInstance('rematch_reconnect_player');
+
+    await manager.connect(adapter, remoteApi);
+    await expect(manager.startBotMatch(adapter)).resolves.toEqual({
+      matchId: 'bot_retry',
+      battlefieldId: 'royal_ring',
+    });
+    expect(logins).toBe(2);
+    expect(starts).toBe(2);
+    expect(manager.isRemoteConnected()).toBe(true);
+  });
+
   it('refreshes the remote career without local overwrite', async () => {
     const remoteCareer = createDefaultCareer('refresh_player');
     const updatedCareer = { ...remoteCareer, coins: 777, trophies: 42 };

@@ -147,8 +147,22 @@ export class CareerManager {
     return settlement;
   }
 
-  public async startBotMatch(): Promise<BotMatchTicket> {
-    if (this.remoteConnected) return this.requireRemoteApi().startBotMatch();
+  public async startBotMatch(platform?: PlatformAdapter): Promise<BotMatchTicket> {
+    if (this.remoteConnected) {
+      const api = this.requireRemoteApi();
+      try {
+        return await api.startBotMatch();
+      } catch (error) {
+        if (!platform) throw error;
+
+        // Messenger/CDN proxies may silently drop an otherwise authenticated
+        // WebSocket while the player is in a bot battle or viewing results.
+        // Re-authenticate once so PLAY AGAIN does not reuse the stale socket.
+        this.remoteConnected = false;
+        await this.connect(platform, api);
+        return api.startBotMatch();
+      }
+    }
     if (!isLocalCareerFallbackAllowed()) throw new Error('backend_required_for_match_start');
     return createLocalBotMatchTicket();
   }

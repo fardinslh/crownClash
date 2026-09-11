@@ -62,6 +62,7 @@ export class NakamaClient implements CareerApi {
       }
     );
 
+    this.socket?.disconnect(false);
     this.socket = this.client.createSocket(this.useSSL, false);
     await this.socket.connect(this.session, false);
 
