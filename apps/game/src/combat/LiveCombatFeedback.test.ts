@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { createInitialGameState, type GameState, type MarchingArmy } from '@crown-clash/game-core';
-import { deriveLiveCombatArrivals } from './LiveCombatFeedback.js';
+import {
+  deriveLiveCombatArrivals,
+  reconcileLiveArmies,
+  stepLiveArmies,
+} from './LiveCombatFeedback.js';
 
 function withArmy(state: GameState, army: MarchingArmy): GameState {
   return { ...state, armies: [army] };
@@ -67,5 +71,78 @@ describe('deriveLiveCombatArrivals', () => {
         remainingUnits: 2,
       }),
     ]);
+  });
+});
+
+describe('stepLiveArmies', () => {
+  it('advances army progress smoothly based on speed and delta', () => {
+    const initial = [army({ progress: 0.1, speed: 0.5 })];
+    const stepped = stepLiveArmies(initial, 0.1);
+
+    expect(stepped[0].progress).toBeCloseTo(0.15, 4);
+  });
+
+  it('caps progress at 0.99 to let the server resolve arrival', () => {
+    const initial = [army({ progress: 0.98, speed: 1.0 })];
+    const stepped = stepLiveArmies(initial, 0.1);
+
+    expect(stepped[0].progress).toBe(0.99);
+  });
+});
+
+describe('reconcileLiveArmies', () => {
+  it('softly blends existing army progress towards the server position', () => {
+    const local = [army({ id: 'live-1', progress: 0.5 })];
+    const server = [army({ id: 'live-1', progress: 0.44 })];
+
+    const result = reconcileLiveArmies(local, server, 0.5);
+    expect(result.reconciledArmies[0].progress).toBeCloseTo(0.47, 4);
+    expect(result.matchedVisualRenames).toEqual([]);
+  });
+
+  it('matches predicted player army with incoming server army and produces rename', () => {
+    const local = [
+      army({
+        id: 'pred_123',
+        owner: 'player',
+        sourceId: 'p_base',
+        targetId: 'n_center',
+        progress: 0.08,
+      }),
+    ];
+    const server = [
+      army({
+        id: 'live_server_player_0',
+        owner: 'player',
+        sourceId: 'p_base',
+        targetId: 'n_center',
+        progress: 0.05,
+      }),
+    ];
+
+    const result = reconcileLiveArmies(local, server, 0.5);
+    expect(result.reconciledArmies).toHaveLength(1);
+    expect(result.reconciledArmies[0].id).toBe('live_server_player_0');
+    expect(result.reconciledArmies[0].progress).toBeCloseTo(0.065, 4);
+    expect(result.matchedVisualRenames).toEqual([
+      { fromId: 'player:pred_123', toId: 'player:live_server_player_0' },
+    ]);
+  });
+
+  it('preserves unacknowledged recent predicted dispatches', () => {
+    const local = [
+      army({
+        id: 'pred_recent',
+        owner: 'player',
+        sourceId: 'p_base',
+        targetId: 'n_bot_left',
+        progress: 0.03,
+      }),
+    ];
+    const server: MarchingArmy[] = [];
+
+    const result = reconcileLiveArmies(local, server);
+    expect(result.reconciledArmies).toHaveLength(1);
+    expect(result.reconciledArmies[0].id).toBe('pred_recent');
   });
 });

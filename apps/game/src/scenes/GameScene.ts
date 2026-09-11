@@ -41,7 +41,11 @@ import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
 import { LiveMatchClient, LiveMatchStarted } from '../api/LiveMatchClient.js';
 import { purchaseUpgradeThroughCareer } from '../upgrades/UpgradePurchaseController.js';
 import { playUpgradeMilestoneCelebration } from '../upgrades/UpgradeMilestoneCelebration.js';
-import { deriveLiveCombatArrivals } from '../combat/LiveCombatFeedback.js';
+import {
+  deriveLiveCombatArrivals,
+  reconcileLiveArmies,
+  stepLiveArmies,
+} from '../combat/LiveCombatFeedback.js';
 import { wholeMatchSeconds } from '../match/MatchPresentation.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
@@ -1183,15 +1187,36 @@ export class GameScene extends Phaser.Scene {
       if (target && sources.length > 0) {
         if (this.liveMode) {
           try {
-            for (const source of sources) {
-              this.liveClient?.sendDispatch(source.id, target.id);
+            const multiDispatch = dispatchMultipleArmies(
+              sources,
+              target,
+              'player',
+              0.5,
+              this.playerArmySpeedMultiplier
+            );
+
+            if (multiDispatch.armies.length > 0) {
+              const predictedArmies = multiDispatch.armies.map((army, idx) => ({
+                ...army,
+                id: `pred_${Date.now()}_${idx}`,
+              }));
+              Object.assign(this.gameState.territories, multiDispatch.updatedSources);
+              this.gameState.armies.push(...predictedArmies);
+              this.updateTerritoryVisuals();
+
+              for (const success of multiDispatch.successes) {
+                if (success.army) {
+                  this.liveClient?.sendDispatch(success.army.sourceId, success.army.targetId);
+                }
+              }
+
+              if (target.owner === 'player') {
+                sounds.playReinforce();
+              } else {
+                sounds.playDispatch();
+              }
+              this.platform.hapticImpact(sources.length > 1 ? 'heavy' : 'medium');
             }
-            if (target.owner === 'player') {
-              sounds.playReinforce();
-            } else {
-              sounds.playDispatch();
-            }
-            this.platform.hapticImpact(sources.length > 1 ? 'heavy' : 'medium');
           } catch (error) {
             console.warn('[GameScene] Live dispatch failed:', error);
             this.showLiveConnectionError();
@@ -1248,6 +1273,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
     if (this.liveMode && this.gameState.status === 'playing') {
+      this.stepLiveMatch(deltaSeconds);
       this.updateHud();
     }
 
@@ -1289,6 +1315,12 @@ export class GameScene extends Phaser.Scene {
     }
     if (budget.ticks > ticks) {
       this.botStepRemainder += (budget.ticks - ticks) * PVP_SIMULATION_TICK_SECONDS;
+    }
+  }
+
+  private stepLiveMatch(deltaSeconds: number): void {
+    if (this.gameState.armies.length > 0) {
+      this.gameState.armies = stepLiveArmies(this.gameState.armies, deltaSeconds);
     }
   }
 
@@ -2636,11 +2668,27 @@ export class GameScene extends Phaser.Scene {
       client.on('state', (state) => {
         if (this.resultModalContainer) return;
         const arrivals = deriveLiveCombatArrivals(this.gameState, state);
-        this.gameState = state;
+        const { reconciledArmies, matchedVisualRenames } = reconcileLiveArmies(
+          this.gameState.armies,
+          state.armies
+        );
+        for (const { fromId, toId } of matchedVisualRenames) {
+          const vis = this.armyVisuals.get(fromId);
+          if (vis) {
+            vis.id = toId;
+            this.armyVisuals.delete(fromId);
+            this.armyVisuals.set(toId, vis);
+          }
+        }
+        this.gameState = {
+          ...state,
+          armies: reconciledArmies,
+        };
         arrivals.forEach((arrival) => this.onCombatArrival(arrival));
       }),
       client.on('command_rejected', ({ code }) => {
         this.spawnFloatingText(LOGICAL_WIDTH / 2, 96, code.replaceAll('_', ' '), '#f87171');
+        this.gameState.armies = this.gameState.armies.filter((a) => !a.id.startsWith('pred_'));
       }),
       client.on('match_result', (result) => {
         const terminalEventRecorded = trackTerminalMatchEvent({
