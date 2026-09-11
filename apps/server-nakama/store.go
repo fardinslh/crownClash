@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +26,7 @@ var (
 	ErrLeagueClaimMismatch      = errors.New("league_claim_id_reused_for_different_rank")
 	ErrCommanderInvalid         = errors.New("invalid_commander")
 	ErrCommanderLocked          = errors.New("commander_locked")
+	ErrBotMatchOwnership        = errors.New("bot_match_owned_by_another_player")
 )
 
 type Store struct {
@@ -33,6 +36,28 @@ type Store struct {
 
 func NewStore(db *sql.DB) *Store {
 	return &Store{db: db, nowFn: time.Now}
+}
+
+func (s *Store) CreateBotMatch(ctx context.Context, userID string) (BotMatchTicket, error) {
+	if _, err := s.GetOrCreateCareer(ctx, userID); err != nil {
+		return BotMatchTicket{}, err
+	}
+	randomBytes := make([]byte, 17)
+	if _, err := rand.Read(randomBytes); err != nil {
+		return BotMatchTicket{}, err
+	}
+	ticket := BotMatchTicket{
+		MatchID:       "bot_" + hex.EncodeToString(randomBytes[1:]),
+		BattlefieldID: battlefieldIDs[int(randomBytes[0])%len(battlefieldIDs)],
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO bot_matches (match_id, player_id, battlefield_id)
+		VALUES ($1, $2, $3)
+	`, ticket.MatchID, userID, ticket.BattlefieldID)
+	if err != nil {
+		return BotMatchTicket{}, err
+	}
+	return ticket, nil
 }
 
 type playerRow struct {
@@ -275,7 +300,23 @@ func (s *Store) SettleMatchVerified(ctx context.Context, userID, matchID string,
 	if existing, err := findStoredSettlement(ctx, tx, matchID); err != nil {
 		return MatchSettlement{}, err
 	} else if existing != nil {
+		if existing.NewCareer.PlayerID != userID {
+			return MatchSettlement{}, ErrBotMatchOwnership
+		}
 		return *existing, nil
+	}
+
+	battlefieldID := "crown_cross"
+	var ticketOwner string
+	ticketErr := tx.QueryRowContext(ctx, `
+		SELECT player_id, battlefield_id
+		FROM bot_matches WHERE match_id = $1 FOR UPDATE
+	`, matchID).Scan(&ticketOwner, &battlefieldID)
+	if ticketErr != nil && !errors.Is(ticketErr, sql.ErrNoRows) {
+		return MatchSettlement{}, ticketErr
+	}
+	if ticketErr == nil && ticketOwner != userID {
+		return MatchSettlement{}, ErrBotMatchOwnership
 	}
 
 	career, err := getCareerForUpdate(ctx, tx, userID)
@@ -287,16 +328,24 @@ func (s *Store) SettleMatchVerified(ctx context.Context, userID, matchID string,
 	if existing, err := findStoredSettlement(ctx, tx, matchID); err != nil {
 		return MatchSettlement{}, err
 	} else if existing != nil {
+		if existing.NewCareer.PlayerID != userID {
+			return MatchSettlement{}, ErrBotMatchOwnership
+		}
 		return *existing, nil
 	}
 
-	_, summary, err := SimulateBotBattle(actions, UpgradeModifiers(career))
+	_, summary, err := SimulateBotBattleOnBattlefield(actions, UpgradeModifiers(career), battlefieldID)
 	if err != nil {
 		return MatchSettlement{}, err
 	}
 	settlement, err := s.persistSettlement(ctx, tx, career, summary.Status, summary.Stats, matchID)
 	if err != nil {
 		return MatchSettlement{}, err
+	}
+	if ticketOwner != "" {
+		if _, err := tx.ExecContext(ctx, `UPDATE bot_matches SET settled_at = now() WHERE match_id = $1`, matchID); err != nil {
+			return MatchSettlement{}, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return MatchSettlement{}, err

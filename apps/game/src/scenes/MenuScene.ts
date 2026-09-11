@@ -238,9 +238,19 @@ export class MenuScene extends Phaser.Scene {
     });
     playBg.on('pointerdown', () => {
       playBg.disableInteractive();
-      sounds.playDispatch();
-      platform.hapticImpact('medium');
-      this.scene.start('GameScene', { source: 'menu' });
+      playText.setText('SCOUTING...');
+      void careerManager.startBotMatch().then((botMatch) => {
+        if (!this.scene.isActive()) return;
+        sounds.playDispatch();
+        platform.hapticImpact('medium');
+        this.scene.start('GameScene', { source: 'menu', botMatch });
+      }).catch((error: unknown) => {
+        console.error('[MenuScene] Match start failed:', error);
+        if (!this.scene.isActive()) return;
+        playText.setText('TRY AGAIN');
+        playBg.setInteractive({ useHandCursor: true });
+        platform.hapticNotification('error');
+      });
     });
 
     const secondaryButtonStyle = (online: boolean): { fill: number; stroke: number } => ({

@@ -251,6 +251,20 @@ BEGIN
 END $$;
 `,
 	},
+	{
+		name: "010_battlefields",
+		sql: `
+CREATE TABLE IF NOT EXISTS bot_matches (
+  match_id TEXT PRIMARY KEY,
+  player_id TEXT NOT NULL REFERENCES players(id),
+  battlefield_id TEXT NOT NULL CHECK (battlefield_id IN ('crown_cross', 'twin_passes', 'royal_ring')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  settled_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_bot_matches_player_created
+  ON bot_matches (player_id, created_at DESC);
+`,
+	},
 }
 
 func RunMigrations(ctx context.Context, db *sql.DB) error {

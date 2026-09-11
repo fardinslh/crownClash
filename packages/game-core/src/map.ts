@@ -1,5 +1,6 @@
 import { Territory } from './types.js';
 import type { PlayerUpgradeModifiers } from './upgrades.js';
+import { normalizeBattlefieldId, type BattlefieldId } from './battlefields.js';
 
 export const LOGICAL_WIDTH = 400;
 export const LOGICAL_HEIGHT = 720;
@@ -18,9 +19,10 @@ export function createDefaultTerritories(
     startingUnits: 20,
     productionRateMultiplier: 1,
     armySpeedMultiplier: 1,
-  }
+  },
+  battlefieldId: BattlefieldId = 'crown_cross'
 ): Record<string, Territory> {
-  return {
+  const territories: Record<string, Territory> = {
     'p_base': {
       id: 'p_base',
       name: 'Player Fortress',
@@ -139,4 +141,24 @@ export function createDefaultTerritories(
       type: 'barracks',
     },
   };
+
+  const id = normalizeBattlefieldId(battlefieldId);
+  if (id === 'twin_passes') {
+    Object.assign(territories.n_bot_left, { x: 105, y: 505, units: 6, type: 'stable' });
+    Object.assign(territories.n_bot_right, { x: 295, y: 505, units: 6, type: 'stable' });
+    Object.assign(territories.n_mid_left, { x: 72, y: 360, units: 12, type: 'barracks' });
+    Object.assign(territories.n_mid_right, { x: 328, y: 360, units: 12, type: 'barracks' });
+    Object.assign(territories.n_center, { x: 200, y: 360, units: 20 });
+    Object.assign(territories.n_top_left, { x: 105, y: 215, units: 6, type: 'stable' });
+    Object.assign(territories.n_top_right, { x: 295, y: 215, units: 6, type: 'stable' });
+  } else if (id === 'royal_ring') {
+    Object.assign(territories.n_bot_left, { x: 140, y: 500, units: 9, type: 'barracks' });
+    Object.assign(territories.n_bot_right, { x: 260, y: 500, units: 9, type: 'barracks' });
+    Object.assign(territories.n_mid_left, { x: 65, y: 360, units: 7, type: 'stable' });
+    Object.assign(territories.n_mid_right, { x: 335, y: 360, units: 7, type: 'stable' });
+    Object.assign(territories.n_center, { x: 200, y: 360, units: 10 });
+    Object.assign(territories.n_top_left, { x: 140, y: 220, units: 9, type: 'barracks' });
+    Object.assign(territories.n_top_right, { x: 260, y: 220, units: 9, type: 'barracks' });
+  }
+  return territories;
 }

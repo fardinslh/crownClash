@@ -233,6 +233,7 @@ describe('CareerManager', () => {
       login: async () => remoteCareer,
       getCareer: async () => remoteCareer,
       getLedger: async () => [],
+      startBotMatch: async () => ({ matchId: 'bot_test', battlefieldId: 'crown_cross' }),
       settleMatch: async (matchId) => ({
         matchId,
         status: 'victory',
@@ -321,6 +322,11 @@ describe('CareerManager', () => {
       trophies: 0,
     });
 
+    await expect(manager.startBotMatch()).resolves.toEqual({
+      matchId: 'bot_test',
+      battlefieldId: 'crown_cross',
+    });
+
     const settlement = await manager.recordMatchResultRemote([], 'remote_match_1');
     expect(settlement.newCareer.coins).toBe(140);
     expect(manager.getCareer().coins).toBe(140);
@@ -342,6 +348,7 @@ describe('CareerManager', () => {
       },
       getCareer: async () => remoteCareer,
       getLedger: async () => [],
+      startBotMatch: async () => ({ matchId: 'bot_test', battlefieldId: 'crown_cross' }),
       settleMatch: async () => {
         throw new Error('not_used_in_test');
       },
@@ -391,6 +398,7 @@ describe('CareerManager', () => {
       login: async () => remoteCareer,
       getCareer: async () => careerToServe,
       getLedger: async () => [],
+      startBotMatch: async () => ({ matchId: 'bot_test', battlefieldId: 'crown_cross' }),
       settleMatch: async () => {
         throw new Error('not_used_in_test');
       },

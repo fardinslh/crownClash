@@ -295,7 +295,22 @@ func PurchaseUpgrade(career PlayerCareer, upgrade UpgradeType, purchaseID string
 }
 
 func CreateDefaultTerritories(player, enemy PlayerUpgradeModifiers) map[string]Territory {
-	return map[string]Territory{
+	return CreateTerritoriesForBattlefield(player, enemy, "crown_cross")
+}
+
+var battlefieldIDs = [...]string{"crown_cross", "twin_passes", "royal_ring"}
+
+func IsBattlefieldID(value string) bool {
+	for _, battlefieldID := range battlefieldIDs {
+		if value == battlefieldID {
+			return true
+		}
+	}
+	return false
+}
+
+func CreateTerritoriesForBattlefield(player, enemy PlayerUpgradeModifiers, battlefieldID string) map[string]Territory {
+	territories := map[string]Territory{
 		"p_base":      {ID: "p_base", Name: "Player Fortress", X: 200, Y: 610, Radius: 36, Owner: TeamPlayer, Units: player.StartingUnits, MaxUnits: 65, ProductionRate: 1.2 * player.ProductionRateMultiplier, Tier: 3, Type: TerritoryFortress},
 		"e_base":      {ID: "e_base", Name: "Enemy Citadel", X: 200, Y: 110, Radius: 36, Owner: TeamEnemy, Units: enemy.StartingUnits, MaxUnits: 65, ProductionRate: 1.2 * enemy.ProductionRateMultiplier, Tier: 3, Type: TerritoryFortress},
 		"n_bot_left":  {ID: "n_bot_left", Name: "Southwest Barracks", X: 85, Y: 485, Radius: 27, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.9, Tier: 1, Type: TerritoryBarracks},
@@ -306,6 +321,33 @@ func CreateDefaultTerritories(player, enemy PlayerUpgradeModifiers) map[string]T
 		"n_top_left":  {ID: "n_top_left", Name: "Northwest Stable", X: 85, Y: 235, Radius: 27, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.9, Tier: 1, Type: TerritoryStable},
 		"n_top_right": {ID: "n_top_right", Name: "Northeast Barracks", X: 315, Y: 235, Radius: 27, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.9, Tier: 1, Type: TerritoryBarracks},
 	}
+	if battlefieldID == "twin_passes" {
+		applyTerritoryLayout(territories, "n_bot_left", 105, 505, 6, TerritoryStable)
+		applyTerritoryLayout(territories, "n_bot_right", 295, 505, 6, TerritoryStable)
+		applyTerritoryLayout(territories, "n_mid_left", 72, 360, 12, TerritoryBarracks)
+		applyTerritoryLayout(territories, "n_mid_right", 328, 360, 12, TerritoryBarracks)
+		applyTerritoryLayout(territories, "n_center", 200, 360, 20, TerritoryFortress)
+		applyTerritoryLayout(territories, "n_top_left", 105, 215, 6, TerritoryStable)
+		applyTerritoryLayout(territories, "n_top_right", 295, 215, 6, TerritoryStable)
+	} else if battlefieldID == "royal_ring" {
+		applyTerritoryLayout(territories, "n_bot_left", 140, 500, 9, TerritoryBarracks)
+		applyTerritoryLayout(territories, "n_bot_right", 260, 500, 9, TerritoryBarracks)
+		applyTerritoryLayout(territories, "n_mid_left", 65, 360, 7, TerritoryStable)
+		applyTerritoryLayout(territories, "n_mid_right", 335, 360, 7, TerritoryStable)
+		applyTerritoryLayout(territories, "n_center", 200, 360, 10, TerritoryFortress)
+		applyTerritoryLayout(territories, "n_top_left", 140, 220, 9, TerritoryBarracks)
+		applyTerritoryLayout(territories, "n_top_right", 260, 220, 9, TerritoryBarracks)
+	}
+	return territories
+}
+
+func applyTerritoryLayout(territories map[string]Territory, id string, x, y float64, units int, territoryType TerritoryType) {
+	territory := territories[id]
+	territory.X = x
+	territory.Y = y
+	territory.Units = units
+	territory.Type = territoryType
+	territories[id] = territory
 }
 
 func DefaultModifiers() PlayerUpgradeModifiers {
@@ -313,8 +355,15 @@ func DefaultModifiers() PlayerUpgradeModifiers {
 }
 
 func CreateInitialGameState(player, enemy PlayerUpgradeModifiers) GameState {
+	return CreateInitialGameStateForBattlefield(player, enemy, "crown_cross")
+}
+
+func CreateInitialGameStateForBattlefield(player, enemy PlayerUpgradeModifiers, battlefieldID string) GameState {
+	if !IsBattlefieldID(battlefieldID) {
+		battlefieldID = "crown_cross"
+	}
 	return GameState{
-		Territories: CreateDefaultTerritories(player, enemy), Armies: []MarchingArmy{},
+		BattlefieldID: battlefieldID, Territories: CreateTerritoriesForBattlefield(player, enemy, battlefieldID), Armies: []MarchingArmy{},
 		Status: "playing", TimeLimitSeconds: PvpTimeLimitSeconds,
 		Stats: MatchStats{},
 	}
@@ -569,15 +618,19 @@ func evaluateAIMove(state GameState) (string, string, bool) {
 // is always derived from this server-side simulation, so skipping cannot
 // inflate rewards.
 func SimulatePvpBattle(actions []PvpAction, player, enemy PlayerUpgradeModifiers) (GameState, PvpBattleSummary, error) {
-	return simulateBattle(actions, player, enemy)
+	return simulateBattle(actions, player, enemy, "crown_cross")
 }
 
 // SimulateBotBattle replays a single-player match against the standard AI.
 func SimulateBotBattle(actions []PvpAction, player PlayerUpgradeModifiers) (GameState, PvpBattleSummary, error) {
-	return simulateBattle(actions, player, DefaultModifiers())
+	return SimulateBotBattleOnBattlefield(actions, player, "crown_cross")
 }
 
-func simulateBattle(actions []PvpAction, player, enemy PlayerUpgradeModifiers) (GameState, PvpBattleSummary, error) {
+func SimulateBotBattleOnBattlefield(actions []PvpAction, player PlayerUpgradeModifiers, battlefieldID string) (GameState, PvpBattleSummary, error) {
+	return simulateBattle(actions, player, DefaultModifiers(), battlefieldID)
+}
+
+func simulateBattle(actions []PvpAction, player, enemy PlayerUpgradeModifiers, battlefieldID string) (GameState, PvpBattleSummary, error) {
 	if len(actions) > MaxPvpActions {
 		return GameState{}, PvpBattleSummary{}, ErrPvpTooManyActions
 	}
@@ -591,7 +644,7 @@ func simulateBattle(actions []PvpAction, player, enemy PlayerUpgradeModifiers) (
 		}
 		previousTime = action.AtSeconds
 	}
-	state := CreateInitialGameState(player, enemy)
+	state := CreateInitialGameStateForBattlefield(player, enemy, battlefieldID)
 	accumulators := map[string]float64{}
 	currentTime := 0.0
 	nextAITick := PvpAITickSeconds

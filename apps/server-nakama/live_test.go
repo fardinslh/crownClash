@@ -34,6 +34,7 @@ func TestLiveMatchStartIDMatchesPlayerSettlementID(t *testing.T) {
 
 func TestStateForEnemyRoleProjectsBothArmyOwners(t *testing.T) {
 	state := GameState{
+		BattlefieldID: "royal_ring",
 		Armies: []MarchingArmy{
 			{ID: liveArmyID(100, TeamPlayer, 0), Owner: TeamPlayer},
 			{ID: liveArmyID(100, TeamEnemy, 0), Owner: TeamEnemy},
@@ -41,6 +42,9 @@ func TestStateForEnemyRoleProjectsBothArmyOwners(t *testing.T) {
 	}
 
 	projected := stateForRole(state, TeamEnemy)
+	if projected.BattlefieldID != "royal_ring" {
+		t.Fatalf("enemy projection lost battlefield ID: %q", projected.BattlefieldID)
+	}
 	if projected.Armies[0].Owner != TeamEnemy {
 		t.Fatalf("expected opponent army to project as enemy, got %q", projected.Armies[0].Owner)
 	}

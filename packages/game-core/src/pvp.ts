@@ -3,6 +3,7 @@ import { evaluateAiMove } from './ai.js';
 import { createInitialGameState, stepSimulation } from './simulation.js';
 import type { PlayerUpgradeModifiers } from './upgrades.js';
 import type { GameState, MatchStats } from './types.js';
+import type { BattlefieldId } from './battlefields.js';
 
 export const PVP_TIME_LIMIT_SECONDS = 90;
 export const PVP_AI_TICK_SECONDS = 1.8;
@@ -101,6 +102,7 @@ export interface PvpSimulationOptions {
   playerModifiers?: PlayerUpgradeModifiers;
   enemyModifiers?: PlayerUpgradeModifiers;
   actions: readonly PvpAction[];
+  battlefieldId?: BattlefieldId;
 }
 
 export interface PvpSimulationResult {
@@ -189,6 +191,7 @@ export function simulatePvpBattle(options: PvpSimulationOptions): PvpSimulationR
     timeLimit: PVP_TIME_LIMIT_SECONDS,
     playerModifiers: options.playerModifiers,
     enemyModifiers: options.enemyModifiers,
+    battlefieldId: options.battlefieldId,
   });
   let accumulators: Record<string, number> = {};
   let currentTime = 0;

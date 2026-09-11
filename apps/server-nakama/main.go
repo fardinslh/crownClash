@@ -80,6 +80,9 @@ func InitModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runti
 	if err := rpc("career/get", rpcGetCareer(store)); err != nil {
 		return err
 	}
+	if err := rpc("match/start", rpcStartBotMatch(store)); err != nil {
+		return err
+	}
 	if err := rpc("ledger/get", rpcGetLedger(store)); err != nil {
 		return err
 	}
@@ -368,6 +371,24 @@ func rpcGetCareer(store *Store) rpcFn {
 			return "", err
 		}
 		response, _ := json.Marshal(map[string]any{"career": career, "rank": GetRankTier(career.Trophies)})
+		return string(response), nil
+	}
+}
+
+func rpcStartBotMatch(store *Store) rpcFn {
+	return func(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, payload string) (string, error) {
+		userID, ok := ctx.Value(runtime.RUNTIME_CTX_USER_ID).(string)
+		if !ok || userID == "" {
+			return "", errors.New("unauthenticated")
+		}
+		if payload != "" && payload != "{}" {
+			return "", errors.New("invalid_payload")
+		}
+		ticket, err := store.CreateBotMatch(ctx, userID)
+		if err != nil {
+			return "", err
+		}
+		response, _ := json.Marshal(map[string]any{"ticket": ticket})
 		return string(response), nil
 	}
 }
@@ -763,7 +784,7 @@ const (
 var analyticsEventDefinitions = map[string]analyticsEventDefinition{
 	"session_start":         {properties: map[string]analyticsPropertyKind{}},
 	"menu_viewed":           {properties: analyticsProperties("rankId")},
-	"match_start":           {properties: analyticsProperties("matchId", "mode", "source")},
+	"match_start":           {properties: analyticsProperties("matchId", "mode", "source"), optionalProperties: analyticsProperties("battlefieldId")},
 	"match_end":             {properties: analyticsPropertiesWithDuration("matchId", "mode", "result")},
 	"match_quit":            {properties: analyticsPropertiesWithDuration("matchId", "mode")},
 	"match_reward_received": {properties: analyticsProperties("matchId", "mode")},
@@ -897,7 +918,10 @@ func hasValidAnalyticsPropertyEnums(event AnalyticsEventRecord) bool {
 	}
 	switch event.Name {
 	case "match_start":
-		return oneOf(value("mode"), "bot", "live") && oneOf(value("source"), "menu", "rematch")
+		battlefieldID, hasBattlefieldID := event.Props["battlefieldId"]
+		return oneOf(value("mode"), "bot", "live") &&
+			oneOf(value("source"), "menu", "rematch") &&
+			(!hasBattlefieldID || oneOf(battlefieldID.(string), "crown_cross", "twin_passes", "royal_ring"))
 	case "match_end":
 		return oneOf(value("mode"), "bot", "live") && oneOf(value("result"), "victory", "defeat", "draw")
 	case "match_quit":

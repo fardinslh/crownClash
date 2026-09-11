@@ -44,16 +44,17 @@ type livePlayerState struct {
 }
 
 type liveMatchState struct {
-	store        *Store
-	players      [liveMaxPlayers]*livePlayerState
-	presenceByID map[string]int
-	state        GameState
-	accumulators map[string]float64
-	startedAt    int64
-	started      bool
-	finished     bool
-	allowedUsers []string // ranked matches: only matched user IDs may join
-	inviteCode   string   // invite matches: joiner must supply this code
+	store         *Store
+	players       [liveMaxPlayers]*livePlayerState
+	presenceByID  map[string]int
+	state         GameState
+	accumulators  map[string]float64
+	startedAt     int64
+	started       bool
+	finished      bool
+	allowedUsers  []string // ranked matches: only matched user IDs may join
+	inviteCode    string   // invite matches: joiner must supply this code
+	battlefieldID string
 }
 
 // liveMatch implements runtime.Match for "live_match" module matches.
@@ -88,11 +89,12 @@ func (m *liveMatch) MatchInit(ctx context.Context, logger runtime.Logger, db *sq
 		}
 	}
 	state := &liveMatchState{
-		store:        m.store,
-		presenceByID: make(map[string]int),
-		accumulators: make(map[string]float64),
-		allowedUsers: allowedUsers,
-		inviteCode:   inviteCode,
+		store:         m.store,
+		presenceByID:  make(map[string]int),
+		accumulators:  make(map[string]float64),
+		allowedUsers:  allowedUsers,
+		inviteCode:    inviteCode,
+		battlefieldID: battlefieldIDs[rand.Intn(len(battlefieldIDs))],
 	}
 	return state, liveTickRate, label
 }
@@ -169,9 +171,10 @@ func (m *liveMatch) MatchJoin(ctx context.Context, logger runtime.Logger, db *sq
 	}
 
 	if s.players[0] != nil && s.players[1] != nil && !s.started {
-		s.state = CreateInitialGameState(
+		s.state = CreateInitialGameStateForBattlefield(
 			UpgradeModifiers(s.players[0].career),
 			UpgradeModifiers(s.players[1].career),
+			s.battlefieldID,
 		)
 		s.startedAt = time.Now().UnixMilli()
 		s.started = true

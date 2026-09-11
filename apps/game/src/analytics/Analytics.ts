@@ -1,4 +1,4 @@
-import type { UpgradeFailureReason, UpgradeType } from '@crown-clash/game-core';
+import type { BattlefieldId, UpgradeFailureReason, UpgradeType } from '@crown-clash/game-core';
 import type { TutorialStepId } from '../tutorial/TutorialController.js';
 
 export const ANALYTICS_SCHEMA_VERSION = 1;
@@ -17,6 +17,7 @@ export type AnalyticsEventInput =
       matchId: string;
       mode: 'bot' | 'live';
       source: 'menu' | 'rematch';
+      battlefieldId?: BattlefieldId;
     }
   | {
       name: 'match_end';

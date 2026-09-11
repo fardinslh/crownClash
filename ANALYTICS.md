@@ -8,7 +8,7 @@ derives player identity from authentication and records receipt time separately.
 | --- | --- | --- | --- | --- |
 | `session_start` | App startup | None | Client lifecycle | Session starts |
 | `menu_viewed` | Menu finishes loading | `rankId` | Client view | Session to play |
-| `match_start` | Bot or live match starts | `matchId`, `mode`, `source` | Client action | Play starts |
+| `match_start` | Bot or live match starts | `matchId`, `mode`, `source`; optional `battlefieldId` (`crown_cross`, `twin_passes`, `royal_ring`) | Client action | Play starts by map |
 | `match_end` | Server settlement received | `matchId`, `mode`, `result`, `durationSeconds` | Server-confirmed result | Completion and win rate |
 | `match_quit` | Live connection ends before a result | `matchId`, `mode`, `durationSeconds` | Client connection state | Live abandonment |
 | `match_reward_received` | Server settlement applied | Client: `matchId`, `mode`. Server: `baseCoins`, `speedBonus`, `dominationBonus`, `streakBonus`, `treasuryBonus`, `totalCoins`, `trophyDelta`, `resultingCoins`, `resultingTrophies` | Server-confirmed settlement | Result to reward |

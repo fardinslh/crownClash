@@ -107,6 +107,11 @@ type PvpAction struct {
 	TargetID  string  `json:"targetId"`
 }
 
+type BotMatchTicket struct {
+	MatchID       string `json:"matchId"`
+	BattlefieldID string `json:"battlefieldId"`
+}
+
 type PvpDefenseSnapshot struct {
 	PlayerID    string                 `json:"playerId"`
 	DisplayName string                 `json:"displayName"`
@@ -284,6 +289,7 @@ type MarchingArmy struct {
 }
 
 type GameState struct {
+	BattlefieldID      string               `json:"battlefieldId,omitempty"`
 	Territories        map[string]Territory `json:"territories"`
 	Armies             []MarchingArmy       `json:"armies"`
 	Status             string               `json:"status"`

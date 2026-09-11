@@ -31,6 +31,8 @@ import {
   getKingdomLevel,
   isCommanderUnlocked,
   normalizeCommanderId,
+  BotMatchTicket,
+  createLocalBotMatchTicket,
 } from '@crown-clash/game-core';
 import type { PlatformAdapter } from '@crown-clash/platform';
 import type { CareerApi } from '../api/GameApiClient.js';
@@ -143,6 +145,12 @@ export class CareerManager {
     const settlement = await this.requireRemoteApi().settleMatch(matchId, actions);
     this.applyRemoteState(settlement.newCareer, settlement.ledgerEntries);
     return settlement;
+  }
+
+  public async startBotMatch(): Promise<BotMatchTicket> {
+    if (this.remoteConnected) return this.requireRemoteApi().startBotMatch();
+    if (!isLocalCareerFallbackAllowed()) throw new Error('backend_required_for_match_start');
+    return createLocalBotMatchTicket();
   }
 
   public async purchaseUpgradeRemote(type: UpgradeType): Promise<UpgradePurchaseResult> {

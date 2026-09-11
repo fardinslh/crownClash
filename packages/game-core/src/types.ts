@@ -58,6 +58,7 @@ export interface MatchStats {
 }
 
 export interface GameState {
+  battlefieldId?: import('./battlefields.js').BattlefieldId;
   territories: Record<string, Territory>;
   armies: MarchingArmy[];
   status: MatchStatus;

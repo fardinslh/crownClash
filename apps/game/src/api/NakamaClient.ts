@@ -13,6 +13,7 @@ import type {
   UpgradeType,
   CommanderId,
   CommanderSelectionResult,
+  BotMatchTicket,
 } from '@crown-clash/game-core';
 import type { PlatformAdapter } from '@crown-clash/platform';
 import type { CareerApi, TrackedAnalyticsEvent } from './GameApiClient.js';
@@ -77,6 +78,11 @@ export class NakamaClient implements CareerApi {
   public async getLedger(limit = 100): Promise<EconomyLedgerEntry[]> {
     const result = await this.rpc('ledger/get', JSON.stringify({ limit }));
     return (JSON.parse(result) as { entries: EconomyLedgerEntry[] }).entries;
+  }
+
+  public async startBotMatch(): Promise<BotMatchTicket> {
+    const result = await this.rpc('match/start', '');
+    return (JSON.parse(result) as { ticket: BotMatchTicket }).ticket;
   }
 
   public async settleMatch(

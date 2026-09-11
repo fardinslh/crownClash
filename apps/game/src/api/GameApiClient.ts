@@ -12,6 +12,7 @@ import type {
   UpgradeType,
   CommanderId,
   CommanderSelectionResult,
+  BotMatchTicket,
 } from '@crown-clash/game-core';
 import type { PlatformAdapter } from '@crown-clash/platform';
 import type { LiveMatchClient } from './LiveMatchClient.js';
@@ -29,6 +30,7 @@ export interface CareerApi {
   login(platform: PlatformAdapter): Promise<PlayerCareer>;
   getCareer(): Promise<PlayerCareer>;
   getLedger(limit?: number): Promise<EconomyLedgerEntry[]>;
+  startBotMatch(): Promise<BotMatchTicket>;
   settleMatch(matchId: string, actions: readonly PvpAction[]): Promise<MatchSettlement>;
   purchaseUpgrade(type: UpgradeType, purchaseId: string): Promise<UpgradePurchaseResult>;
   selectCommander(commanderId: CommanderId): Promise<CommanderSelectionResult>;

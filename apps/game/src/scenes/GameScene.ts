@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
 import {
+  BattlefieldId,
+  BotMatchTicket,
   calculateDispatchUnits,
   CombatResult,
   createInitialGameState,
@@ -8,6 +10,7 @@ import {
   consumeSimulationTicks,
   evaluateAiMove,
   GameState,
+  getBattlefield,
   getPlayerUpgradeModifiers,
   getLeagueProgress,
   getUpgradeCardViewModel,
@@ -106,7 +109,6 @@ export class GameScene extends Phaser.Scene {
 
   // UI HUD Elements (Clean Glassmorphic Command Console)
   private timerText!: Phaser.GameObjects.Text;
-  private hudPlayerText!: Phaser.GameObjects.Text;
   private playerBar!: Phaser.GameObjects.Rectangle;
   private enemyBar!: Phaser.GameObjects.Rectangle;
   private neutralBar!: Phaser.GameObjects.Rectangle;
@@ -122,6 +124,7 @@ export class GameScene extends Phaser.Scene {
   private careerSubscription?: () => void;
   private playerArmySpeedMultiplier = 1;
   private activeMatchId = '';
+  private battlefieldId: BattlefieldId = 'crown_cross';
   private backendConnectPromise: Promise<void> | null = null;
   private resultPending = false;
   private liveMode = false;
@@ -178,12 +181,19 @@ export class GameScene extends Phaser.Scene {
       mode?: 'bot' | 'live';
       liveClient?: LiveMatchClient;
       liveMatch?: LiveMatchStarted;
+      botMatch?: BotMatchTicket;
     } | undefined;
     this.liveMode = launchData?.mode === 'live';
     this.liveClient = launchData?.liveClient;
     this.liveOpponentName =
       launchData?.liveMatch?.opponentName || 'Opponent';
-    this.activeMatchId = this.createMatchId();
+    if (!this.liveMode && !launchData?.botMatch) {
+      console.error('[GameScene] Missing server-issued bot match ticket');
+      this.scene.start('MenuScene');
+      return;
+    }
+    this.activeMatchId = launchData?.botMatch?.matchId ?? '';
+    this.battlefieldId = launchData?.botMatch?.battlefieldId ?? 'crown_cross';
     this.matchActions = [];
     this.liveUnsubscribers = [];
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.cleanup());
@@ -197,12 +207,14 @@ export class GameScene extends Phaser.Scene {
     if (this.liveMode && launchData?.liveMatch) {
       this.gameState = launchData.liveMatch.state;
       this.activeMatchId = launchData.liveMatch.matchId;
+      this.battlefieldId = launchData.liveMatch.state.battlefieldId ?? 'crown_cross';
     }
     trackEvent({
       name: 'match_start',
       matchId: this.activeMatchId,
       mode: this.liveMode ? 'live' : 'bot',
       source: launchData?.source ?? 'menu',
+      battlefieldId: this.battlefieldId,
     });
     if (this.liveMode && launchData?.liveMatch) {
       this.bindLiveMatch(this.liveClient);
@@ -257,6 +269,10 @@ export class GameScene extends Phaser.Scene {
 
     // 4. Create HUD
     this.createHud();
+
+    // Compact, non-blocking reveal: enough context to notice the map without
+    // covering towers or delaying input.
+    this.showBattlefieldReveal();
 
     // 5. Setup Pointer Input Listeners
     this.setupInputs();
@@ -544,7 +560,6 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(96);
 
-    this.hudPlayerText = playerText;
 
     const textWidth = Math.ceil(playerText.width);
     const playerPillWidth = Math.min(100, Math.max(74, textWidth + 14));
@@ -1275,6 +1290,41 @@ export class GameScene extends Phaser.Scene {
     if (budget.ticks > ticks) {
       this.botStepRemainder += (budget.ticks - ticks) * PVP_SIMULATION_TICK_SECONDS;
     }
+  }
+
+  private showBattlefieldReveal(): void {
+    const battlefield = getBattlefield(this.battlefieldId);
+    const reveal = this.add.container(82, 92).setDepth(94);
+    const shadow = this.add.rectangle(0, 2, 132, 30, 0x000000, 0.38);
+    const panel = this.add
+      .rectangle(0, 0, 132, 28, 0x0b1220, 0.96)
+      .setStrokeStyle(1.5, battlefield.accent, 0.95);
+    const title = this.add
+      .text(0, 0, `◆ ${battlefield.name.toUpperCase()}`, {
+        fontFamily: FONT_FAMILY,
+        fontSize: '10px',
+        fontStyle: '900',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    reveal.add([shadow, panel, title]);
+
+    if (this.reducedMotion) {
+      this.time.delayedCall(1_300, () => reveal.destroy());
+      return;
+    }
+    this.tweens.add({
+      targets: reveal,
+      y: 84,
+      alpha: 0,
+      delay: 950,
+      duration: 320,
+      ease: 'Sine.easeIn',
+      onComplete: () => reveal.destroy(),
+    });
   }
 
   private recordDispatchActions(armies: readonly MarchingArmy[]): void {
@@ -2281,7 +2331,15 @@ export class GameScene extends Phaser.Scene {
     btnBg.on('pointerdown', () => {
       sounds.playDispatch();
       this.platform.hapticSelection();
-      this.restartMatch();
+      btnBg.disableInteractive();
+      btnText.setText('SCOUTING...');
+      void this.restartMatch().catch((error: unknown) => {
+        console.error('[GameScene] Rematch start failed:', error);
+        if (!this.scene.isActive()) return;
+        btnText.setText('TRY AGAIN');
+        btnBg.setInteractive({ useHandCursor: true });
+        this.platform.hapticNotification('error');
+      });
     });
 
     // Native Messenger Share Button
@@ -2550,63 +2608,12 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private createMatchId(): string {
-    return `match_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-  }
-
-  private restartMatch(): void {
-    if (this.resultModalContainer) {
-      this.resultModalContainer.destroy();
-      this.resultModalContainer = undefined;
-    }
-
-    // Leave any finished live/raid session behind and start a fresh bot match.
+  private async restartMatch(): Promise<void> {
+    const botMatch = await this.careerManager.startBotMatch();
+    if (!this.scene.isActive()) return;
     this.liveClient?.close();
     this.liveClient = undefined;
-    this.liveMode = false;
-    this.liveOpponentName = 'Opponent';
-    this.enemyArmySpeedMultiplier = 1;
-    this.resultPending = false;
-    this.hudPlayerText.setText(this.computePlayerHudLabel());
-
-    // Destroy all army visuals
-    for (const visual of this.armyVisuals.values()) {
-      visual.container.destroy();
-    }
-    this.armyVisuals.clear();
-
-    // Reset state & restart scene cleanly
-    this.activeMatchId = this.createMatchId();
-    this.matchActions = [];
-    trackEvent({
-      name: 'match_start',
-      matchId: this.activeMatchId,
-      mode: 'bot',
-      source: 'rematch',
-    });
-    this.createUpgradedMatchState();
-    this.accumulators = {};
-    this.selectedSourceIds = [];
-    this.hoveredTargetId = null;
-    this.lastHoveredFriendlyId = null;
-    for (const ring of this.selectionRings.values()) {
-      ring.setVisible(false);
-    }
-    this.dragGraphics.clear();
-    this.dragBadgeContainer.setVisible(false);
-    this.aiNextTick = PVP_AI_TICK_SECONDS;
-    this.botStepRemainder = 0;
-    this.lastHeartbeatSecond = -1;
-
-    // Restart atmospheric battle music
-    sounds.startBattleMusic();
-
-    // Reset territory objects
-    this.updateTerritoryVisuals();
-
-    // Small celebratory restart pop
-    this.cameras.main.flash(200, 20, 30, 50);
-
+    this.scene.restart({ source: 'rematch', mode: 'bot', botMatch });
   }
 
   private createUpgradedMatchState(): void {
@@ -2615,6 +2622,7 @@ export class GameScene extends Phaser.Scene {
     this.enemyArmySpeedMultiplier = 1;
     this.gameState = createInitialGameState({
       playerModifiers: modifiers,
+      battlefieldId: this.battlefieldId,
     });
   }
 

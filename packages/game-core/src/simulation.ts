@@ -3,6 +3,7 @@ import { tickUnitGeneration } from './generation.js';
 import { createDefaultTerritories } from './map.js';
 import { CombatResult, GameState, MarchingArmy, MatchStatus, Territory } from './types.js';
 import type { PlayerUpgradeModifiers } from './upgrades.js';
+import { normalizeBattlefieldId, type BattlefieldId } from './battlefields.js';
 
 export interface StepResult {
   state: GameState;
@@ -16,15 +17,20 @@ export interface InitialGameOptions {
   timeLimit?: number;
   playerModifiers?: PlayerUpgradeModifiers;
   enemyModifiers?: PlayerUpgradeModifiers;
+  battlefieldId?: BattlefieldId;
 }
 
 export function createInitialGameState(options: number | InitialGameOptions = DEFAULT_MATCH_TIME_LIMIT): GameState {
   const timeLimit = typeof options === 'number' ? options : (options.timeLimit ?? DEFAULT_MATCH_TIME_LIMIT);
   const playerModifiers = typeof options === 'number' ? undefined : options.playerModifiers;
   const enemyModifiers = typeof options === 'number' ? undefined : options.enemyModifiers;
+  const battlefieldId = normalizeBattlefieldId(
+    typeof options === 'number' ? undefined : options.battlefieldId
+  );
 
   return {
-    territories: createDefaultTerritories(playerModifiers, enemyModifiers),
+    battlefieldId,
+    territories: createDefaultTerritories(playerModifiers, enemyModifiers, battlefieldId),
     armies: [],
     status: 'playing',
     elapsedTimeSeconds: 0,
@@ -130,6 +136,7 @@ export function stepSimulation(
 
   return {
     state: {
+      battlefieldId: currentState.battlefieldId,
       territories: genResult.territories,
       armies: remainingArmies,
       status,

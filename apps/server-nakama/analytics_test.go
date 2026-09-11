@@ -66,6 +66,9 @@ func TestAnalyticsPayloadRejectsMalformedAndInvalidEvents(t *testing.T) {
 		{name: "missing required property", payload: analyticsPayload([]AnalyticsEventRecord{
 			analyticsTestEvent("match_start", map[string]any{"matchId": "match_1"}),
 		}), wantErr: "invalid_event_props"},
+		{name: "invalid battlefield", payload: analyticsPayload([]AnalyticsEventRecord{
+			analyticsTestEvent("match_start", map[string]any{"matchId": "match_1", "mode": "bot", "source": "menu", "battlefieldId": "forged_map"}),
+		}), wantErr: "invalid_event_props"},
 		{name: "unknown property on upgrade panel", payload: analyticsPayload([]AnalyticsEventRecord{
 			analyticsTestEvent("upgrade_panel_viewed", map[string]any{"source": "menu", "extra": "x"}),
 		}), wantErr: "invalid_event_props"},
@@ -129,6 +132,20 @@ func TestAnalyticsPayloadRejectsMalformedAndInvalidEvents(t *testing.T) {
 				t.Fatalf("expected %q, got %v", test.wantErr, err)
 			}
 		})
+	}
+}
+
+func TestMatchStartAnalyticsAcceptsLegacyAndBattlefieldPayloads(t *testing.T) {
+	for _, props := range []map[string]any{
+		{"matchId": "match_1", "mode": "bot", "source": "menu"},
+		{"matchId": "match_2", "mode": "bot", "source": "rematch", "battlefieldId": "twin_passes"},
+		{"matchId": "match_3", "mode": "live", "source": "menu", "battlefieldId": "crown_cross"},
+	} {
+		if _, err := parseAnalyticsEventsPayload(analyticsPayload([]AnalyticsEventRecord{
+			analyticsTestEvent("match_start", props),
+		}), analyticsTestNow); err != nil {
+			t.Fatalf("valid match_start rejected (%v): %v", props, err)
+		}
 	}
 }
 
