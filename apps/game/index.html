@@ -43,9 +43,182 @@
         box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
         touch-action: none;
       }
+      #loading-shell {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 10000;
+        background-color: #070b14;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding-top: env(safe-area-inset-top, 0px);
+        padding-right: env(safe-area-inset-right, 0px);
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+        padding-left: env(safe-area-inset-left, 0px);
+        pointer-events: auto;
+      }
+      #loading-shell.loading-shell--hidden {
+        opacity: 0 !important;
+        pointer-events: none !important;
+        display: none !important;
+        visibility: hidden !important;
+      }
+      .shell-content {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        width: 100%;
+        max-width: 360px;
+        padding: 24px;
+      }
+      .shell-crest {
+        position: relative;
+        width: 136px;
+        height: 136px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 24px;
+        animation: crest-float 2.4s ease-in-out infinite;
+      }
+      .crest-glow {
+        position: absolute;
+        width: 160px;
+        height: 160px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(29, 78, 216, 0.28) 0%, rgba(245, 158, 11, 0.12) 50%, transparent 72%);
+        pointer-events: none;
+      }
+      .crest-ring-outer {
+        position: relative;
+        width: 124px;
+        height: 124px;
+        border-radius: 50%;
+        background-color: #0c1322;
+        border: 2.5px solid #f59e0b;
+        box-shadow: 0 0 20px rgba(245, 158, 11, 0.2), inset 0 0 14px rgba(29, 78, 216, 0.35);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .crest-ring-inner {
+        width: 98px;
+        height: 98px;
+        border-radius: 50%;
+        background-color: #111c33;
+        border: 1.5px solid rgba(96, 165, 250, 0.65);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .crest-crown {
+        font-size: 44px;
+        line-height: 1;
+        filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6));
+      }
+      .shell-title {
+        color: #f8fafc;
+        font-size: 28px;
+        font-weight: 900;
+        letter-spacing: 2px;
+        line-height: 1.1;
+        margin: 0 0 6px 0;
+        text-shadow: 0 3px 10px rgba(0, 0, 0, 0.8);
+      }
+      .shell-subtitle {
+        color: #93c5fd;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 2.5px;
+        text-transform: uppercase;
+        margin-bottom: 24px;
+        text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+      }
+      .shell-progress-bar {
+        width: 180px;
+        height: 5px;
+        background-color: #0f172a;
+        border: 1px solid #1e293b;
+        border-radius: 9999px;
+        overflow: hidden;
+        position: relative;
+      }
+      .shell-progress-indicator {
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 100%;
+        width: 45%;
+        background: linear-gradient(90deg, #2563eb 0%, #60a5fa 50%, #f59e0b 100%);
+        border-radius: 9999px;
+        animation: progress-slide 1.8s ease-in-out infinite;
+      }
+      .shell-status {
+        color: #94a3b8;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        margin-top: 14px;
+      }
+      @keyframes crest-float {
+        0%, 100% {
+          transform: translateY(0);
+        }
+        50% {
+          transform: translateY(-5px);
+        }
+      }
+      @keyframes progress-slide {
+        0% {
+          transform: translateX(-100%);
+        }
+        50% {
+          transform: translateX(120%);
+        }
+        100% {
+          transform: translateX(250%);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .shell-crest,
+        .shell-progress-indicator {
+          animation: none !important;
+        }
+        .shell-progress-indicator {
+          width: 100%;
+          transform: none !important;
+        }
+      }
     </style>
   </head>
   <body>
+    <div
+      id="loading-shell"
+      role="status"
+      aria-live="polite"
+      aria-label="Loading Crown Clash"
+    >
+      <div class="shell-content">
+        <div class="shell-crest" aria-hidden="true">
+          <div class="crest-glow"></div>
+          <div class="crest-ring-outer">
+            <div class="crest-ring-inner">
+              <span class="crest-crown">👑</span>
+            </div>
+          </div>
+        </div>
+        <h1 class="shell-title">CROWN CLASH</h1>
+        <div class="shell-subtitle">TAKE THE REALM</div>
+        <div class="shell-progress-bar" aria-hidden="true">
+          <div class="shell-progress-indicator"></div>
+        </div>
+        <div class="shell-status">Entering realm...</div>
+      </div>
+    </div>
     <div id="game-container"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

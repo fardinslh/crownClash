@@ -14,6 +14,7 @@ import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
 import { LiveMatchClient } from '../api/LiveMatchClient.js';
 import { LivePvpController, isValidRoomCode, sanitizeRoomCode } from '../pvp/LivePvpController.js';
 import { isTutorialCompleted } from '../tutorial/TutorialController.js';
+import { dismissStartupLoadingShell } from '../ui/StartupLoadingShell.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 
@@ -433,6 +434,7 @@ export class MenuScene extends Phaser.Scene {
       platform.hapticSelection();
     });
     this.bindPressFeedback(muteBg, muteBtn);
+    dismissStartupLoadingShell();
   }
 
   private bindPressFeedback(
@@ -1093,5 +1095,6 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
     this.bindPressFeedback(retryBg, retryText);
     retryBg.on('pointerdown', () => this.scene.restart());
+    dismissStartupLoadingShell();
   }
 }
