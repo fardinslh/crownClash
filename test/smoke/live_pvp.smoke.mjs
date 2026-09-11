@@ -34,7 +34,6 @@ const OP_STATE = 3;
 const OP_COMMAND_ACCEPTED = 5;
 const OP_COMMAND_REJECTED = 6;
 const OP_MATCH_RESULT = 7;
-const OP_ERROR = 8;
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MATCH_ID_REGEX = /^live_\d+_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -84,6 +83,7 @@ function parseRpcPayload(response) {
 
 /**
  * Executes a PostgreSQL command via `docker compose exec -T db` using argument arrays.
+ * Runs with ON_ERROR_STOP=1 so errors fail closed immediately.
  * Never catches command failures or swallows database errors.
  */
 function queryPostgres(sql) {
@@ -99,6 +99,8 @@ function queryPostgres(sql) {
       'crownclash',
       '-d',
       'crownclash',
+      '-v',
+      'ON_ERROR_STOP=1',
       '-t',
       '-A',
       '-F',
@@ -126,21 +128,58 @@ function queryDbMatchSettlementRow(matchId) {
   };
 }
 
-function cleanDatabaseForPlayers(userIdA, userIdB) {
-  assert(UUID_REGEX.test(userIdA), `Invalid userIdA for cleanup: ${userIdA}`);
-  assert(UUID_REGEX.test(userIdB), `Invalid userIdB for cleanup: ${userIdB}`);
+function cleanDatabaseForPlayer(userId) {
+  assert(UUID_REGEX.test(userId), `Invalid userId for cleanup: ${userId}`);
 
-  const sql = [
-    `DELETE FROM match_settlements WHERE player_id IN ('${userIdA}', '${userIdB}');`,
-    `DELETE FROM economy_ledger WHERE player_id IN ('${userIdA}', '${userIdB}');`,
-    `DELETE FROM player_daily_progress WHERE player_id IN ('${userIdA}', '${userIdB}');`,
-    `DELETE FROM pvp_defenses WHERE player_id IN ('${userIdA}', '${userIdB}');`,
-    `DELETE FROM daily_reward_claims WHERE player_id IN ('${userIdA}', '${userIdB}');`,
-    `DELETE FROM league_reward_claims WHERE player_id IN ('${userIdA}', '${userIdB}');`,
-    `DELETE FROM players WHERE id IN ('${userIdA}', '${userIdB}');`,
-  ].join(' ');
+  const sql = `BEGIN;
+DELETE FROM match_settlements WHERE player_id = '${userId}';
+DELETE FROM economy_ledger WHERE player_id = '${userId}';
+DELETE FROM player_names WHERE player_id = '${userId}';
+DELETE FROM player_daily_progress WHERE player_id = '${userId}';
+DELETE FROM daily_reward_claims WHERE player_id = '${userId}';
+DELETE FROM league_reward_claims WHERE player_id = '${userId}';
+DELETE FROM upgrade_purchases WHERE player_id = '${userId}';
+DELETE FROM pvp_defenses WHERE player_id = '${userId}';
+DELETE FROM pvp_attacks WHERE attacker_id = '${userId}' OR defender_id = '${userId}';
+DELETE FROM bot_matches WHERE player_id = '${userId}';
+DELETE FROM analytics_events WHERE player_id = '${userId}';
+DELETE FROM players WHERE id = '${userId}';
+COMMIT;`;
 
   queryPostgres(sql);
+}
+
+function verifyZeroRemainingRows(userId, label) {
+  assert(UUID_REGEX.test(userId), `Invalid userId for zero-row verification: ${userId}`);
+
+  const sql = `
+SELECT 'match_settlements', COUNT(*) FROM match_settlements WHERE player_id = '${userId}'
+UNION ALL SELECT 'economy_ledger', COUNT(*) FROM economy_ledger WHERE player_id = '${userId}'
+UNION ALL SELECT 'player_names', COUNT(*) FROM player_names WHERE player_id = '${userId}'
+UNION ALL SELECT 'player_daily_progress', COUNT(*) FROM player_daily_progress WHERE player_id = '${userId}'
+UNION ALL SELECT 'daily_reward_claims', COUNT(*) FROM daily_reward_claims WHERE player_id = '${userId}'
+UNION ALL SELECT 'league_reward_claims', COUNT(*) FROM league_reward_claims WHERE player_id = '${userId}'
+UNION ALL SELECT 'upgrade_purchases', COUNT(*) FROM upgrade_purchases WHERE player_id = '${userId}'
+UNION ALL SELECT 'pvp_defenses', COUNT(*) FROM pvp_defenses WHERE player_id = '${userId}'
+UNION ALL SELECT 'pvp_attacks', COUNT(*) FROM pvp_attacks WHERE attacker_id = '${userId}' OR defender_id = '${userId}'
+UNION ALL SELECT 'bot_matches', COUNT(*) FROM bot_matches WHERE player_id = '${userId}'
+UNION ALL SELECT 'analytics_events', COUNT(*) FROM analytics_events WHERE player_id = '${userId}'
+UNION ALL SELECT 'players', COUNT(*) FROM players WHERE id = '${userId}';`;
+
+  const output = queryPostgres(sql);
+  const lines = output.trim().split('\n').filter(Boolean);
+  const remainingTables = [];
+  for (const line of lines) {
+    const [table, countStr] = line.split('|');
+    const count = parseInt(countStr, 10);
+    if (count > 0) {
+      remainingTables.push(`${table} (${count} rows)`);
+    }
+  }
+  assert(
+    remainingTables.length === 0,
+    `Post-cleanup verification failed for ${label} (${userId}): remaining rows found in: ${remainingTables.join(', ')}`
+  );
 }
 
 async function runSmokeTest() {
@@ -183,6 +222,8 @@ async function runSmokeTest() {
 
   let sessionA = null;
   let sessionB = null;
+  let testError = null;
+  const cleanupFailures = [];
 
   try {
     // --------------------------------------------------------------------------
@@ -219,7 +260,6 @@ async function runSmokeTest() {
     const acceptedCommandsA = [];
     const rejectedCommandsA = [];
     let matchResultA = null;
-    let matchResultB = null;
 
     socketA.onmatchdata = (data) => {
       try {
@@ -255,9 +295,6 @@ async function runSmokeTest() {
             break;
           case OP_STATE:
             statesB.push(parsed.state);
-            break;
-          case OP_MATCH_RESULT:
-            matchResultB = parsed;
             break;
         }
       } catch {
@@ -558,6 +595,12 @@ async function runSmokeTest() {
     assert(dbRowB.settlement?.matchId === matchStartedB.matchId, 'Player B DB settlement JSON matchId mismatch');
     const settlementB = dbRowB.settlement;
     assert(settlementB.breakdown.totalCoins > 0, 'Player B defeat must award consolation coins');
+    assert(settlementB.breakdown.trophyDelta === -12, `Player B defeat trophyDelta mismatch: expected -12, got ${settlementB.breakdown.trophyDelta}`);
+    const expectedClampedTrophiesB = Math.max(0, careerBeforeForfeitB.trophies + settlementB.breakdown.trophyDelta);
+    assert(
+      settlementB.newCareer.trophies === expectedClampedTrophiesB,
+      `Player B settlement newCareer trophies mismatch: expected clamped delta ${expectedClampedTrophiesB}, got ${settlementB.newCareer.trophies}`
+    );
     console.log(`  Verified in PostgreSQL: exactly 1 settlement row for Player B (${matchStartedB.matchId}) with status=defeat.`);
 
     // Reconnect with fresh socket instances
@@ -602,7 +645,15 @@ async function runSmokeTest() {
       careerBAfterReconnect.coins === careerBeforeForfeitB.coins + settlementB.breakdown.totalCoins,
       `Player B consolation coins mismatch: expected ${careerBeforeForfeitB.coins + settlementB.breakdown.totalCoins}, got ${careerBAfterReconnect.coins}`
     );
-    console.log('  Player B career transition verified: exactly 1 defeat recorded with consolation economy.');
+    assert(
+      careerBAfterReconnect.trophies === settlementB.newCareer.trophies,
+      `Player B career trophies after reconnect must equal authoritative settlementB.newCareer.trophies: expected ${settlementB.newCareer.trophies}, got ${careerBAfterReconnect.trophies}`
+    );
+    assert(
+      careerBAfterReconnect.trophies === expectedClampedTrophiesB,
+      `Player B career trophies after reconnect mismatch: expected clamped delta ${expectedClampedTrophiesB}, got ${careerBAfterReconnect.trophies}`
+    );
+    console.log('  Player B career transition verified: exactly 1 defeat recorded with consolation economy and clamped trophies.');
 
     // Reconnect again / re-read state to prove neither player mutates twice
     console.log('  Re-reading career state to verify neither player mutates twice...');
@@ -622,16 +673,15 @@ async function runSmokeTest() {
     assert(careerFinalA.matchesPlayed === careerAAfterReconnect.matchesPlayed, 'Player A matchesPlayed mutated on second reconnect!');
 
     assert(careerFinalB.coins === careerBAfterReconnect.coins, 'Player B coins mutated on second reconnect!');
-    assert(careerFinalB.trophies === careerBAfterReconnect.trophies, 'Player B trophies mutated on second reconnect!');
+    assert(careerFinalB.trophies === settlementB.newCareer.trophies, 'Player B trophies mutated on second reconnect!');
+    assert(careerFinalB.trophies === expectedClampedTrophiesB, 'Player B trophies mismatch with clamped delta on second reconnect!');
     assert(careerFinalB.matchesPlayed === careerBAfterReconnect.matchesPlayed, 'Player B matchesPlayed mutated on second reconnect!');
 
     closeTrackedSocket(socketA3);
     closeTrackedSocket(socketB3);
     console.log('  Verified: repeated reconnects produce zero career balance or match count mutations.\n');
-
-    console.log('================================================================');
-    console.log('  SUCCESS: ALL 8 LIVE PVP END-TO-END SCENARIOS VERIFIED!        ');
-    console.log('================================================================');
+  } catch (err) {
+    testError = err;
   } finally {
     // --------------------------------------------------------------------------
     // Reliable Resource Cleanup
@@ -649,26 +699,74 @@ async function runSmokeTest() {
     openedSockets.clear();
     console.log('  All WebSockets disconnected.');
 
-    // Clean up created accounts and database rows if valid identifiers were generated
-    if (sessionA?.user_id && sessionB?.user_id && UUID_REGEX.test(sessionA.user_id) && UUID_REGEX.test(sessionB.user_id)) {
-      try {
-        cleanDatabaseForPlayers(sessionA.user_id, sessionB.user_id);
-        console.log(`  Database records removed for Player A (${sessionA.user_id}) and Player B (${sessionB.user_id}).`);
-      } catch (err) {
-        console.warn('  Warning: Database record cleanup encountered error:', err.message || err);
+    // Clean up every created session independently
+    const sessionsToClean = [
+      { label: 'Player A', client: clientA, session: sessionA },
+      { label: 'Player B', client: clientB, session: sessionB },
+    ];
+
+    for (const { label, client, session } of sessionsToClean) {
+      if (!session?.user_id) {
+        console.log(`  Skipping ${label} cleanup (session was not established).`);
+        continue;
       }
 
-      try {
-        await clientA.deleteAccount(sessionA);
-        await clientB.deleteAccount(sessionB);
-        console.log('  Nakama user accounts deleted successfully.');
-      } catch (err) {
-        console.warn('  Warning: Nakama account deletion encountered error:', err.message || err);
+      if (!UUID_REGEX.test(session.user_id)) {
+        cleanupFailures.push({
+          operation: `${label} ID validation`,
+          error: new Error(`Invalid userId format: ${session.user_id}`),
+        });
+        continue;
       }
-    } else {
-      console.log('  Skipping account cleanup (sessions not established).');
+
+      const userId = session.user_id;
+
+      // 1. Transactional SQL deletion across all custom tables with ON_ERROR_STOP=1
+      try {
+        cleanDatabaseForPlayer(userId);
+        console.log(`  PostgreSQL records removed for ${label} (${userId}).`);
+      } catch (err) {
+        console.error(`  [ERROR] PostgreSQL cleanup failed for ${label} (${userId}):`, err.message || err);
+        cleanupFailures.push({ operation: `${label} DB cleanup`, error: err });
+      }
+
+      // 2. Nakama user account deletion
+      try {
+        await client.deleteAccount(session);
+        console.log(`  Nakama user account deleted for ${label} (${userId}).`);
+      } catch (err) {
+        console.error(`  [ERROR] Nakama deleteAccount failed for ${label} (${userId}):`, err.message || err);
+        cleanupFailures.push({ operation: `${label} deleteAccount`, error: err });
+      }
+
+      // 3. Mandatory zero-row verification in PostgreSQL across custom tables
+      try {
+        verifyZeroRemainingRows(userId, label);
+        console.log(`  PostgreSQL zero-row verification passed for ${label} (${userId}).`);
+      } catch (err) {
+        console.error(`  [ERROR] Zero-row verification failed for ${label} (${userId}):`, err.message || err);
+        cleanupFailures.push({ operation: `${label} zero-row verification`, error: err });
+      }
     }
   }
+
+  if (cleanupFailures.length > 0) {
+    console.error(`\n[CLEANUP FAILURES] ${cleanupFailures.length} cleanup operation(s) failed:`);
+    for (const fail of cleanupFailures) {
+      console.error(`  - ${fail.operation}:`, fail.error?.message || fail.error);
+    }
+  }
+
+  if (testError) {
+    throw testError;
+  }
+  if (cleanupFailures.length > 0) {
+    throw new Error(`Smoke test failed due to ${cleanupFailures.length} cleanup failure(s).`);
+  }
+
+  console.log('================================================================');
+  console.log('  SUCCESS: ALL 8 LIVE PVP END-TO-END SCENARIOS VERIFIED!        ');
+  console.log('================================================================');
 }
 
 runSmokeTest()
