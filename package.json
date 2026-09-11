@@ -13,6 +13,7 @@
     "db:down": "docker compose down",
     "build": "npm --workspace=packages/game-core run build && npm --workspace=packages/platform run build && npm --workspace=apps/game run build",
     "test": "npm --workspace=packages/game-core run test && npm --workspace=packages/platform run test && npm --workspace=apps/game run test",
+    "test:smoke": "node test/smoke/live_pvp.smoke.mjs",
     "typecheck": "npm --workspace=packages/game-core run typecheck && npm --workspace=packages/platform run typecheck && npm --workspace=apps/game run typecheck"
   },
   "devDependencies": {
