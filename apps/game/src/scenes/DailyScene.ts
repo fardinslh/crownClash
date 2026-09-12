@@ -17,6 +17,7 @@ import {
   getSceneViewport,
   setupSceneCamera,
 } from '../ui/Viewport.js';
+import { computeDailyLayout } from '../ui/HubLayouts.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 const MISSION_ICONS: Record<DailyMissionState['id'], string> = {
@@ -105,6 +106,7 @@ export class DailyScene extends Phaser.Scene {
 
   private buildShell(): void {
     const { visibleWidth, visibleHeight } = getSceneViewport(this);
+    const layout = computeDailyLayout(visibleHeight);
     this.add.rectangle(
       visibleWidth / 2,
       visibleHeight / 2,
@@ -158,7 +160,7 @@ export class DailyScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.resetText = this.add
-      .text(LOGICAL_WIDTH / 2, 101, 'RESET  --:--:--', {
+      .text(LOGICAL_WIDTH / 2, layout.resetTextY, 'RESET  --:--:--', {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -184,7 +186,7 @@ export class DailyScene extends Phaser.Scene {
     this.refreshGold();
 
     this.statusText = this.add
-      .text(LOGICAL_WIDTH / 2, 340, 'Reading today’s orders…', {
+      .text(LOGICAL_WIDTH / 2, layout.statusTextY, 'Reading today’s orders…', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -194,12 +196,12 @@ export class DailyScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.toastBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2, 690, 330, 42, 0x0c1322, 0.98)
+      .rectangle(LOGICAL_WIDTH / 2, layout.toastY, 330, 42, 0x0c1322, 0.98)
       .setStrokeStyle(1.5, 0xf87171, 0.9)
       .setDepth(300)
       .setAlpha(0);
     this.toastText = this.add
-      .text(LOGICAL_WIDTH / 2, 690, '', {
+      .text(LOGICAL_WIDTH / 2, layout.toastY, '', {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: 'bold',
@@ -240,13 +242,15 @@ export class DailyScene extends Phaser.Scene {
   }
 
   private showLoadError(message: string): void {
-    this.statusText.setText(message).setColor('#fca5a5').setVisible(true);
+    const { visibleHeight } = getSceneViewport(this);
+    const layout = computeDailyLayout(visibleHeight);
+    this.statusText.setText(message).setColor('#fca5a5').setY(layout.statusTextY).setVisible(true);
     const retryBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2, 392, 160, 44, 0x2563eb, 1)
+      .rectangle(LOGICAL_WIDTH / 2, layout.retryY, 160, 44, 0x2563eb, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
     const retryLabel = this.add
-      .text(LOGICAL_WIDTH / 2, 392, 'RETRY', {
+      .text(LOGICAL_WIDTH / 2, layout.retryY, 'RETRY', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: '900',
@@ -268,11 +272,13 @@ export class DailyScene extends Phaser.Scene {
     this.content?.destroy(true);
     this.content = this.add.container(0, 0);
 
-    const missionYs = [174, 291, 408];
+    const { visibleHeight } = getSceneViewport(this);
+    const layout = computeDailyLayout(visibleHeight);
+    const missionYs = layout.missionYs;
     this.state.missions.forEach((mission, index) => {
       this.content!.add(this.buildMissionCard(mission, missionYs[index], index));
     });
-    this.content.add(this.buildChestCard(566));
+    this.content.add(this.buildChestCard(layout.chestY));
   }
 
   private buildMissionCard(

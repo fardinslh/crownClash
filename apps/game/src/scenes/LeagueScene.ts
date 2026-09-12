@@ -17,6 +17,7 @@ import {
   getSceneViewport,
   setupSceneCamera,
 } from '../ui/Viewport.js';
+import { computeLeagueLayout } from '../ui/HubLayouts.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 
@@ -65,6 +66,7 @@ export class LeagueScene extends Phaser.Scene {
 
   private buildShell(): void {
     const { visibleWidth, visibleHeight } = getSceneViewport(this);
+    const layout = computeLeagueLayout(visibleHeight);
     this.add.rectangle(visibleWidth / 2, visibleHeight / 2, visibleWidth, visibleHeight, 0x070b14);
     const glow = this.add.graphics();
     glow.fillStyle(THEME.gold, 0.1);
@@ -95,13 +97,13 @@ export class LeagueScene extends Phaser.Scene {
     }).setOrigin(1, 0.5);
     this.refreshCoins();
 
-    this.statusText = this.add.text(LOGICAL_WIDTH / 2, 350, 'Reading royal records…', {
+    this.statusText = this.add.text(LOGICAL_WIDTH / 2, layout.statusTextY, 'Reading royal records…', {
       fontFamily: FONT_FAMILY, fontSize: '13px', fontStyle: 'bold', color: '#94a3b8', resolution: 2,
     }).setOrigin(0.5);
 
-    this.toastBg = this.add.rectangle(LOGICAL_WIDTH / 2, 690, 330, 42, 0x0c1322, 0.98)
+    this.toastBg = this.add.rectangle(LOGICAL_WIDTH / 2, layout.toastY, 330, 42, 0x0c1322, 0.98)
       .setStrokeStyle(1.5, 0xf87171, 0.9).setDepth(300).setAlpha(0);
-    this.toastText = this.add.text(LOGICAL_WIDTH / 2, 690, '', {
+    this.toastText = this.add.text(LOGICAL_WIDTH / 2, layout.toastY, '', {
       fontFamily: FONT_FAMILY, fontSize: '12px', fontStyle: 'bold', color: '#fecaca',
       align: 'center', resolution: 2,
     }).setOrigin(0.5).setDepth(301).setAlpha(0);
@@ -127,10 +129,12 @@ export class LeagueScene extends Phaser.Scene {
   }
 
   private showLoadError(): void {
-    this.statusText.setText("Couldn't load League Road.").setColor('#fca5a5').setVisible(true);
-    const retryBg = this.add.rectangle(LOGICAL_WIDTH / 2, 398, 160, 44, 0x2563eb, 1)
+    const { visibleHeight } = getSceneViewport(this);
+    const layout = computeLeagueLayout(visibleHeight);
+    this.statusText.setText("Couldn't load League Road.").setColor('#fca5a5').setY(layout.statusTextY).setVisible(true);
+    const retryBg = this.add.rectangle(LOGICAL_WIDTH / 2, layout.retryY, 160, 44, 0x2563eb, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1).setInteractive({ useHandCursor: true });
-    const retryText = this.add.text(LOGICAL_WIDTH / 2, 398, 'RETRY', {
+    const retryText = this.add.text(LOGICAL_WIDTH / 2, layout.retryY, 'RETRY', {
       fontFamily: FONT_FAMILY, fontSize: '13px', fontStyle: '900', color: '#ffffff', resolution: 2,
     }).setOrigin(0.5);
     this.bindPressFeedback(retryBg, retryText);
@@ -146,9 +150,11 @@ export class LeagueScene extends Phaser.Scene {
     if (!this.state || !this.active) return;
     this.content?.destroy(true);
     this.content = this.add.container(0, 0);
+    const { visibleHeight } = getSceneViewport(this);
+    const layout = computeLeagueLayout(visibleHeight);
     const progress = getLeagueProgress(this.state.trophies);
 
-    const summary = this.add.container(LOGICAL_WIDTH / 2, 130);
+    const summary = this.add.container(LOGICAL_WIDTH / 2, layout.summaryY);
     const rankColor = progress.current.color;
     const summaryBg = this.add.rectangle(0, 0, 352, 88, 0x111827, 0.98)
       .setStrokeStyle(2, rankColor, 0.95);
@@ -170,15 +176,15 @@ export class LeagueScene extends Phaser.Scene {
 
     const road = this.add.graphics();
     road.lineStyle(4, 0x334155, 0.8);
-    road.lineBetween(53, 213, 53, 554);
+    road.lineBetween(53, layout.roadStartY, 53, layout.roadEndY);
     this.content.add(road);
     this.state.tiers.forEach((tier, index) => {
-      this.content!.add(this.buildTierRow(tier, 214 + index * 68, index));
+      this.content!.add(this.buildTierRow(tier, layout.tierYs[index], index));
     });
 
-    const kingdomBg = this.add.rectangle(LOGICAL_WIDTH / 2, 643, 220, 42, 0x111c33, 1)
+    const kingdomBg = this.add.rectangle(LOGICAL_WIDTH / 2, layout.kingdomButtonY, 220, 42, 0x111c33, 1)
       .setStrokeStyle(1.5, THEME.gold, 0.8).setInteractive({ useHandCursor: true });
-    const kingdomText = this.add.text(LOGICAL_WIDTH / 2, 643, 'IMPROVE KINGDOM  🏰', {
+    const kingdomText = this.add.text(LOGICAL_WIDTH / 2, layout.kingdomButtonY, 'IMPROVE KINGDOM  🏰', {
       fontFamily: FONT_FAMILY, fontSize: '12px', fontStyle: '900', color: '#fde68a',
       stroke: '#000000', strokeThickness: 2, resolution: 2,
     }).setOrigin(0.5);

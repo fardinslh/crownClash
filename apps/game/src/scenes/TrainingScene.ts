@@ -14,6 +14,7 @@ import {
   getSceneViewport,
   setupSceneCamera,
 } from '../ui/Viewport.js';
+import { computeTrainingLayout } from '../ui/HubLayouts.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 
@@ -94,6 +95,7 @@ export class TrainingScene extends Phaser.Scene {
 
   private buildScene(): void {
     const { visibleWidth, visibleHeight } = getSceneViewport(this);
+    const layout = computeTrainingLayout(visibleHeight);
     this.add.rectangle(visibleWidth / 2, visibleHeight / 2, visibleWidth, visibleHeight, 0x070b14);
     const glow = this.add.graphics();
     glow.fillStyle(THEME.gold, 0.08);
@@ -136,17 +138,17 @@ export class TrainingScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    this.lessonContainer = this.add.container(0, 0);
+    this.lessonContainer = this.add.container(0, layout.cardOffset);
     for (let index = 0; index < LESSONS.length; index += 1) {
-      this.progressDots.push(this.add.circle(176 + index * 16, 554, 4, 0x334155, 1));
+      this.progressDots.push(this.add.circle(176 + index * 16, layout.dotsY, 4, 0x334155, 1));
     }
 
     this.previousButton = this.add
-      .rectangle(92, 598, 132, 46, 0x111827, 1)
+      .rectangle(92, layout.navigationButtonsY, 132, 46, 0x111827, 1)
       .setStrokeStyle(1.5, 0x475569, 1)
       .setInteractive({ useHandCursor: true });
     this.previousText = this.add
-      .text(92, 598, 'PREVIOUS', {
+      .text(92, layout.navigationButtonsY, 'PREVIOUS', {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: '900',
@@ -158,11 +160,11 @@ export class TrainingScene extends Phaser.Scene {
     this.previousButton.on('pointerdown', () => this.showPrevious());
 
     this.nextButton = this.add
-      .rectangle(276, 598, 216, 46, 0x2563eb, 1)
+      .rectangle(276, layout.navigationButtonsY, 216, 46, 0x2563eb, 1)
       .setStrokeStyle(2, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
     this.nextText = this.add
-      .text(276, 598, 'NEXT  ›', {
+      .text(276, layout.navigationButtonsY, 'NEXT  ›', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: '900',
@@ -176,11 +178,11 @@ export class TrainingScene extends Phaser.Scene {
     this.nextButton.on('pointerdown', () => this.advance());
 
     const menuBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2, 666, 316, 44, 0x0b1120, 1)
+      .rectangle(LOGICAL_WIDTH / 2, layout.menuButtonY, 316, 44, 0x0b1120, 1)
       .setStrokeStyle(1, 0x334155, 1)
       .setInteractive({ useHandCursor: true });
     const menuText = this.add
-      .text(LOGICAL_WIDTH / 2, 666, 'RETURN TO MAIN MENU', {
+      .text(LOGICAL_WIDTH / 2, layout.menuButtonY, 'RETURN TO MAIN MENU', {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -258,15 +260,19 @@ export class TrainingScene extends Phaser.Scene {
     else this.previousButton.setInteractive({ useHandCursor: true });
     this.nextText.setText(this.lessonIndex === LESSONS.length - 1 ? 'PRACTICE BATTLE  ⚔' : 'NEXT  ›');
 
+    const { visibleHeight } = getSceneViewport(this);
+    const layout = computeTrainingLayout(visibleHeight);
     if (!this.reducedMotion) {
-      this.lessonContainer.setAlpha(0).setY(10);
+      this.lessonContainer.setAlpha(0).setY(layout.cardOffset + 10);
       this.tweens.add({
         targets: this.lessonContainer,
         alpha: 1,
-        y: 0,
+        y: layout.cardOffset,
         duration: 220,
         ease: 'Cubic.easeOut',
       });
+    } else {
+      this.lessonContainer.setY(layout.cardOffset);
     }
   }
 

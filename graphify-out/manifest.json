@@ -180,15 +180,15 @@
     "semantic_hash": "92151e17921487a1a9f151ab054a33f2"
   },
   "apps/game/src/scenes/CommanderScene.ts": {
-    "mtime": 1789157429.591035,
-    "seen": 1789158040.9163978,
-    "ast_hash": "22534c5e3fe783662642b51bf03f2812",
+    "mtime": 1789198350.0017834,
+    "seen": 1789198687.5821812,
+    "ast_hash": "32c41ac7404da732f0c2747ce2b04a80",
     "semantic_hash": ""
   },
   "apps/game/src/scenes/DailyScene.ts": {
-    "mtime": 1789157548.9173381,
-    "seen": 1789158040.9163978,
-    "ast_hash": "3b04ebbc51d57798544996e3524bcd2f",
+    "mtime": 1789198198.189641,
+    "seen": 1789198687.5821812,
+    "ast_hash": "072e50ae58545194e6d563a6bcd67e66",
     "semantic_hash": ""
   },
   "apps/game/src/scenes/GameScene.ts": {
@@ -198,15 +198,15 @@
     "semantic_hash": ""
   },
   "apps/game/src/scenes/KingdomScene.ts": {
-    "mtime": 1789157483.800682,
-    "seen": 1789158040.9163978,
-    "ast_hash": "5e3eb3b2580d66ff9962213964e69b55",
+    "mtime": 1789198324.9857483,
+    "seen": 1789198687.5821812,
+    "ast_hash": "854d73a6a50c8d28fbda2f67b34a7456",
     "semantic_hash": ""
   },
   "apps/game/src/scenes/LeagueScene.ts": {
-    "mtime": 1789157554.3267148,
-    "seen": 1789158040.9163978,
-    "ast_hash": "12ff0f3967b9c8e9e00329607ef102b0",
+    "mtime": 1789198232.0160174,
+    "seen": 1789198687.5821812,
+    "ast_hash": "0fe0dbb10c08eeb15e203f18f76c9dd9",
     "semantic_hash": ""
   },
   "apps/game/src/scenes/MenuScene.ts": {
@@ -216,9 +216,9 @@
     "semantic_hash": ""
   },
   "apps/game/src/scenes/TrainingScene.ts": {
-    "mtime": 1789157560.4331706,
-    "seen": 1789158040.9163978,
-    "ast_hash": "132b05a55528f44e6d25d9a0622a0252",
+    "mtime": 1789198130.2402537,
+    "seen": 1789198687.5821812,
+    "ast_hash": "5b46887a25c4c9a40cb22028eef4c22f",
     "semantic_hash": ""
   },
   "apps/game/src/theme.ts": {
@@ -849,6 +849,18 @@
     "mtime": 1789196620.7047863,
     "seen": 1789196716.2251875,
     "ast_hash": "ad0a39fc39f60ef8fcf5370a9f0b63b9",
+    "semantic_hash": ""
+  },
+  "apps/game/src/ui/HubLayouts.ts": {
+    "mtime": 1789198054.4735956,
+    "seen": 1789198687.5821812,
+    "ast_hash": "3bb018cfd6bb2fad4ba32ee80c47c89c",
+    "semantic_hash": ""
+  },
+  "apps/game/src/ui/__tests__/HubLayouts.test.ts": {
+    "mtime": 1789198031.7026258,
+    "seen": 1789198687.5821812,
+    "ast_hash": "ab5202290dcce235d5b7666d2e615418",
     "semantic_hash": ""
   }
 }

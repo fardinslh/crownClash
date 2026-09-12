@@ -13,6 +13,7 @@ import {
   getSceneViewport,
   setupSceneCamera,
 } from '../ui/Viewport.js';
+import { computeCommanderLayout } from '../ui/HubLayouts.js';
 
 const FONT = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif';
 
@@ -43,6 +44,7 @@ export class CommanderScene extends Phaser.Scene {
 
   private buildScene(): void {
     const { visibleWidth, visibleHeight } = getSceneViewport(this);
+    const layout = computeCommanderLayout(visibleHeight);
     this.add.rectangle(visibleWidth / 2, visibleHeight / 2, visibleWidth, visibleHeight, THEME.background);
     const glow = this.add.graphics();
     glow.fillStyle(0x172554, 0.4).fillCircle(200, 72, 180);
@@ -56,11 +58,11 @@ export class CommanderScene extends Phaser.Scene {
       fontFamily: FONT, fontSize: '12px', fontStyle: 'bold', color: '#93c5fd',
     }).setOrigin(0.5);
     const level = getKingdomLevel(this.careerManager.getCareer());
-    this.add.text(200, 98, `KINGDOM POWER  ${level}`, {
+    this.add.text(200, layout.powerBadgeY, `KINGDOM POWER  ${level}`, {
       fontFamily: FONT, fontSize: '11px', fontStyle: '900', color: '#fbbf24', backgroundColor: '#1c1917', padding: { x: 12, y: 6 },
     }).setOrigin(0.5);
-    COMMANDERS.forEach((commander, index) => this.createCard(commander, 188 + index * 157));
-    this.add.text(200, 681, 'Sidegrades change strategy, not total power.', {
+    COMMANDERS.forEach((commander, index) => this.createCard(commander, layout.cardYs[index]));
+    this.add.text(200, layout.helperTextY, 'Sidegrades change strategy, not total power.', {
       fontFamily: FONT, fontSize: '11px', color: '#64748b', fontStyle: 'bold',
     }).setOrigin(0.5);
   }
@@ -113,7 +115,9 @@ export class CommanderScene extends Phaser.Scene {
       trackEvent({ name: 'commander_selected', commanderId });
       this.cards.forEach((card) => card.destroy(true));
       this.cards = [];
-      COMMANDERS.forEach((commander, index) => this.createCard(commander, 188 + index * 157));
+      const { visibleHeight } = getSceneViewport(this);
+      const layout = computeCommanderLayout(visibleHeight);
+      COMMANDERS.forEach((commander, index) => this.createCard(commander, layout.cardYs[index]));
     } catch (error) {
       console.error('[CommanderScene] Selection failed:', error);
       if (this.active) this.showToast('Could not equip. Try again.');
@@ -121,8 +125,10 @@ export class CommanderScene extends Phaser.Scene {
   }
 
   private showToast(message: string): void {
+    const { visibleHeight } = getSceneViewport(this);
+    const layout = computeCommanderLayout(visibleHeight);
     this.toast?.destroy();
-    this.toast = this.add.text(LOGICAL_WIDTH / 2, 650, message, {
+    this.toast = this.add.text(LOGICAL_WIDTH / 2, layout.toastY, message, {
       fontFamily: FONT, fontSize: '11px', fontStyle: 'bold', color: '#fecaca', backgroundColor: '#450a0a', padding: { x: 12, y: 7 },
     }).setOrigin(0.5).setDepth(20);
   }

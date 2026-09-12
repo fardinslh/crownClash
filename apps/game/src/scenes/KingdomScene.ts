@@ -21,21 +21,12 @@ import {
   getSceneViewport,
   setupSceneCamera,
 } from '../ui/Viewport.js';
+import { computeKingdomLayout } from '../ui/HubLayouts.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 
 const CARD_WIDTH = 174;
 const CARD_HEIGHT = 248;
-const GRID_TOP = 166;
-const ROW_GAP = 16;
-const COL_X = [LOGICAL_WIDTH / 2 - CARD_WIDTH / 2 - 10, LOGICAL_WIDTH / 2 + CARD_WIDTH / 2 + 10];
-const ROW_Y = [GRID_TOP + CARD_HEIGHT / 2, GRID_TOP + CARD_HEIGHT + ROW_GAP + CARD_HEIGHT / 2];
-const GRID_POSITIONS: ReadonlyArray<{ x: number; y: number }> = [
-  { x: COL_X[0], y: ROW_Y[0] },
-  { x: COL_X[1], y: ROW_Y[0] },
-  { x: COL_X[0], y: ROW_Y[1] },
-  { x: COL_X[1], y: ROW_Y[1] },
-];
 
 interface CardHandle {
   container: Phaser.GameObjects.Container;
@@ -133,20 +124,21 @@ export class KingdomScene extends Phaser.Scene {
 
   private buildScene(): void {
     const { visibleWidth, visibleHeight } = getSceneViewport(this);
+    const layout = computeKingdomLayout(visibleHeight);
     this.add.rectangle(visibleWidth / 2, visibleHeight / 2, visibleWidth, visibleHeight, 0x070b14);
     const glow = this.add.graphics();
     glow.fillStyle(THEME.gold, 0.07);
     glow.fillCircle(LOGICAL_WIDTH / 2, 40, 220);
 
     this.buildHeader();
-    this.buildKingdomProgress();
+    this.buildKingdomProgress(layout.panelY);
 
     UPGRADE_TYPES.forEach((type, index) => {
-      const position = GRID_POSITIONS[index];
+      const position = layout.cardPositions[index];
       this.cards.set(type, this.buildCard(type, position.x, position.y));
     });
 
-    this.buildToast();
+    this.buildToast(layout.toastY);
     this.refreshAll();
     this.playEntranceAnimation();
   }
@@ -207,17 +199,18 @@ export class KingdomScene extends Phaser.Scene {
       .setOrigin(1, 0.5);
   }
 
-  private buildKingdomProgress(): void {
+  private buildKingdomProgress(panelY = 84): void {
     const panel = this.add.graphics();
     panel.fillStyle(0x0f172a, 0.96);
-    panel.fillRoundedRect(24, 84, LOGICAL_WIDTH - 48, 70, 10);
+    panel.fillRoundedRect(24, panelY, LOGICAL_WIDTH - 48, 70, 10);
     panel.lineStyle(1.5, 0x334155, 0.95);
-    panel.strokeRoundedRect(24, 84, LOGICAL_WIDTH - 48, 70, 10);
+    panel.strokeRoundedRect(24, panelY, LOGICAL_WIDTH - 48, 70, 10);
     panel.fillStyle(THEME.gold, 0.08);
-    panel.fillCircle(87, 119, 48);
+    panel.fillCircle(87, panelY + 35, 48);
 
     this.kingdomArt = this.add.graphics();
-    this.tierText = this.add.text(146, 96, '', {
+    this.kingdomArt.y = panelY - 84;
+    this.tierText = this.add.text(146, panelY + 12, '', {
       fontFamily: FONT_FAMILY,
       fontSize: '13px',
       fontStyle: '900',
@@ -227,7 +220,7 @@ export class KingdomScene extends Phaser.Scene {
       resolution: 2,
     });
     this.kingdomLevelText = this.add
-      .text(376, 97, '', {
+      .text(376, panelY + 13, '', {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: '900',
@@ -236,9 +229,9 @@ export class KingdomScene extends Phaser.Scene {
       })
       .setOrigin(1, 0);
 
-    this.add.rectangle(261, 124, 230, 7, 0x070b14, 1).setStrokeStyle(1, 0x334155, 1);
-    this.tierProgressFill = this.add.rectangle(146, 124, 1, 5, THEME.gold, 1).setOrigin(0, 0.5);
-    this.tierGoalText = this.add.text(146, 136, '', {
+    this.add.rectangle(261, panelY + 40, 230, 7, 0x070b14, 1).setStrokeStyle(1, 0x334155, 1);
+    this.tierProgressFill = this.add.rectangle(146, panelY + 40, 1, 5, THEME.gold, 1).setOrigin(0, 0.5);
+    this.tierGoalText = this.add.text(146, panelY + 52, '', {
       fontFamily: FONT_FAMILY,
       fontSize: '10px',
       fontStyle: 'bold',
@@ -491,14 +484,14 @@ export class KingdomScene extends Phaser.Scene {
     return { container, refresh, celebrate };
   }
 
-  private buildToast(): void {
+  private buildToast(toastY = 690): void {
     this.toastBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2, 700, 320, 40, 0x0c1322, 0.98)
+      .rectangle(LOGICAL_WIDTH / 2, toastY, 320, 40, 0x0c1322, 0.98)
       .setStrokeStyle(1.5, 0xf87171, 0.9)
       .setDepth(300)
       .setAlpha(0);
     this.toastText = this.add
-      .text(LOGICAL_WIDTH / 2, 700, '', {
+      .text(LOGICAL_WIDTH / 2, toastY, '', {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: 'bold',
