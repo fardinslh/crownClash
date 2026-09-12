@@ -10,6 +10,10 @@ function createMockReport(overrides: Partial<BenchmarkReport> = {}): BenchmarkRe
       host: 'Browser Emulation (Headless Chrome on Windows)',
       isPhysicalDevice: false,
       renderer: 'WebGL',
+      gpuVendor: 'Google Inc. (NVIDIA)',
+      gpuRenderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Ti Direct3D11)',
+      isSoftwareRenderer: false,
+      browserVersion: 'Chrome/130.0.0.0',
       viewport: { width: 375, height: 667, dpr: 2 },
       cpuThrottling: 4,
       network: 'LAN',
@@ -19,7 +23,9 @@ function createMockReport(overrides: Partial<BenchmarkReport> = {}): BenchmarkRe
     scenario: {
       name: 'normal_combat',
       durationSeconds: 60,
+      warmupDurationSeconds: 4.0,
       seed: 12345,
+      scheduleHash: 'a1b2c3d4',
       targetArmyRange: { min: 5, max: 10 },
       description: 'Deterministic 5-10 army combat',
     },
@@ -35,11 +41,17 @@ function createMockReport(overrides: Partial<BenchmarkReport> = {}): BenchmarkRe
       framesOver33Pct: 0.3,
       longTasks: { count: 1, totalDurationMs: 52, maxDurationMs: 52 },
       armyCounts: { min: 5, max: 9, avg: 7.0, peak: 9 },
+      warmupArmySamples: [2, 4, 6],
+      steadyStateArmySamples: [6, 7, 8, 7, 7, 8],
+      steadyStateArmyCounts: { min: 6, max: 8, avg: 7.2, peak: 8 },
       peakObjects: 180,
       peakTweens: 20,
       memoryMb: { start: 25, peak: 32 },
       drawCalls: { total: 3000, avgPerFrame: 51.2 },
       sampleDurationMs: 60000,
+      activeSampleDurationMs: 60000,
+      backgroundDurationMs: 0,
+      lifecycleTransitions: [],
       totalRenderedFrames: 3510,
       duplicateFramesDropped: 0,
     },
@@ -83,119 +95,180 @@ describe('BenchmarkComparator', () => {
       expect(result.presentedFps.improved).toBe(true);
       expect(result.p95FrameTimeMs.baseline).toBe(22.4);
       expect(result.p95FrameTimeMs.candidate).toBe(18.2);
-      expect(result.p95FrameTimeMs.improved).toBe(true); // lower frame time is better
-      expect(result.drawCallsPerFrame?.improved).toBe(true); // lower draw calls is better
+      expect(result.p95FrameTimeMs.improved).toBe(true);
+      expect(result.drawCallsPerFrame?.improved).toBe(true);
     }
+  });
+
+  it('rejects comparison when software WebGL is detected', () => {
+    const baseline = createMockReport();
+    const candidate = createMockReport({
+      environment: { ...baseline.environment, isSoftwareRenderer: true, gpuRenderer: 'Google SwiftShader' },
+    });
+    const result = compareBenchmarks(baseline, candidate);
+    expect(result.rejected).toBe(true);
+    if (result.rejected) {
+      expect(result.reasonCode).toBe('SOFTWARE_WEBGL_DETECTED');
+    }
+  });
+
+  it('rejects comparison when scenario name mismatches', () => {
+    const baseline = createMockReport();
+    const candidate = createMockReport({ scenario: { ...baseline.scenario, name: 'heavy_combat' } });
+    const result = compareBenchmarks(baseline, candidate);
+    expect(result.rejected).toBe(true);
+    if (result.rejected) expect(result.reasonCode).toBe('SCENARIO_NAME_MISMATCH');
+  });
+
+  it('rejects comparison when seed mismatches', () => {
+    const baseline = createMockReport();
+    const candidate = createMockReport({ scenario: { ...baseline.scenario, seed: 99999 } });
+    const result = compareBenchmarks(baseline, candidate);
+    expect(result.rejected).toBe(true);
+    if (result.rejected) expect(result.reasonCode).toBe('SEED_MISMATCH');
+  });
+
+  it('rejects comparison when schedule hash mismatches', () => {
+    const baseline = createMockReport();
+    const candidate = createMockReport({ scenario: { ...baseline.scenario, scheduleHash: 'different_hash' } });
+    const result = compareBenchmarks(baseline, candidate);
+    expect(result.rejected).toBe(true);
+    if (result.rejected) expect(result.reasonCode).toBe('SCHEDULE_HASH_MISMATCH');
+  });
+
+  it('rejects comparison when CPU throttle mismatches', () => {
+    const baseline = createMockReport();
+    const candidate = createMockReport({ environment: { ...baseline.environment, cpuThrottling: 1 } });
+    const result = compareBenchmarks(baseline, candidate);
+    expect(result.rejected).toBe(true);
+    if (result.rejected) expect(result.reasonCode).toBe('CPU_THROTTLE_MISMATCH');
+  });
+
+  it('rejects comparison when network profile mismatches', () => {
+    const baseline = createMockReport();
+    const candidate = createMockReport({ environment: { ...baseline.environment, network: 'Slow 4G' } });
+    const result = compareBenchmarks(baseline, candidate);
+    expect(result.rejected).toBe(true);
+    if (result.rejected) expect(result.reasonCode).toBe('NETWORK_PROFILE_MISMATCH');
+  });
+
+  it('rejects comparison when viewport width/height mismatches', () => {
+    const baseline = createMockReport();
+    const candidate = createMockReport({ environment: { ...baseline.environment, viewport: { width: 430, height: 932, dpr: 2 } } });
+    const result = compareBenchmarks(baseline, candidate);
+    expect(result.rejected).toBe(true);
+    if (result.rejected) expect(result.reasonCode).toBe('VIEWPORT_MISMATCH');
+  });
+
+  it('rejects comparison when DPR mismatches', () => {
+    const baseline = createMockReport();
+    const candidate = createMockReport({ environment: { ...baseline.environment, viewport: { width: 375, height: 667, dpr: 3 } } });
+    const result = compareBenchmarks(baseline, candidate);
+    expect(result.rejected).toBe(true);
+    if (result.rejected) expect(result.reasonCode).toBe('DPR_MISMATCH');
   });
 
   it('rejects comparison when renderer mismatches', () => {
     const baseline = createMockReport();
-    const candidate = createMockReport({
-      environment: {
-        ...baseline.environment,
-        renderer: 'Canvas', // mismatch!
-      },
-    });
-
+    const candidate = createMockReport({ environment: { ...baseline.environment, renderer: 'Canvas' } });
     const result = compareBenchmarks(baseline, candidate);
-
     expect(result.rejected).toBe(true);
-    if (result.rejected) {
-      expect(result.reasonCode).toBe('RENDERER_MISMATCH');
-      expect(result.message).toContain("Renderer mismatch: baseline is 'WebGL', but candidate is 'Canvas'");
-    }
+    if (result.rejected) expect(result.reasonCode).toBe('RENDERER_MISMATCH');
   });
 
-  it('rejects comparison when viewport or DPR mismatches', () => {
+  it('rejects comparison when GPU vendor mismatches', () => {
     const baseline = createMockReport();
-    const candidate = createMockReport({
-      environment: {
-        ...baseline.environment,
-        viewport: { width: 430, height: 932, dpr: 3 }, // mismatch!
-      },
-    });
-
+    const candidate = createMockReport({ environment: { ...baseline.environment, gpuVendor: 'Apple Inc.' } });
     const result = compareBenchmarks(baseline, candidate);
-
     expect(result.rejected).toBe(true);
-    if (result.rejected) {
-      expect(result.reasonCode).toBe('VIEWPORT_MISMATCH');
-      expect(result.message).toContain('Viewport/DPR mismatch');
-    }
+    if (result.rejected) expect(result.reasonCode).toBe('GPU_VENDOR_MISMATCH');
+  });
+
+  it('rejects comparison when GPU renderer mismatches', () => {
+    const baseline = createMockReport();
+    const candidate = createMockReport({ environment: { ...baseline.environment, gpuRenderer: 'ANGLE (AMD Radeon)' } });
+    const result = compareBenchmarks(baseline, candidate);
+    expect(result.rejected).toBe(true);
+    if (result.rejected) expect(result.reasonCode).toBe('GPU_RENDERER_MISMATCH');
   });
 
   it('rejects comparison when build mode mismatches', () => {
     const baseline = createMockReport();
-    const candidate = createMockReport({
-      environment: {
-        ...baseline.environment,
-        buildMode: 'development',
-      },
-    });
-
+    const candidate = createMockReport({ environment: { ...baseline.environment, buildMode: 'development' } });
     const result = compareBenchmarks(baseline, candidate);
-
     expect(result.rejected).toBe(true);
-    if (result.rejected) {
-      expect(result.reasonCode).toBe('BUILD_MODE_MISMATCH');
-    }
+    if (result.rejected) expect(result.reasonCode).toBe('BUILD_MODE_MISMATCH');
+  });
+
+  it('rejects comparison when target FPS mismatches', () => {
+    const baseline = createMockReport();
+    const candidate = createMockReport({ environment: { ...baseline.environment, targetFps: 120 } });
+    const result = compareBenchmarks(baseline, candidate);
+    expect(result.rejected).toBe(true);
+    if (result.rejected) expect(result.reasonCode).toBe('TARGET_FPS_MISMATCH');
   });
 
   it('rejects comparison when scenario duration difference exceeds 1s tolerance', () => {
     const baseline = createMockReport();
-    const candidate = createMockReport({
-      metrics: {
-        ...baseline.metrics,
-        sampleDurationMs: 65000, // 65s vs 60s
-      },
-    });
-
+    const candidate = createMockReport({ metrics: { ...baseline.metrics, sampleDurationMs: 65000 } });
     const result = compareBenchmarks(baseline, candidate);
-
     expect(result.rejected).toBe(true);
-    if (result.rejected) {
-      expect(result.reasonCode).toBe('DURATION_MISMATCH');
-      expect(result.message).toContain('Duration difference (5.00s) exceeds tolerance of 1s');
-    }
+    if (result.rejected) expect(result.reasonCode).toBe('DURATION_MISMATCH');
+  });
+
+  it('rejects comparison when warmup duration mismatches', () => {
+    const baseline = createMockReport();
+    const candidate = createMockReport({ scenario: { ...baseline.scenario, warmupDurationSeconds: 8.0 } });
+    const result = compareBenchmarks(baseline, candidate);
+    expect(result.rejected).toBe(true);
+    if (result.rejected) expect(result.reasonCode).toBe('WARMUP_DURATION_MISMATCH');
+  });
+
+  it('rejects comparison when browser version mismatches', () => {
+    const baseline = createMockReport();
+    const candidate = createMockReport({ environment: { ...baseline.environment, browserVersion: 'Chrome/131.0.0.0' } });
+    const result = compareBenchmarks(baseline, candidate);
+    expect(result.rejected).toBe(true);
+    if (result.rejected) expect(result.reasonCode).toBe('BROWSER_VERSION_MISMATCH');
+  });
+
+  it('rejects comparison when host type mismatches', () => {
+    const baseline = createMockReport();
+    const candidate = createMockReport({ environment: { ...baseline.environment, host: 'Physical Device (Pixel 7)' } });
+    const result = compareBenchmarks(baseline, candidate);
+    expect(result.rejected).toBe(true);
+    if (result.rejected) expect(result.reasonCode).toBe('HOST_TYPE_MISMATCH');
+  });
+
+  it('rejects comparison when physical device flag mismatches', () => {
+    const baseline = createMockReport();
+    const candidate = createMockReport({ environment: { ...baseline.environment, isPhysicalDevice: true } });
+    const result = compareBenchmarks(baseline, candidate);
+    expect(result.rejected).toBe(true);
+    if (result.rejected) expect(result.reasonCode).toBe('PHYSICAL_DEVICE_FLAG_MISMATCH');
   });
 
   it('rejects comparison when army count variance exceeds tolerance', () => {
-    const baseline = createMockReport({
-      metrics: {
-        ...createMockReport().metrics,
-        armyCounts: { min: 5, max: 9, avg: 7.0, peak: 9 },
-      },
-    });
+    const baseline = createMockReport();
     const candidate = createMockReport({
       metrics: {
         ...baseline.metrics,
-        armyCounts: { min: 1, max: 3, avg: 2.0, peak: 3 }, // 2.0 vs 7.0 -> variance > 70%
+        steadyStateArmyCounts: { min: 2, max: 3, avg: 2.5, peak: 3 },
       },
     });
-
     const result = compareBenchmarks(baseline, candidate, { maxArmyVarianceRatio: 0.25 });
-
     expect(result.rejected).toBe(true);
-    if (result.rejected) {
-      expect(result.reasonCode).toBe('ARMY_COUNT_VARIANCE_EXCEEDED');
-      expect(result.message).toContain('Army count variance ratio');
-    }
+    if (result.rejected) expect(result.reasonCode).toBe('ARMY_COUNT_VARIANCE_EXCEEDED');
   });
 
   it('rejects comparison when either sample failed internal verification', () => {
     const baseline = createMockReport({
-      verification: {
-        passed: false,
-        failures: ['Renderer mismatch'],
-      },
+      verification: { passed: false, failures: ['Renderer mismatch'] },
     });
     const candidate = createMockReport();
-
     const result = compareBenchmarks(baseline, candidate);
-
     expect(result.rejected).toBe(true);
-    if (result.rejected) {
-      expect(result.reasonCode).toBe('UNVERIFIED_SAMPLE');
-    }
+    if (result.rejected) expect(result.reasonCode).toBe('UNVERIFIED_SAMPLE');
   });
 });
+

@@ -49,70 +49,73 @@ describe('BenchmarkMetricsCalculator', () => {
   });
 
   describe('computeBenchmarkMetrics', () => {
-    it('separates presented FPS (clamped to target bound) from raw unthrottled rendered FPS', () => {
-      // Emulate headless canvas firing 150 times per second
-      const frameCount = 150;
+    it('computes true unclamped presented FPS and separates steady-state army distribution', () => {
+      const frameCount = 60;
       const durationMs = 1000;
       const rawFrames = Array.from({ length: frameCount }, (_, i) => ({
-        timestampMs: 1000 + i * 6.66,
-        deltaMs: 6.66,
+        timestampMs: 1000 + i * 16.66,
+        deltaMs: 16.66,
       }));
 
       const input: RawBenchmarkSampleInput = {
         sampleDurationMs: durationMs,
         renderFrames: rawFrames,
-        simulationTicks: 60, // exactly 60 simulation steps
+        simulationTicks: 60,
         longTasks: [],
-        armyCountSamples: [5, 6, 7],
+        armySamples: [
+          { timestampMs: 1000, count: 2 }, // warmup (0s)
+          { timestampMs: 2000, count: 4 }, // warmup (1s)
+          { timestampMs: 5100, count: 7 }, // steady-state (4.1s >= 4.0s)
+          { timestampMs: 6100, count: 8 }, // steady-state (5.1s >= 4.0s)
+        ],
         peakObjects: 100,
         peakTweens: 10,
         memoryMb: { start: 20, peak: 25 },
         totalDrawCalls: 300,
       };
 
-      const metrics = computeBenchmarkMetrics(input, 60);
+      const metrics = computeBenchmarkMetrics(input, 60, 4.0);
 
-      // Raw render count is 150 FPS
-      expect(metrics.renderedFps).toBe(150);
-      // Authoritative presented FPS MUST be bounded by targetFps (60)
       expect(metrics.presentedFps).toBe(60);
-      // Simulation ticks rate is 60 FPS
+      expect(metrics.renderedFps).toBe(60);
       expect(metrics.simulationFps).toBe(60);
-      expect(metrics.simulationTicks).toBe(60);
-      expect(metrics.drawCalls?.avgPerFrame).toBe(2);
+      expect(metrics.warmupArmySamples).toEqual([2, 4]);
+      expect(metrics.steadyStateArmySamples).toEqual([7, 8]);
+      expect(metrics.steadyStateArmyCounts.min).toBe(7);
+      expect(metrics.steadyStateArmyCounts.max).toBe(8);
+      expect(metrics.steadyStateArmyCounts.avg).toBe(7.5);
       expect(metrics.duplicateFramesDropped).toBe(0);
     });
 
-    it('aggregates threshold violations and long tasks', () => {
+    it('excludes background interval from active presented FPS calculation', () => {
+      // 45s total scenario: 35s active, 10s background, 2100 frames
+      const totalFrames = 2100;
+      const rawFrames = Array.from({ length: totalFrames }, (_, i) => ({
+        timestampMs: 1000 + i * 16.66,
+        deltaMs: 16.66,
+      }));
+
       const input: RawBenchmarkSampleInput = {
-        sampleDurationMs: 1000,
-        renderFrames: [
-          { timestampMs: 100, deltaMs: 10 },
-          { timestampMs: 120, deltaMs: 20 }, // > 16.7
-          { timestampMs: 160, deltaMs: 40 }, // > 33.3 and > 16.7
-          { timestampMs: 200, deltaMs: 40 }, // > 33.3 and > 16.7
-        ],
-        simulationTicks: 4,
-        longTasks: [
-          { duration: 55.4 },
-          { duration: 82.1 },
-        ],
-        armyCountSamples: [8, 9, 8],
-        peakObjects: 50,
-        peakTweens: 5,
-        memoryMb: { start: 10, peak: 15 },
-        totalDrawCalls: 80,
+        sampleDurationMs: 45000,
+        backgroundDurationMs: 10000,
+        renderFrames: rawFrames,
+        simulationTicks: 2100,
+        longTasks: [],
+        armyCountSamples: [7, 7, 7],
+        peakObjects: 100,
+        peakTweens: 10,
+        memoryMb: { start: 20, peak: 25 },
+        totalDrawCalls: 10000,
       };
 
-      const metrics = computeBenchmarkMetrics(input, 60);
+      const metrics = computeBenchmarkMetrics(input, 60, 4.0);
 
-      expect(metrics.framesOver16Ms).toBe(3);
-      expect(metrics.framesOver16Pct).toBe(75);
-      expect(metrics.framesOver33Ms).toBe(2);
-      expect(metrics.framesOver33Pct).toBe(50);
-      expect(metrics.longTasks.count).toBe(2);
-      expect(metrics.longTasks.maxDurationMs).toBe(82.1);
-      expect(metrics.longTasks.totalDurationMs).toBe(137.5);
+      // Raw rendered FPS over 45s is ~46.7 FPS
+      expect(metrics.renderedFps).toBe(46.7);
+      // Active presented FPS over 35s is 60 FPS
+      expect(metrics.presentedFps).toBe(60);
+      expect(metrics.activeSampleDurationMs).toBe(35000);
+      expect(metrics.backgroundDurationMs).toBe(10000);
     });
   });
 
@@ -123,6 +126,7 @@ describe('BenchmarkMetricsCalculator', () => {
       expectedBuildMode: 'production',
       expectedDurationSeconds: 60,
       targetArmyRange: { min: 5, max: 10 },
+      targetFps: 60,
     };
 
     const makeMetrics = (overrides: Partial<ReturnType<typeof computeBenchmarkMetrics>> = {}) => ({
@@ -137,11 +141,17 @@ describe('BenchmarkMetricsCalculator', () => {
       framesOver33Pct: 0,
       longTasks: { count: 0, totalDurationMs: 0, maxDurationMs: 0 },
       armyCounts: { min: 5, max: 9, avg: 7.2, peak: 9 },
+      warmupArmySamples: [2, 4],
+      steadyStateArmySamples: [6, 7, 8, 7],
+      steadyStateArmyCounts: { min: 6, max: 8, avg: 7.0, peak: 8 },
       peakObjects: 150,
       peakTweens: 15,
       memoryMb: { start: 20, peak: 30 },
       drawCalls: { total: 3000, avgPerFrame: 50 },
       sampleDurationMs: 60000,
+      activeSampleDurationMs: 60000,
+      backgroundDurationMs: 0,
+      lifecycleTransitions: [],
       totalRenderedFrames: 3600,
       duplicateFramesDropped: 0,
       ...overrides,
@@ -152,6 +162,9 @@ describe('BenchmarkMetricsCalculator', () => {
         makeMetrics(),
         {
           renderer: 'WebGL',
+          gpuVendor: 'Google Inc. (NVIDIA)',
+          gpuRenderer: 'ANGLE (NVIDIA RTX 4060 Ti)',
+          isSoftwareRenderer: false,
           viewport: { width: 375, height: 667, dpr: 2 },
           buildMode: 'production',
         },
@@ -162,11 +175,14 @@ describe('BenchmarkMetricsCalculator', () => {
       expect(res.failures).toHaveLength(0);
     });
 
-    it('fails when renderer mismatches', () => {
+    it('fails when software WebGL rasterizer is detected', () => {
       const res = verifyPrerequisites(
         makeMetrics(),
         {
-          renderer: 'Canvas', // Wrong renderer!
+          renderer: 'WebGL',
+          gpuVendor: 'Google Inc. (Microsoft)',
+          gpuRenderer: 'ANGLE (Microsoft, Microsoft Basic Render Driver Direct3D11)',
+          isSoftwareRenderer: true,
           viewport: { width: 375, height: 667, dpr: 2 },
           buildMode: 'production',
         },
@@ -174,16 +190,49 @@ describe('BenchmarkMetricsCalculator', () => {
       );
 
       expect(res.passed).toBe(false);
-      expect(res.failures).toContain("Renderer mismatch: actual 'Canvas' != expected 'WebGL'");
+      expect(res.failures.some(f => f.includes('SOFTWARE_WEBGL_DETECTED'))).toBe(true);
     });
 
-    it('fails when army count range is not reached', () => {
+    it('fails when presented FPS exceeds target bound', () => {
+      const res = verifyPrerequisites(
+        makeMetrics({ presentedFps: 75.0 }), // 75 FPS on 60 target
+        {
+          renderer: 'WebGL',
+          isSoftwareRenderer: false,
+          viewport: { width: 375, height: 667, dpr: 2 },
+          buildMode: 'production',
+        },
+        standardPrereqs
+      );
+
+      expect(res.passed).toBe(false);
+      expect(res.failures.some(f => f.includes('PRESENTED_FPS_EXCEEDS_TARGET_BOUND'))).toBe(true);
+    });
+
+    it('fails when duplicate postrender callbacks are detected', () => {
+      const res = verifyPrerequisites(
+        makeMetrics({ duplicateFramesDropped: 3 }),
+        {
+          renderer: 'WebGL',
+          isSoftwareRenderer: false,
+          viewport: { width: 375, height: 667, dpr: 2 },
+          buildMode: 'production',
+        },
+        standardPrereqs
+      );
+
+      expect(res.passed).toBe(false);
+      expect(res.failures.some(f => f.includes('POSTRENDER_DUPLICATE_DETECTED'))).toBe(true);
+    });
+
+    it('fails when steady-state army count exceeds maximum (e.g. peak 11 or 12)', () => {
       const res = verifyPrerequisites(
         makeMetrics({
-          armyCounts: { min: 0, max: 2, avg: 1.1, peak: 2 }, // peak 2 < expected min 5
+          steadyStateArmySamples: [6, 7, 11, 8], // 11 > max 10
         }),
         {
           renderer: 'WebGL',
+          isSoftwareRenderer: false,
           viewport: { width: 375, height: 667, dpr: 2 },
           buildMode: 'production',
         },
@@ -191,14 +240,17 @@ describe('BenchmarkMetricsCalculator', () => {
       );
 
       expect(res.passed).toBe(false);
-      expect(res.failures[0]).toContain('Army count violation: peak army count 2 did not reach expected minimum 5');
+      expect(res.failures.some(f => f.includes('ARMY_COUNT_OUT_OF_STEADY_STATE_BOUNDS'))).toBe(true);
     });
 
-    it('fails when duration differs beyond tolerance', () => {
+    it('fails when steady-state army count drops below minimum', () => {
       const res = verifyPrerequisites(
-        makeMetrics({ sampleDurationMs: 50000 }), // 50s vs 60s
+        makeMetrics({
+          steadyStateArmySamples: [6, 7, 4, 8], // 4 < min 5
+        }),
         {
           renderer: 'WebGL',
+          isSoftwareRenderer: false,
           viewport: { width: 375, height: 667, dpr: 2 },
           buildMode: 'production',
         },
@@ -206,7 +258,27 @@ describe('BenchmarkMetricsCalculator', () => {
       );
 
       expect(res.passed).toBe(false);
-      expect(res.failures[0]).toContain('Duration mismatch');
+      expect(res.failures.some(f => f.includes('ARMY_COUNT_OUT_OF_STEADY_STATE_BOUNDS'))).toBe(true);
+    });
+
+    it('fails when background_resume is missing lifecycle transitions', () => {
+      const res = verifyPrerequisites(
+        makeMetrics({
+          backgroundDurationMs: 10000,
+          lifecycleTransitions: [{ event: 'visibilitychange', state: 'hidden', timestampMs: 5000 }], // Missing visible transition!
+        }),
+        {
+          renderer: 'WebGL',
+          isSoftwareRenderer: false,
+          viewport: { width: 375, height: 667, dpr: 2 },
+          buildMode: 'production',
+        },
+        standardPrereqs
+      );
+
+      expect(res.passed).toBe(false);
+      expect(res.failures.some(f => f.includes('INVALID_BACKGROUND_TRANSITION'))).toBe(true);
     });
   });
 });
+

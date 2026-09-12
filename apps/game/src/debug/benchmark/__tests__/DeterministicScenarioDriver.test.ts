@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   createMulberry32,
+  computeScheduleHash,
   SCENARIO_DEFINITIONS,
 } from '../DeterministicScenarioDriver.js';
 
@@ -25,6 +26,20 @@ describe('DeterministicScenarioDriver', () => {
     expect(seq1).not.toEqual(seq2);
   });
 
+  it('computeScheduleHash computes reproducible hash and detects alterations', () => {
+    const s1 = [{ timeSec: 1.0, sourceId: 'p_base', targetId: 'n_center', owner: 'player' as const, units: 5 }];
+    const s2 = [{ timeSec: 1.0, sourceId: 'p_base', targetId: 'n_center', owner: 'player' as const, units: 5 }];
+    const s3 = [{ timeSec: 1.1, sourceId: 'p_base', targetId: 'n_center', owner: 'player' as const, units: 5 }];
+
+    const h1 = computeScheduleHash(s1);
+    const h2 = computeScheduleHash(s2);
+    const h3 = computeScheduleHash(s3);
+
+    expect(h1).toBe(h2);
+    expect(h1).not.toBe(h3);
+    expect(h1).toMatch(/^[0-9a-f]{8}$/);
+  });
+
   it('normal_combat schedule is 100% deterministic with fixed seed', () => {
     const def = SCENARIO_DEFINITIONS.normal_combat;
     const s1 = def.generateSchedule(20260912, 60);
@@ -34,13 +49,25 @@ describe('DeterministicScenarioDriver', () => {
     expect(s1).toEqual(s2);
   });
 
+  it('normal_combat schedule maintains steady-state active armies strictly within [5, 10]', () => {
+    const def = SCENARIO_DEFINITIONS.normal_combat;
+    const schedule = def.generateSchedule(20260912, 30);
+    const warmupSec = def.config.warmupDurationSeconds; // 4.0s
+    const armyDuration = 2.80; // approximate travel duration across base-to-node lanes
+
+    // Sample every 0.1s from warmup to 29.0s
+    for (let t = warmupSec; t <= 29.0; t += 0.1) {
+      const active = schedule.filter((d) => d.timeSec <= t && t < d.timeSec + armyDuration).length;
+      expect(active).toBeGreaterThanOrEqual(5);
+      expect(active).toBeLessThanOrEqual(10);
+    }
+  });
+
   it('heavy_combat schedule generates sufficient dispatches to sustain 20+ armies', () => {
     const def = SCENARIO_DEFINITIONS.heavy_combat;
     const schedule = def.generateSchedule(987654321, 60);
 
-    // Should have dense dispatch count
     expect(schedule.length).toBeGreaterThan(100);
-    // Dispatches spread across time
     expect(schedule[0].timeSec).toBeLessThan(1.0);
     expect(schedule[schedule.length - 1].timeSec).toBeGreaterThan(50.0);
   });
@@ -51,3 +78,4 @@ describe('DeterministicScenarioDriver', () => {
     expect(schedule).toHaveLength(0);
   });
 });
+

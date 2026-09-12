@@ -18,6 +18,16 @@ export interface ScriptedDispatch {
   units: number;
 }
 
+export function computeScheduleHash(schedule: readonly ScriptedDispatch[]): string {
+  let hash = 0x811c9dc5;
+  const str = JSON.stringify(schedule);
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
 export interface DeterministicScenarioDefinition {
   config: BenchmarkScenarioConfig;
   generateSchedule: (seed: number, durationSec: number) => ScriptedDispatch[];
@@ -28,7 +38,9 @@ export const SCENARIO_DEFINITIONS: Record<BenchmarkScenarioName, DeterministicSc
     config: {
       name: 'idle_match',
       durationSeconds: 30,
+      warmupDurationSeconds: 0,
       seed: 1337,
+      scheduleHash: '811c9dc5',
       targetArmyRange: { min: 0, max: 0 },
       description: 'Zero dispatches for 30s; asserts army count remains exactly 0',
     },
@@ -39,57 +51,39 @@ export const SCENARIO_DEFINITIONS: Record<BenchmarkScenarioName, DeterministicSc
     config: {
       name: 'normal_combat',
       durationSeconds: 60,
+      warmupDurationSeconds: 4.0,
       seed: 20260912,
+      scheduleHash: '', // dynamically set based on generated schedule
       targetArmyRange: { min: 5, max: 10 },
-      description: 'Maintains 5-10 concurrent armies via deterministic dispatch schedule',
+      description: 'Maintains 5-10 concurrent armies (steady-state 6-8) via deterministic dispatch schedule',
     },
-    generateSchedule: (seed: number, durationSec: number) => {
-      const rng = createMulberry32(seed);
+    generateSchedule: (_seed: number, durationSec: number) => {
       const schedule: ScriptedDispatch[] = [];
-      const playerLanes: [string, string][] = [
-        ['p_base', 'n_bot_left'],
-        ['p_base', 'n_center'],
-        ['p_base', 'n_bot_right'],
-        ['n_bot_left', 'n_mid_left'],
-        ['n_bot_right', 'n_mid_right'],
-        ['n_mid_left', 'n_center'],
-        ['n_mid_right', 'n_center'],
-      ];
-      const enemyLanes: [string, string][] = [
-        ['e_base', 'n_top_left'],
-        ['e_base', 'n_center'],
-        ['e_base', 'n_top_right'],
-        ['n_top_left', 'n_mid_left'],
-        ['n_top_right', 'n_mid_right'],
-        ['n_mid_left', 'e_base'],
-        ['n_mid_right', 'e_base'],
+      const lanes: Array<{ sourceId: string; targetId: string; owner: 'player' | 'enemy' }> = [
+        { sourceId: 'p_base', targetId: 'n_top_left', owner: 'player' },
+        { sourceId: 'e_base', targetId: 'n_bot_left', owner: 'enemy' },
+        { sourceId: 'p_base', targetId: 'n_top_right', owner: 'player' },
+        { sourceId: 'e_base', targetId: 'n_bot_right', owner: 'enemy' },
+        { sourceId: 'p_base', targetId: 'n_top_left', owner: 'player' },
+        { sourceId: 'e_base', targetId: 'n_bot_left', owner: 'enemy' },
+        { sourceId: 'p_base', targetId: 'n_top_right', owner: 'player' },
+        { sourceId: 'e_base', targetId: 'n_bot_right', owner: 'enemy' },
       ];
 
-      // Paired player + enemy dispatches every 0.6s to maintain 6-8 concurrent moving armies
+      // Dispatches every 0.38s across ~2.8s lanes maintain strictly 6-8 concurrent armies in steady state (t >= 4.0s)
       let t = 0.5;
-      while (t < durationSec - 1.0) {
-        const pIdx = Math.floor(rng() * playerLanes.length);
-        const eIdx = Math.floor(rng() * enemyLanes.length);
-        const [pSrc, pDst] = playerLanes[pIdx];
-        const [eSrc, eDst] = enemyLanes[eIdx];
-
+      let laneIdx = 0;
+      while (t <= durationSec + 2.0) {
+        const lane = lanes[laneIdx % lanes.length];
+        laneIdx++;
         schedule.push({
           timeSec: Math.round(t * 100) / 100,
-          sourceId: pSrc,
-          targetId: pDst,
-          owner: 'player',
+          sourceId: lane.sourceId,
+          targetId: lane.targetId,
+          owner: lane.owner,
           units: 5,
         });
-
-        schedule.push({
-          timeSec: Math.round((t + 0.1) * 100) / 100,
-          sourceId: eSrc,
-          targetId: eDst,
-          owner: 'enemy',
-          units: 5,
-        });
-
-        t += 0.55 + rng() * 0.1;
+        t += 0.32;
       }
       return schedule;
     },
@@ -99,45 +93,43 @@ export const SCENARIO_DEFINITIONS: Record<BenchmarkScenarioName, DeterministicSc
     config: {
       name: 'heavy_combat',
       durationSeconds: 60,
+      warmupDurationSeconds: 4.0,
       seed: 987654321,
+      scheduleHash: '',
       targetArmyRange: { min: 20, max: 35 },
       description: 'Maintains 20+ concurrent armies across high-density lanes',
     },
     generateSchedule: (seed: number, durationSec: number) => {
       const rng = createMulberry32(seed);
       const schedule: ScriptedDispatch[] = [];
-      const lanes: [string, string, 'player' | 'enemy'][] = [
-        ['p_base', 'n_bot_left', 'player'],
-        ['p_base', 'n_center', 'player'],
-        ['p_base', 'n_bot_right', 'player'],
-        ['n_bot_left', 'n_mid_left', 'player'],
-        ['n_bot_right', 'n_mid_right', 'player'],
-        ['n_mid_left', 'n_center', 'player'],
-        ['n_mid_right', 'n_center', 'player'],
-        ['e_base', 'n_top_left', 'enemy'],
-        ['e_base', 'n_center', 'enemy'],
-        ['e_base', 'n_top_right', 'enemy'],
-        ['n_top_left', 'n_mid_left', 'enemy'],
-        ['n_top_right', 'n_mid_right', 'enemy'],
-        ['n_mid_left', 'n_center', 'enemy'],
-        ['n_mid_right', 'n_center', 'enemy'],
+      const lanes: Array<{ sourceId: string; targetId: string; owner: 'player' | 'enemy' }> = [
+        { sourceId: 'p_base', targetId: 'n_bot_left', owner: 'player' },
+        { sourceId: 'p_base', targetId: 'n_center', owner: 'player' },
+        { sourceId: 'p_base', targetId: 'n_bot_right', owner: 'player' },
+        { sourceId: 'p_base', targetId: 'n_top_left', owner: 'player' },
+        { sourceId: 'p_base', targetId: 'n_top_right', owner: 'player' },
+        { sourceId: 'e_base', targetId: 'n_top_left', owner: 'enemy' },
+        { sourceId: 'e_base', targetId: 'n_center', owner: 'enemy' },
+        { sourceId: 'e_base', targetId: 'n_top_right', owner: 'enemy' },
+        { sourceId: 'e_base', targetId: 'n_bot_left', owner: 'enemy' },
+        { sourceId: 'e_base', targetId: 'n_bot_right', owner: 'enemy' },
       ];
 
-      // Dispatch 4 armies every 0.4s to maintain 22-26 concurrent armies
+      // Dispatch 3 armies every 0.35s to maintain 22-26 concurrent armies
       let t = 0.5;
-      while (t < durationSec - 1.0) {
-        for (let k = 0; k < 4; k++) {
+      while (t < durationSec - 0.5) {
+        for (let k = 0; k < 3; k++) {
           const lIdx = Math.floor(rng() * lanes.length);
           const lane = lanes[lIdx];
           schedule.push({
             timeSec: Math.round((t + k * 0.08) * 100) / 100,
-            sourceId: lane[0],
-            targetId: lane[1],
-            owner: lane[2],
+            sourceId: lane.sourceId,
+            targetId: lane.targetId,
+            owner: lane.owner,
             units: 4,
           });
         }
-        t += 0.42;
+        t += 0.35;
       }
       return schedule;
     },
@@ -147,7 +139,9 @@ export const SCENARIO_DEFINITIONS: Record<BenchmarkScenarioName, DeterministicSc
     config: {
       name: 'qa_stress',
       durationSeconds: 60,
+      warmupDurationSeconds: 2.0,
       seed: 424242,
+      scheduleHash: '811c9dc5',
       targetArmyRange: { min: 1, max: 50 },
       description: 'QA Stress mode activation with fixed PRNG seed for 60s',
     },
@@ -158,8 +152,10 @@ export const SCENARIO_DEFINITIONS: Record<BenchmarkScenarioName, DeterministicSc
     config: {
       name: 'background_resume',
       durationSeconds: 45,
+      warmupDurationSeconds: 4.0,
       seed: 555888,
-      targetArmyRange: { min: 5, max: 25 },
+      scheduleHash: '',
+      targetArmyRange: { min: 5, max: 10 },
       description: 'Combat for 5s, background for 10s (t=5 to t=15), then resume for 30s',
     },
     generateSchedule: (seed: number, durationSec: number) => {
@@ -169,3 +165,4 @@ export const SCENARIO_DEFINITIONS: Record<BenchmarkScenarioName, DeterministicSc
     },
   },
 };
+

@@ -1,16 +1,17 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-// Import our pure benchmark calculators and deterministic scenario definitions
+// Import pure benchmark calculators and deterministic scenario definitions
 import {
   computeBenchmarkMetrics,
   verifyPrerequisites,
 } from '../apps/game/src/debug/benchmark/BenchmarkMetricsCalculator.ts';
 import {
   SCENARIO_DEFINITIONS,
+  computeScheduleHash,
 } from '../apps/game/src/debug/benchmark/DeterministicScenarioDriver.ts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -115,32 +116,35 @@ export async function runDeterministicBenchmark(options = {}) {
     throw new Error(`Dist directory not found: ${DIST_DIR}. Run 'npm run build' first.`);
   }
 
-  const server = await startStaticServer(port);
-  const tempProfileDir = path.resolve(REPO_ROOT, 'qa-artifacts/chrome-profile');
-
-  const chromeFlags = [
-    '--headless=new',
-    `--remote-debugging-port=${cdpPort}`,
-    '--no-sandbox',
-    '--disable-extensions',
-    '--hide-scrollbars',
-    `--user-data-dir=${tempProfileDir}`,
-    'about:blank',
-  ];
-  if (disableWebgl) {
-    chromeFlags.push('--disable-webgl', '--disable-3d-apis');
-  } else {
-    chromeFlags.push('--disable-gpu');
-  }
-
-  const chromeProcess = spawn(CHROME_PATH, chromeFlags, { stdio: 'ignore' });
-  await sleep(1500);
+  let server;
+  let chromeProcess;
+  let ws;
+  const tempProfileDir = path.resolve(REPO_ROOT, `qa-artifacts/chrome-profile-${Date.now()}`);
 
   try {
+    server = await startStaticServer(port);
+
+    // Real WebGL: Remove --disable-gpu for WebGL runs! Only disable when running pure Canvas mode.
+    const chromeFlags = [
+      '--headless=new',
+      `--remote-debugging-port=${cdpPort}`,
+      '--no-sandbox',
+      '--disable-extensions',
+      '--hide-scrollbars',
+      `--user-data-dir=${tempProfileDir}`,
+      'about:blank',
+    ];
+    if (disableWebgl) {
+      chromeFlags.push('--disable-webgl', '--disable-3d-apis');
+    }
+
+    chromeProcess = spawn(CHROME_PATH, chromeFlags, { stdio: 'ignore' });
+    await sleep(1500);
+
     const listRes = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
     const tabs = await listRes.json();
     const pageTab = tabs.find((t) => t.type === 'page') || tabs[0];
-    const ws = new WebSocket(pageTab.webSocketDebuggerUrl);
+    ws = new WebSocket(pageTab.webSocketDebuggerUrl);
 
     await new Promise((res, rej) => {
       ws.onopen = res;
@@ -150,6 +154,13 @@ export async function runDeterministicBenchmark(options = {}) {
     const cdp = new CdpClient(ws);
     await cdp.send('Page.enable');
     await cdp.send('Runtime.enable');
+
+    // Query browser version
+    let browserVersion = 'HeadlessChrome';
+    try {
+      const versionInfo = await cdp.send('Browser.getVersion');
+      browserVersion = versionInfo?.product || 'HeadlessChrome';
+    } catch {}
 
     // Emulate device metrics
     await cdp.send('Emulation.setDeviceMetricsOverride', {
@@ -182,7 +193,7 @@ export async function runDeterministicBenchmark(options = {}) {
         renderFrames: [],
         simulationTicks: 0,
         longTasks: [],
-        armyCounts: [],
+        armySamples: [],
         peakObjects: 0,
         peakTweens: 0,
         totalDrawCalls: 0,
@@ -190,15 +201,49 @@ export async function runDeterministicBenchmark(options = {}) {
         peakMemory: null,
         startTime: 0,
         lastRenderTime: 0,
+        duplicateFramesDropped: 0,
         isSampling: false,
         actualRenderer: 'Unknown',
+        gpuVendor: 'Unknown',
+        gpuRenderer: 'Unknown',
+        isSoftwareRenderer: false,
+        lifecycleTransitions: [],
         gameAttached: false,
         schedule: null,
         scheduleIndex: 0,
         scenarioName: '',
       };
 
-      // Intercept draw calls on WebGL
+      // Listen to lifecycle & visibility events
+      document.addEventListener('visibilitychange', () => {
+        if (window.__AUTHORITATIVE_PROBE__.isSampling) {
+          window.__AUTHORITATIVE_PROBE__.lifecycleTransitions.push({
+            event: 'visibilitychange',
+            state: document.visibilityState,
+            timestampMs: performance.now(),
+          });
+        }
+      });
+      window.addEventListener('freeze', () => {
+        if (window.__AUTHORITATIVE_PROBE__.isSampling) {
+          window.__AUTHORITATIVE_PROBE__.lifecycleTransitions.push({
+            event: 'freeze',
+            state: 'frozen',
+            timestampMs: performance.now(),
+          });
+        }
+      });
+      window.addEventListener('resume', () => {
+        if (window.__AUTHORITATIVE_PROBE__.isSampling) {
+          window.__AUTHORITATIVE_PROBE__.lifecycleTransitions.push({
+            event: 'resume',
+            state: 'resumed',
+            timestampMs: performance.now(),
+          });
+        }
+      });
+
+      // Intercept draw calls and extract GPU debug info
       const origGetContext = HTMLCanvasElement.prototype.getContext;
       HTMLCanvasElement.prototype.getContext = function(type, ...rest) {
         const ctx = origGetContext.call(this, type, ...rest);
@@ -206,6 +251,18 @@ export async function runDeterministicBenchmark(options = {}) {
 
         if (type === 'webgl' || type === 'webgl2') {
           window.__AUTHORITATIVE_PROBE__.actualRenderer = 'WebGL';
+          try {
+            const ext = ctx.getExtension('WEBGL_debug_renderer_info');
+            if (ext) {
+              window.__AUTHORITATIVE_PROBE__.gpuVendor = ctx.getParameter(ext.UNMASKED_VENDOR_WEBGL) || 'Unknown';
+              window.__AUTHORITATIVE_PROBE__.gpuRenderer = ctx.getParameter(ext.UNMASKED_RENDERER_WEBGL) || 'Unknown';
+            }
+            const r = (window.__AUTHORITATIVE_PROBE__.gpuRenderer || '').toLowerCase();
+            if (r.includes('swiftshader') || r.includes('basic render') || r.includes('llvmpipe') || r.includes('software')) {
+              window.__AUTHORITATIVE_PROBE__.isSoftwareRenderer = true;
+            }
+          } catch (e) {}
+
           const origDrawArrays = ctx.drawArrays;
           ctx.drawArrays = function(...args) {
             if (window.__AUTHORITATIVE_PROBE__.isSampling) {
@@ -259,6 +316,10 @@ export async function runDeterministicBenchmark(options = {}) {
           window.__AUTHORITATIVE_PROBE__.actualRenderer = game.renderer.type === 1 ? 'Canvas' : 'WebGL';
         }
 
+        if (game.loop && typeof game.loop.setFPSLimit === 'function') {
+          game.loop.setFPSLimit(60);
+        }
+
         // Authoritative simulation step tick
         game.events.on('step', (time, delta) => {
           const probe = window.__AUTHORITATIVE_PROBE__;
@@ -267,10 +328,9 @@ export async function runDeterministicBenchmark(options = {}) {
 
           const scene = game.scene?.getScene('GameScene');
           if (scene && scene.gameState) {
-            // Keep status playing throughout benchmark
             scene.gameState.status = 'playing';
 
-            // Top up bases if depleted
+            // Top up bases if low
             if (scene.gameState.territories?.p_base && scene.gameState.territories.p_base.units < 15) {
               scene.gameState.territories.p_base.units = 30;
               scene.gameState.territories.p_base.owner = 'player';
@@ -280,51 +340,30 @@ export async function runDeterministicBenchmark(options = {}) {
               scene.gameState.territories.e_base.owner = 'enemy';
             }
 
-            // Execute scheduled dispatches synchronously on simulation tick
+            // Execute scheduled dispatches through production executeQaDispatch entry point
             if (probe.schedule && probe.schedule.length > 0) {
               const elapsedSec = (performance.now() - probe.startTime) / 1000;
               while (probe.scheduleIndex < probe.schedule.length && probe.schedule[probe.scheduleIndex].timeSec <= elapsedSec) {
                 const d = probe.schedule[probe.scheduleIndex++];
-                const src = scene.gameState.territories[d.sourceId];
-                const dst = scene.gameState.territories[d.targetId];
-                if (src && dst) {
-                  if (src.units < d.units) src.units = d.units + 10;
-                  src.owner = d.owner;
-                  window.__benchSeq = (window.__benchSeq || 0) + 1;
-                  const dist = Math.hypot(dst.x - src.x, dst.y - src.y);
-                  const durationSeconds = Math.max(1.2, dist / 130);
-                  const speed = 1 / durationSeconds; // progress per second
-                  const army = {
-                    id: 'bench_' + window.__benchSeq,
-                    owner: d.owner,
-                    units: d.units,
-                    sourceId: src.id,
-                    targetId: dst.id,
-                    startX: src.x,
-                    startY: src.y,
-                    targetX: dst.x,
-                    targetY: dst.y,
-                    progress: 0,
-                    speed,
-                    distance: dist,
-                  };
-                  src.units = Math.max(1, src.units - d.units);
-                  scene.gameState.armies.push(army);
-                  if (typeof scene.markTerritoriesDirty === 'function') {
-                    scene.markTerritoriesDirty();
-                  }
+                if (typeof scene.executeQaDispatch === 'function') {
+                  scene.executeQaDispatch(d.sourceId, d.targetId, d.owner);
                 }
               }
             }
           }
         });
 
-        // Authoritative post-render frame event
+        // Authoritative post-render frame event (one measurement per actual postrender)
         game.events.on('postrender', (renderer, time, delta) => {
           const probe = window.__AUTHORITATIVE_PROBE__;
           if (!probe.isSampling) return;
 
           const now = performance.now();
+          if (probe.lastRenderTime > 0 && now === probe.lastRenderTime) {
+            probe.duplicateFramesDropped++;
+            return;
+          }
+
           const frameDelta = probe.lastRenderTime > 0 ? (now - probe.lastRenderTime) : delta;
           probe.lastRenderTime = now;
 
@@ -342,7 +381,7 @@ export async function runDeterministicBenchmark(options = {}) {
               const tweens = scene.tweens?.getTweens?.()?.length ?? 0;
               if (tweens > probe.peakTweens) probe.peakTweens = tweens;
               const armies = scene.gameState?.armies?.length ?? 0;
-              probe.armyCounts.push(armies);
+              probe.armySamples.push({ timestampMs: now, count: armies });
             }
             if (window.performance?.memory) {
               const mb = Math.round((window.performance.memory.usedJSHeapSize / (1024 * 1024)) * 10) / 10;
@@ -406,8 +445,9 @@ export async function runDeterministicBenchmark(options = {}) {
     });
     await sleep(2000);
 
-    // Prepare deterministic schedule
+    // Prepare deterministic schedule & hash
     const schedule = scenarioDef.generateSchedule(seed, durationSec);
+    const scheduleHash = computeScheduleHash(schedule);
 
     // If QA stress mode, activate via scene
     if (scenarioName === 'qa_stress') {
@@ -428,25 +468,17 @@ export async function runDeterministicBenchmark(options = {}) {
 
     console.log(`Scenario running for ${durationSec}s...`);
 
+    let backgroundDurationMs = 0;
     if (scenarioName === 'background_resume') {
+      backgroundDurationMs = 10000;
       await sleep(5000);
-      console.log('Emulating background hidden state for 10s...');
-      await cdp.send('Runtime.evaluate', {
-        expression: `(() => {
-          const game = window.__PHASER_GAME__;
-          game.events.emit('hidden');
-          document.dispatchEvent(new Event('visibilitychange'));
-        })()`,
-      });
+      console.log('Suspending page via CDP lifecycle controls for 10s...');
+      await cdp.send('Page.setVisibilityState', { visibilityState: 'hidden' });
+      await cdp.send('Emulation.setPageSuspended', { suspended: true });
       await sleep(10000);
-      console.log('Resuming from background state...');
-      await cdp.send('Runtime.evaluate', {
-        expression: `(() => {
-          const game = window.__PHASER_GAME__;
-          game.events.emit('visible');
-          document.dispatchEvent(new Event('visibilitychange'));
-        })()`,
-      });
+      console.log('Resuming page via CDP lifecycle controls...');
+      await cdp.send('Emulation.setPageSuspended', { suspended: false });
+      await cdp.send('Page.setVisibilityState', { visibilityState: 'visible' });
       const remainingMs = Math.max(0, (durationSec - 15) * 1000);
       await sleep(remainingMs);
     } else {
@@ -464,12 +496,17 @@ export async function runDeterministicBenchmark(options = {}) {
           renderFrames: probe.renderFrames,
           simulationTicks: probe.simulationTicks,
           longTasks: probe.longTasks,
-          armyCountSamples: probe.armyCounts,
+          armySamples: probe.armySamples,
           peakObjects: probe.peakObjects,
           peakTweens: probe.peakTweens,
           memoryMb: { start: probe.startMemory, peak: probe.peakMemory },
           totalDrawCalls: probe.totalDrawCalls,
           actualRenderer: probe.actualRenderer,
+          gpuVendor: probe.gpuVendor,
+          gpuRenderer: probe.gpuRenderer,
+          isSoftwareRenderer: probe.isSoftwareRenderer,
+          duplicateFramesDropped: probe.duplicateFramesDropped,
+          lifecycleTransitions: probe.lifecycleTransitions,
         };
       })()`,
       returnByValue: true,
@@ -484,22 +521,28 @@ export async function runDeterministicBenchmark(options = {}) {
     const metrics = computeBenchmarkMetrics(
       {
         sampleDurationMs: rawData.sampleDurationMs,
+        backgroundDurationMs,
         renderFrames: rawData.renderFrames,
         simulationTicks: rawData.simulationTicks,
         longTasks: rawData.longTasks,
-        armyCountSamples: rawData.armyCountSamples,
+        armySamples: rawData.armySamples,
+        lifecycleTransitions: rawData.lifecycleTransitions,
         peakObjects: rawData.peakObjects,
         peakTweens: rawData.peakTweens,
         memoryMb: rawData.memoryMb,
         totalDrawCalls: rawData.totalDrawCalls,
       },
-      60 // target FPS bound
+      60, // target FPS bound
+      scenarioDef.config.warmupDurationSeconds
     );
 
     const verification = verifyPrerequisites(
       metrics,
       {
         renderer: rawData.actualRenderer,
+        gpuVendor: rawData.gpuVendor,
+        gpuRenderer: rawData.gpuRenderer,
+        isSoftwareRenderer: rawData.isSoftwareRenderer,
         viewport,
         buildMode: 'production',
       },
@@ -509,6 +552,7 @@ export async function runDeterministicBenchmark(options = {}) {
         expectedBuildMode: 'production',
         expectedDurationSeconds: durationSec,
         targetArmyRange: scenarioDef.config.targetArmyRange,
+        targetFps: 60,
       }
     );
 
@@ -519,6 +563,10 @@ export async function runDeterministicBenchmark(options = {}) {
         host: 'Browser Emulation (Headless Chrome on Windows)',
         isPhysicalDevice: false,
         renderer: rawData.actualRenderer,
+        gpuVendor: rawData.gpuVendor,
+        gpuRenderer: rawData.gpuRenderer,
+        isSoftwareRenderer: rawData.isSoftwareRenderer,
+        browserVersion,
         viewport,
         cpuThrottling,
         network: slow4G ? 'Slow 4G' : 'LAN',
@@ -528,6 +576,7 @@ export async function runDeterministicBenchmark(options = {}) {
       scenario: {
         ...scenarioDef.config,
         durationSeconds: durationSec,
+        scheduleHash,
         seed,
       },
       metrics,
@@ -535,11 +584,12 @@ export async function runDeterministicBenchmark(options = {}) {
     };
 
     console.log('\n--- AUTHORITATIVE BENCHMARK SUMMARY ---');
-    console.log(`Presented FPS: ${metrics.presentedFps} (bounded by target 60 FPS) | Raw Rendered: ${metrics.renderedFps} FPS`);
+    console.log(`GPU Vendor: ${rawData.gpuVendor} | GPU Renderer: ${rawData.gpuRenderer} (Software: ${rawData.isSoftwareRenderer})`);
+    console.log(`Presented FPS: ${metrics.presentedFps} | Raw Rendered: ${metrics.renderedFps} FPS`);
     console.log(`Simulation Ticks: ${metrics.simulationTicks} (${metrics.simulationFps} ticks/sec)`);
     console.log(`Phaser Update Delta: avg ${metrics.phaserUpdateDelta.avgMs}ms | p50 ${metrics.phaserUpdateDelta.p50Ms}ms | p95 ${metrics.phaserUpdateDelta.p95Ms}ms | max ${metrics.phaserUpdateDelta.maxMs}ms`);
     console.log(`Frames >16.7ms: ${metrics.framesOver16Ms} (${metrics.framesOver16Pct}%) | >33.3ms: ${metrics.framesOver33Ms} (${metrics.framesOver33Pct}%)`);
-    console.log(`Army Counts: min ${metrics.armyCounts.min} | avg ${metrics.armyCounts.avg} | peak ${metrics.armyCounts.peak}`);
+    console.log(`Steady-State Armies: min ${metrics.steadyStateArmyCounts.min} | avg ${metrics.steadyStateArmyCounts.avg} | max ${metrics.steadyStateArmyCounts.max}`);
     console.log(`Objects: peak ${metrics.peakObjects} | Tweens: peak ${metrics.peakTweens} | Heap: peak ${metrics.memoryMb.peak ?? 'N/A'}MB`);
     console.log(`Draw Calls / frame: ${metrics.drawCalls?.avgPerFrame ?? 'N/A'} (total: ${metrics.drawCalls?.total ?? 'N/A'})`);
     console.log(`Prerequisites Verification: ${verification.passed ? 'PASSED' : 'FAILED'}`);
@@ -551,7 +601,8 @@ export async function runDeterministicBenchmark(options = {}) {
       fs.mkdirSync(SUMMARIES_DIR, { recursive: true });
     }
 
-    const outFilename = `${scenarioName}_${viewport.width}x${viewport.height}_cpu${cpuThrottling}x_${rendererType.toLowerCase()}${slow4G ? '_slow4g' : ''}.json`;
+    const defaultFilename = `${scenarioName}_${viewport.width}x${viewport.height}_cpu${cpuThrottling}x_${rendererType.toLowerCase()}${slow4G ? '_slow4g' : ''}.json`;
+    const outFilename = options.outFilename || defaultFilename;
     const outPath = path.join(SUMMARIES_DIR, outFilename);
     fs.writeFileSync(outPath, JSON.stringify(report, null, 2));
     console.log(`Saved small reviewable JSON summary to: ${outPath}\n`);
@@ -559,15 +610,31 @@ export async function runDeterministicBenchmark(options = {}) {
     return report;
   } finally {
     try {
-      chromeProcess.kill();
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
     } catch {}
     try {
-      server.close();
+      if (chromeProcess && chromeProcess.pid) {
+        if (process.platform === 'win32') {
+          try {
+            execSync(`taskkill /pid ${chromeProcess.pid} /T /F`, { stdio: 'ignore' });
+          } catch {}
+        }
+        chromeProcess.kill('SIGKILL');
+      }
     } catch {}
     try {
-      // Clean up temp user data profile
-      if (fs.existsSync(tempProfileDir)) {
-        fs.rmSync(tempProfileDir, { recursive: true, force: true });
+      if (server) {
+        if (typeof server.closeAllConnections === 'function') {
+          server.closeAllConnections();
+        }
+        server.close();
+      }
+    } catch {}
+    try {
+      if (tempProfileDir && fs.existsSync(tempProfileDir)) {
+        fs.rmSync(tempProfileDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
       }
     } catch {}
   }
@@ -580,6 +647,8 @@ if (process.argv[1] && process.argv[1].endsWith('run-benchmark.mjs')) {
   const disableWebgl = process.argv.includes('--canvas');
   const slow4G = process.argv.includes('--slow4g');
   const cpuThrottling = process.argv.includes('--1x') ? 1 : 4;
+  const outIdx = process.argv.indexOf('--out');
+  const outFilename = outIdx !== -1 ? process.argv[outIdx + 1] : undefined;
 
   runDeterministicBenchmark({
     scenario,
@@ -587,8 +656,10 @@ if (process.argv[1] && process.argv[1].endsWith('run-benchmark.mjs')) {
     disableWebgl,
     slow4G,
     cpuThrottling,
+    outFilename,
   }).catch((err) => {
     console.error('Benchmark execution error:', err);
     process.exit(1);
   });
 }
+

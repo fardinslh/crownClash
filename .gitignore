@@ -15,6 +15,6 @@ coverage/
 .turbo/
 .idea/
 .vscode/
-qa-artifacts/chrome-profile/
+qa-artifacts/chrome-profile*/
 qa-artifacts/**/*.trace.json
 qa-artifacts/**/*.cpuprofile

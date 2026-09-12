@@ -51,7 +51,82 @@ export function compareBenchmarks(
     };
   }
 
-  // 2. Reject if renderer differs
+  // 2. Reject if software WebGL is detected
+  if (baseline.environment.isSoftwareRenderer || candidate.environment.isSoftwareRenderer) {
+    return {
+      rejected: true,
+      reasonCode: 'SOFTWARE_WEBGL_DETECTED',
+      message: `Software WebGL rasterizer detected (baseline: ${baseline.environment.gpuRenderer}, candidate: ${candidate.environment.gpuRenderer}). Cannot compare software WebGL.`,
+    };
+  }
+
+  // 3. Reject if scenario name differs
+  if (baseline.scenario.name !== candidate.scenario.name) {
+    return {
+      rejected: true,
+      reasonCode: 'SCENARIO_NAME_MISMATCH',
+      message: `Scenario name mismatch: baseline '${baseline.scenario.name}' != candidate '${candidate.scenario.name}'`,
+    };
+  }
+
+  // 4. Reject if seed differs
+  if (baseline.scenario.seed !== candidate.scenario.seed) {
+    return {
+      rejected: true,
+      reasonCode: 'SEED_MISMATCH',
+      message: `PRNG seed mismatch: baseline ${baseline.scenario.seed} != candidate ${candidate.scenario.seed}`,
+    };
+  }
+
+  // 5. Reject if scripted dispatch schedule hash differs
+  if (baseline.scenario.scheduleHash && candidate.scenario.scheduleHash &&
+      baseline.scenario.scheduleHash !== candidate.scenario.scheduleHash) {
+    return {
+      rejected: true,
+      reasonCode: 'SCHEDULE_HASH_MISMATCH',
+      message: `Schedule hash mismatch: baseline '${baseline.scenario.scheduleHash}' != candidate '${candidate.scenario.scheduleHash}'`,
+    };
+  }
+
+  // 6. Reject if CPU throttle differs
+  if (baseline.environment.cpuThrottling !== candidate.environment.cpuThrottling) {
+    return {
+      rejected: true,
+      reasonCode: 'CPU_THROTTLE_MISMATCH',
+      message: `CPU throttling mismatch: baseline ${baseline.environment.cpuThrottling}x != candidate ${candidate.environment.cpuThrottling}x`,
+    };
+  }
+
+  // 7. Reject if network profile differs
+  if (baseline.environment.network !== candidate.environment.network) {
+    return {
+      rejected: true,
+      reasonCode: 'NETWORK_PROFILE_MISMATCH',
+      message: `Network profile mismatch: baseline '${baseline.environment.network}' != candidate '${candidate.environment.network}'`,
+    };
+  }
+
+  // 8. Reject if viewport width/height differs
+  const bv = baseline.environment.viewport;
+  const cv = candidate.environment.viewport;
+  if (bv.width !== cv.width || bv.height !== cv.height) {
+    return {
+      rejected: true,
+      reasonCode: 'VIEWPORT_MISMATCH',
+      message: `Viewport mismatch: baseline ${bv.width}x${bv.height} != candidate ${cv.width}x${cv.height}`,
+    };
+  }
+
+  // 9. Reject if DPR differs
+  if (bv.dpr !== cv.dpr) {
+    return {
+      rejected: true,
+      reasonCode: 'DPR_MISMATCH',
+      message: `DPR mismatch: baseline @${bv.dpr} != candidate @${cv.dpr}`,
+    };
+  }
+
+  // 10. Reject if renderer differs
   if (baseline.environment.renderer !== candidate.environment.renderer) {
     return {
       rejected: true,
@@ -60,18 +135,27 @@ export function compareBenchmarks(
     };
   }
 
-  // 3. Reject if viewport or DPR differs
-  const bv = baseline.environment.viewport;
-  const cv = candidate.environment.viewport;
-  if (bv.width !== cv.width || bv.height !== cv.height || bv.dpr !== cv.dpr) {
+  // 11. Reject if GPU vendor differs
+  if (baseline.environment.gpuVendor && candidate.environment.gpuVendor &&
+      baseline.environment.gpuVendor !== candidate.environment.gpuVendor) {
     return {
       rejected: true,
-      reasonCode: 'VIEWPORT_MISMATCH',
-      message: `Viewport/DPR mismatch: baseline is ${bv.width}x${bv.height}@${bv.dpr}, but candidate is ${cv.width}x${cv.height}@${cv.dpr}`,
+      reasonCode: 'GPU_VENDOR_MISMATCH',
+      message: `GPU vendor mismatch: baseline '${baseline.environment.gpuVendor}' != candidate '${candidate.environment.gpuVendor}'`,
     };
   }
 
-  // 4. Reject if build mode differs
+  // 12. Reject if GPU renderer differs
+  if (baseline.environment.gpuRenderer && candidate.environment.gpuRenderer &&
+      baseline.environment.gpuRenderer !== candidate.environment.gpuRenderer) {
+    return {
+      rejected: true,
+      reasonCode: 'GPU_RENDERER_MISMATCH',
+      message: `GPU renderer mismatch: baseline '${baseline.environment.gpuRenderer}' != candidate '${candidate.environment.gpuRenderer}'`,
+    };
+  }
+
+  // 13. Reject if build mode differs
   if (baseline.environment.buildMode !== candidate.environment.buildMode) {
     return {
       rejected: true,
@@ -80,7 +164,16 @@ export function compareBenchmarks(
     };
   }
 
-  // 5. Reject if scenario duration differs
+  // 14. Reject if target FPS differs
+  if (baseline.environment.targetFps !== candidate.environment.targetFps) {
+    return {
+      rejected: true,
+      reasonCode: 'TARGET_FPS_MISMATCH',
+      message: `Target FPS mismatch: baseline ${baseline.environment.targetFps} != candidate ${candidate.environment.targetFps}`,
+    };
+  }
+
+  // 15. Reject if scenario duration differs
   const baseDurationSec = baseline.metrics.sampleDurationMs / 1000;
   const candDurationSec = candidate.metrics.sampleDurationMs / 1000;
   if (Math.abs(baseDurationSec - candDurationSec) > maxDurationDiff) {
@@ -91,9 +184,46 @@ export function compareBenchmarks(
     };
   }
 
-  // 6. Reject if army counts differ beyond documented tolerance
-  const baseArmyAvg = baseline.metrics.armyCounts.avg;
-  const candArmyAvg = candidate.metrics.armyCounts.avg;
+  // 16. Reject if warm-up duration differs
+  if (baseline.scenario.warmupDurationSeconds !== candidate.scenario.warmupDurationSeconds) {
+    return {
+      rejected: true,
+      reasonCode: 'WARMUP_DURATION_MISMATCH',
+      message: `Warmup duration mismatch: baseline ${baseline.scenario.warmupDurationSeconds}s != candidate ${candidate.scenario.warmupDurationSeconds}s`,
+    };
+  }
+
+  // 17. Reject if browser version differs
+  if (baseline.environment.browserVersion && candidate.environment.browserVersion &&
+      baseline.environment.browserVersion !== candidate.environment.browserVersion) {
+    return {
+      rejected: true,
+      reasonCode: 'BROWSER_VERSION_MISMATCH',
+      message: `Browser version mismatch: baseline '${baseline.environment.browserVersion}' != candidate '${candidate.environment.browserVersion}'`,
+    };
+  }
+
+  // 18. Reject if host type differs
+  if (baseline.environment.host !== candidate.environment.host) {
+    return {
+      rejected: true,
+      reasonCode: 'HOST_TYPE_MISMATCH',
+      message: `Host type mismatch: baseline '${baseline.environment.host}' != candidate '${candidate.environment.host}'`,
+    };
+  }
+
+  // 19. Reject if physical device flag differs
+  if (baseline.environment.isPhysicalDevice !== candidate.environment.isPhysicalDevice) {
+    return {
+      rejected: true,
+      reasonCode: 'PHYSICAL_DEVICE_FLAG_MISMATCH',
+      message: `Physical device flag mismatch: baseline ${baseline.environment.isPhysicalDevice} != candidate ${candidate.environment.isPhysicalDevice}`,
+    };
+  }
+
+  // 20. Reject if army counts differ beyond documented tolerance
+  const baseArmyAvg = baseline.metrics.steadyStateArmyCounts?.avg ?? baseline.metrics.armyCounts.avg;
+  const candArmyAvg = candidate.metrics.steadyStateArmyCounts?.avg ?? candidate.metrics.armyCounts.avg;
 
   if (baseline.scenario.name !== 'idle_match') {
     const denominator = Math.max(baseArmyAvg, 1);
@@ -132,8 +262,10 @@ export function compareBenchmarks(
     renderedFps: calculateMetricDelta(baseline.metrics.renderedFps, candidate.metrics.renderedFps, true),
     p95FrameTimeMs: calculateMetricDelta(baseline.metrics.phaserUpdateDelta.p95Ms, candidate.metrics.phaserUpdateDelta.p95Ms, false),
     framesOver33Pct: calculateMetricDelta(baseline.metrics.framesOver33Pct, candidate.metrics.framesOver33Pct, false),
-    avgArmyCount: calculateMetricDelta(baseArmyAvg, candArmyAvg, true),
+    avgArmyCount: calculateMetricDelta(baseline.metrics.armyCounts.avg, candidate.metrics.armyCounts.avg, true),
+    steadyStateAvgArmyCount: calculateMetricDelta(baseArmyAvg, candArmyAvg, true),
     peakObjects: calculateMetricDelta(baseline.metrics.peakObjects, candidate.metrics.peakObjects, false),
     drawCallsPerFrame,
   };
 }
+

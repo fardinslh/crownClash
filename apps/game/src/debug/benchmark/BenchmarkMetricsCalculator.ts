@@ -10,12 +10,21 @@ export interface RawFrameSample {
   deltaMs: number;
 }
 
+export interface RawArmySample {
+  timestampMs: number;
+  count: number;
+}
+
 export interface RawBenchmarkSampleInput {
   sampleDurationMs: number;
+  activeSampleDurationMs?: number;
+  backgroundDurationMs?: number;
   renderFrames: RawFrameSample[];
   simulationTicks: number;
   longTasks: Array<{ duration: number }>;
-  armyCountSamples: number[];
+  armySamples?: RawArmySample[];
+  armyCountSamples?: number[];
+  lifecycleTransitions?: Array<{ event: string; state: string; timestampMs: number }>;
   peakObjects: number;
   peakTweens: number;
   memoryMb: {
@@ -72,20 +81,24 @@ export function processAndDeduplicateFrames(rawFrames: RawFrameSample[]): {
 
 export function computeBenchmarkMetrics(
   input: RawBenchmarkSampleInput,
-  targetFps = 60
+  _targetFps = 60,
+  warmupDurationSeconds = 4.0
 ): BenchmarkMetrics {
   const { validDeltas, duplicateCount } = processAndDeduplicateFrames(input.renderFrames);
-  const durationSec = Math.max(0.001, input.sampleDurationMs / 1000);
   const totalRenderedFrames = validDeltas.length;
+  const wallClockDurationSec = Math.max(0.001, input.sampleDurationMs / 1000);
+  const backgroundDurationMs = input.backgroundDurationMs ?? 0;
+  const activeDurationMs = input.activeSampleDurationMs ?? Math.max(0, input.sampleDurationMs - backgroundDurationMs);
+  const activeDurationSec = Math.max(0.001, activeDurationMs / 1000);
 
-  // Raw rendered FPS (can exceed targetFps in unthrottled headless execution)
-  const renderedFps = Math.round((totalRenderedFrames / durationSec) * 10) / 10;
+  // Raw rendered FPS across total wall-clock time
+  const renderedFps = Math.round((totalRenderedFrames / wallClockDurationSec) * 10) / 10;
 
-  // Authoritative presented FPS: bounded by the target/display refresh rate
-  const presentedFps = Math.min(targetFps, renderedFps);
+  // Authoritative measured presented FPS during active gameplay (unclamped; tested against target bound in verifyPrerequisites)
+  const presentedFps = Math.round((totalRenderedFrames / activeDurationSec) * 10) / 10;
 
   // Authoritative simulation FPS
-  const simulationFps = Math.round((input.simulationTicks / durationSec) * 10) / 10;
+  const simulationFps = Math.round((input.simulationTicks / wallClockDurationSec) * 10) / 10;
 
   // Phaser update deltas percentiles
   const phaserUpdateDelta = calculatePercentiles(validDeltas);
@@ -115,12 +128,42 @@ export function computeBenchmarkMetrics(
     }
   }
 
-  // Army count distribution
-  const armies = input.armyCountSamples;
-  const minArmy = armies.length > 0 ? Math.min(...armies) : 0;
-  const maxArmy = armies.length > 0 ? Math.max(...armies) : 0;
-  const avgArmy = armies.length > 0
-    ? Math.round((armies.reduce((a, b) => a + b, 0) / armies.length) * 10) / 10
+  // Army count distribution: separate warmup vs steady-state
+  const warmupArmySamples: number[] = [];
+  const steadyStateArmySamples: number[] = [];
+
+  if (input.armySamples && input.armySamples.length > 0) {
+    const firstTimestamp = input.armySamples[0].timestampMs;
+    for (const sample of input.armySamples) {
+      const elapsedSec = (sample.timestampMs - firstTimestamp) / 1000;
+      if (elapsedSec < warmupDurationSeconds) {
+        warmupArmySamples.push(sample.count);
+      } else {
+        steadyStateArmySamples.push(sample.count);
+      }
+    }
+  } else if (input.armyCountSamples && input.armyCountSamples.length > 0) {
+    // If raw array without timestamps is provided:
+    const totalSamples = input.armyCountSamples.length;
+    const warmupCount = warmupDurationSeconds > 0
+      ? Math.min(totalSamples, Math.round((warmupDurationSeconds / wallClockDurationSec) * totalSamples))
+      : 0;
+    warmupArmySamples.push(...input.armyCountSamples.slice(0, warmupCount));
+    steadyStateArmySamples.push(...input.armyCountSamples.slice(warmupCount));
+  }
+
+  const allArmies = [...warmupArmySamples, ...steadyStateArmySamples];
+  const minArmy = allArmies.length > 0 ? Math.min(...allArmies) : 0;
+  const maxArmy = allArmies.length > 0 ? Math.max(...allArmies) : 0;
+  const avgArmy = allArmies.length > 0
+    ? Math.round((allArmies.reduce((a, b) => a + b, 0) / allArmies.length) * 10) / 10
+    : 0;
+
+  const steadyArmies = steadyStateArmySamples.length > 0 ? steadyStateArmySamples : allArmies;
+  const steadyMin = steadyArmies.length > 0 ? Math.min(...steadyArmies) : 0;
+  const steadyMax = steadyArmies.length > 0 ? Math.max(...steadyArmies) : 0;
+  const steadyAvg = steadyArmies.length > 0
+    ? Math.round((steadyArmies.reduce((a, b) => a + b, 0) / steadyArmies.length) * 10) / 10
     : 0;
 
   // Draw calls
@@ -156,11 +199,22 @@ export function computeBenchmarkMetrics(
       avg: avgArmy,
       peak: maxArmy,
     },
+    warmupArmySamples,
+    steadyStateArmySamples,
+    steadyStateArmyCounts: {
+      min: steadyMin,
+      max: steadyMax,
+      avg: steadyAvg,
+      peak: steadyMax,
+    },
     peakObjects: input.peakObjects,
     peakTweens: input.peakTweens,
     memoryMb: input.memoryMb,
     drawCalls,
     sampleDurationMs: input.sampleDurationMs,
+    activeSampleDurationMs: activeDurationMs,
+    backgroundDurationMs,
+    lifecycleTransitions: input.lifecycleTransitions ?? [],
     totalRenderedFrames,
     duplicateFramesDropped: duplicateCount,
   };
@@ -170,6 +224,9 @@ export function verifyPrerequisites(
   metrics: BenchmarkMetrics,
   environment: {
     renderer: string;
+    gpuVendor?: string;
+    gpuRenderer?: string;
+    isSoftwareRenderer?: boolean;
     viewport: { width: number; height: number; dpr: number };
     buildMode: string;
   },
@@ -177,12 +234,21 @@ export function verifyPrerequisites(
 ): BenchmarkVerificationResult {
   const failures: string[] = [];
 
+  // 1. Renderer mismatch
   if (environment.renderer !== prerequisites.expectedRenderer) {
     failures.push(
       `Renderer mismatch: actual '${environment.renderer}' != expected '${prerequisites.expectedRenderer}'`
     );
   }
 
+  // 2. Software WebGL rejection (SwiftShader, Microsoft Basic Render Driver, llvmpipe)
+  if (environment.renderer === 'WebGL' && environment.isSoftwareRenderer) {
+    failures.push(
+      `SOFTWARE_WEBGL_DETECTED: Software rasterizer detected ('${environment.gpuRenderer ?? 'unknown'}'). Hardware WebGL is required.`
+    );
+  }
+
+  // 3. Viewport & DPR
   const vp = environment.viewport;
   const expVp = prerequisites.expectedViewport;
   if (vp.width !== expVp.width || vp.height !== expVp.height || vp.dpr !== expVp.dpr) {
@@ -191,12 +257,14 @@ export function verifyPrerequisites(
     );
   }
 
+  // 4. Build mode
   if (environment.buildMode !== prerequisites.expectedBuildMode) {
     failures.push(
       `Build mode mismatch: actual '${environment.buildMode}' != expected '${prerequisites.expectedBuildMode}'`
     );
   }
 
+  // 5. Duration
   const durationSec = metrics.sampleDurationMs / 1000;
   if (Math.abs(durationSec - prerequisites.expectedDurationSeconds) > 2.0) {
     failures.push(
@@ -204,23 +272,60 @@ export function verifyPrerequisites(
     );
   }
 
-  // Target army range check
+  // 6. Presented FPS sanity: fail if it exceeds target FPS + tolerance (uncalibrated clock/infinite loop)
+  const targetBound = prerequisites.targetFps + (prerequisites.targetFpsTolerance ?? 1.5);
+  if (metrics.presentedFps > targetBound) {
+    failures.push(
+      `PRESENTED_FPS_EXCEEDS_TARGET_BOUND: measured presented FPS ${metrics.presentedFps} exceeds target ${prerequisites.targetFps} + ${prerequisites.targetFpsTolerance ?? 1.5} tolerance`
+    );
+  }
+
+  // 7. Duplicate postrender frames
+  if (metrics.duplicateFramesDropped > 0) {
+    failures.push(
+      `POSTRENDER_DUPLICATE_DETECTED: ${metrics.duplicateFramesDropped} duplicate or non-monotonic postrender frame(s) detected`
+    );
+  }
+
+  // 8. Target army range check: during steady-state window, army count must remain strictly within [min, max]
   const { min: expMin, max: expMax } = prerequisites.targetArmyRange;
   if (expMax === 0) {
     // Idle match: must have 0 armies throughout
     if (metrics.armyCounts.peak > 0) {
-      failures.push(`Army count violation: expected 0 armies in idle match, got peak ${metrics.armyCounts.peak}`);
+      failures.push(
+        `ARMY_COUNT_OUT_OF_STEADY_STATE_BOUNDS: expected 0 armies in idle match, got peak ${metrics.armyCounts.peak}`
+      );
     }
   } else {
-    // Active combat: peak army count must reach at least the minimum, and avg must be within reasonable bounds
-    if (metrics.armyCounts.peak < expMin) {
+    // Active combat: steady-state samples must exist and all lie within [expMin, expMax]
+    if (metrics.steadyStateArmySamples.length === 0) {
       failures.push(
-        `Army count violation: peak army count ${metrics.armyCounts.peak} did not reach expected minimum ${expMin}`
+        `ARMY_COUNT_OUT_OF_STEADY_STATE_BOUNDS: no steady-state army count samples recorded`
+      );
+    } else {
+      for (const count of metrics.steadyStateArmySamples) {
+        if (count < expMin || count > expMax) {
+          failures.push(
+            `ARMY_COUNT_OUT_OF_STEADY_STATE_BOUNDS: steady-state army count ${count} outside allowed range [${expMin}, ${expMax}]`
+          );
+          break;
+        }
+      }
+    }
+  }
+
+  // 9. Background lifecycle transitions (for background_resume)
+  if (metrics.backgroundDurationMs > 0) {
+    const hasHidden = metrics.lifecycleTransitions.some((t) => t.state === 'hidden');
+    const hasVisible = metrics.lifecycleTransitions.some((t) => t.state === 'visible');
+    if (!hasHidden || !hasVisible) {
+      failures.push(
+        `INVALID_BACKGROUND_TRANSITION: background_resume scenario missing required transitions (hidden: ${hasHidden}, visible: ${hasVisible})`
       );
     }
   }
 
-  // Sanity check on minimum rendered frame count (at least 5 FPS equivalent to detect hangs)
+  // 10. Sanity check on minimum rendered frame count (at least 5 FPS equivalent to detect hangs)
   const minRequiredFrames = Math.max(5, prerequisites.expectedDurationSeconds * 5);
   if (metrics.totalRenderedFrames < minRequiredFrames) {
     failures.push(

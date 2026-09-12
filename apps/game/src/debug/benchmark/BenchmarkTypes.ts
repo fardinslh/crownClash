@@ -9,8 +9,12 @@ export type BenchmarkScenarioName =
 
 export interface BenchmarkEnvironment {
   host: string;
-  isPhysicalDevice: false;
+  isPhysicalDevice: boolean;
   renderer: BenchmarkRendererType;
+  gpuVendor: string;
+  gpuRenderer: string;
+  isSoftwareRenderer: boolean;
+  browserVersion: string;
   viewport: {
     width: number;
     height: number;
@@ -25,7 +29,9 @@ export interface BenchmarkEnvironment {
 export interface BenchmarkScenarioConfig {
   name: BenchmarkScenarioName;
   durationSeconds: number;
+  warmupDurationSeconds: number;
   seed: number;
+  scheduleHash: string;
   targetArmyRange: {
     min: number;
     max: number;
@@ -41,9 +47,22 @@ export interface DeltaPercentiles {
   maxMs: number;
 }
 
+export interface SteadyStateArmyMetrics {
+  min: number;
+  max: number;
+  avg: number;
+  peak: number;
+}
+
+export interface LifecycleTransition {
+  event: string;
+  state: string;
+  timestampMs: number;
+}
+
 export interface BenchmarkMetrics {
   // Authoritatively separated metrics
-  presentedFps: number; // clamped to targetFps (display presentation rate)
+  presentedFps: number; // true measured presented frames per active second (unclamped)
   renderedFps: number; // raw Phaser render calls per second
   simulationTicks: number; // total game step ticks
   simulationFps: number; // simulation ticks per second
@@ -63,6 +82,9 @@ export interface BenchmarkMetrics {
     avg: number;
     peak: number;
   };
+  warmupArmySamples: number[];
+  steadyStateArmySamples: number[];
+  steadyStateArmyCounts: SteadyStateArmyMetrics;
   peakObjects: number;
   peakTweens: number;
   memoryMb: {
@@ -74,16 +96,25 @@ export interface BenchmarkMetrics {
     avgPerFrame: number;
   } | null;
   sampleDurationMs: number;
+  activeSampleDurationMs: number;
+  backgroundDurationMs: number;
+  lifecycleTransitions: LifecycleTransition[];
   totalRenderedFrames: number;
   duplicateFramesDropped: number;
 }
 
 export interface BenchmarkPrerequisites {
   expectedRenderer: BenchmarkRendererType;
+  expectedGpuVendor?: string;
+  expectedGpuRenderer?: string;
+  disallowSoftwareRenderer?: boolean;
   expectedViewport: { width: number; height: number; dpr: number };
   expectedBuildMode: BenchmarkBuildMode;
   expectedDurationSeconds: number;
+  expectedWarmupDurationSeconds?: number;
   targetArmyRange: { min: number; max: number };
+  targetFps: number;
+  targetFpsTolerance?: number; // default 1.5
 }
 
 export interface BenchmarkVerificationResult {
@@ -100,15 +131,32 @@ export interface BenchmarkReport {
   verification: BenchmarkVerificationResult;
 }
 
+export type ComparisonRejectionReasonCode =
+  | 'SCENARIO_NAME_MISMATCH'
+  | 'SEED_MISMATCH'
+  | 'SCHEDULE_HASH_MISMATCH'
+  | 'CPU_THROTTLE_MISMATCH'
+  | 'NETWORK_PROFILE_MISMATCH'
+  | 'VIEWPORT_MISMATCH'
+  | 'DPR_MISMATCH'
+  | 'RENDERER_MISMATCH'
+  | 'GPU_VENDOR_MISMATCH'
+  | 'GPU_RENDERER_MISMATCH'
+  | 'GPU_BACKEND_MISMATCH'
+  | 'BUILD_MODE_MISMATCH'
+  | 'TARGET_FPS_MISMATCH'
+  | 'DURATION_MISMATCH'
+  | 'WARMUP_DURATION_MISMATCH'
+  | 'BROWSER_VERSION_MISMATCH'
+  | 'HOST_TYPE_MISMATCH'
+  | 'PHYSICAL_DEVICE_FLAG_MISMATCH'
+  | 'ARMY_COUNT_VARIANCE_EXCEEDED'
+  | 'UNVERIFIED_SAMPLE'
+  | 'SOFTWARE_WEBGL_DETECTED';
+
 export interface ComparisonRejection {
   rejected: true;
-  reasonCode:
-    | 'RENDERER_MISMATCH'
-    | 'VIEWPORT_MISMATCH'
-    | 'BUILD_MODE_MISMATCH'
-    | 'DURATION_MISMATCH'
-    | 'ARMY_COUNT_VARIANCE_EXCEEDED'
-    | 'UNVERIFIED_SAMPLE';
+  reasonCode: ComparisonRejectionReasonCode;
   message: string;
 }
 
@@ -127,8 +175,10 @@ export interface BenchmarkComparisonSuccess {
   p95FrameTimeMs: MetricDelta;
   framesOver33Pct: MetricDelta;
   avgArmyCount: MetricDelta;
+  steadyStateAvgArmyCount: MetricDelta;
   peakObjects: MetricDelta;
   drawCallsPerFrame: MetricDelta | null;
 }
 
 export type BenchmarkComparisonResult = ComparisonRejection | BenchmarkComparisonSuccess;
+

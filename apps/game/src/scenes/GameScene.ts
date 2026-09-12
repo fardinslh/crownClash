@@ -1654,6 +1654,48 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Development / QA Benchmark dispatch adapter.
+   * Invokes the exact production dispatchArmy logic from @crown-clash/game-core.
+   * Isolated to QA benchmarking and debug performance runs; never alters settlement or PvP results.
+   */
+  public executeQaDispatch(sourceId: string, targetId: string, owner: Team): boolean {
+    if (!this.gameState || this.gameState.status !== 'playing' || this.liveMode) {
+      return false;
+    }
+    const source = this.gameState.territories[sourceId];
+    const target = this.gameState.territories[targetId];
+    if (!source || !target || source.id === target.id) {
+      return false;
+    }
+
+    // Ensure source has units and correct owner for valid production dispatch
+    if (source.owner !== owner) {
+      source.owner = owner;
+    }
+    if (source.units < 10) {
+      source.units = 25;
+    }
+
+    const speedMultiplier = owner === 'player' ? this.playerArmySpeedMultiplier : this.enemyArmySpeedMultiplier;
+    const dispatch = dispatchArmy(source, target, owner, 0.5, undefined, speedMultiplier);
+
+    if (dispatch.success && dispatch.army && dispatch.sourceTerritory) {
+      this.gameState.territories[source.id] = dispatch.sourceTerritory;
+      this.gameState.armies.push(dispatch.army);
+      if (owner === 'player') {
+        this.gameState.stats.playerUnitsDispatched += dispatch.army.units;
+      } else {
+        this.gameState.stats.enemyUnitsDispatched += dispatch.army.units;
+      }
+      this.markTerritoriesDirty();
+      this.updateTerritoryVisuals();
+      return true;
+    }
+
+    return false;
+  }
+
   private onCombatArrival(arrival: CombatResult): void {
     const vis = this.territoryVisuals.get(arrival.targetId);
     if (!vis) return;
