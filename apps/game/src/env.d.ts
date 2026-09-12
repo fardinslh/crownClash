@@ -1,5 +1,7 @@
 /// <reference types="vite/client" />
 
+declare const __BUILD_VERSION__: string | undefined;
+
 interface ImportMetaEnv {
   readonly DEV: boolean;
   readonly VITE_NAKAMA_HOST?: string;

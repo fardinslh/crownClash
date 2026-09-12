@@ -1,6 +1,50 @@
 import type Phaser from 'phaser';
 
-export const BUILD_VERSION = 'v0.1.0-5001532';
+declare const __BUILD_VERSION__: string | undefined;
+export const BUILD_VERSION =
+  typeof __BUILD_VERSION__ !== 'undefined' ? __BUILD_VERSION__ : 'v0.1.0-dev';
+
+type ErrorSubscriber = (msg: string) => void;
+const errorSubscribers = new Set<ErrorSubscriber>();
+let nativeConsoleError: typeof console.error | null = null;
+
+export function getErrorSubscriberCountForTesting(): number {
+  return errorSubscribers.size;
+}
+
+function subscribeConsoleError(subscriber: ErrorSubscriber): () => void {
+  if (typeof console === 'undefined') return () => {};
+  if (nativeConsoleError === null) {
+    nativeConsoleError = console.error;
+    console.error = function (...args: any[]) {
+      if (errorSubscribers.size > 0) {
+        const msg = args
+          .map((a) => (typeof a === 'string' ? a : a?.message || JSON.stringify(a) || String(a)))
+          .join(' ')
+          .slice(0, 200);
+        for (const sub of Array.from(errorSubscribers)) {
+          try {
+            sub(msg);
+          } catch {
+            // ignore subscriber errors
+          }
+        }
+      }
+      nativeConsoleError?.apply(console, args);
+    };
+  }
+
+  errorSubscribers.add(subscriber);
+
+  return () => {
+    errorSubscribers.delete(subscriber);
+    if (errorSubscribers.size === 0 && nativeConsoleError !== null) {
+      console.error = nativeConsoleError;
+      nativeConsoleError = null;
+    }
+  };
+}
+
 const ROLLING_BUFFER_CAPACITY = 120; // 2 seconds of 60 FPS frames
 
 export interface FrameStats {
@@ -107,7 +151,6 @@ export class PerformanceMonitor {
 
   // Error capture
   private capturedErrors: CapturedError[] = [];
-  private originalConsoleError: typeof console.error | null = null;
 
   // Event cleanup
   private cleanupListeners: Array<() => void> = [];
@@ -162,25 +205,13 @@ export class PerformanceMonitor {
         window.removeEventListener('online', onOnline);
       });
 
-      // Console error capture (max 20, no private data)
-      this.originalConsoleError = console.error;
-      const self = this;
-      console.error = function (...args: any[]) {
-        if (self.capturedErrors.length < 20) {
-          const msg = args
-            .map((a) => (typeof a === 'string' ? a : a?.message || JSON.stringify(a) || String(a)))
-            .join(' ')
-            .slice(0, 200);
-          self.capturedErrors.push({ timestamp: Date.now(), message: msg });
-        }
-        self.originalConsoleError?.apply(console, args);
-      };
-      this.cleanupListeners.push(() => {
-        if (this.originalConsoleError) {
-          console.error = this.originalConsoleError;
-          this.originalConsoleError = null;
+      // Console error capture via shared subscriber (max 20, no private data)
+      const unsubError = subscribeConsoleError((msg) => {
+        if (this.capturedErrors.length < 20) {
+          this.capturedErrors.push({ timestamp: Date.now(), message: msg });
         }
       });
+      this.cleanupListeners.push(unsubError);
     }
   }
 

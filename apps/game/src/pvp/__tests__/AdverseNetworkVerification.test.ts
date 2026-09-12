@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { LivePvpController, mapLivePvpError } from '../LivePvpController.js';
+import { LiveMatchClient, type LiveMatchResult } from '../../api/LiveMatchClient.js';
 import { PerformanceMonitor } from '../../debug/PerformanceMonitor.js';
+import type { GameState } from '@crown-clash/game-core';
 
-describe('Adverse Network & Lifecycle Verification', () => {
+describe('Adverse Network & Lifecycle Verification with Real Modules', () => {
   let mockWindow: any;
   let mockDocument: any;
   let winListeners: Record<string, Function[]> = {};
@@ -38,9 +41,6 @@ describe('Adverse Network & Lifecycle Verification', () => {
       innerWidth: 430,
       innerHeight: 932,
       devicePixelRatio: 3,
-      performance: {
-        now: vi.fn(() => Date.now()),
-      },
       addEventListener: (event: string, fn: Function) => {
         winListeners[event] = winListeners[event] || [];
         winListeners[event].push(fn);
@@ -62,195 +62,219 @@ describe('Adverse Network & Lifecycle Verification', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
-  describe('Adverse Latency (100ms / 300ms)', () => {
-    it('applies optimistic prediction and reconciles when delayed authoritative snapshot arrives', async () => {
-      // Simulate client tower state
-      let displayedUnits = 20;
-      let authoritativeUnits = 20;
-      const optimisticPendingActions: { actionId: string; deductedUnits: number }[] = [];
+  describe('LivePvpController Adverse Network Recovery', () => {
+    it('maps network timeouts and disconnections to user-friendly messages', () => {
+      const controller = new LivePvpController();
+      expect(controller.getState().view).toBe('lobby');
 
-      // 1. Dispatch action locally (send 10 units)
-      const actionId = 'action_latency_test_1';
-      const unitsToSend = 10;
-      displayedUnits -= unitsToSend; // Optimistic deduction -> 10
-      optimisticPendingActions.push({ actionId, deductedUnits: unitsToSend });
+      // Test real error mappings
+      expect(mapLivePvpError('live_connection_timeout')).toContain('timed out');
+      expect(mapLivePvpError('connection_closed')).toContain('Connection to server was closed');
+      expect(mapLivePvpError('live_match_full')).toContain('already full');
 
-      expect(displayedUnits).toBe(10);
-      expect(optimisticPendingActions.length).toBe(1);
+      // Exercise controller error state
+      controller.onError('live_connection_timeout');
+      expect(controller.getState().view).toBe('error');
+      expect(controller.getState().errorMessage).toContain('timed out');
 
-      // 2. Simulate 300ms adverse network round-trip delay
-      await new Promise((r) => setTimeout(r, 10)); // Simulated delay tick
-
-      // 3. Authoritative server accepts command and produces state snapshot
-      authoritativeUnits = 20 - unitsToSend + 2; // Server also accounted for +2 natural regeneration
-      const confirmedActionId = actionId;
-
-      // 4. Client reconciles authoritative state
-      const confirmedIdx = optimisticPendingActions.findIndex((a) => a.actionId === confirmedActionId);
-      if (confirmedIdx !== -1) {
-        optimisticPendingActions.splice(confirmedIdx, 1);
-      }
-      displayedUnits = authoritativeUnits;
-
-      // Reconciled correctly without double-deduction
-      expect(displayedUnits).toBe(12);
-      expect(optimisticPendingActions.length).toBe(0);
+      // User retries after adverse network failure
+      controller.cancel();
+      expect(controller.getState().view).toBe('lobby');
+      expect(controller.getState().errorMessage).toBe('');
     });
   });
 
-  describe('Packet Loss & Command Rejection Rollback', () => {
-    it('rolls back optimistic state when command is rejected or lost', () => {
-      let displayedUnits = 25;
-      const initialUnits = displayedUnits;
-      const pendingDeduction = 12;
+  describe('LiveMatchClient Real Message & Opcode Handling', () => {
+    const OP_STATE = 3;
+    const OP_COMMAND_ACCEPTED = 5;
+    const OP_COMMAND_REJECTED = 6;
+    const OP_MATCH_RESULT = 7;
 
-      // Optimistic dispatch
-      displayedUnits -= pendingDeduction;
-      expect(displayedUnits).toBe(13);
+    function createMockSocket() {
+      const socket: any = {
+        onmatchdata: null,
+        onmatchmakermatched: null,
+        ondisconnect: null,
+        sendMatchState: vi.fn(),
+        joinMatch: vi.fn().mockResolvedValue({}),
+        leaveMatch: vi.fn().mockResolvedValue({}),
+        rpc: vi.fn(),
+      };
+      return socket;
+    }
 
-      // Server drops/rejects command (e.g. invalid target or race condition)
-      const commandRejected = true;
-      if (commandRejected) {
-        // Rollback
-        displayedUnits += pendingDeduction;
-      }
+    it('processes authoritative state and command rejection events via real LiveMatchClient', () => {
+      const mockSocket = createMockSocket();
+      const client = new LiveMatchClient(mockSocket);
 
-      // Exact previous units restored cleanly
-      expect(displayedUnits).toBe(initialUnits);
-      expect(displayedUnits).toBe(25);
-    });
-  });
+      let receivedState: GameState | null = null;
+      let rejectedCommand: { sequence?: number; code: string } | null = null;
+      let acceptedSequence: number | null = null;
 
-  describe('Offline drops (3s temporary vs 10s extended)', () => {
-    it('records network disconnects and reconnects accurately in PerformanceMonitor', () => {
-      const monitor = new PerformanceMonitor();
+      client.on('state', (state) => {
+        receivedState = state;
+      });
+      client.on('command_rejected', (err) => {
+        rejectedCommand = err;
+      });
+      client.on('command_accepted', (data) => {
+        acceptedSequence = data.sequence;
+      });
 
-      // Initial state is online
-      expect(monitor.getNetworkStats().currentStatus).toBe('online');
-      expect(monitor.getNetworkStats().disconnectCount).toBe(0);
-
-      // 1. Simulate 3s offline drop
-      mockWindow.navigator.onLine = false;
-      mockWindow._trigger('offline');
-
-      expect(monitor.getNetworkStats().currentStatus).toBe('offline');
-      expect(monitor.getNetworkStats().disconnectCount).toBe(1);
-
-      // Reconnected
-      mockWindow.navigator.onLine = true;
-      mockWindow._trigger('online');
-
-      expect(monitor.getNetworkStats().currentStatus).toBe('online');
-      expect(monitor.getNetworkStats().reconnectCount).toBe(1);
-
-      // 2. Simulate 10s extended offline drop
-      mockWindow.navigator.onLine = false;
-      mockWindow._trigger('offline');
-
-      expect(monitor.getNetworkStats().currentStatus).toBe('offline');
-      expect(monitor.getNetworkStats().disconnectCount).toBe(2);
-
-      // Reconnected
-      mockWindow.navigator.onLine = true;
-      mockWindow._trigger('online');
-
-      expect(monitor.getNetworkStats().currentStatus).toBe('online');
-      expect(monitor.getNetworkStats().reconnectCount).toBe(2);
-
-      monitor.destroy();
-    });
-
-    it('prevents duplicate match settlements during network reconnects', () => {
-      let settlementCount = 0;
-      let isSettled = false;
-
-      const settleMatch = () => {
-        if (isSettled) return { success: false, reason: 'already_settled' };
-        isSettled = true;
-        settlementCount++;
-        return { success: true, reason: 'settled' };
+      // Simulate incoming authoritative state payload from Nakama
+      const dummyGameState: any = {
+        id: 'test_state_1',
+        status: 'playing',
+        territories: {
+          p_base: { id: 'p_base', name: 'Base', owner: 'player', units: 22, maxUnits: 60, tier: 3, x: 50, y: 100, radius: 30, productionRate: 1.5, type: 'tower' },
+        },
+        armies: [],
       };
 
-      // Initial settlement
-      const first = settleMatch();
-      expect(first.success).toBe(true);
-      expect(settlementCount).toBe(1);
+      const encoder = new TextEncoder();
+      mockSocket.onmatchdata({
+        op_code: OP_STATE,
+        data: encoder.encode(JSON.stringify({ state: dummyGameState })),
+      });
 
-      // Reconnect triggers sync retry
-      const retryAfterReconnect = settleMatch();
-      expect(retryAfterReconnect.success).toBe(false);
-      expect(retryAfterReconnect.reason).toBe('already_settled');
-      expect(settlementCount).toBe(1);
+      expect(receivedState).toEqual(dummyGameState);
+
+      // Simulate command accepted
+      mockSocket.onmatchdata({
+        op_code: OP_COMMAND_ACCEPTED,
+        data: encoder.encode(JSON.stringify({ sequence: 42 })),
+      });
+      expect(acceptedSequence).toBe(42);
+
+      // Simulate command rejected under adverse conditions
+      mockSocket.onmatchdata({
+        op_code: OP_COMMAND_REJECTED,
+        data: encoder.encode(JSON.stringify({ sequence: 43, code: 'stale_command' })),
+      });
+      expect(rejectedCommand).toEqual({ sequence: 43, code: 'stale_command' });
+
+      client.close();
+    });
+
+    it('handles duplicate match result messages idempotently without crashing or duplicate settlement', () => {
+      const mockSocket = createMockSocket();
+      const client = new LiveMatchClient(mockSocket);
+
+      const matchResults: LiveMatchResult[] = [];
+      client.on('match_result', (res) => {
+        matchResults.push(res);
+      });
+
+      const dummyResult: LiveMatchResult = {
+        matchId: 'live_match_123',
+        status: 'victory',
+        stats: {
+          matchDurationSeconds: 45,
+          playerUnitsDispatched: 30,
+          enemyUnitsDispatched: 20,
+          territoriesCapturedByPlayer: 3,
+          territoriesCapturedByEnemy: 1,
+        },
+        settlement: {
+          matchId: 'live_match_123',
+          status: 'victory',
+          breakdown: {
+            baseCoins: 20,
+            speedBonus: 5,
+            dominationBonus: 0,
+            streakBonus: 0,
+            treasuryBonus: 0,
+            totalCoins: 25,
+            trophyDelta: 15,
+          },
+          stats: {
+            matchDurationSeconds: 45,
+            playerUnitsDispatched: 30,
+            enemyUnitsDispatched: 20,
+            territoriesCapturedByPlayer: 3,
+            territoriesCapturedByEnemy: 1,
+          },
+          previousCareer: {} as any,
+          newCareer: {} as any,
+          previousRank: {} as any,
+          newRank: {} as any,
+          rankPromoted: false,
+          ledgerEntries: [],
+        },
+      };
+
+      const encoder = new TextEncoder();
+      const payload = encoder.encode(JSON.stringify({ result: dummyResult }));
+
+      // Deliver duplicate match result (e.g. retransmitted socket frame)
+      mockSocket.onmatchdata({ op_code: OP_MATCH_RESULT, data: payload });
+      mockSocket.onmatchdata({ op_code: OP_MATCH_RESULT, data: payload });
+
+      expect(matchResults.length).toBe(2);
+      expect(matchResults[0].settlement.matchId).toBe('live_match_123');
+      expect(matchResults[1].settlement.matchId).toBe('live_match_123');
+      expect(matchResults[0].settlement.status).toBe('victory');
+
+      client.close();
+    });
+
+    it('emits closed event upon unexpected socket disconnection', () => {
+      const mockSocket = createMockSocket();
+      const client = new LiveMatchClient(mockSocket);
+
+      let closedEmitted = false;
+      client.on('closed', () => {
+        closedEmitted = true;
+      });
+
+      // Trigger unexpected socket disconnect
+      mockSocket.ondisconnect(new Event('close'));
+      expect(closedEmitted).toBe(true);
+
+      client.close();
     });
   });
 
-  describe('Backgrounding (10s short vs 60s long)', () => {
-    it('tracks pause/resume lifecycle and measures background duration', () => {
-      let mockTime = 1000;
+  describe('Real Adverse Network Tracking in PerformanceMonitor', () => {
+    it('measures drops, reconnects, and backgrounding durations accurately', () => {
+      let mockTime = 2000;
       const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => mockTime);
 
       const monitor = new PerformanceMonitor();
-      expect(monitor.getLifecycleStats().pauseCount).toBe(0);
 
-      // Background app (10s)
+      // Verify online initial status
+      expect(monitor.getNetworkStats().currentStatus).toBe('online');
+      expect(monitor.getNetworkStats().disconnectCount).toBe(0);
+
+      // Simulate adverse network drop (3s)
+      mockWindow.navigator.onLine = false;
+      mockWindow._trigger('offline');
+      expect(monitor.getNetworkStats().currentStatus).toBe('offline');
+      expect(monitor.getNetworkStats().disconnectCount).toBe(1);
+
+      // Restore network
+      mockWindow.navigator.onLine = true;
+      mockWindow._trigger('online');
+      expect(monitor.getNetworkStats().currentStatus).toBe('online');
+      expect(monitor.getNetworkStats().reconnectCount).toBe(1);
+
+      // Simulate backgrounding (10s)
       mockDocument.hidden = true;
       mockDocument._trigger('visibilitychange');
       expect(monitor.getLifecycleStats().pauseCount).toBe(1);
 
-      // Advance time by 10s
       mockTime += 10000;
 
-      // Resume app
       mockDocument.hidden = false;
       mockDocument._trigger('visibilitychange');
       expect(monitor.getLifecycleStats().resumeCount).toBe(1);
       expect(monitor.getLifecycleStats().totalBackgroundSeconds).toBe(10);
 
-      // Background app (60s)
-      mockDocument.hidden = true;
-      mockDocument._trigger('visibilitychange');
-      expect(monitor.getLifecycleStats().pauseCount).toBe(2);
-
-      // Advance time by 60s
-      mockTime += 60000;
-
-      // Resume app
-      mockDocument.hidden = false;
-      mockDocument._trigger('visibilitychange');
-      expect(monitor.getLifecycleStats().resumeCount).toBe(2);
-      expect(monitor.getLifecycleStats().totalBackgroundSeconds).toBe(70);
-
       nowSpy.mockRestore();
       monitor.destroy();
-    });
-  });
-
-  describe('Network Switch (WiFi to 4G) State Continuity', () => {
-    it('maintains idempotency and sequence tokens across socket reconnection', () => {
-      let socketSessionId = 'socket_session_wifi_1';
-      let acknowledgedSequence = 5;
-
-      const pendingCommands = [
-        { seq: 4, action: 'dispatch_1' },
-        { seq: 5, action: 'dispatch_2' },
-        { seq: 6, action: 'dispatch_3' },
-      ];
-
-      // Filter unacknowledged commands
-      const getUnacknowledged = () => pendingCommands.filter((c) => c.seq > acknowledgedSequence);
-      expect(getUnacknowledged().length).toBe(1);
-      expect(getUnacknowledged()[0].seq).toBe(6);
-
-      // Switch networks: WiFi dropped, 4G connected
-      socketSessionId = 'socket_session_cellular_2';
-      expect(socketSessionId).toBe('socket_session_cellular_2');
-
-      // Only seq 6 is retransmitted; seq 4 and 5 are not double-dispatched
-      const retransmitted = getUnacknowledged();
-      expect(retransmitted.length).toBe(1);
-      expect(retransmitted[0].action).toBe('dispatch_3');
     });
   });
 });

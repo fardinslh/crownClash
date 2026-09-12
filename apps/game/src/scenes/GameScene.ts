@@ -243,15 +243,32 @@ export class GameScene extends Phaser.Scene {
     this.liveClient = launchData?.liveClient;
     this.liveOpponentName =
       launchData?.liveMatch?.opponentName || 'Opponent';
+    const searchParams =
+      typeof window !== 'undefined' && window.location?.search
+        ? new URLSearchParams(window.location.search)
+        : null;
+    const isDebugPerformance = searchParams?.get('debug_performance') === '1';
+    const isStressParam = searchParams?.get('stress_armies') === '1';
+    const isRegistryStress = Boolean(this.registry?.get('qa_stress_mode'));
+    const isLaunchStress = Boolean((launchData as any)?.stressMode);
+
+    // DUAL-GATING: stress mode STRICTLY requires debug_performance=1. Standalone stress_armies=1 has ZERO effect.
+    this.isStressMode = isDebugPerformance && (isStressParam || isRegistryStress || isLaunchStress);
+
     if (!this.liveMode && !launchData?.botMatch) {
-      console.error('[GameScene] Missing server-issued bot match ticket');
-      this.scene.start('MenuScene');
-      return;
+      if (this.isStressMode) {
+        // Disposable isolated offline QA match ticket: does not consume server bot ticket or leave unsettled DB records
+        this.activeMatchId = 'qa_stress_isolated_' + Date.now();
+        this.battlefieldId = 'crown_cross';
+      } else {
+        console.error('[GameScene] Missing server-issued bot match ticket');
+        this.scene.start('MenuScene');
+        return;
+      }
+    } else {
+      this.activeMatchId = launchData?.botMatch?.matchId ?? '';
+      this.battlefieldId = launchData?.botMatch?.battlefieldId ?? 'crown_cross';
     }
-    this.activeMatchId = launchData?.botMatch?.matchId ?? '';
-    this.battlefieldId = launchData?.botMatch?.battlefieldId ?? 'crown_cross';
-    const searchParams = typeof window !== 'undefined' && window.location?.search ? new URLSearchParams(window.location.search) : null;
-    this.isStressMode = searchParams?.get('stress_armies') === '1' || Boolean((launchData as any)?.stressMode);
     this.matchActions = [];
     this.liveUnsubscribers = [];
     this.livePredictions = [];
@@ -3504,5 +3521,7 @@ export class GameScene extends Phaser.Scene {
       unsubscribe();
     }
     this.lifecycleUnsubscribers = [];
+    this.isStressMode = false;
+    this.registry?.set('qa_stress_mode', false);
   }
 }

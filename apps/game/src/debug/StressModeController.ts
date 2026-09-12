@@ -25,6 +25,7 @@ export class StressModeController {
   private armySequence = 1;
   private running = false;
   private testBannerEl: HTMLElement | null = null;
+  private savedTerritoriesSnapshot: Record<string, { owner: Team; units: number }> | null = null;
 
   constructor(game?: Phaser.Game) {
     if (game) this.attachGame(game);
@@ -40,11 +41,38 @@ export class StressModeController {
 
   public start(): void {
     if (this.running) return;
+
+    // Dual-gating: if in a browser window with search params, debug_performance=1 is strictly required
+    if (typeof window !== 'undefined' && window.location?.search) {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('debug_performance') !== '1') {
+        return;
+      }
+    }
+
+    const activeScene = this.getGameScene();
+    // Do not modify live authoritative match state
+    if (activeScene && (activeScene as any).liveMode) {
+      return;
+    }
+
     this.running = true;
     this.ensureBanner();
 
-    const activeScene = this.getGameScene();
-    if (activeScene) {
+    // Signal stress mode via registry so if GameScene mounts later, it activates isolated stress
+    this.game?.registry?.set('qa_stress_mode', true);
+
+    if (activeScene && (activeScene as any).gameState) {
+      // Snapshot original territory state before simulation mutates units
+      if (!this.savedTerritoriesSnapshot) {
+        this.savedTerritoriesSnapshot = {};
+        const territories = (activeScene as any).gameState.territories as Record<string, any>;
+        if (territories) {
+          for (const [id, t] of Object.entries(territories)) {
+            this.savedTerritoriesSnapshot[id] = { owner: t.owner, units: t.units };
+          }
+        }
+      }
       (activeScene as any).isStressMode = true;
     }
 
@@ -60,6 +88,14 @@ export class StressModeController {
       this.intervalId = null;
     }
     this.removeBanner();
+
+    // Clear registry flag
+    this.game?.registry?.set('qa_stress_mode', false);
+
+    const activeScene = this.getGameScene();
+    if (activeScene) {
+      (activeScene as any).isStressMode = false;
+    }
   }
 
   public reset(): void {
@@ -67,21 +103,38 @@ export class StressModeController {
     const scene = this.getGameScene();
     if (!scene || !(scene as any).gameState) return;
 
+    // Ensure stress mode is cleared
+    (scene as any).isStressMode = false;
+
     const state = (scene as any).gameState;
-    state.armies = [];
+    // Strip generated stress armies
+    state.armies = (state.armies || []).filter(
+      (a: MarchingArmy) => !a.id.startsWith('stress_army_')
+    );
     state.status = 'playing';
 
-    // Reset territories to healthy baseline
-    for (const t of Object.values(state.territories as Record<string, any>)) {
-      if (t.id === 'p_base') {
-        t.owner = 'player';
-        t.units = 25;
-      } else if (t.id === 'e_base') {
-        t.owner = 'enemy';
-        t.units = 25;
-      } else {
-        t.owner = 'neutral';
-        t.units = t.tier === 2 ? 14 : 8;
+    // Restore territories from snapshot if available, or reset to baseline
+    if (this.savedTerritoriesSnapshot) {
+      for (const [id, saved] of Object.entries(this.savedTerritoriesSnapshot)) {
+        const t = state.territories?.[id];
+        if (t) {
+          t.owner = saved.owner;
+          t.units = saved.units;
+        }
+      }
+      this.savedTerritoriesSnapshot = null;
+    } else if (state.territories) {
+      for (const t of Object.values(state.territories as Record<string, any>)) {
+        if (t.id === 'p_base') {
+          t.owner = 'player';
+          t.units = 25;
+        } else if (t.id === 'e_base') {
+          t.owner = 'enemy';
+          t.units = 25;
+        } else {
+          t.owner = 'neutral';
+          t.units = t.tier === 2 ? 14 : 8;
+        }
       }
     }
 
@@ -95,7 +148,7 @@ export class StressModeController {
 
   private stepDispatch(): void {
     const scene = this.getGameScene();
-    if (!scene || !(scene as any).gameState) return;
+    if (!scene || !(scene as any).gameState || (scene as any).liveMode) return;
 
     (scene as any).isStressMode = true;
     const state = (scene as any).gameState;
@@ -138,7 +191,7 @@ export class StressModeController {
   }
 
   private getGameScene(): Phaser.Scene | null {
-    if (!this.game?.scene) return null;
+    if (!this.game?.scene || typeof this.game.scene.getScene !== 'function') return null;
     return this.game.scene.getScene('GameScene') || null;
   }
 
@@ -176,6 +229,6 @@ export class StressModeController {
   }
 
   public destroy(): void {
-    this.stop();
+    this.reset();
   }
 }

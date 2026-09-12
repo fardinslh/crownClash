@@ -10,7 +10,6 @@ export class DebugPerformanceHud {
   private pillEl: HTMLElement | null = null;
   private expandedEl: HTMLElement | null = null;
   private stressBtnEl: HTMLButtonElement | null = null;
-  private copyBtnEl: HTMLButtonElement | null = null;
 
   private isCollapsed = false;
   private isVisible = true;
@@ -22,11 +21,17 @@ export class DebugPerformanceHud {
     this.monitor = new PerformanceMonitor(game);
     this.stressController = new StressModeController(game);
 
+    // Default to collapsed pill on narrow mobile screens (<= 480px width)
+    if (typeof window !== 'undefined') {
+      this.isCollapsed = window.innerWidth <= 480;
+    }
+
     this.mountDom();
+    this.toggleCollapsed(this.isCollapsed);
     this.startLoop();
 
     const params = new URLSearchParams(window.location.search);
-    if (params.get('stress_armies') === '1') {
+    if (params.get('debug_performance') === '1' && params.get('stress_armies') === '1') {
       this.stressController.start();
       this.updateStressButtonText();
     }
@@ -50,35 +55,41 @@ export class DebugPerformanceHud {
     container.id = 'debug-perf-hud';
     container.style.cssText = `
       position: fixed;
-      top: max(8px, env(safe-area-inset-top));
+      top: max(38px, env(safe-area-inset-top));
       right: max(8px, env(safe-area-inset-right));
       z-index: 99999;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       font-size: 11px;
       line-height: 1.35;
       color: #e2e8f0;
-      background: rgba(10, 15, 29, 0.92);
+      background: rgba(10, 15, 29, 0.94);
       border: 1px solid rgba(56, 189, 248, 0.45);
       border-radius: 8px;
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
       backdrop-filter: blur(4px);
       -webkit-backdrop-filter: blur(4px);
       pointer-events: none;
-      max-width: 92vw;
+      max-width: calc(100vw - 16px);
+      box-sizing: border-box;
     `;
 
-    // Collapsed Pill
+    // Collapsed Pill (>= 44px min touch target)
     const pill = document.createElement('div');
     pill.id = 'debug-perf-pill';
     pill.style.cssText = `
       display: none;
       align-items: center;
+      justify-content: center;
       gap: 6px;
-      padding: 4px 10px;
+      padding: 6px 12px;
+      min-height: 44px;
+      min-width: 44px;
+      box-sizing: border-box;
       cursor: pointer;
       pointer-events: auto;
       font-weight: 700;
       color: #38bdf8;
+      touch-action: manipulation;
     `;
     pill.onclick = () => this.toggleCollapsed(false);
 
@@ -88,8 +99,9 @@ export class DebugPerformanceHud {
     expanded.style.cssText = `
       display: flex;
       flex-direction: column;
-      gap: 5px;
+      gap: 6px;
       padding: 8px 10px;
+      box-sizing: border-box;
     `;
 
     // Header bar
@@ -120,12 +132,18 @@ export class DebugPerformanceHud {
     collapseBtn.textContent = '—';
     collapseBtn.title = 'Collapse HUD to pill';
     this.styleButton(collapseBtn);
+    collapseBtn.style.minWidth = '44px';
+    collapseBtn.style.minHeight = '44px';
+    collapseBtn.style.fontSize = '14px';
     collapseBtn.onclick = () => this.toggleCollapsed(true);
 
     const closeBtn = document.createElement('button');
     closeBtn.textContent = '✕';
     closeBtn.title = 'Close Debug HUD';
     this.styleButton(closeBtn);
+    closeBtn.style.minWidth = '44px';
+    closeBtn.style.minHeight = '44px';
+    closeBtn.style.fontSize = '14px';
     closeBtn.onclick = () => this.destroy();
 
     winControls.appendChild(collapseBtn);
@@ -143,14 +161,14 @@ export class DebugPerformanceHud {
     textEl.textContent = 'Collecting metrics...';
     expanded.appendChild(textEl);
 
-    // Action button toolbar
+    // Action button toolbar (all buttons >= 44px)
     const toolbar = document.createElement('div');
     toolbar.style.cssText = `
       display: flex;
       flex-wrap: wrap;
-      gap: 5px;
+      gap: 6px;
       border-top: 1px solid rgba(255, 255, 255, 0.12);
-      padding-top: 5px;
+      padding-top: 6px;
       pointer-events: auto;
     `;
 
@@ -159,7 +177,6 @@ export class DebugPerformanceHud {
     copyBtn.title = 'Copy QA Session Report JSON';
     this.styleButton(copyBtn);
     copyBtn.onclick = () => this.copyReport();
-    this.copyBtnEl = copyBtn;
 
     const exportBtn = document.createElement('button');
     exportBtn.textContent = '💾 Export';
@@ -202,10 +219,16 @@ export class DebugPerformanceHud {
       border: 1px solid ${accentColor};
       color: #f8fafc;
       font-family: inherit;
-      font-size: 10px;
+      font-size: 11px;
       font-weight: 600;
-      padding: 2px 6px;
-      border-radius: 4px;
+      padding: 8px 12px;
+      min-height: 44px;
+      min-width: 44px;
+      box-sizing: border-box;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
       cursor: pointer;
       touch-action: manipulation;
     `;
@@ -254,18 +277,20 @@ export class DebugPerformanceHud {
     const report = this.monitor.generateReport();
     const json = JSON.stringify(report, null, 2);
 
-    if (navigator.clipboard?.writeText) {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(json).then(() => {
-        if (this.copyBtnEl) {
-          const orig = this.copyBtnEl.textContent;
-          this.copyBtnEl.textContent = '✓ Copied!';
-          setTimeout(() => {
-            if (this.copyBtnEl) this.copyBtnEl.textContent = orig;
-          }, 1500);
-        }
+        this.showToast('QA report copied to clipboard!');
+      }).catch(() => {
+        this.promptFallback(json);
       });
     } else {
-      prompt('Copy QA Report JSON:', json);
+      this.promptFallback(json);
+    }
+  }
+
+  private promptFallback(text: string): void {
+    if (typeof window !== 'undefined' && window.prompt) {
+      window.prompt('Copy QA Report JSON:', text);
     }
   }
 
@@ -276,24 +301,51 @@ export class DebugPerformanceHud {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `crown_clash_qa_${Date.now()}.json`;
+    a.download = `cc-qa-report-${Date.now()}.json`;
     document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
+    a.remove();
     URL.revokeObjectURL(url);
+    this.showToast('QA report downloaded!');
+  }
+
+  private showToast(msg: string): void {
+    if (typeof document === 'undefined') return;
+    const toast = document.createElement('div');
+    toast.textContent = msg;
+    toast.style.cssText = `
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #0284c7;
+      color: #ffffff;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 12px;
+      z-index: 100000;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+      pointer-events: none;
+    `;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+      toast.remove();
+    }, 2200);
   }
 
   private startLoop(): void {
     const loop = () => {
       if (!this.isVisible) return;
+
       const now = performance.now();
       const delta = Math.max(0.1, now - this.lastFrameTime);
       this.lastFrameTime = now;
 
-      // Sample frame
+      // Sample raw frame delta
       this.monitor.recordFrame(delta);
 
-      // Throttled text display update (twice per second max)
+      // Throttled UI text update: at most twice per second (500ms)
       if (now - this.lastTextUpdate >= 500) {
         this.lastTextUpdate = now;
         this.renderText();
