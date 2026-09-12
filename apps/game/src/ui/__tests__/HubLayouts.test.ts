@@ -159,7 +159,7 @@ describe('HubLayouts', () => {
         { x: 103, y: 554 },
         { x: 297, y: 554 },
       ]);
-      expect(layout.toastY).toBe(690);
+      expect(layout.toastY).toBe(700);
     });
 
     it('does not compress below 720 logical height', () => {
@@ -184,12 +184,12 @@ describe('HubLayouts', () => {
       expect(layout.rowGap).toBeGreaterThan(16);
 
       const row1Bottom = layout.cardPositions[2].y + 124;
-      const toastTop = layout.toastY - 21;
+      const toastTop = layout.toastY - 20;
       expect(toastTop).toBeGreaterThan(row1Bottom);
 
-      const toastBottom = layout.toastY + 21;
-      expect(867 - toastBottom).toBe(9);
-      expect(toastBottom).toBeLessThan(867);
+      const toastBottom = layout.toastY + 20;
+      expect(867 - toastBottom).toBe(0);
+      expect(toastBottom).toBeLessThanOrEqual(867);
     });
   });
 

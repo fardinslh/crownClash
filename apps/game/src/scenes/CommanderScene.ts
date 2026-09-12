@@ -11,6 +11,7 @@ import { THEME } from '../theme.js';
 import {
   bindSceneViewportResize,
   getSceneViewport,
+  SceneViewport,
   setupSceneCamera,
 } from '../ui/Viewport.js';
 import { computeCommanderLayout } from '../ui/HubLayouts.js';
@@ -22,14 +23,17 @@ export class CommanderScene extends Phaser.Scene {
   private careerManager!: CareerManager;
   private active = true;
   private pending = false;
+  private background!: Phaser.GameObjects.Rectangle;
+  private powerBadgeText!: Phaser.GameObjects.Text;
   private cards: Phaser.GameObjects.Container[] = [];
+  private helperText!: Phaser.GameObjects.Text;
   private toast?: Phaser.GameObjects.Text;
 
   constructor() { super({ key: 'CommanderScene' }); }
 
   create(): void {
     setupSceneCamera(this);
-    bindSceneViewportResize(this);
+    bindSceneViewportResize(this, (viewport) => this.applyLayout(viewport));
     this.platform = (this.registry.get('platform') as PlatformAdapter) || createPlatformAdapter();
     this.careerManager = CareerManager.getInstance(this.platform.getUser().id);
     this.active = true;
@@ -43,9 +47,15 @@ export class CommanderScene extends Phaser.Scene {
   }
 
   private buildScene(): void {
-    const { visibleWidth, visibleHeight } = getSceneViewport(this);
-    const layout = computeCommanderLayout(visibleHeight);
-    this.add.rectangle(visibleWidth / 2, visibleHeight / 2, visibleWidth, visibleHeight, THEME.background);
+    const viewport = getSceneViewport(this);
+    const layout = computeCommanderLayout(viewport.visibleHeight);
+    this.background = this.add.rectangle(
+      viewport.visibleWidth / 2,
+      viewport.visibleHeight / 2,
+      viewport.visibleWidth,
+      viewport.visibleHeight,
+      THEME.background
+    );
     const glow = this.add.graphics();
     glow.fillStyle(0x172554, 0.4).fillCircle(200, 72, 180);
     const back = this.add.rectangle(42, 42, 48, 44, 0x111827).setStrokeStyle(1.5, 0x475569);
@@ -58,13 +68,31 @@ export class CommanderScene extends Phaser.Scene {
       fontFamily: FONT, fontSize: '12px', fontStyle: 'bold', color: '#93c5fd',
     }).setOrigin(0.5);
     const level = getKingdomLevel(this.careerManager.getCareer());
-    this.add.text(200, layout.powerBadgeY, `KINGDOM POWER  ${level}`, {
+    this.powerBadgeText = this.add.text(200, layout.powerBadgeY, `KINGDOM POWER  ${level}`, {
       fontFamily: FONT, fontSize: '11px', fontStyle: '900', color: '#fbbf24', backgroundColor: '#1c1917', padding: { x: 12, y: 6 },
     }).setOrigin(0.5);
     COMMANDERS.forEach((commander, index) => this.createCard(commander, layout.cardYs[index]));
-    this.add.text(200, layout.helperTextY, 'Sidegrades change strategy, not total power.', {
+    this.helperText = this.add.text(200, layout.helperTextY, 'Sidegrades change strategy, not total power.', {
       fontFamily: FONT, fontSize: '11px', color: '#64748b', fontStyle: 'bold',
     }).setOrigin(0.5);
+    this.applyLayout(viewport);
+  }
+
+  private applyLayout(viewport: SceneViewport): void {
+    const layout = computeCommanderLayout(viewport.visibleHeight);
+    this.background
+      .setPosition(viewport.visibleWidth / 2, viewport.visibleHeight / 2)
+      .setSize(viewport.visibleWidth, viewport.visibleHeight);
+    this.powerBadgeText.setY(layout.powerBadgeY);
+    this.cards.forEach((card, index) => {
+      if (layout.cardYs[index] !== undefined) {
+        card.setY(layout.cardYs[index]);
+      }
+    });
+    this.helperText.setY(layout.helperTextY);
+    if (this.toast) {
+      this.toast.setY(layout.toastY);
+    }
   }
 
   private createCard(commander: CommanderDefinition, y: number): void {

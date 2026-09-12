@@ -16,6 +16,7 @@ import {
   bindSceneViewportResize,
   getSceneViewport,
   setupSceneCamera,
+  type SceneViewport,
 } from '../ui/Viewport.js';
 import { computeDailyLayout } from '../ui/HubLayouts.js';
 
@@ -32,10 +33,15 @@ export class DailyScene extends Phaser.Scene {
   private claimRunner!: DailyClaimRunner;
   private state?: DailyState;
   private content?: Phaser.GameObjects.Container;
+  private background!: Phaser.GameObjects.Rectangle;
   private resetText!: Phaser.GameObjects.Text;
   private goldText!: Phaser.GameObjects.Text;
   private goldBg!: Phaser.GameObjects.Rectangle;
   private statusText!: Phaser.GameObjects.Text;
+  private retryBg?: Phaser.GameObjects.Rectangle;
+  private retryLabel?: Phaser.GameObjects.Text;
+  private missionCards: Phaser.GameObjects.Container[] = [];
+  private chestCard?: Phaser.GameObjects.Container;
   private toastBg!: Phaser.GameObjects.Rectangle;
   private toastText!: Phaser.GameObjects.Text;
   private resetTimer?: Phaser.Time.TimerEvent;
@@ -56,10 +62,14 @@ export class DailyScene extends Phaser.Scene {
     this.loadingReset = false;
     this.state = undefined;
     this.content = undefined;
+    this.missionCards = [];
+    this.chestCard = undefined;
+    this.retryBg = undefined;
+    this.retryLabel = undefined;
     this.resetTimer = undefined;
 
     setupSceneCamera(this);
-    bindSceneViewportResize(this);
+    bindSceneViewportResize(this, (vp) => this.applyLayout(vp));
     this.reducedMotion =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
@@ -105,15 +115,8 @@ export class DailyScene extends Phaser.Scene {
   }
 
   private buildShell(): void {
-    const { visibleWidth, visibleHeight } = getSceneViewport(this);
-    const layout = computeDailyLayout(visibleHeight);
-    this.add.rectangle(
-      visibleWidth / 2,
-      visibleHeight / 2,
-      visibleWidth,
-      visibleHeight,
-      0x070b14
-    );
+    const vp = getSceneViewport(this);
+    this.background = this.add.rectangle(0, 0, 10, 10, 0x070b14);
     const glow = this.add.graphics();
     glow.fillStyle(THEME.gold, 0.08);
     glow.fillCircle(LOGICAL_WIDTH / 2, 68, 220);
@@ -160,7 +163,7 @@ export class DailyScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.resetText = this.add
-      .text(LOGICAL_WIDTH / 2, layout.resetTextY, 'RESET  --:--:--', {
+      .text(LOGICAL_WIDTH / 2, 0, 'RESET  --:--:--', {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -186,7 +189,7 @@ export class DailyScene extends Phaser.Scene {
     this.refreshGold();
 
     this.statusText = this.add
-      .text(LOGICAL_WIDTH / 2, layout.statusTextY, 'Reading today’s orders…', {
+      .text(LOGICAL_WIDTH / 2, 0, 'Reading today’s orders…', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -196,12 +199,12 @@ export class DailyScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.toastBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2, layout.toastY, 330, 42, 0x0c1322, 0.98)
+      .rectangle(LOGICAL_WIDTH / 2, 0, 330, 42, 0x0c1322, 0.98)
       .setStrokeStyle(1.5, 0xf87171, 0.9)
       .setDepth(300)
       .setAlpha(0);
     this.toastText = this.add
-      .text(LOGICAL_WIDTH / 2, layout.toastY, '', {
+      .text(LOGICAL_WIDTH / 2, 0, '', {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: 'bold',
@@ -212,6 +215,25 @@ export class DailyScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(301)
       .setAlpha(0);
+
+    this.applyLayout(vp);
+  }
+
+  applyLayout(vp: SceneViewport): void {
+    const layout = computeDailyLayout(vp.visibleHeight);
+    this.background.setPosition(vp.visibleWidth / 2, vp.visibleHeight / 2).setSize(vp.visibleWidth, vp.visibleHeight);
+    this.resetText.setY(layout.resetTextY);
+    this.statusText.setY(layout.statusTextY);
+    if (this.retryBg) this.retryBg.setY(layout.retryY);
+    if (this.retryLabel) this.retryLabel.setY(layout.retryY);
+    this.missionCards.forEach((card, index) => {
+      card.setY(layout.missionYs[index]);
+    });
+    if (this.chestCard) {
+      this.chestCard.setY(layout.chestY);
+    }
+    this.toastBg.setY(layout.toastY);
+    this.toastText.setY(layout.toastY);
   }
 
   private async loadState(): Promise<void> {
@@ -242,15 +264,15 @@ export class DailyScene extends Phaser.Scene {
   }
 
   private showLoadError(message: string): void {
-    const { visibleHeight } = getSceneViewport(this);
-    const layout = computeDailyLayout(visibleHeight);
-    this.statusText.setText(message).setColor('#fca5a5').setY(layout.statusTextY).setVisible(true);
-    const retryBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2, layout.retryY, 160, 44, 0x2563eb, 1)
+    this.statusText.setText(message).setColor('#fca5a5').setVisible(true);
+    this.retryBg?.destroy();
+    this.retryLabel?.destroy();
+    this.retryBg = this.add
+      .rectangle(LOGICAL_WIDTH / 2, 0, 160, 44, 0x2563eb, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
-    const retryLabel = this.add
-      .text(LOGICAL_WIDTH / 2, layout.retryY, 'RETRY', {
+    this.retryLabel = this.add
+      .text(LOGICAL_WIDTH / 2, 0, 'RETRY', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: '900',
@@ -258,27 +280,31 @@ export class DailyScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
-    this.bindPressFeedback(retryBg, retryLabel);
-    retryBg.once('pointerdown', () => {
-      retryBg.destroy();
-      retryLabel.destroy();
+    this.bindPressFeedback(this.retryBg, this.retryLabel);
+    this.retryBg.once('pointerdown', () => {
+      this.retryBg?.destroy();
+      this.retryBg = undefined;
+      this.retryLabel?.destroy();
+      this.retryLabel = undefined;
       this.statusText.setText('Reading today’s orders…').setColor('#94a3b8');
       void this.loadState();
     });
+    this.applyLayout(getSceneViewport(this));
   }
 
   private renderContent(): void {
     if (!this.state || !this.claimRunner?.isActive) return;
     this.content?.destroy(true);
     this.content = this.add.container(0, 0);
-
-    const { visibleHeight } = getSceneViewport(this);
-    const layout = computeDailyLayout(visibleHeight);
-    const missionYs = layout.missionYs;
+    this.missionCards = [];
     this.state.missions.forEach((mission, index) => {
-      this.content!.add(this.buildMissionCard(mission, missionYs[index], index));
+      const card = this.buildMissionCard(mission, 0, index);
+      this.missionCards.push(card);
+      this.content!.add(card);
     });
-    this.content.add(this.buildChestCard(layout.chestY));
+    this.chestCard = this.buildChestCard(0);
+    this.content.add(this.chestCard);
+    this.applyLayout(getSceneViewport(this));
   }
 
   private buildMissionCard(

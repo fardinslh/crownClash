@@ -19,6 +19,7 @@ import { ScenePurchaseRunner } from '../upgrades/ScenePurchaseRunner.js';
 import {
   bindSceneViewportResize,
   getSceneViewport,
+  SceneViewport,
   setupSceneCamera,
 } from '../ui/Viewport.js';
 import { computeKingdomLayout } from '../ui/HubLayouts.js';
@@ -40,6 +41,8 @@ export class KingdomScene extends Phaser.Scene {
   private purchaseRunner!: ScenePurchaseRunner;
   private reducedMotion = false;
   private cards: Map<UpgradeType, CardHandle> = new Map();
+  private background!: Phaser.GameObjects.Rectangle;
+  private progressContainer!: Phaser.GameObjects.Container;
   private goldText!: Phaser.GameObjects.Text;
   private goldBg!: Phaser.GameObjects.Rectangle;
   private kingdomArt!: Phaser.GameObjects.Graphics;
@@ -57,7 +60,7 @@ export class KingdomScene extends Phaser.Scene {
 
   create(): void {
     setupSceneCamera(this);
-    bindSceneViewportResize(this);
+    bindSceneViewportResize(this, (viewport) => this.applyLayout(viewport));
     this.reducedMotion =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
@@ -123,15 +126,21 @@ export class KingdomScene extends Phaser.Scene {
   }
 
   private buildScene(): void {
-    const { visibleWidth, visibleHeight } = getSceneViewport(this);
-    const layout = computeKingdomLayout(visibleHeight);
-    this.add.rectangle(visibleWidth / 2, visibleHeight / 2, visibleWidth, visibleHeight, 0x070b14);
+    const viewport = getSceneViewport(this);
+    const layout = computeKingdomLayout(viewport.visibleHeight);
+    this.background = this.add.rectangle(
+      viewport.visibleWidth / 2,
+      viewport.visibleHeight / 2,
+      viewport.visibleWidth,
+      viewport.visibleHeight,
+      0x070b14
+    );
     const glow = this.add.graphics();
     glow.fillStyle(THEME.gold, 0.07);
     glow.fillCircle(LOGICAL_WIDTH / 2, 40, 220);
 
     this.buildHeader();
-    this.buildKingdomProgress(layout.panelY);
+    this.buildKingdomProgress();
 
     UPGRADE_TYPES.forEach((type, index) => {
       const position = layout.cardPositions[index];
@@ -139,6 +148,7 @@ export class KingdomScene extends Phaser.Scene {
     });
 
     this.buildToast(layout.toastY);
+    this.applyLayout(viewport);
     this.refreshAll();
     this.playEntranceAnimation();
   }
@@ -199,18 +209,20 @@ export class KingdomScene extends Phaser.Scene {
       .setOrigin(1, 0.5);
   }
 
-  private buildKingdomProgress(panelY = 84): void {
+  private buildKingdomProgress(): void {
+    this.progressContainer = this.add.container(0, 0);
+
     const panel = this.add.graphics();
     panel.fillStyle(0x0f172a, 0.96);
-    panel.fillRoundedRect(24, panelY, LOGICAL_WIDTH - 48, 70, 10);
+    panel.fillRoundedRect(24, 84, LOGICAL_WIDTH - 48, 70, 10);
     panel.lineStyle(1.5, 0x334155, 0.95);
-    panel.strokeRoundedRect(24, panelY, LOGICAL_WIDTH - 48, 70, 10);
+    panel.strokeRoundedRect(24, 84, LOGICAL_WIDTH - 48, 70, 10);
     panel.fillStyle(THEME.gold, 0.08);
-    panel.fillCircle(87, panelY + 35, 48);
+    panel.fillCircle(87, 84 + 35, 48);
 
     this.kingdomArt = this.add.graphics();
-    this.kingdomArt.y = panelY - 84;
-    this.tierText = this.add.text(146, panelY + 12, '', {
+    this.kingdomArt.y = 0;
+    this.tierText = this.add.text(146, 84 + 12, '', {
       fontFamily: FONT_FAMILY,
       fontSize: '13px',
       fontStyle: '900',
@@ -220,7 +232,7 @@ export class KingdomScene extends Phaser.Scene {
       resolution: 2,
     });
     this.kingdomLevelText = this.add
-      .text(376, panelY + 13, '', {
+      .text(376, 84 + 13, '', {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: '900',
@@ -229,15 +241,25 @@ export class KingdomScene extends Phaser.Scene {
       })
       .setOrigin(1, 0);
 
-    this.add.rectangle(261, panelY + 40, 230, 7, 0x070b14, 1).setStrokeStyle(1, 0x334155, 1);
-    this.tierProgressFill = this.add.rectangle(146, panelY + 40, 1, 5, THEME.gold, 1).setOrigin(0, 0.5);
-    this.tierGoalText = this.add.text(146, panelY + 52, '', {
+    const track = this.add.rectangle(261, 84 + 40, 230, 7, 0x070b14, 1).setStrokeStyle(1, 0x334155, 1);
+    this.tierProgressFill = this.add.rectangle(146, 84 + 40, 1, 5, THEME.gold, 1).setOrigin(0, 0.5);
+    this.tierGoalText = this.add.text(146, 84 + 52, '', {
       fontFamily: FONT_FAMILY,
       fontSize: '10px',
       fontStyle: 'bold',
       color: '#93c5fd',
       resolution: 2,
     });
+
+    this.progressContainer.add([
+      panel,
+      this.kingdomArt,
+      this.tierText,
+      this.kingdomLevelText,
+      track,
+      this.tierProgressFill,
+      this.tierGoalText,
+    ]);
   }
 
   private drawKingdom(progress: KingdomProgress): void {
@@ -484,7 +506,7 @@ export class KingdomScene extends Phaser.Scene {
     return { container, refresh, celebrate };
   }
 
-  private buildToast(toastY = 690): void {
+  private buildToast(toastY = 700): void {
     this.toastBg = this.add
       .rectangle(LOGICAL_WIDTH / 2, toastY, 320, 40, 0x0c1322, 0.98)
       .setStrokeStyle(1.5, 0xf87171, 0.9)
@@ -502,6 +524,20 @@ export class KingdomScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(301)
       .setAlpha(0);
+  }
+
+  private applyLayout(viewport: SceneViewport): void {
+    const layout = computeKingdomLayout(viewport.visibleHeight);
+    this.background
+      .setPosition(viewport.visibleWidth / 2, viewport.visibleHeight / 2)
+      .setSize(viewport.visibleWidth, viewport.visibleHeight);
+    this.progressContainer.setY(layout.panelY - 84);
+    UPGRADE_TYPES.forEach((type, index) => {
+      const position = layout.cardPositions[index];
+      this.cards.get(type)?.container.setPosition(position.x, position.y);
+    });
+    this.toastBg.setY(layout.toastY);
+    this.toastText.setY(layout.toastY);
   }
 
   private showToast(message: string): void {

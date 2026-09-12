@@ -16,6 +16,7 @@ import {
   bindSceneViewportResize,
   getSceneViewport,
   setupSceneCamera,
+  type SceneViewport,
 } from '../ui/Viewport.js';
 import { computeLeagueLayout } from '../ui/HubLayouts.js';
 
@@ -26,8 +27,16 @@ export class LeagueScene extends Phaser.Scene {
   private careerManager!: CareerManager;
   private state?: LeagueState;
   private content?: Phaser.GameObjects.Container;
+  private background!: Phaser.GameObjects.Rectangle;
   private statusText!: Phaser.GameObjects.Text;
   private coinText!: Phaser.GameObjects.Text;
+  private retryBg?: Phaser.GameObjects.Rectangle;
+  private retryText?: Phaser.GameObjects.Text;
+  private summaryContainer?: Phaser.GameObjects.Container;
+  private roadGraphics?: Phaser.GameObjects.Graphics;
+  private tierRows: Phaser.GameObjects.Container[] = [];
+  private kingdomButtonBg?: Phaser.GameObjects.Rectangle;
+  private kingdomButtonText?: Phaser.GameObjects.Text;
   private toastBg!: Phaser.GameObjects.Rectangle;
   private toastText!: Phaser.GameObjects.Text;
   private pendingRankId: string | null = null;
@@ -44,13 +53,20 @@ export class LeagueScene extends Phaser.Scene {
     this.visitId += 1;
     this.state = undefined;
     this.content = undefined;
+    this.summaryContainer = undefined;
+    this.roadGraphics = undefined;
+    this.tierRows = [];
+    this.kingdomButtonBg = undefined;
+    this.kingdomButtonText = undefined;
+    this.retryBg = undefined;
+    this.retryText = undefined;
     this.pendingRankId = null;
     this.reducedMotion =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
 
     setupSceneCamera(this);
-    bindSceneViewportResize(this);
+    bindSceneViewportResize(this, (vp) => this.applyLayout(vp));
     this.platform = (this.registry.get('platform') as PlatformAdapter) || createPlatformAdapter();
     this.careerManager = CareerManager.getInstance(this.platform.getUser().id);
 
@@ -65,9 +81,8 @@ export class LeagueScene extends Phaser.Scene {
   }
 
   private buildShell(): void {
-    const { visibleWidth, visibleHeight } = getSceneViewport(this);
-    const layout = computeLeagueLayout(visibleHeight);
-    this.add.rectangle(visibleWidth / 2, visibleHeight / 2, visibleWidth, visibleHeight, 0x070b14);
+    const vp = getSceneViewport(this);
+    this.background = this.add.rectangle(0, 0, 10, 10, 0x070b14);
     const glow = this.add.graphics();
     glow.fillStyle(THEME.gold, 0.1);
     glow.fillCircle(LOGICAL_WIDTH / 2, 30, 210);
@@ -97,16 +112,39 @@ export class LeagueScene extends Phaser.Scene {
     }).setOrigin(1, 0.5);
     this.refreshCoins();
 
-    this.statusText = this.add.text(LOGICAL_WIDTH / 2, layout.statusTextY, 'Reading royal records…', {
+    this.statusText = this.add.text(LOGICAL_WIDTH / 2, 0, 'Reading royal records…', {
       fontFamily: FONT_FAMILY, fontSize: '13px', fontStyle: 'bold', color: '#94a3b8', resolution: 2,
     }).setOrigin(0.5);
 
-    this.toastBg = this.add.rectangle(LOGICAL_WIDTH / 2, layout.toastY, 330, 42, 0x0c1322, 0.98)
+    this.toastBg = this.add.rectangle(LOGICAL_WIDTH / 2, 0, 330, 42, 0x0c1322, 0.98)
       .setStrokeStyle(1.5, 0xf87171, 0.9).setDepth(300).setAlpha(0);
-    this.toastText = this.add.text(LOGICAL_WIDTH / 2, layout.toastY, '', {
+    this.toastText = this.add.text(LOGICAL_WIDTH / 2, 0, '', {
       fontFamily: FONT_FAMILY, fontSize: '12px', fontStyle: 'bold', color: '#fecaca',
       align: 'center', resolution: 2,
     }).setOrigin(0.5).setDepth(301).setAlpha(0);
+
+    this.applyLayout(vp);
+  }
+
+  applyLayout(vp: SceneViewport): void {
+    const layout = computeLeagueLayout(vp.visibleHeight);
+    this.background.setPosition(vp.visibleWidth / 2, vp.visibleHeight / 2).setSize(vp.visibleWidth, vp.visibleHeight);
+    this.statusText.setY(layout.statusTextY);
+    if (this.retryBg) this.retryBg.setY(layout.retryY);
+    if (this.retryText) this.retryText.setY(layout.retryY);
+    if (this.summaryContainer) this.summaryContainer.setY(layout.summaryY);
+    if (this.roadGraphics) {
+      this.roadGraphics.clear();
+      this.roadGraphics.lineStyle(4, 0x334155, 0.8);
+      this.roadGraphics.lineBetween(53, layout.roadStartY, 53, layout.roadEndY);
+    }
+    this.tierRows.forEach((row, index) => {
+      row.setY(layout.tierYs[index]);
+    });
+    if (this.kingdomButtonBg) this.kingdomButtonBg.setY(layout.kingdomButtonY);
+    if (this.kingdomButtonText) this.kingdomButtonText.setY(layout.kingdomButtonY);
+    this.toastBg.setY(layout.toastY);
+    this.toastText.setY(layout.toastY);
   }
 
   private async loadState(): Promise<void> {
@@ -129,32 +167,33 @@ export class LeagueScene extends Phaser.Scene {
   }
 
   private showLoadError(): void {
-    const { visibleHeight } = getSceneViewport(this);
-    const layout = computeLeagueLayout(visibleHeight);
-    this.statusText.setText("Couldn't load League Road.").setColor('#fca5a5').setY(layout.statusTextY).setVisible(true);
-    const retryBg = this.add.rectangle(LOGICAL_WIDTH / 2, layout.retryY, 160, 44, 0x2563eb, 1)
+    this.statusText.setText("Couldn't load League Road.").setColor('#fca5a5').setVisible(true);
+    this.retryBg?.destroy();
+    this.retryText?.destroy();
+    this.retryBg = this.add.rectangle(LOGICAL_WIDTH / 2, 0, 160, 44, 0x2563eb, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1).setInteractive({ useHandCursor: true });
-    const retryText = this.add.text(LOGICAL_WIDTH / 2, layout.retryY, 'RETRY', {
+    this.retryText = this.add.text(LOGICAL_WIDTH / 2, 0, 'RETRY', {
       fontFamily: FONT_FAMILY, fontSize: '13px', fontStyle: '900', color: '#ffffff', resolution: 2,
     }).setOrigin(0.5);
-    this.bindPressFeedback(retryBg, retryText);
-    retryBg.once('pointerdown', () => {
-      retryBg.destroy();
-      retryText.destroy();
+    this.bindPressFeedback(this.retryBg, this.retryText);
+    this.retryBg.once('pointerdown', () => {
+      this.retryBg?.destroy();
+      this.retryBg = undefined;
+      this.retryText?.destroy();
+      this.retryText = undefined;
       this.statusText.setText('Reading royal records…').setColor('#94a3b8');
       void this.loadState();
     });
+    this.applyLayout(getSceneViewport(this));
   }
 
   private renderContent(): void {
     if (!this.state || !this.active) return;
     this.content?.destroy(true);
     this.content = this.add.container(0, 0);
-    const { visibleHeight } = getSceneViewport(this);
-    const layout = computeLeagueLayout(visibleHeight);
     const progress = getLeagueProgress(this.state.trophies);
 
-    const summary = this.add.container(LOGICAL_WIDTH / 2, layout.summaryY);
+    this.summaryContainer = this.add.container(LOGICAL_WIDTH / 2, 0);
     const rankColor = progress.current.color;
     const summaryBg = this.add.rectangle(0, 0, 352, 88, 0x111827, 0.98)
       .setStrokeStyle(2, rankColor, 0.95);
@@ -171,30 +210,33 @@ export class LeagueScene extends Phaser.Scene {
       progress.next ? `${this.state.trophies} TROPHIES  •  ${progress.trophiesToNext} TO ${progress.next.name.toUpperCase()}` : `${this.state.trophies} TROPHIES  •  REALM MASTERED`, {
         fontFamily: FONT_FAMILY, fontSize: '11px', fontStyle: 'bold', color: '#94a3b8', resolution: 2,
       }).setOrigin(0.5);
-    summary.add([summaryBg, title, power, track, fill, detail]);
-    this.content.add(summary);
+    this.summaryContainer.add([summaryBg, title, power, track, fill, detail]);
+    this.content.add(this.summaryContainer);
 
-    const road = this.add.graphics();
-    road.lineStyle(4, 0x334155, 0.8);
-    road.lineBetween(53, layout.roadStartY, 53, layout.roadEndY);
-    this.content.add(road);
+    this.roadGraphics = this.add.graphics();
+    this.content.add(this.roadGraphics);
+    this.tierRows = [];
     this.state.tiers.forEach((tier, index) => {
-      this.content!.add(this.buildTierRow(tier, layout.tierYs[index], index));
+      const row = this.buildTierRow(tier, 0, index);
+      this.tierRows.push(row);
+      this.content!.add(row);
     });
 
-    const kingdomBg = this.add.rectangle(LOGICAL_WIDTH / 2, layout.kingdomButtonY, 220, 42, 0x111c33, 1)
+    this.kingdomButtonBg = this.add.rectangle(LOGICAL_WIDTH / 2, 0, 220, 42, 0x111c33, 1)
       .setStrokeStyle(1.5, THEME.gold, 0.8).setInteractive({ useHandCursor: true });
-    const kingdomText = this.add.text(LOGICAL_WIDTH / 2, layout.kingdomButtonY, 'IMPROVE KINGDOM  🏰', {
+    this.kingdomButtonText = this.add.text(LOGICAL_WIDTH / 2, 0, 'IMPROVE KINGDOM  🏰', {
       fontFamily: FONT_FAMILY, fontSize: '12px', fontStyle: '900', color: '#fde68a',
       stroke: '#000000', strokeThickness: 2, resolution: 2,
     }).setOrigin(0.5);
-    this.bindPressFeedback(kingdomBg, kingdomText);
-    kingdomBg.on('pointerdown', () => {
+    this.bindPressFeedback(this.kingdomButtonBg, this.kingdomButtonText);
+    this.kingdomButtonBg.on('pointerdown', () => {
       sounds.playReinforce();
       this.platform.hapticSelection();
       this.scene.start('KingdomScene');
     });
-    this.content.add([kingdomBg, kingdomText]);
+    this.content.add([this.kingdomButtonBg, this.kingdomButtonText]);
+
+    this.applyLayout(getSceneViewport(this));
   }
 
   private buildTierRow(tier: LeagueTierState, y: number, index: number): Phaser.GameObjects.Container {

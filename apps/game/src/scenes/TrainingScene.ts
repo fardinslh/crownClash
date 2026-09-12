@@ -13,6 +13,7 @@ import {
   bindSceneViewportResize,
   getSceneViewport,
   setupSceneCamera,
+  type SceneViewport,
 } from '../ui/Viewport.js';
 import { computeTrainingLayout } from '../ui/HubLayouts.js';
 
@@ -63,12 +64,15 @@ export class TrainingScene extends Phaser.Scene {
   private analyticsActive = false;
   private finished = false;
   private reducedMotion = false;
+  private background!: Phaser.GameObjects.Rectangle;
   private lessonContainer!: Phaser.GameObjects.Container;
   private progressDots: Phaser.GameObjects.Arc[] = [];
   private previousButton!: Phaser.GameObjects.Rectangle;
   private previousText!: Phaser.GameObjects.Text;
   private nextButton!: Phaser.GameObjects.Rectangle;
   private nextText!: Phaser.GameObjects.Text;
+  private menuBg!: Phaser.GameObjects.Rectangle;
+  private menuText!: Phaser.GameObjects.Text;
   private backHandler?: () => void;
 
   constructor() {
@@ -77,7 +81,7 @@ export class TrainingScene extends Phaser.Scene {
 
   create(): void {
     setupSceneCamera(this);
-    bindSceneViewportResize(this);
+    bindSceneViewportResize(this, (vp) => this.applyLayout(vp));
     this.reducedMotion =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
@@ -94,9 +98,8 @@ export class TrainingScene extends Phaser.Scene {
   }
 
   private buildScene(): void {
-    const { visibleWidth, visibleHeight } = getSceneViewport(this);
-    const layout = computeTrainingLayout(visibleHeight);
-    this.add.rectangle(visibleWidth / 2, visibleHeight / 2, visibleWidth, visibleHeight, 0x070b14);
+    const vp = getSceneViewport(this);
+    this.background = this.add.rectangle(0, 0, 10, 10, 0x070b14);
     const glow = this.add.graphics();
     glow.fillStyle(THEME.gold, 0.08);
     glow.fillCircle(LOGICAL_WIDTH / 2, 150, 220);
@@ -138,17 +141,18 @@ export class TrainingScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    this.lessonContainer = this.add.container(0, layout.cardOffset);
+    this.lessonContainer = this.add.container(0, 0);
+    this.progressDots = [];
     for (let index = 0; index < LESSONS.length; index += 1) {
-      this.progressDots.push(this.add.circle(176 + index * 16, layout.dotsY, 4, 0x334155, 1));
+      this.progressDots.push(this.add.circle(176 + index * 16, 0, 4, 0x334155, 1));
     }
 
     this.previousButton = this.add
-      .rectangle(92, layout.navigationButtonsY, 132, 46, 0x111827, 1)
+      .rectangle(92, 0, 132, 46, 0x111827, 1)
       .setStrokeStyle(1.5, 0x475569, 1)
       .setInteractive({ useHandCursor: true });
     this.previousText = this.add
-      .text(92, layout.navigationButtonsY, 'PREVIOUS', {
+      .text(92, 0, 'PREVIOUS', {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: '900',
@@ -160,11 +164,11 @@ export class TrainingScene extends Phaser.Scene {
     this.previousButton.on('pointerdown', () => this.showPrevious());
 
     this.nextButton = this.add
-      .rectangle(276, layout.navigationButtonsY, 216, 46, 0x2563eb, 1)
+      .rectangle(276, 0, 216, 46, 0x2563eb, 1)
       .setStrokeStyle(2, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
     this.nextText = this.add
-      .text(276, layout.navigationButtonsY, 'NEXT  ›', {
+      .text(276, 0, 'NEXT  ›', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: '900',
@@ -177,12 +181,12 @@ export class TrainingScene extends Phaser.Scene {
     this.bindPressFeedback(this.nextButton, this.nextText);
     this.nextButton.on('pointerdown', () => this.advance());
 
-    const menuBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2, layout.menuButtonY, 316, 44, 0x0b1120, 1)
+    this.menuBg = this.add
+      .rectangle(LOGICAL_WIDTH / 2, 0, 316, 44, 0x0b1120, 1)
       .setStrokeStyle(1, 0x334155, 1)
       .setInteractive({ useHandCursor: true });
-    const menuText = this.add
-      .text(LOGICAL_WIDTH / 2, layout.menuButtonY, 'RETURN TO MAIN MENU', {
+    this.menuText = this.add
+      .text(LOGICAL_WIDTH / 2, 0, 'RETURN TO MAIN MENU', {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -190,8 +194,26 @@ export class TrainingScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
-    this.bindPressFeedback(menuBg, menuText);
-    menuBg.on('pointerdown', () => this.closeTraining());
+    this.bindPressFeedback(this.menuBg, this.menuText);
+    this.menuBg.on('pointerdown', () => this.closeTraining());
+
+    this.applyLayout(vp);
+  }
+
+  applyLayout(vp: SceneViewport): void {
+    const layout = computeTrainingLayout(vp.visibleHeight);
+    this.background.setPosition(vp.visibleWidth / 2, vp.visibleHeight / 2).setSize(vp.visibleWidth, vp.visibleHeight);
+    this.tweens.killTweensOf(this.lessonContainer);
+    this.lessonContainer.setY(layout.cardOffset);
+    for (const dot of this.progressDots) {
+      dot.setY(layout.dotsY);
+    }
+    this.previousButton.setY(layout.navigationButtonsY);
+    this.previousText.setY(layout.navigationButtonsY);
+    this.nextButton.setY(layout.navigationButtonsY);
+    this.nextText.setY(layout.navigationButtonsY);
+    this.menuBg.setY(layout.menuButtonY);
+    this.menuText.setY(layout.menuButtonY);
   }
 
   private renderLesson(): void {

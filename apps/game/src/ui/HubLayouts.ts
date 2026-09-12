@@ -123,7 +123,7 @@ export function computeKingdomLayout(visibleHeight: number): KingdomLayout {
       { x: KINGDOM_COL_X[0], y: row1Center },
       { x: KINGDOM_COL_X[1], y: row1Center },
     ],
-    toastY: 690 + surplus,
+    toastY: 700 + surplus,
   };
 }
 
