@@ -14,25 +14,47 @@ export interface StrideMetrics {
 
 export const STRIDE_PERIOD_SECONDS = 0.26;
 
+export function createStrideMetrics(): StrideMetrics {
+  return {
+    leaderY: 0,
+    leaderScaleX: 0.25,
+    leaderScaleY: 0.25,
+    followerYOffset: 0,
+    followerScaleX: 0.19,
+    followerScaleY: 0.19,
+  };
+}
+
 /**
  * Computes procedural rhythmic stride bounce and squash/stretch offsets
  * without allocating or updating Phaser Tween instances.
+ * When `out` is supplied, mutates and returns the caller-owned object for zero-allocation hot render loops.
  */
 export function computeMarchStride(
   phaseSeconds: number,
-  delaySeconds: number = 0
+  delaySeconds: number = 0,
+  out?: StrideMetrics
 ): StrideMetrics {
   const phase = ((phaseSeconds - delaySeconds) / STRIDE_PERIOD_SECONDS) * Math.PI * 2;
   const sin = Math.sin(phase);
 
-  return {
-    leaderY: sin * 1.75 - 1.75,
-    leaderScaleX: 0.24 - sin * 0.015,
-    leaderScaleY: 0.26 + sin * 0.015,
-    followerYOffset: sin * 1.25 - 1.25,
-    followerScaleX: 0.18 - sin * 0.012,
-    followerScaleY: 0.20 + sin * 0.012,
+  const target = out ?? {
+    leaderY: 0,
+    leaderScaleX: 0,
+    leaderScaleY: 0,
+    followerYOffset: 0,
+    followerScaleX: 0,
+    followerScaleY: 0,
   };
+
+  target.leaderY = sin * 1.75 - 1.75;
+  target.leaderScaleX = 0.24 - sin * 0.015;
+  target.leaderScaleY = 0.26 + sin * 0.015;
+  target.followerYOffset = sin * 1.25 - 1.25;
+  target.followerScaleX = 0.18 - sin * 0.012;
+  target.followerScaleY = 0.20 + sin * 0.012;
+
+  return target;
 }
 
 /**

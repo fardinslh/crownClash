@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeMarchStride,
+  createStrideMetrics,
   fastComputeDominance,
   DominanceBarDirtyChecker,
   STRIDE_PERIOD_SECONDS,
@@ -47,6 +48,27 @@ describe('SmoothnessHelpers', () => {
 
       expect(atQuarter.leaderY).toBeCloseTo(atThreeQuartersDelayed.leaderY, 4);
       expect(atQuarter.followerYOffset).toBeCloseTo(atThreeQuartersDelayed.followerYOffset, 4);
+    });
+
+    it('mutates and returns caller-owned out object with exact identical values (zero allocation)', () => {
+      const reusable = createStrideMetrics();
+      const testPhases = [0, 0.05, 0.13, 0.2, 0.26];
+
+      for (const t of testPhases) {
+        const allocated = computeMarchStride(t, 0.04);
+        const mutated = computeMarchStride(t, 0.04, reusable);
+
+        // Exact object reference returned
+        expect(mutated).toBe(reusable);
+
+        // Exact equivalence across all fields
+        expect(mutated.leaderY).toBe(allocated.leaderY);
+        expect(mutated.leaderScaleX).toBe(allocated.leaderScaleX);
+        expect(mutated.leaderScaleY).toBe(allocated.leaderScaleY);
+        expect(mutated.followerYOffset).toBe(allocated.followerYOffset);
+        expect(mutated.followerScaleX).toBe(allocated.followerScaleX);
+        expect(mutated.followerScaleY).toBe(allocated.followerScaleY);
+      }
     });
   });
 

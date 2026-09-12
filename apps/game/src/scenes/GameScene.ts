@@ -69,6 +69,7 @@ import {
 } from '../ui/Viewport.js';
 import {
   computeMarchStride,
+  createStrideMetrics,
   fastComputeDominance,
   DominanceBarDirtyChecker,
   DustPuffSimulator,
@@ -125,8 +126,10 @@ export class GameScene extends Phaser.Scene {
   private dustPool: Phaser.GameObjects.Arc[] = [];
   private activeArmyIdsSet = new Set<string>();
   private dominanceDirtyChecker = new DominanceBarDirtyChecker();
+  private sharedStrideMetrics = createStrideMetrics();
   private lastTimerSeconds = -1;
   private territoriesDirty = true;
+  private lastTerritorySignature = 0;
 
   // Interaction / Multi-Select Dragging
   private selectedSourceIds: string[] = [];
@@ -257,6 +260,7 @@ export class GameScene extends Phaser.Scene {
       if (this.gameState?.status === 'playing' && !sounds.isMuted()) {
         sounds.startBattleMusic();
       }
+      this.markTerritoriesDirty();
     });
     this.lifecycleUnsubscribers.push(unpause, unresume);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -610,6 +614,8 @@ export class GameScene extends Phaser.Scene {
         unitBadge,
         unitText,
         typeText,
+        lastOwner: territory.owner,
+        lastUnits: territory.units,
       });
 
       if (!this.reducedMotion) {
@@ -633,6 +639,8 @@ export class GameScene extends Phaser.Scene {
         });
       }
     });
+    this.markTerritoriesDirty();
+    this.lastTerritorySignature = this.computeTerritorySignature();
   }
 
   private createHud(): void {
@@ -1413,6 +1421,7 @@ export class GameScene extends Phaser.Scene {
               });
               Object.assign(this.gameState.territories, multiDispatch.updatedSources);
               this.gameState.armies.push(...predictedArmies);
+              this.markTerritoriesDirty();
               this.updateTerritoryVisuals();
 
               sounds.playDispatch();
@@ -1446,6 +1455,8 @@ export class GameScene extends Phaser.Scene {
             this.gameState.armies.push(...multiDispatch.armies);
             this.gameState.stats.playerUnitsDispatched += multiDispatch.totalUnitsDispatched;
             this.recordDispatchActions(multiDispatch.armies);
+            this.markTerritoriesDirty();
+            this.updateTerritoryVisuals();
 
             sounds.playDispatch();
             this.platform.hapticImpact(multiDispatch.armies.length > 1 ? 'heavy' : 'medium');
@@ -1502,6 +1513,9 @@ export class GameScene extends Phaser.Scene {
     // Every gameplay mutation runs on the same 20 ms clock used by the
     // authoritative replay. Render-frame size can no longer change combat.
     const ticks = Math.min(budget.ticks, 20);
+    if (ticks > 0) {
+      this.markTerritoriesDirty();
+    }
     for (let index = 0; index < ticks && this.gameState.status === 'playing'; index++) {
       const result = stepSimulation(
         this.gameState,
@@ -1593,6 +1607,7 @@ export class GameScene extends Phaser.Scene {
       this.gameState.territories[source.id] = dispatch.sourceTerritory;
       this.gameState.armies.push(dispatch.army);
       this.gameState.stats.enemyUnitsDispatched += dispatch.army.units;
+      this.markTerritoriesDirty();
 
       // Small telegraph pulse on AI territory
       const vis = this.territoryVisuals.get(source.id);
@@ -1718,6 +1733,7 @@ export class GameScene extends Phaser.Scene {
       );
       if (fortressBlocked) this.pulseTerritoryRole(vis, targetRoleStyle.color);
     }
+    this.markTerritoriesDirty();
   }
 
   private spawnCaptureFlash(x: number, y: number, color: number): void {
@@ -1831,9 +1847,32 @@ export class GameScene extends Phaser.Scene {
     return `outpost_${territory.owner}`;
   }
 
-  private updateTerritoryVisuals(): void {
-    if (!this.territoriesDirty) return;
+  markTerritoriesDirty(): void {
+    this.territoriesDirty = true;
+  }
+
+  private computeTerritorySignature(): number {
+    let sig = 17;
+    const terrs = this.gameState?.territories;
+    if (!terrs) return sig;
+    for (const id in terrs) {
+      const t = terrs[id];
+      const ownerCode = t.owner === 'player' ? 1 : t.owner === 'enemy' ? 2 : 0;
+      sig = (Math.imul(31, sig) + t.units + ownerCode * 10007) | 0;
+    }
+    return sig;
+  }
+
+  updateTerritoryVisuals(force = false): void {
+    const currentSig = this.computeTerritorySignature();
+    const signatureChanged = currentSig !== this.lastTerritorySignature;
+
+    if (!this.territoriesDirty && !signatureChanged && !force) {
+      return;
+    }
+
     this.territoriesDirty = false;
+    this.lastTerritorySignature = currentSig;
 
     for (const [id, vis] of this.territoryVisuals.entries()) {
       const stateTerritory = this.gameState.territories[id];
@@ -2069,14 +2108,14 @@ export class GameScene extends Phaser.Scene {
 
       if (!this.reducedMotion) {
         visual.phaseSeconds += deltaSeconds;
-        const leaderStride = computeMarchStride(visual.phaseSeconds, 0);
+        const leaderStride = computeMarchStride(visual.phaseSeconds, 0, this.sharedStrideMetrics);
         visual.leaderSprite.y = leaderStride.leaderY;
         visual.leaderSprite.setScale(leaderStride.leaderScaleX, leaderStride.leaderScaleY);
 
         const followerCount = visual.followers.length;
         for (let fIdx = 0; fIdx < followerCount; fIdx++) {
           const f = visual.followers[fIdx];
-          const fStride = computeMarchStride(visual.phaseSeconds, f.delaySeconds);
+          const fStride = computeMarchStride(visual.phaseSeconds, f.delaySeconds, this.sharedStrideMetrics);
           f.sprite.y = f.relY + fStride.followerYOffset;
           f.sprite.setScale(fStride.followerScaleX, fStride.followerScaleY);
         }
@@ -3330,6 +3369,7 @@ export class GameScene extends Phaser.Scene {
           territories: applyPendingLiveDispatches(state.territories, this.livePredictions),
           armies: reconciledArmies,
         };
+        this.markTerritoriesDirty();
         arrivals.forEach((arrival) => this.onCombatArrival(arrival));
       }),
       client.on('command_rejected', ({ code, sequence }) => {
@@ -3347,6 +3387,7 @@ export class GameScene extends Phaser.Scene {
             this.lastAuthoritativeState.territories,
             this.livePredictions
           );
+          this.markTerritoriesDirty();
           this.updateTerritoryVisuals();
         }
       }),
