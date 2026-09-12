@@ -80,6 +80,8 @@ import {
   DominanceBarDirtyChecker,
   DustPuffSimulator,
 } from '../combat/SmoothnessHelpers.js';
+import { ArmyVisualPool, type ArmyVisual } from '../combat/ArmyVisualPool.js';
+import { AdaptivePerformanceController, type DeviceCapabilities } from '../performance/PerformanceProfile.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 const MONO_FONT_FAMILY = '"Segoe UI", monospace, -apple-system, sans-serif';
@@ -97,35 +99,14 @@ interface TerritoryVisual {
   lastUnits?: number;
 }
 
-interface ArmyFollower {
-  shadow: Phaser.GameObjects.Ellipse;
-  sprite: Phaser.GameObjects.Image;
-  relX: number;
-  relY: number;
-  delaySeconds: number;
-}
-
-interface ArmyVisual {
-  id: string;
-  container: Phaser.GameObjects.Container;
-  leaderSprite: Phaser.GameObjects.Image;
-  leaderShadow: Phaser.GameObjects.Ellipse;
-  badgeBg: Phaser.GameObjects.Rectangle;
-  badgeText: Phaser.GameObjects.Text;
-  followers: ArmyFollower[];
-  rearOffset: { x: number; y: number };
-  dustTimer: number;
-  dustInterval: number;
-  dustColor: number;
-  roleLabel: string;
-  phaseSeconds: number;
-}
-
 export class GameScene extends Phaser.Scene {
   private gameState!: GameState;
   private accumulators: Record<string, number> = {};
   private territoryVisuals: Map<string, TerritoryVisual> = new Map();
   private armyVisuals: Map<string, ArmyVisual> = new Map();
+  private armyVisualPool!: ArmyVisualPool;
+  private adaptivePerf!: AdaptivePerformanceController;
+  private reducedEffects = false;
 
   // Performance optimization state
   private dustSimulator = new DustPuffSimulator(16);
@@ -227,6 +208,23 @@ export class GameScene extends Phaser.Scene {
     this.load.image('unit_leader_enemy', 'assets/units/unit_leader_enemy.png');
     this.load.image('unit_follower_player', 'assets/units/unit_follower_player.png');
     this.load.image('unit_follower_enemy', 'assets/units/unit_follower_enemy.png');
+
+    // Generate soft radial shadow texture once for batched unit and follower shadows
+    if (!this.textures.exists('unit_shadow_texture')) {
+      const shadowCanvas = this.textures.createCanvas('unit_shadow_texture', 32, 16);
+      if (shadowCanvas) {
+        const ctx = shadowCanvas.getContext();
+        const grad = ctx.createRadialGradient(16, 8, 0, 16, 8, 16);
+        grad.addColorStop(0, 'rgba(0, 0, 0, 0.55)');
+        grad.addColorStop(0.6, 'rgba(0, 0, 0, 0.25)');
+        grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.ellipse(16, 8, 16, 8, 0, 0, Math.PI * 2);
+        ctx.fill();
+        shadowCanvas.refresh();
+      }
+    }
   }
 
   create(): void {
@@ -235,6 +233,18 @@ export class GameScene extends Phaser.Scene {
     this.reducedMotion =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+
+    const caps = this.registry.get('deviceCapabilities') as DeviceCapabilities | undefined;
+    const initialReduced = this.reducedMotion || Boolean(caps?.isLowEnd);
+    this.adaptivePerf = new AdaptivePerformanceController({
+      initialReducedEffects: initialReduced,
+    });
+    this.reducedEffects = this.adaptivePerf.isReducedEffects();
+    this.adaptivePerf.onChange((reduced) => {
+      this.reducedEffects = reduced;
+    });
+
+    this.armyVisualPool = new ArmyVisualPool(this, 16);
 
     this.platform = (this.registry.get('platform') as PlatformAdapter) || createPlatformAdapter();
     const user = this.platform.getUser();
@@ -1500,6 +1510,7 @@ export class GameScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     if (!Number.isFinite(delta) || delta <= 0) return;
+    this.adaptivePerf?.recordFrameDelta(delta);
     const deltaSeconds = delta / 1000;
 
     if (this.gameState.status === 'playing' && !this.liveMode) {
@@ -1945,16 +1956,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private destroyArmyVisual(visual: ArmyVisual): void {
-    this.tweens.killTweensOf(visual.container);
-    for (const f of visual.followers) {
-      f.sprite.destroy();
-      f.shadow.destroy();
-    }
-    visual.leaderSprite.destroy();
-    visual.leaderShadow.destroy();
-    visual.badgeText.destroy();
-    visual.badgeBg.destroy();
-    visual.container.destroy();
+    this.armyVisualPool.release(visual);
   }
 
   private updateArmyVisuals(deltaSeconds: number): void {
@@ -1968,149 +1970,32 @@ export class GameScene extends Phaser.Scene {
       this.activeArmyIdsSet.add(`${army.owner}:${army.id}`);
     }
 
-    // Destroy visuals for finished armies
+    // Release visuals for finished armies back to the pool
     for (const [id, visual] of this.armyVisuals.entries()) {
       if (!this.activeArmyIdsSet.has(id)) {
-        this.destroyArmyVisual(visual);
+        this.armyVisualPool.release(visual);
         this.armyVisuals.delete(id);
       }
     }
 
-    // Update or create visual for each active army
-    for (const army of armies) {
-      const currentX = Phaser.Math.Linear(army.startX, army.targetX, army.progress);
-      const currentY = Phaser.Math.Linear(army.startY, army.targetY, army.progress);
+    // Update or acquire visual for each active army
+    for (let i = 0; i < armyCount; i++) {
+      const army = armies[i];
+      const currentX = army.startX + (army.targetX - army.startX) * army.progress;
+      const currentY = army.startY + (army.targetY - army.startY) * army.progress;
       const visualId = `${army.owner}:${army.id}`;
 
       let visual = this.armyVisuals.get(visualId);
 
       if (!visual) {
         const sourceType = this.gameState.territories[army.sourceId]?.type ?? 'barracks';
-        const roleStyle = TERRITORY_TYPE_PRESENTATION[sourceType];
-        const container = this.add.container(currentX, currentY).setDepth(35);
-
-        // Calculate travel angle and direction vectors
-        const angle = Phaser.Math.Angle.Between(army.startX, army.startY, army.targetX, army.targetY);
-        const cos = Math.cos(angle);
-        const sin = Math.sin(angle);
-        const perpX = -sin;
-        const perpY = cos;
-        const isFacingLeft = cos < -0.05;
-
-        // Determine follower formation based on army size
-        const followerOffsets: Array<{ x: number; y: number; delay: number }> = [];
-        if (army.units >= 15) {
-          followerOffsets.push(
-            { x: -14 * cos + 7 * perpX, y: -14 * sin + 7 * perpY, delay: 45 },
-            { x: -22 * cos - 7 * perpX, y: -22 * sin - 7 * perpY, delay: 90 },
-            { x: -30 * cos, y: -30 * sin, delay: 135 }
-          );
-        } else if (army.units >= 6) {
-          followerOffsets.push(
-            { x: -15 * cos + 6 * perpX, y: -15 * sin + 6 * perpY, delay: 50 },
-            { x: -24 * cos - 6 * perpX, y: -24 * sin - 6 * perpY, delay: 100 }
-          );
-        } else {
-          followerOffsets.push({ x: -16 * cos, y: -16 * sin, delay: 60 });
-        }
-        if (sourceType === 'barracks') {
-          followerOffsets.push({
-            x: -38 * cos + 9 * perpX,
-            y: -38 * sin + 9 * perpY,
-            delay: 150,
-          });
-        }
-
-        if (sourceType === 'stable') {
-          const speedLines = this.add.graphics();
-          speedLines.lineStyle(2, roleStyle.color, 0.65);
-          for (const offset of [-7, 0, 7]) {
-            speedLines.lineBetween(
-              -cos * 42 + perpX * offset,
-              -sin * 42 + perpY * offset,
-              -cos * 21 + perpX * offset,
-              -sin * 21 + perpY * offset
-            );
-          }
-          container.add(speedLines);
-        }
-
-        const roleAura = this.add
-          .circle(0, 1, 15, roleStyle.color, 0.1)
-          .setStrokeStyle(sourceType === 'fortress' ? 3 : 1.5, roleStyle.color, 0.82);
-        container.add(roleAura);
-
-        const followers: ArmyFollower[] = [];
-        const followerTexture = army.owner === 'player' ? 'unit_follower_player' : 'unit_follower_enemy';
-
-        for (const f of followerOffsets) {
-          const shadow = this.add.ellipse(f.x, f.y + 7, 13, 6, 0x000000, 0.32);
-          const sprite = this.add
-            .image(f.x, f.y, followerTexture)
-            .setScale(0.19)
-            .setFlipX(isFacingLeft);
-
-          container.add([shadow, sprite]);
-          followers.push({
-            shadow,
-            sprite,
-            relX: f.x,
-            relY: f.y,
-            delaySeconds: f.delay / 1000,
-          });
-        }
-
-        // Commander / Leader Unit
-        const leaderShadow = this.add.ellipse(0, 9, 18, 7, 0x000000, 0.38);
-        const leaderTexture = army.owner === 'player' ? 'unit_leader_player' : 'unit_leader_enemy';
-        const leaderSprite = this.add
-          .image(0, 0, leaderTexture)
-          .setScale(0.25)
-          .setFlipX(isFacingLeft);
-
-        // High-contrast Troop Count Pill Badge
-        const badgeY = -19;
-        const initialUnits = `${roleStyle.label} ${army.units}`;
-        const badgeWidth = Math.max(42, initialUnits.length * 7 + 14);
-        const badgeBg = this.add
-          .rectangle(0, badgeY, badgeWidth, 18, 0x090d16, 0.94)
-          .setStrokeStyle(1.5, roleStyle.color, 1);
-
-        const badgeText = this.add
-          .text(0, badgeY, initialUnits, {
-            fontFamily: FONT_FAMILY,
-            fontSize: '12px',
-            fontStyle: 'bold',
-            color: '#ffffff',
-            stroke: '#000000',
-            strokeThickness: 2.5,
-            resolution: 2,
-          })
-          .setOrigin(0.5);
-
-        container.add([leaderShadow, leaderSprite, badgeBg, badgeText]);
-
-        const lastOffset = followerOffsets[followerOffsets.length - 1] ?? { x: 0, y: 0 };
-        visual = {
-          id: visualId,
-          container,
-          leaderSprite,
-          leaderShadow,
-          badgeBg,
-          badgeText,
-          followers,
-          rearOffset: { x: lastOffset.x, y: lastOffset.y },
-          dustTimer: 0.05,
-          dustInterval: sourceType === 'stable' ? 0.09 : sourceType === 'barracks' ? 0.14 : 0.18,
-          dustColor: roleStyle.color,
-          roleLabel: roleStyle.label,
-          phaseSeconds: 0,
-        };
+        visual = this.armyVisualPool.acquire(army, sourceType, this.reducedEffects);
         this.armyVisuals.set(visualId, visual);
-        if (!this.reducedMotion) {
-          container.setScale(0.86).setAlpha(0);
+
+        if (!this.reducedEffects) {
+          visual.container.setScale(0.86).setAlpha(0);
           this.tweens.add({
-            targets: container,
+            targets: visual.container,
             scale: 1,
             alpha: 1,
             duration: 150,
@@ -2128,7 +2013,7 @@ export class GameScene extends Phaser.Scene {
 
         // Emit rhythmic dust puff behind rearmost follower
         visual.dustTimer -= deltaSeconds;
-        if (!this.reducedMotion && visual.dustTimer <= 0) {
+        if (!this.reducedEffects && visual.dustTimer <= 0) {
           visual.dustTimer = visual.dustInterval;
           this.dustSimulator.spawn(
             currentX + visual.rearOffset.x,
@@ -2138,13 +2023,13 @@ export class GameScene extends Phaser.Scene {
         }
       }
 
-      if (!this.reducedMotion) {
+      if (!this.reducedEffects) {
         visual.phaseSeconds += deltaSeconds;
         const leaderStride = computeMarchStride(visual.phaseSeconds, 0, this.sharedStrideMetrics);
         visual.leaderSprite.y = leaderStride.leaderY;
         visual.leaderSprite.setScale(leaderStride.leaderScaleX, leaderStride.leaderScaleY);
 
-        const followerCount = visual.followers.length;
+        const followerCount = visual.activeFollowerCount;
         for (let fIdx = 0; fIdx < followerCount; fIdx++) {
           const f = visual.followers[fIdx];
           const fStride = computeMarchStride(visual.phaseSeconds, f.delaySeconds, this.sharedStrideMetrics);
@@ -2154,7 +2039,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    if (!this.reducedMotion) {
+    if (!this.reducedEffects) {
       this.dustSimulator.update(deltaSeconds);
       const dustItems = this.dustSimulator.getItems();
       const poolLen = this.dustPool.length;
@@ -2172,6 +2057,12 @@ export class GameScene extends Phaser.Scene {
           }
         } else if (arc.visible) {
           arc.setVisible(false);
+        }
+      }
+    } else {
+      for (let i = 0; i < this.dustPool.length; i++) {
+        if (this.dustPool[i]?.visible) {
+          this.dustPool[i].setVisible(false);
         }
       }
     }
@@ -3515,6 +3406,7 @@ export class GameScene extends Phaser.Scene {
       this.destroyArmyVisual(visual);
     }
     this.armyVisuals.clear();
+    this.armyVisualPool?.destroy();
     for (const vis of this.territoryVisuals.values()) {
       this.tweens.killTweensOf([vis.container, vis.ring, vis.typeText, vis.unitBadge]);
       vis.container.destroy();

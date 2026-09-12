@@ -138,9 +138,9 @@
     "semantic_hash": ""
   },
   "apps/game/src/main.ts": {
-    "mtime": 1789224857.6647282,
-    "seen": 1789225886.7867548,
-    "ast_hash": "5a5ed0bdf50a3be6a14adba25a961431",
+    "mtime": 1789230593.644789,
+    "seen": 1789232495.7974677,
+    "ast_hash": "97efcd63f89696eb574d9b300cdd3272",
     "semantic_hash": ""
   },
   "apps/game/src/match/MatchMenuController.ts": {
@@ -192,9 +192,9 @@
     "semantic_hash": ""
   },
   "apps/game/src/scenes/GameScene.ts": {
-    "mtime": 1789227706.524077,
-    "seen": 1789228151.5456798,
-    "ast_hash": "b9a974a4f01bc43ab850b0d2adf9cdeb",
+    "mtime": 1789230730.5438685,
+    "seen": 1789232495.7974677,
+    "ast_hash": "98c6c76cd905cda093b010cf2ed530a1",
     "semantic_hash": ""
   },
   "apps/game/src/scenes/KingdomScene.ts": {
@@ -300,9 +300,9 @@
     "semantic_hash": "df78ae6bc942816b9b52bdceead694a5"
   },
   "apps/game/vite.config.ts": {
-    "mtime": 1789224789.6542444,
-    "seen": 1789225886.7867548,
-    "ast_hash": "5668ead3a90d2a3ecc9c9bcac5ea1314",
+    "mtime": 1789229536.6385784,
+    "seen": 1789232495.7974677,
+    "ast_hash": "907c5013009ee819d790079dd640fde6",
     "semantic_hash": ""
   },
   "apps/server-nakama/analytics_test.go": {
@@ -945,6 +945,30 @@
     "mtime": 1789228090.6080534,
     "seen": 1789228151.5456798,
     "ast_hash": "26a303d5cfe83bb37a99754696835600",
+    "semantic_hash": ""
+  },
+  "apps/game/src/combat/ArmyVisualPool.ts": {
+    "mtime": 1789231634.8023713,
+    "seen": 1789232495.7974677,
+    "ast_hash": "cb009e72407b34bc628e4ea9157c17b3",
+    "semantic_hash": ""
+  },
+  "apps/game/src/combat/__tests__/ArmyVisualPool.test.ts": {
+    "mtime": 1789231723.7421925,
+    "seen": 1789232495.7974677,
+    "ast_hash": "f4198f9899b93793ab0a3ad0e241bcf2",
+    "semantic_hash": ""
+  },
+  "apps/game/src/performance/PerformanceProfile.ts": {
+    "mtime": 1789230744.210185,
+    "seen": 1789232495.7974677,
+    "ast_hash": "cd26ea8455cc0e677c33ed17d1ea3a0b",
+    "semantic_hash": ""
+  },
+  "apps/game/src/performance/__tests__/PerformanceProfile.test.ts": {
+    "mtime": 1789230426.750494,
+    "seen": 1789232495.7974677,
+    "ast_hash": "b784fe33b4a0ffbffb9c2aaad39eb3e5",
     "semantic_hash": ""
   }
 }
