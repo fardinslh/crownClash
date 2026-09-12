@@ -35,7 +35,43 @@ export function compareBenchmarks(
   const maxArmyVariance = options.maxArmyVarianceRatio ?? 0.25;
   const maxDurationDiff = options.maxDurationDiffSeconds ?? 1.0;
 
-  // 1. Must both have passed self-verification
+  // 1. Fail closed on missing required comparison identity metadata
+  const requiredIdentityFields: Array<{
+    name: string;
+    bVal: unknown;
+    cVal: unknown;
+  }> = [
+    { name: 'scenario.name', bVal: baseline.scenario?.name, cVal: candidate.scenario?.name },
+    { name: 'scenario.seed', bVal: baseline.scenario?.seed, cVal: candidate.scenario?.seed },
+    { name: 'scenario.scheduleHash', bVal: baseline.scenario?.scheduleHash, cVal: candidate.scenario?.scheduleHash },
+    { name: 'scenario.durationSeconds', bVal: baseline.scenario?.durationSeconds, cVal: candidate.scenario?.durationSeconds },
+    { name: 'scenario.warmupDurationSeconds', bVal: baseline.scenario?.warmupDurationSeconds, cVal: candidate.scenario?.warmupDurationSeconds },
+    { name: 'environment.host', bVal: baseline.environment?.host, cVal: candidate.environment?.host },
+    { name: 'environment.renderer', bVal: baseline.environment?.renderer, cVal: candidate.environment?.renderer },
+    { name: 'environment.gpuVendor', bVal: baseline.environment?.gpuVendor, cVal: candidate.environment?.gpuVendor },
+    { name: 'environment.gpuRenderer', bVal: baseline.environment?.gpuRenderer, cVal: candidate.environment?.gpuRenderer },
+    { name: 'environment.browserVersion', bVal: baseline.environment?.browserVersion, cVal: candidate.environment?.browserVersion },
+    { name: 'environment.viewport.width', bVal: baseline.environment?.viewport?.width, cVal: candidate.environment?.viewport?.width },
+    { name: 'environment.viewport.height', bVal: baseline.environment?.viewport?.height, cVal: candidate.environment?.viewport?.height },
+    { name: 'environment.viewport.dpr', bVal: baseline.environment?.viewport?.dpr, cVal: candidate.environment?.viewport?.dpr },
+    { name: 'environment.cpuThrottling', bVal: baseline.environment?.cpuThrottling, cVal: candidate.environment?.cpuThrottling },
+    { name: 'environment.network', bVal: baseline.environment?.network, cVal: candidate.environment?.network },
+    { name: 'environment.buildMode', bVal: baseline.environment?.buildMode, cVal: candidate.environment?.buildMode },
+    { name: 'environment.targetFps', bVal: baseline.environment?.targetFps, cVal: candidate.environment?.targetFps },
+  ];
+
+  for (const field of requiredIdentityFields) {
+    const isInvalid = (val: unknown) => val === undefined || val === null || val === '';
+    if (isInvalid(field.bVal) || isInvalid(field.cVal)) {
+      return {
+        rejected: true,
+        reasonCode: 'MISSING_COMPARISON_IDENTITY',
+        message: `Missing required comparison identity metadata '${field.name}' (baseline: ${field.bVal ?? 'empty'}, candidate: ${field.cVal ?? 'empty'}).`,
+      };
+    }
+  }
+
+  // 2. Must both have passed self-verification
   if (!baseline.verification.passed) {
     return {
       rejected: true,
@@ -51,7 +87,7 @@ export function compareBenchmarks(
     };
   }
 
-  // 2. Reject if software WebGL is detected
+  // 3. Reject if software WebGL is detected
   if (baseline.environment.isSoftwareRenderer || candidate.environment.isSoftwareRenderer) {
     return {
       rejected: true,
@@ -60,7 +96,7 @@ export function compareBenchmarks(
     };
   }
 
-  // 3. Reject if scenario name differs
+  // 4. Reject if scenario name differs
   if (baseline.scenario.name !== candidate.scenario.name) {
     return {
       rejected: true,
@@ -69,7 +105,7 @@ export function compareBenchmarks(
     };
   }
 
-  // 4. Reject if seed differs
+  // 5. Reject if seed differs
   if (baseline.scenario.seed !== candidate.scenario.seed) {
     return {
       rejected: true,
@@ -78,9 +114,8 @@ export function compareBenchmarks(
     };
   }
 
-  // 5. Reject if scripted dispatch schedule hash differs
-  if (baseline.scenario.scheduleHash && candidate.scenario.scheduleHash &&
-      baseline.scenario.scheduleHash !== candidate.scenario.scheduleHash) {
+  // 6. Reject if scripted dispatch schedule hash differs
+  if (baseline.scenario.scheduleHash !== candidate.scenario.scheduleHash) {
     return {
       rejected: true,
       reasonCode: 'SCHEDULE_HASH_MISMATCH',
@@ -88,7 +123,7 @@ export function compareBenchmarks(
     };
   }
 
-  // 6. Reject if CPU throttle differs
+  // 7. Reject if CPU throttle differs
   if (baseline.environment.cpuThrottling !== candidate.environment.cpuThrottling) {
     return {
       rejected: true,
@@ -97,7 +132,7 @@ export function compareBenchmarks(
     };
   }
 
-  // 7. Reject if network profile differs
+  // 8. Reject if network profile differs
   if (baseline.environment.network !== candidate.environment.network) {
     return {
       rejected: true,
@@ -106,7 +141,7 @@ export function compareBenchmarks(
     };
   }
 
-  // 8. Reject if viewport width/height differs
+  // 9. Reject if viewport width/height differs
   const bv = baseline.environment.viewport;
   const cv = candidate.environment.viewport;
   if (bv.width !== cv.width || bv.height !== cv.height) {
@@ -117,7 +152,7 @@ export function compareBenchmarks(
     };
   }
 
-  // 9. Reject if DPR differs
+  // 10. Reject if DPR differs
   if (bv.dpr !== cv.dpr) {
     return {
       rejected: true,
@@ -126,7 +161,7 @@ export function compareBenchmarks(
     };
   }
 
-  // 10. Reject if renderer differs
+  // 11. Reject if renderer differs
   if (baseline.environment.renderer !== candidate.environment.renderer) {
     return {
       rejected: true,
@@ -135,9 +170,8 @@ export function compareBenchmarks(
     };
   }
 
-  // 11. Reject if GPU vendor differs
-  if (baseline.environment.gpuVendor && candidate.environment.gpuVendor &&
-      baseline.environment.gpuVendor !== candidate.environment.gpuVendor) {
+  // 12. Reject if GPU vendor differs
+  if (baseline.environment.gpuVendor !== candidate.environment.gpuVendor) {
     return {
       rejected: true,
       reasonCode: 'GPU_VENDOR_MISMATCH',
@@ -145,9 +179,8 @@ export function compareBenchmarks(
     };
   }
 
-  // 12. Reject if GPU renderer differs
-  if (baseline.environment.gpuRenderer && candidate.environment.gpuRenderer &&
-      baseline.environment.gpuRenderer !== candidate.environment.gpuRenderer) {
+  // 13. Reject if GPU renderer differs
+  if (baseline.environment.gpuRenderer !== candidate.environment.gpuRenderer) {
     return {
       rejected: true,
       reasonCode: 'GPU_RENDERER_MISMATCH',
@@ -155,7 +188,7 @@ export function compareBenchmarks(
     };
   }
 
-  // 13. Reject if build mode differs
+  // 14. Reject if build mode differs
   if (baseline.environment.buildMode !== candidate.environment.buildMode) {
     return {
       rejected: true,
@@ -164,7 +197,7 @@ export function compareBenchmarks(
     };
   }
 
-  // 14. Reject if target FPS differs
+  // 15. Reject if target FPS differs
   if (baseline.environment.targetFps !== candidate.environment.targetFps) {
     return {
       rejected: true,
@@ -173,7 +206,7 @@ export function compareBenchmarks(
     };
   }
 
-  // 15. Reject if scenario duration differs
+  // 16. Reject if scenario duration differs
   const baseDurationSec = baseline.metrics.sampleDurationMs / 1000;
   const candDurationSec = candidate.metrics.sampleDurationMs / 1000;
   if (Math.abs(baseDurationSec - candDurationSec) > maxDurationDiff) {
@@ -184,7 +217,7 @@ export function compareBenchmarks(
     };
   }
 
-  // 16. Reject if warm-up duration differs
+  // 17. Reject if warm-up duration differs
   if (baseline.scenario.warmupDurationSeconds !== candidate.scenario.warmupDurationSeconds) {
     return {
       rejected: true,
@@ -193,9 +226,8 @@ export function compareBenchmarks(
     };
   }
 
-  // 17. Reject if browser version differs
-  if (baseline.environment.browserVersion && candidate.environment.browserVersion &&
-      baseline.environment.browserVersion !== candidate.environment.browserVersion) {
+  // 18. Reject if browser version differs
+  if (baseline.environment.browserVersion !== candidate.environment.browserVersion) {
     return {
       rejected: true,
       reasonCode: 'BROWSER_VERSION_MISMATCH',

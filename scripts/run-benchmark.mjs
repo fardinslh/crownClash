@@ -162,6 +162,15 @@ export async function runDeterministicBenchmark(options = {}) {
       browserVersion = versionInfo?.product || 'HeadlessChrome';
     } catch {}
 
+    // Feature-detect CDP Page.setWebLifecycleState support
+    let hasWebLifecycleControl = false;
+    try {
+      await cdp.send('Page.setWebLifecycleState', { state: 'active' });
+      hasWebLifecycleControl = true;
+    } catch {
+      hasWebLifecycleControl = false;
+    }
+
     // Emulate device metrics
     await cdp.send('Emulation.setDeviceMetricsOverride', {
       width: viewport.width,
@@ -214,34 +223,24 @@ export async function runDeterministicBenchmark(options = {}) {
         scenarioName: '',
       };
 
-      // Listen to lifecycle & visibility events
-      document.addEventListener('visibilitychange', () => {
+      // Listen to lifecycle & visibility events on both document and window
+      const recordLifecycle = (event, state) => {
         if (window.__AUTHORITATIVE_PROBE__.isSampling) {
           window.__AUTHORITATIVE_PROBE__.lifecycleTransitions.push({
-            event: 'visibilitychange',
-            state: document.visibilityState,
+            event,
+            state,
             timestampMs: performance.now(),
           });
         }
-      });
-      window.addEventListener('freeze', () => {
-        if (window.__AUTHORITATIVE_PROBE__.isSampling) {
-          window.__AUTHORITATIVE_PROBE__.lifecycleTransitions.push({
-            event: 'freeze',
-            state: 'frozen',
-            timestampMs: performance.now(),
-          });
-        }
-      });
-      window.addEventListener('resume', () => {
-        if (window.__AUTHORITATIVE_PROBE__.isSampling) {
-          window.__AUTHORITATIVE_PROBE__.lifecycleTransitions.push({
-            event: 'resume',
-            state: 'resumed',
-            timestampMs: performance.now(),
-          });
-        }
-      });
+      };
+
+      document.addEventListener('visibilitychange', () => recordLifecycle('visibilitychange', document.visibilityState));
+      document.addEventListener('freeze', () => recordLifecycle('freeze', 'frozen'));
+      document.addEventListener('resume', () => recordLifecycle('resume', 'resumed'));
+      window.addEventListener('freeze', () => recordLifecycle('freeze', 'frozen'));
+      window.addEventListener('resume', () => recordLifecycle('resume', 'resumed'));
+      window.addEventListener('pagehide', () => recordLifecycle('pagehide', 'hidden'));
+      window.addEventListener('pageshow', () => recordLifecycle('pageshow', 'visible'));
 
       // Intercept draw calls and extract GPU debug info
       const origGetContext = HTMLCanvasElement.prototype.getContext;
@@ -470,15 +469,16 @@ export async function runDeterministicBenchmark(options = {}) {
 
     let backgroundDurationMs = 0;
     if (scenarioName === 'background_resume') {
+      if (!hasWebLifecycleControl) {
+        throw new Error('UNSUPPORTED_LIFECYCLE_CONTROL: CDP Page.setWebLifecycleState is not supported in this environment');
+      }
       backgroundDurationMs = 10000;
       await sleep(5000);
-      console.log('Suspending page via CDP lifecycle controls for 10s...');
-      await cdp.send('Page.setVisibilityState', { visibilityState: 'hidden' });
-      await cdp.send('Emulation.setPageSuspended', { suspended: true });
+      console.log('Suspending page via CDP Page.setWebLifecycleState ("frozen") for 10s...');
+      await cdp.send('Page.setWebLifecycleState', { state: 'frozen' });
       await sleep(10000);
-      console.log('Resuming page via CDP lifecycle controls...');
-      await cdp.send('Emulation.setPageSuspended', { suspended: false });
-      await cdp.send('Page.setVisibilityState', { visibilityState: 'visible' });
+      console.log('Resuming page via CDP Page.setWebLifecycleState ("active")...');
+      await cdp.send('Page.setWebLifecycleState', { state: 'active' });
       const remainingMs = Math.max(0, (durationSec - 15) * 1000);
       await sleep(remainingMs);
     } else {

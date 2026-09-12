@@ -316,11 +316,15 @@ export function verifyPrerequisites(
 
   // 9. Background lifecycle transitions (for background_resume)
   if (metrics.backgroundDurationMs > 0) {
-    const hasHidden = metrics.lifecycleTransitions.some((t) => t.state === 'hidden');
-    const hasVisible = metrics.lifecycleTransitions.some((t) => t.state === 'visible');
-    if (!hasHidden || !hasVisible) {
+    const hasHiddenOrFrozen = metrics.lifecycleTransitions.some(
+      (t) => t.state === 'hidden' || t.state === 'frozen' || t.event === 'freeze'
+    );
+    const hasActiveOrResumed = metrics.lifecycleTransitions.some(
+      (t) => t.state === 'visible' || t.state === 'active' || t.state === 'resumed' || t.event === 'resume'
+    );
+    if (!hasHiddenOrFrozen || !hasActiveOrResumed) {
       failures.push(
-        `INVALID_BACKGROUND_TRANSITION: background_resume scenario missing required transitions (hidden: ${hasHidden}, visible: ${hasVisible})`
+        `INVALID_BACKGROUND_TRANSITION: background_resume scenario missing required transitions (hidden/frozen: ${hasHiddenOrFrozen}, active/resumed: ${hasActiveOrResumed})`
       );
     }
   }

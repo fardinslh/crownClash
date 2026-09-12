@@ -152,7 +152,8 @@ export type ComparisonRejectionReasonCode =
   | 'PHYSICAL_DEVICE_FLAG_MISMATCH'
   | 'ARMY_COUNT_VARIANCE_EXCEEDED'
   | 'UNVERIFIED_SAMPLE'
-  | 'SOFTWARE_WEBGL_DETECTED';
+  | 'SOFTWARE_WEBGL_DETECTED'
+  | 'MISSING_COMPARISON_IDENTITY';
 
 export interface ComparisonRejection {
   rejected: true;
@@ -181,4 +182,41 @@ export interface BenchmarkComparisonSuccess {
 }
 
 export type BenchmarkComparisonResult = ComparisonRejection | BenchmarkComparisonSuccess;
+
+export interface MetricAggregateStats {
+  mean: number;
+  min: number;
+  max: number;
+  stdDev: number;
+  cvPercent: number;
+  passedThreshold: boolean;
+  unstable: boolean;
+}
+
+export interface BenchmarkAggregateThresholds {
+  presentedFpsCvMaxPercent: number; // default: 5.0%
+  p95FrameTimeCvMaxPercent: number; // default: 10.0%
+  steadyStateArmiesCvMaxPercent: number; // default: 10.0%
+}
+
+export interface BenchmarkAggregateReport {
+  scenarioName: string;
+  runCount: number;
+  runIds: string[];
+  runsPassedVerification: boolean;
+  metrics: {
+    presentedFps: MetricAggregateStats;
+    renderedFps: MetricAggregateStats;
+    p95FrameTimeMs: MetricAggregateStats;
+    framesOver33Pct: MetricAggregateStats;
+    steadyStateAvgArmies: MetricAggregateStats;
+    steadyStateMinArmies: MetricAggregateStats;
+    steadyStateMaxArmies: MetricAggregateStats;
+    longTaskCount: MetricAggregateStats;
+    longTaskTotalDurationMs: MetricAggregateStats;
+  };
+  thresholds: BenchmarkAggregateThresholds;
+  overallPassed: boolean;
+}
+
 

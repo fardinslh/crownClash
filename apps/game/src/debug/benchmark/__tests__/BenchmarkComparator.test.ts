@@ -270,5 +270,38 @@ describe('BenchmarkComparator', () => {
     expect(result.rejected).toBe(true);
     if (result.rejected) expect(result.reasonCode).toBe('UNVERIFIED_SAMPLE');
   });
+
+  it('rejects comparison with MISSING_COMPARISON_IDENTITY when scheduleHash is empty or missing', () => {
+    const baseline = createMockReport();
+    const candidate = createMockReport({ scenario: { ...baseline.scenario, scheduleHash: '' } });
+    const result = compareBenchmarks(baseline, candidate);
+    expect(result.rejected).toBe(true);
+    if (result.rejected) expect(result.reasonCode).toBe('MISSING_COMPARISON_IDENTITY');
+  });
+
+  it('rejects comparison with MISSING_COMPARISON_IDENTITY when gpuVendor is empty or missing', () => {
+    const baseline = createMockReport();
+    const candidate = createMockReport({ environment: { ...baseline.environment, gpuVendor: '' } });
+    const result = compareBenchmarks(baseline, candidate);
+    expect(result.rejected).toBe(true);
+    if (result.rejected) expect(result.reasonCode).toBe('MISSING_COMPARISON_IDENTITY');
+  });
+
+  it('rejects comparison with MISSING_COMPARISON_IDENTITY when gpuRenderer is empty or missing', () => {
+    const baseline = createMockReport({ environment: { ...createMockReport().environment, gpuRenderer: '' } });
+    const candidate = createMockReport();
+    const result = compareBenchmarks(baseline, candidate);
+    expect(result.rejected).toBe(true);
+    if (result.rejected) expect(result.reasonCode).toBe('MISSING_COMPARISON_IDENTITY');
+  });
+
+  it('rejects comparison with MISSING_COMPARISON_IDENTITY when browserVersion is empty or missing', () => {
+    const baseline = createMockReport();
+    const candidate = createMockReport({ environment: { ...baseline.environment, browserVersion: '' } });
+    const result = compareBenchmarks(baseline, candidate);
+    expect(result.rejected).toBe(true);
+    if (result.rejected) expect(result.reasonCode).toBe('MISSING_COMPARISON_IDENTITY');
+  });
 });
+
 
