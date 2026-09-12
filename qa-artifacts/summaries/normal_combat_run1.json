@@ -1,0 +1,73 @@
+{
+  "id": "bench_normal_combat_1789235649791",
+  "timestamp": "2026-09-12T17:54:09.791Z",
+  "environment": {
+    "host": "Browser Emulation (Headless Chrome on Windows)",
+    "isPhysicalDevice": false,
+    "renderer": "WebGL",
+    "viewport": {
+      "width": 375,
+      "height": 667,
+      "dpr": 2
+    },
+    "cpuThrottling": 4,
+    "network": "LAN",
+    "buildMode": "production",
+    "targetFps": 60
+  },
+  "scenario": {
+    "name": "normal_combat",
+    "durationSeconds": 30,
+    "seed": 20260912,
+    "targetArmyRange": {
+      "min": 5,
+      "max": 10
+    },
+    "description": "Maintains 5-10 concurrent armies via deterministic dispatch schedule"
+  },
+  "metrics": {
+    "presentedFps": 24.1,
+    "renderedFps": 24.1,
+    "simulationTicks": 724,
+    "simulationFps": 24.1,
+    "phaserUpdateDelta": {
+      "avgMs": 41.45,
+      "p50Ms": 40,
+      "p95Ms": 55.7,
+      "p99Ms": 71.3,
+      "maxMs": 102.4
+    },
+    "framesOver16Ms": 724,
+    "framesOver16Pct": 100,
+    "framesOver33Ms": 672,
+    "framesOver33Pct": 92.8,
+    "longTasks": {
+      "count": 57,
+      "totalDurationMs": 3465,
+      "maxDurationMs": 104
+    },
+    "armyCounts": {
+      "min": 0,
+      "max": 11,
+      "avg": 5.8,
+      "peak": 11
+    },
+    "peakObjects": 92,
+    "peakTweens": 37,
+    "memoryMb": {
+      "start": 18,
+      "peak": 35.6
+    },
+    "drawCalls": {
+      "total": 57796,
+      "avgPerFrame": 79.8
+    },
+    "sampleDurationMs": 30020,
+    "totalRenderedFrames": 724,
+    "duplicateFramesDropped": 0
+  },
+  "verification": {
+    "passed": true,
+    "failures": []
+  }
+}

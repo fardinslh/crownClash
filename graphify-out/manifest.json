@@ -138,8 +138,8 @@
     "semantic_hash": ""
   },
   "apps/game/src/main.ts": {
-    "mtime": 1789224857.6647282,
-    "seen": 1789225886.7867548,
+    "mtime": 1789233905.8378768,
+    "seen": 1789235743.420478,
     "ast_hash": "5a5ed0bdf50a3be6a14adba25a961431",
     "semantic_hash": ""
   },
@@ -192,8 +192,8 @@
     "semantic_hash": ""
   },
   "apps/game/src/scenes/GameScene.ts": {
-    "mtime": 1789227706.524077,
-    "seen": 1789228151.5456798,
+    "mtime": 1789233905.83944,
+    "seen": 1789235743.420478,
     "ast_hash": "b9a974a4f01bc43ab850b0d2adf9cdeb",
     "semantic_hash": ""
   },
@@ -300,9 +300,9 @@
     "semantic_hash": "df78ae6bc942816b9b52bdceead694a5"
   },
   "apps/game/vite.config.ts": {
-    "mtime": 1789224789.6542444,
-    "seen": 1789225886.7867548,
-    "ast_hash": "5668ead3a90d2a3ecc9c9bcac5ea1314",
+    "mtime": 1789233905.8399634,
+    "seen": 1789235743.420478,
+    "ast_hash": "73f3edf145c9f140765d521b42aec53b",
     "semantic_hash": ""
   },
   "apps/server-nakama/analytics_test.go": {
@@ -945,6 +945,72 @@
     "mtime": 1789228090.6080534,
     "seen": 1789228151.5456798,
     "ast_hash": "26a303d5cfe83bb37a99754696835600",
+    "semantic_hash": ""
+  },
+  "apps/game/src/debug/benchmark/BenchmarkComparator.ts": {
+    "mtime": 1789234940.2309465,
+    "seen": 1789235743.420478,
+    "ast_hash": "0610814b7ab3dfd419db6b49e5685352",
+    "semantic_hash": ""
+  },
+  "apps/game/src/debug/benchmark/BenchmarkMetricsCalculator.ts": {
+    "mtime": 1789234863.680054,
+    "seen": 1789235743.420478,
+    "ast_hash": "8b98283ece6638eba0c02831bc3ec36d",
+    "semantic_hash": ""
+  },
+  "apps/game/src/debug/benchmark/BenchmarkTypes.ts": {
+    "mtime": 1789234771.5439079,
+    "seen": 1789235743.420478,
+    "ast_hash": "2c797712696ba83dccc466efaec9da8b",
+    "semantic_hash": ""
+  },
+  "apps/game/src/debug/benchmark/DeterministicScenarioDriver.ts": {
+    "mtime": 1789235405.6999683,
+    "seen": 1789235743.420478,
+    "ast_hash": "d9128a8cb5b841e63c010db425e90a93",
+    "semantic_hash": ""
+  },
+  "apps/game/src/debug/benchmark/__tests__/BenchmarkComparator.test.ts": {
+    "mtime": 1789234827.2305162,
+    "seen": 1789235743.420478,
+    "ast_hash": "ae2a0b126cb0196dc2440e29d6790d2f",
+    "semantic_hash": ""
+  },
+  "apps/game/src/debug/benchmark/__tests__/BenchmarkMetricsCalculator.test.ts": {
+    "mtime": 1789234815.6217003,
+    "seen": 1789235743.420478,
+    "ast_hash": "142bd813dfbdeb7f0ae93339ee541d56",
+    "semantic_hash": ""
+  },
+  "apps/game/src/debug/benchmark/__tests__/DeterministicScenarioDriver.test.ts": {
+    "mtime": 1789234990.228034,
+    "seen": 1789235743.420478,
+    "ast_hash": "e6ab6564f306ad1000c3647e2fd11c84",
+    "semantic_hash": ""
+  },
+  "qa-artifacts/summaries/normal_combat_375x667_cpu4x_webgl.json": {
+    "mtime": 1789235694.6908479,
+    "seen": 1789235743.420478,
+    "ast_hash": "5f69665780cf948f1da133ddc446c525",
+    "semantic_hash": ""
+  },
+  "qa-artifacts/summaries/normal_combat_run1.json": {
+    "mtime": 1789235649.7923317,
+    "seen": 1789235743.420478,
+    "ast_hash": "8901aede48592a03094998b51b6785aa",
+    "semantic_hash": ""
+  },
+  "qa-artifacts/summaries/normal_combat_run2.json": {
+    "mtime": 1789235694.6908479,
+    "seen": 1789235743.420478,
+    "ast_hash": "5f69665780cf948f1da133ddc446c525",
+    "semantic_hash": ""
+  },
+  "scripts/run-benchmark.mjs": {
+    "mtime": 1789235611.910784,
+    "seen": 1789235743.420478,
+    "ast_hash": "078ba5b04954b14f4286c0b7b1560979",
     "semantic_hash": ""
   }
 }
