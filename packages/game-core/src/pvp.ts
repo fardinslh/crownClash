@@ -21,7 +21,13 @@ export function consumeSimulationTicks(
   previousRemainderSeconds: number,
   deltaSeconds: number
 ): SimulationTickBudget {
-  const total = Math.max(0, previousRemainderSeconds) + Math.max(0, deltaSeconds);
+  const safeRemainder = Number.isFinite(previousRemainderSeconds)
+    ? Math.max(0, previousRemainderSeconds)
+    : 0;
+  const safeDelta = Number.isFinite(deltaSeconds)
+    ? Math.max(0, deltaSeconds)
+    : 0;
+  const total = safeRemainder + safeDelta;
   const ticks = Math.floor((total + 1e-9) / PVP_SIMULATION_TICK_SECONDS);
   return {
     ticks,

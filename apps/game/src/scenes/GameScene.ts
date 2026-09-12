@@ -55,7 +55,7 @@ import {
   MatchMenuController,
   type MatchMenuState,
 } from '../match/MatchMenuController.js';
-import { computeHudLayout } from '../ui/HudLayout.js';
+import { computeHudLayout, formatDominancePercentages } from '../ui/HudLayout.js';
 import {
   bindSceneViewportResize,
   getSceneViewport,
@@ -160,6 +160,7 @@ export class GameScene extends Phaser.Scene {
 
   // Result Modal
   private resultModalContainer?: Phaser.GameObjects.Container;
+  private syncingModalContainer?: Phaser.GameObjects.Container;
 
   // Match Menu & Navigation
   private matchMenuController!: MatchMenuController;
@@ -262,6 +263,12 @@ export class GameScene extends Phaser.Scene {
       trackQuit: (event) => trackTerminalMatchEvent(event),
       onStateChange: (state) => this.handleMatchMenuStateChange(state),
       onExitConfirmed: () => this.handleMatchExitConfirmed(),
+      isModalVisible: () =>
+        Boolean(
+          this.matchMenuModalContainer &&
+            this.matchMenuModalContainer.active &&
+            this.matchMenuModalContainer.visible
+        ),
     });
     this.platform.showBackButton(() => {
       if (this.isExiting) return;
@@ -1254,9 +1261,19 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handlePointerRelease(): void {
-    this.bottomHintText
-      .setText('⚔ Drag across towers to attack or reinforce')
-      .setColor('#94a3b8');
+    if (this.bottomHintText) {
+      const territories = Object.values(this.gameState?.territories ?? {});
+      const enemyTerritoriesCount = territories.filter((t) => t.owner === 'enemy').length;
+      const enemyArmiesCount = (this.gameState?.armies ?? []).filter((a) => a.owner === 'enemy').length;
+      if (enemyTerritoriesCount === 0 && enemyArmiesCount > 0 && this.gameState?.status === 'playing') {
+        this.bottomHintText.setText('⚔ LAST ENEMY ARMY REMAINING').setColor('#fbbf24');
+      } else {
+        const defaultHint = this.liveMode
+          ? `⚔ Live battle vs ${this.formatShortName(this.liveOpponentName, 12)}`
+          : '⚔ Drag across towers to attack or reinforce';
+        this.bottomHintText.setText(defaultHint).setColor(this.liveMode ? '#93c5fd' : '#94a3b8');
+      }
+    }
 
     if (this.selectedSourceIds.length === 0) {
       this.dragBadgeContainer.setVisible(false);
@@ -1377,6 +1394,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
+    if (!Number.isFinite(delta) || delta <= 0) return;
     const deltaSeconds = delta / 1000;
 
     if (this.gameState.status === 'playing' && !this.liveMode) {
@@ -1411,10 +1429,14 @@ export class GameScene extends Phaser.Scene {
    * possible.
    */
   private stepBotMatch(deltaSeconds: number): void {
+    if (!Number.isFinite(deltaSeconds) || deltaSeconds <= 0) return;
+    if (!Number.isFinite(this.botStepRemainder) || this.botStepRemainder < 0) {
+      this.botStepRemainder = 0;
+    }
     // Do not run thousands of combat ticks in one frame after a suspended
     // WebView resumes. Bot match time is logical, not wall-clock time.
     const budget = consumeSimulationTicks(this.botStepRemainder, Math.min(deltaSeconds, 0.25));
-    this.botStepRemainder = budget.remainderSeconds;
+    this.botStepRemainder = Number.isFinite(budget.remainderSeconds) ? budget.remainderSeconds : 0;
     // Every gameplay mutation runs on the same 20 ms clock used by the
     // authoritative replay. Render-frame size can no longer change combat.
     const ticks = Math.min(budget.ticks, 20);
@@ -2071,10 +2093,17 @@ export class GameScene extends Phaser.Scene {
       else if (a.owner === 'enemy') enemyStrength += a.units;
     });
 
-    const totalStrength = Math.max(1, playerStrength + enemyStrength + neutralStrength);
-    const playerPct = Math.round((playerStrength / totalStrength) * 100);
-    const enemyPct = Math.round((enemyStrength / totalStrength) * 100);
-    const neutralPct = Math.max(0, 100 - playerPct - enemyPct);
+    const dominance = formatDominancePercentages({
+      playerStrength,
+      enemyStrength,
+      neutralStrength,
+      playerArmiesCount: this.gameState.armies.filter((a) => a.owner === 'player').length,
+      enemyTerritoriesCount: territories.filter((t) => t.owner === 'enemy').length,
+      enemyArmiesCount: this.gameState.armies.filter((a) => a.owner === 'enemy').length,
+    });
+
+    const playerPct = dominance.playerPct;
+    const neutralPct = dominance.neutralPct;
 
     const barTotalWidth = this.dominanceBarTotalWidth;
     const playerWidth = Math.max(14, (playerPct / 100) * barTotalWidth);
@@ -2086,13 +2115,26 @@ export class GameScene extends Phaser.Scene {
     this.neutralBar.setPosition(barStartX + playerWidth, this.neutralBar.y).setDisplaySize(neutralWidth, 12);
     this.enemyBar.setPosition(barStartX + playerWidth + neutralWidth, this.enemyBar.y).setDisplaySize(enemyWidth, 12);
 
-    const playerDomStr = `${playerPct}%`;
-    if (this.playerDomText.text !== playerDomStr) {
-      this.playerDomText.setText(playerDomStr);
+    if (this.playerDomText.text !== dominance.playerDomText) {
+      this.playerDomText.setText(dominance.playerDomText);
     }
-    const enemyDomStr = `${enemyPct}%`;
-    if (this.enemyDomText.text !== enemyDomStr) {
-      this.enemyDomText.setText(enemyDomStr);
+    if (this.enemyDomText.text !== dominance.enemyDomText) {
+      this.enemyDomText.setText(dominance.enemyDomText);
+    }
+
+    // 3. Tactical banner / Hint updates when not actively dragging
+    if (this.selectedSourceIds.length === 0 && this.bottomHintText) {
+      if (dominance.isLastEnemyArmy && this.gameState.status === 'playing') {
+        const lastArmyText = '⚔ LAST ENEMY ARMY REMAINING';
+        if (this.bottomHintText.text !== lastArmyText) {
+          this.bottomHintText.setText(lastArmyText).setColor('#fbbf24');
+        }
+      } else if (this.bottomHintText.text === '⚔ LAST ENEMY ARMY REMAINING') {
+        const defaultHint = this.liveMode
+          ? `⚔ Live battle vs ${this.formatShortName(this.liveOpponentName, 12)}`
+          : '⚔ Drag across towers to attack or reinforce';
+        this.bottomHintText.setText(defaultHint).setColor(this.liveMode ? '#93c5fd' : '#94a3b8');
+      }
     }
 
     // Smooth Tug-of-War Crown Needle glide towards the leading front
@@ -2105,6 +2147,7 @@ export class GameScene extends Phaser.Scene {
 
     sounds.stopBattleMusic();
     this.resultPending = true;
+    this.renderSyncingModal();
     void this.finalizeMatch();
   }
 
@@ -2140,6 +2183,7 @@ export class GameScene extends Phaser.Scene {
       }
 
       this.resultPending = false;
+      this.dismissSyncingModal();
       const stats =
         settlement.stats && settlement.stats.matchDurationSeconds > 0
           ? settlement.stats
@@ -2162,6 +2206,7 @@ export class GameScene extends Phaser.Scene {
       this.renderResultModal(settlement.status, stats, settlement);
     } catch (error) {
       this.resultPending = false;
+      this.dismissSyncingModal();
       this.showSettlementError(error);
     }
   }
@@ -2713,6 +2758,7 @@ export class GameScene extends Phaser.Scene {
         this.returnToMenu();
       } else {
         this.resultPending = true;
+        this.renderSyncingModal();
         void this.finalizeMatch();
       }
     });
@@ -2747,6 +2793,60 @@ export class GameScene extends Phaser.Scene {
       duration: 220,
       ease: 'Back.easeOut',
     });
+  }
+
+  private renderSyncingModal(): void {
+    if (this.syncingModalContainer) return;
+    const { visibleWidth, visibleHeight } = getSceneViewport(this);
+    const modal = this.add.container(visibleWidth / 2, visibleHeight / 2).setDepth(210);
+    this.syncingModalContainer = modal;
+
+    const backdrop = this.add
+      .rectangle(0, 0, visibleWidth, visibleHeight, 0x000000, 0.65)
+      .setInteractive();
+    const card = this.add
+      .rectangle(0, 0, 280, 140, 0x0c1322, 0.98)
+      .setStrokeStyle(2, 0x3b82f6, 0.9);
+    const title = this.add
+      .text(0, -25, 'BATTLE COMPLETE', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '18px',
+        fontStyle: '900',
+        color: '#fbbf24',
+        stroke: '#000000',
+        strokeThickness: 3,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    const subtitle = this.add
+      .text(0, 15, 'SYNCING RESULT...', {
+        fontFamily: MONO_FONT_FAMILY,
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: '#93c5fd',
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+
+    modal.add([backdrop, card, title, subtitle]);
+
+    if (!this.reducedMotion) {
+      this.tweens.add({
+        targets: subtitle,
+        alpha: 0.4,
+        duration: 600,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+    }
+  }
+
+  private dismissSyncingModal(): void {
+    if (this.syncingModalContainer) {
+      this.syncingModalContainer.destroy();
+      this.syncingModalContainer = undefined;
+    }
   }
 
   private bindPressFeedback(
@@ -3275,6 +3375,8 @@ export class GameScene extends Phaser.Scene {
     this.platform.hideBackButton();
     this.matchMenuModalContainer?.destroy();
     this.matchMenuModalContainer = undefined;
+    this.syncingModalContainer?.destroy();
+    this.syncingModalContainer = undefined;
     sounds.stopBattleMusic();
     this.time.removeAllEvents();
     this.tweens.killAll();

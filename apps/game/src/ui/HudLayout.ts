@@ -171,3 +171,76 @@ export function computeHudLayout(
     dominanceBar,
   };
 }
+
+export interface DominanceCalculationInput {
+  playerStrength: number;
+  enemyStrength: number;
+  neutralStrength: number;
+  playerArmiesCount: number;
+  enemyArmiesCount: number;
+  enemyTerritoriesCount: number;
+}
+
+export interface DominancePercentagesResult {
+  playerPct: number;
+  enemyPct: number;
+  neutralPct: number;
+  playerDomText: string;
+  enemyDomText: string;
+  isLastEnemyArmy: boolean;
+}
+
+/**
+ * Calculates display percentages and visual widths for the dominance bar.
+ * Ensures enemy dominance never displays plain "0%" while enemy strength
+ * or active armies remain on the field, preventing apparent game freezes.
+ */
+export function formatDominancePercentages(
+  input: DominanceCalculationInput
+): DominancePercentagesResult {
+  const {
+    playerStrength,
+    enemyStrength,
+    neutralStrength,
+    enemyArmiesCount,
+    enemyTerritoriesCount,
+  } = input;
+
+  const hasEnemyPresence = enemyStrength > 0 || enemyArmiesCount > 0;
+  const isLastEnemyArmy = enemyTerritoriesCount === 0 && enemyArmiesCount > 0;
+
+  const totalStrength = Math.max(1, playerStrength + enemyStrength + neutralStrength);
+  const rawPlayerPct = (playerStrength / totalStrength) * 100;
+  const rawEnemyPct = (enemyStrength / totalStrength) * 100;
+
+  let playerPct = Math.round(rawPlayerPct);
+  let enemyPct = Math.round(rawEnemyPct);
+
+  if (hasEnemyPresence) {
+    if (enemyPct < 1) {
+      enemyPct = 1;
+    }
+    if (playerPct > 99) {
+      playerPct = 99;
+    }
+  }
+
+  const neutralPct = Math.max(0, 100 - playerPct - enemyPct);
+
+  const enemyDomText = hasEnemyPresence
+    ? rawEnemyPct < 0.5
+      ? '<1%'
+      : `${enemyPct}%`
+    : '0%';
+
+  const playerDomText = `${playerPct}%`;
+
+  return {
+    playerPct,
+    enemyPct,
+    neutralPct,
+    playerDomText,
+    enemyDomText,
+    isLastEnemyArmy,
+  };
+}

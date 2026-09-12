@@ -15,6 +15,7 @@ export interface MatchMenuDependencies {
   trackQuit: (event: MatchQuitEvent) => boolean;
   onStateChange?: (state: MatchMenuState) => void;
   onExitConfirmed?: () => void;
+  isModalVisible?: () => boolean;
 }
 
 export class MatchMenuController {
@@ -34,7 +35,21 @@ export class MatchMenuController {
   public isPaused(): boolean {
     // Bot simulation pauses while either modal is open.
     // Live authoritative simulation must not pause.
-    return !this.deps.liveMode && this.isOpen();
+    if (this.deps.liveMode || !this.isOpen()) {
+      return false;
+    }
+    // Guard against desynchronization where state is open but modal visual was destroyed/hidden
+    if (this.deps.isModalVisible && !this.deps.isModalVisible()) {
+      this.closeMenu();
+      return false;
+    }
+    return true;
+  }
+
+  public reconcileVisualState(isModalVisible: boolean): void {
+    if (!isModalVisible && this.isOpen()) {
+      this.closeMenu();
+    }
   }
 
   public isExiting(): boolean {

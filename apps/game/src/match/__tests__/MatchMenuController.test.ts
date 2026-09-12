@@ -202,4 +202,38 @@ describe('MatchMenuController', () => {
       expect(onExitConfirmed).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('Modal visibility desynchronization guards', () => {
+    it('cannot remain paused if modal is destroyed or hidden without calling closeMenu', () => {
+      let modalVisible = true;
+      const { controller, onStateChange } = createController({
+        liveMode: false,
+        isModalVisible: () => modalVisible,
+      });
+
+      controller.openMenu();
+      expect(controller.getState()).toBe('menu');
+      expect(controller.isPaused()).toBe(true);
+
+      // Simulate modal destroyed/hidden externally
+      modalVisible = false;
+
+      // isPaused() must detect missing modal, reconcile state to closed, and return false
+      expect(controller.isPaused()).toBe(false);
+      expect(controller.getState()).toBe('closed');
+      expect(onStateChange).toHaveBeenLastCalledWith('closed');
+    });
+
+    it('reconcileVisualState closes open menu when modal visual is lost', () => {
+      const { controller, onStateChange } = createController({ liveMode: false });
+
+      controller.openConfirm();
+      expect(controller.isOpen()).toBe(true);
+
+      controller.reconcileVisualState(false);
+      expect(controller.isOpen()).toBe(false);
+      expect(controller.getState()).toBe('closed');
+      expect(onStateChange).toHaveBeenLastCalledWith('closed');
+    });
+  });
 });

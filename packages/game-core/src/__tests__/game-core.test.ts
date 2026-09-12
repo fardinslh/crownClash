@@ -444,6 +444,24 @@ describe('Crown Clash - Domain Logic Tests', () => {
       expect(remainder).toBeCloseTo(singleBudget.remainderSeconds, 10);
     });
 
+    it('handles non-finite delta and remainder values without poisoning tick budget', () => {
+      const nanRemainder = consumeSimulationTicks(NaN, 0.04);
+      expect(nanRemainder.ticks).toBe(2);
+      expect(nanRemainder.remainderSeconds).toBeCloseTo(0, 5);
+
+      const nanDelta = consumeSimulationTicks(0.01, NaN);
+      expect(nanDelta.ticks).toBe(0);
+      expect(nanDelta.remainderSeconds).toBeCloseTo(0.01, 5);
+
+      const infDelta = consumeSimulationTicks(0.01, Infinity);
+      expect(infDelta.ticks).toBe(0);
+      expect(infDelta.remainderSeconds).toBeCloseTo(0.01, 5);
+
+      const negDelta = consumeSimulationTicks(-0.05, -0.02);
+      expect(negDelta.ticks).toBe(0);
+      expect(negDelta.remainderSeconds).toBe(0);
+    });
+
     it('replays the same attack deterministically', () => {
       const actions = [
         { sequence: 0, atSeconds: 0.1, sourceId: 'p_base', targetId: 'n_bot_left' },

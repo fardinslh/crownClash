@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeHudLayout,
+  formatDominancePercentages,
   rectanglesIntersect,
   type Rect,
 } from '../HudLayout.js';
@@ -111,6 +112,80 @@ describe('HudLayout', () => {
           expect(menuHit.x).toBeGreaterThanOrEqual(clockPill.x + clockPill.width);
         });
       });
+    });
+  });
+
+  describe('formatDominancePercentages', () => {
+    it('never displays plain 0% for enemy while enemy armies remain', () => {
+      const result = formatDominancePercentages({
+        playerStrength: 250,
+        enemyStrength: 2,
+        neutralStrength: 0,
+        playerArmiesCount: 0,
+        enemyArmiesCount: 1,
+        enemyTerritoriesCount: 0,
+      });
+
+      expect(result.enemyDomText).not.toBe('0%');
+      expect(result.enemyDomText).toMatch(/^<?1%$/);
+      expect(result.enemyPct).toBeGreaterThanOrEqual(1);
+      expect(result.playerPct).toBeLessThanOrEqual(99);
+      expect(result.isLastEnemyArmy).toBe(true);
+    });
+
+    it('identifies last enemy army state only when enemy has 0 territories and >0 armies', () => {
+      const withTerritories = formatDominancePercentages({
+        playerStrength: 100,
+        enemyStrength: 30,
+        neutralStrength: 20,
+        playerArmiesCount: 0,
+        enemyArmiesCount: 1,
+        enemyTerritoriesCount: 1,
+      });
+      expect(withTerritories.isLastEnemyArmy).toBe(false);
+
+      const lastArmy = formatDominancePercentages({
+        playerStrength: 150,
+        enemyStrength: 5,
+        neutralStrength: 0,
+        playerArmiesCount: 0,
+        enemyArmiesCount: 1,
+        enemyTerritoriesCount: 0,
+      });
+      expect(lastArmy.isLastEnemyArmy).toBe(true);
+    });
+
+    it('reports 0% for enemy when all enemy presence is completely eliminated', () => {
+      const result = formatDominancePercentages({
+        playerStrength: 200,
+        enemyStrength: 0,
+        neutralStrength: 0,
+        playerArmiesCount: 0,
+        enemyArmiesCount: 0,
+        enemyTerritoriesCount: 0,
+      });
+
+      expect(result.enemyDomText).toBe('0%');
+      expect(result.enemyPct).toBe(0);
+      expect(result.playerDomText).toBe('100%');
+      expect(result.playerPct).toBe(100);
+      expect(result.isLastEnemyArmy).toBe(false);
+    });
+
+    it('formats normal mid-match dominance accurately', () => {
+      const result = formatDominancePercentages({
+        playerStrength: 100,
+        enemyStrength: 100,
+        neutralStrength: 100,
+        playerArmiesCount: 1,
+        enemyArmiesCount: 1,
+        enemyTerritoriesCount: 2,
+      });
+
+      expect(result.playerDomText).toBe('33%');
+      expect(result.enemyDomText).toBe('33%');
+      expect(result.neutralPct).toBe(34);
+      expect(result.isLastEnemyArmy).toBe(false);
     });
   });
 });
