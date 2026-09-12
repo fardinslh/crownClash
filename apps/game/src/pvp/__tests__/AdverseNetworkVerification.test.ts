@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { LivePvpController, mapLivePvpError } from '../LivePvpController.js';
 import { LiveMatchClient, type LiveMatchResult } from '../../api/LiveMatchClient.js';
 import { PerformanceMonitor } from '../../debug/PerformanceMonitor.js';
+import { processLiveMatchResult } from '../../scenes/gameSceneGuards.js';
 import type { GameState } from '@crown-clash/game-core';
 
 describe('Adverse Network & Lifecycle Verification with Real Modules', () => {
@@ -50,6 +51,7 @@ describe('Adverse Network & Lifecycle Verification with Real Modules', () => {
           winListeners[event] = winListeners[event].filter((f) => f !== fn);
         }
       },
+      dispatchEvent: vi.fn(),
       _trigger: (event: string) => {
         (winListeners[event] || []).forEach((fn) => fn());
       },
@@ -159,13 +161,30 @@ describe('Adverse Network & Lifecycle Verification with Real Modules', () => {
       client.close();
     });
 
-    it('handles duplicate match result messages idempotently without crashing or duplicate settlement', () => {
+    it('handles duplicate match result messages idempotently without duplicate settlement, presentation, or analytics', () => {
       const mockSocket = createMockSocket();
       const client = new LiveMatchClient(mockSocket);
 
       const matchResults: LiveMatchResult[] = [];
+      const applySettlement = vi.fn();
+      const renderModal = vi.fn();
+
+      let settledMatchId: string | undefined;
+
+      // Actual GameScene consumer behavior wired to client
       client.on('match_result', (res) => {
         matchResults.push(res);
+        const processed = processLiveMatchResult(res, {
+          isExiting: false,
+          hasResultModal: false,
+          isStressMode: false,
+          settledMatchId,
+          applySettlement,
+          renderModal,
+        });
+        if (processed) {
+          settledMatchId = res.matchId;
+        }
       });
 
       const dummyResult: LiveMatchResult = {
@@ -209,14 +228,41 @@ describe('Adverse Network & Lifecycle Verification with Real Modules', () => {
       const encoder = new TextEncoder();
       const payload = encoder.encode(JSON.stringify({ result: dummyResult }));
 
-      // Deliver duplicate match result (e.g. retransmitted socket frame)
+      // Deliver duplicate match result (e.g. retransmitted socket frame from server)
       mockSocket.onmatchdata({ op_code: OP_MATCH_RESULT, data: payload });
       mockSocket.onmatchdata({ op_code: OP_MATCH_RESULT, data: payload });
 
-      expect(matchResults.length).toBe(2);
+      // LiveMatchClient deduplication guarantees exactly 1 emission
+      expect(matchResults.length).toBe(1);
       expect(matchResults[0].settlement.matchId).toBe('live_match_123');
-      expect(matchResults[1].settlement.matchId).toBe('live_match_123');
       expect(matchResults[0].settlement.status).toBe('victory');
+
+      // Consumer settlement, presentation, and client close occur exactly once
+      expect(applySettlement).toHaveBeenCalledTimes(1);
+      expect(applySettlement).toHaveBeenCalledWith(dummyResult.settlement);
+      expect(renderModal).toHaveBeenCalledTimes(1);
+      expect(renderModal).toHaveBeenCalledWith(
+        dummyResult.status,
+        dummyResult.stats,
+        dummyResult.settlement
+      );
+
+      expect(mockWindow.dispatchEvent).toHaveBeenCalled();
+      const analyticsCallsCount = mockWindow.dispatchEvent.mock.calls.length;
+
+      // Even if a second duplicate result is delivered directly to the consumer, consumer rejects it
+      const duplicateProcessed = processLiveMatchResult(dummyResult, {
+        isExiting: false,
+        hasResultModal: false,
+        isStressMode: false,
+        settledMatchId,
+        applySettlement,
+        renderModal,
+      });
+      expect(duplicateProcessed).toBe(false);
+      expect(applySettlement).toHaveBeenCalledTimes(1);
+      expect(renderModal).toHaveBeenCalledTimes(1);
+      expect(mockWindow.dispatchEvent).toHaveBeenCalledTimes(analyticsCallsCount);
 
       client.close();
     });

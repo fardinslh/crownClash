@@ -110,6 +110,7 @@ export class LiveMatchClient {
   >();
   private nextSequence = 0;
   private intentionallyClosed = false;
+  private lastSettledMatchId: string | null = null;
   private readonly onMatchData: (data: { op_code: number; data: Uint8Array }) => void;
   private readonly onMatchmakerMatched: (matched: { match_id: string; token: string }) => void;
   private readonly onDisconnect: (evt: Event) => void;
@@ -286,9 +287,16 @@ export class LiveMatchClient {
           },
         });
         return;
-      case OP_MATCH_RESULT:
-        this.emit({ type: 'match_result', payload: payload.result as LiveMatchResult });
+      case OP_MATCH_RESULT: {
+        const result = payload.result as LiveMatchResult;
+        if (!result || !result.matchId) return;
+        if (this.lastSettledMatchId === result.matchId) {
+          return;
+        }
+        this.lastSettledMatchId = result.matchId;
+        this.emit({ type: 'match_result', payload: result });
         return;
+      }
       case OP_ERROR:
         this.emit({ type: 'error', payload: { code: payload.code || 'live_error' } });
         return;

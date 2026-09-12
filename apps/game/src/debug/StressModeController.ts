@@ -1,5 +1,6 @@
 import type Phaser from 'phaser';
 import type { MarchingArmy, Team } from '@crown-clash/game-core';
+import { QA_BANNER_TOP_CSS, QA_BANNER_HEIGHT_PX } from './qaLayout.js';
 
 export interface StressDispatchPair {
   sourceId: string;
@@ -53,6 +54,8 @@ export class StressModeController {
     const activeScene = this.getGameScene();
     // Do not modify live authoritative match state
     if (activeScene && (activeScene as any).liveMode) {
+      this.game?.registry?.set('qa_stress_mode', false);
+      (activeScene as any).isStressMode = false;
       return;
     }
 
@@ -202,9 +205,14 @@ export class StressModeController {
     banner.textContent = '⚠️ TEST MODE (NO PROGRESSION)';
     banner.style.cssText = `
       position: fixed;
-      top: max(4px, env(safe-area-inset-top));
+      top: ${QA_BANNER_TOP_CSS};
       left: 50%;
       transform: translateX(-50%);
+      height: ${QA_BANNER_HEIGHT_PX}px;
+      box-sizing: border-box;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       z-index: 99998;
       background: #dc2626;
       color: #ffffff;
@@ -212,7 +220,7 @@ export class StressModeController {
       font-size: 11px;
       font-weight: 800;
       letter-spacing: 0.5px;
-      padding: 3px 12px;
+      padding: 0 12px;
       border-radius: 999px;
       box-shadow: 0 2px 10px rgba(220, 38, 38, 0.6);
       pointer-events: none;

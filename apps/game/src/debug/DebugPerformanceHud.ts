@@ -1,6 +1,7 @@
 import type Phaser from 'phaser';
 import { PerformanceMonitor, BUILD_VERSION } from './PerformanceMonitor.js';
 import { StressModeController } from './StressModeController.js';
+import { QA_HUD_TOP_CSS } from './qaLayout.js';
 
 export class DebugPerformanceHud {
   private monitor: PerformanceMonitor;
@@ -55,7 +56,7 @@ export class DebugPerformanceHud {
     container.id = 'debug-perf-hud';
     container.style.cssText = `
       position: fixed;
-      top: max(38px, env(safe-area-inset-top));
+      top: ${QA_HUD_TOP_CSS};
       right: max(8px, env(safe-area-inset-right));
       z-index: 99999;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;

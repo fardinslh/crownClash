@@ -39,7 +39,13 @@ import {
 import { sounds } from '../audio/SoundEffects.js';
 import { THEME } from '../theme.js';
 import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
-import { LiveMatchClient, LiveMatchStarted } from '../api/LiveMatchClient.js';
+import { LiveMatchClient, LiveMatchResult, LiveMatchStarted } from '../api/LiveMatchClient.js';
+import {
+  shouldActivateStressMode,
+  canInitiateBotSettlement,
+  canFinalizeBotSettlement,
+  processLiveMatchResult,
+} from './gameSceneGuards.js';
 import { purchaseUpgradeThroughCareer } from '../upgrades/UpgradePurchaseController.js';
 import { playUpgradeMilestoneCelebration } from '../upgrades/UpgradeMilestoneCelebration.js';
 import {
@@ -187,6 +193,7 @@ export class GameScene extends Phaser.Scene {
   // Result Modal
   private resultModalContainer?: Phaser.GameObjects.Container;
   private syncingModalContainer?: Phaser.GameObjects.Container;
+  private settledMatchId?: string;
 
   // Match Menu & Navigation
   private matchMenuController!: MatchMenuController;
@@ -251,9 +258,14 @@ export class GameScene extends Phaser.Scene {
     const isStressParam = searchParams?.get('stress_armies') === '1';
     const isRegistryStress = Boolean(this.registry?.get('qa_stress_mode'));
     const isLaunchStress = Boolean((launchData as any)?.stressMode);
+    const requestedQaStress = isStressParam || isRegistryStress || isLaunchStress;
 
-    // DUAL-GATING: stress mode STRICTLY requires debug_performance=1. Standalone stress_armies=1 has ZERO effect.
-    this.isStressMode = isDebugPerformance && (isStressParam || isRegistryStress || isLaunchStress);
+    // DUAL-GATING: stress mode STRICTLY requires debug_performance=1, requested QA stress, and !liveMode.
+    this.isStressMode = shouldActivateStressMode({
+      isDebugPerformance,
+      requestedQaStress,
+      liveMode: this.liveMode,
+    });
 
     if (!this.liveMode && !launchData?.botMatch) {
       if (this.isStressMode) {
@@ -2245,7 +2257,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   private endMatch(): void {
-    if (this.isExiting || this.resultModalContainer || this.resultPending || this.isStressMode) return;
+    if (!canInitiateBotSettlement({
+      isExiting: this.isExiting,
+      hasResultModal: Boolean(this.resultModalContainer),
+      resultPending: this.resultPending,
+      isStressMode: this.isStressMode,
+      liveMode: this.liveMode,
+    })) {
+      return;
+    }
 
     sounds.stopBattleMusic();
     this.resultPending = true;
@@ -2264,7 +2284,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private async finalizeMatch(): Promise<void> {
-    if (this.isStressMode) return;
+    if (!canFinalizeBotSettlement({
+      isStressMode: this.isStressMode,
+      liveMode: this.liveMode,
+    })) {
+      return;
+    }
     try {
       await this.backendConnectPromise;
       let settlement: MatchSettlement;
@@ -3413,34 +3438,7 @@ export class GameScene extends Phaser.Scene {
         }
       }),
       client.on('match_result', (result) => {
-        if (this.isExiting || this.resultModalContainer) return;
-        const terminalEventRecorded = trackTerminalMatchEvent({
-          name: 'match_end',
-          matchId: result.matchId,
-          mode: 'live',
-          result: result.status,
-          durationSeconds: result.stats.matchDurationSeconds,
-        });
-        this.gameState.status = result.status;
-        this.resultPending = false;
-        this.careerManager.applyLiveMatchSettlement(result.settlement);
-        if (terminalEventRecorded) {
-          trackEvent({
-            name: 'match_reward_received',
-            matchId: result.matchId,
-            mode: 'live',
-          });
-          if (result.settlement.rankPromoted) {
-            trackEvent({ name: 'rank_promoted', matchId: result.matchId });
-          }
-          trackEvent({
-            name: 'live_match_ended',
-            matchId: result.matchId,
-            status: result.status,
-          });
-        }
-        this.renderResultModal(result.status, result.stats, result.settlement);
-        client.close();
+        this.handleLiveMatchResult(result, client);
       }),
       client.on('closed', () => {
         if (this.isExiting) return;
@@ -3477,6 +3475,31 @@ export class GameScene extends Phaser.Scene {
       void this.careerManager.refreshRemoteCareer().catch(() => undefined);
     }
     this.showSettlementError(new Error('live_connection_closed'));
+  }
+
+  public handleLiveMatchResult(result: LiveMatchResult, client?: LiveMatchClient): boolean {
+    const processed = processLiveMatchResult(result, {
+      isExiting: this.isExiting,
+      hasResultModal: Boolean(this.resultModalContainer),
+      isStressMode: this.isStressMode,
+      settledMatchId: this.settledMatchId,
+      applySettlement: (settlement) => {
+        this.gameState.status = result.status;
+        this.resultPending = false;
+        this.careerManager.applyLiveMatchSettlement(settlement);
+      },
+      renderModal: (status, stats, settlement) => {
+        this.renderResultModal(status, stats, settlement);
+      },
+      closeClient: () => {
+        client?.close();
+      },
+    });
+
+    if (processed) {
+      this.settledMatchId = result.matchId;
+    }
+    return processed;
   }
 
   private cleanup(): void {
@@ -3521,6 +3544,7 @@ export class GameScene extends Phaser.Scene {
       unsubscribe();
     }
     this.lifecycleUnsubscribers = [];
+    this.settledMatchId = undefined;
     this.isStressMode = false;
     this.registry?.set('qa_stress_mode', false);
   }

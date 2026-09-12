@@ -9,6 +9,15 @@ import {
   DebugPerformanceHud,
   initDebugPerformanceIfEnabled,
 } from '../DebugPerformanceHud.js';
+import {
+  QA_BANNER_BOTTOM_PX,
+  QA_HUD_TOP_PX,
+  QA_HUD_TOP_CSS,
+} from '../qaLayout.js';
+import {
+  canInitiateBotSettlement,
+  canFinalizeBotSettlement,
+} from '../../scenes/gameSceneGuards.js';
 
 describe('DebugPerformanceHud & PerformanceMonitor Regression Suite', () => {
   let mockWindow: any;
@@ -319,47 +328,36 @@ describe('DebugPerformanceHud & PerformanceMonitor Regression Suite', () => {
       expect(dummyScene.isStressMode).toBe(false);
     });
 
-    it('strictly avoids settlement and career mutations when isolated, but allows normal settlement after stress cleanup', async () => {
-      const recordMatchResultRemote = vi.fn().mockResolvedValue({});
-      const recordMatchResult = vi.fn().mockReturnValue({});
-
-      const careerManager = {
-        recordMatchResultRemote,
-        recordMatchResult,
-        isRemoteConnected: () => true,
-      };
-
-      const scene: any = {
-        isStressMode: true,
+    it('strictly avoids settlement and career mutations when isolated, but allows normal settlement after stress cleanup', () => {
+      // 1. In isolated bot QA stress mode: initiation and finalization are blocked
+      const isolatedGate = canInitiateBotSettlement({
         isExiting: false,
-        resultModalContainer: undefined,
+        hasResultModal: false,
         resultPending: false,
-        careerManager,
-        endMatch: function () {
-          if (this.isExiting || this.resultModalContainer || this.resultPending || this.isStressMode) return;
-          this.resultPending = true;
-          void this.finalizeMatch();
-        },
-        finalizeMatch: async function () {
-          if (this.isStressMode) return;
-          await this.careerManager.recordMatchResultRemote();
-        },
-      };
+        isStressMode: true,
+        liveMode: false,
+      });
+      const isolatedFinalize = canFinalizeBotSettlement({
+        isStressMode: true,
+        liveMode: false,
+      });
+      expect(isolatedGate).toBe(false);
+      expect(isolatedFinalize).toBe(false);
 
-      // 1. In stress mode: endMatch should do nothing
-      scene.endMatch();
-      expect(scene.resultPending).toBe(false);
-      expect(recordMatchResultRemote).not.toHaveBeenCalled();
-      expect(recordMatchResult).not.toHaveBeenCalled();
-
-      // 2. Stress cleanup occurs
-      scene.isStressMode = false;
-
-      // 3. Normal match completes and settles
-      scene.endMatch();
-      expect(scene.resultPending).toBe(true);
-      await Promise.resolve();
-      expect(recordMatchResultRemote).toHaveBeenCalledTimes(1);
+      // 2. After stress cleanup: isStressMode becomes false
+      const postCleanupGate = canInitiateBotSettlement({
+        isExiting: false,
+        hasResultModal: false,
+        resultPending: false,
+        isStressMode: false,
+        liveMode: false,
+      });
+      const postCleanupFinalize = canFinalizeBotSettlement({
+        isStressMode: false,
+        liveMode: false,
+      });
+      expect(postCleanupGate).toBe(true);
+      expect(postCleanupFinalize).toBe(true);
     });
   });
 
@@ -422,9 +420,52 @@ describe('DebugPerformanceHud & PerformanceMonitor Regression Suite', () => {
       expect(pill?.style.minHeight).toBe('44px');
 
       const container = mockDocument.getElementById('debug-perf-hud');
-      expect(container?.style.top).toContain('38px');
+      expect(container?.style.top).toBe(QA_HUD_TOP_CSS);
 
       hud?.destroy();
+    });
+
+    it('verifies zero overlap between stress banner and HUD at 375x667 and 430x932, collapsed and expanded', () => {
+      expect(QA_BANNER_BOTTOM_PX).toBe(40);
+      expect(QA_HUD_TOP_PX).toBe(48);
+      expect(QA_HUD_TOP_PX - QA_BANNER_BOTTOM_PX).toBeGreaterThanOrEqual(8);
+
+      for (const viewport of [
+        { width: 375, height: 667 },
+        { width: 430, height: 932 },
+      ]) {
+        mockWindow.innerWidth = viewport.width;
+        mockWindow.innerHeight = viewport.height;
+        mockWindow.location.search = '?debug_performance=1&stress_armies=1';
+
+        const fakeGame: any = {
+          scene: { getScenes: () => [], getScene: () => null },
+          registry: { set: vi.fn(), get: vi.fn() },
+        };
+        const hud = initDebugPerformanceIfEnabled(fakeGame);
+        expect(hud).toBeDefined();
+
+        const banner = mockDocument.getElementById('stress-mode-banner');
+        const container = mockDocument.getElementById('debug-perf-hud');
+        expect(banner).not.toBeNull();
+        expect(container).not.toBeNull();
+
+        expect(container?.style.top).toBe(QA_HUD_TOP_CSS);
+
+        // Collapsed state check (default on <= 480px)
+        const pill = mockDocument.getElementById('debug-perf-pill');
+        const expanded = mockDocument.getElementById('debug-perf-expanded');
+        expect(pill?.style.display).toBe('flex');
+        expect(expanded?.style.display).toBe('none');
+
+        // Toggle expanded
+        pill?.onclick?.();
+        expect(pill?.style.display).toBe('none');
+        expect(expanded?.style.display).toBe('flex');
+        expect(container?.style.top).toBe(QA_HUD_TOP_CSS);
+
+        hud?.destroy();
+      }
     });
   });
 
