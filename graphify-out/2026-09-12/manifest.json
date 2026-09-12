@@ -192,9 +192,9 @@
     "semantic_hash": ""
   },
   "apps/game/src/scenes/GameScene.ts": {
-    "mtime": 1789216873.1730518,
-    "seen": 1789217034.2737973,
-    "ast_hash": "e637a72a093fcdbf6e464bcdfce2410b",
+    "mtime": 1789219570.1577437,
+    "seen": 1789219761.1533184,
+    "ast_hash": "1faf43e2675e794c441eeff15ad76cf4",
     "semantic_hash": ""
   },
   "apps/game/src/scenes/KingdomScene.ts": {
@@ -876,15 +876,21 @@
     "semantic_hash": ""
   },
   "apps/game/src/combat/SmoothnessHelpers.ts": {
-    "mtime": 1789216358.3783898,
-    "seen": 1789217034.2737973,
-    "ast_hash": "590e84664cfb422c15a4ef655c7091f6",
+    "mtime": 1789218916.690258,
+    "seen": 1789219761.1533184,
+    "ast_hash": "296a66b60b06611d239e19b10ea232cd",
     "semantic_hash": ""
   },
   "apps/game/src/combat/__tests__/SmoothnessHelpers.test.ts": {
-    "mtime": 1789216648.7858088,
-    "seen": 1789217034.2737973,
-    "ast_hash": "a1f21d6dace659b5d68ba30446b74362",
+    "mtime": 1789218934.9842725,
+    "seen": 1789219761.1533184,
+    "ast_hash": "8decb7d8344502d4d372fa34a3510675",
+    "semantic_hash": ""
+  },
+  "apps/game/src/scenes/__tests__/GameSceneTerritoryVisualSync.test.ts": {
+    "mtime": 1789219558.055819,
+    "seen": 1789219761.1533184,
+    "ast_hash": "857ec9662b0c1923e560373f9fe9769f",
     "semantic_hash": ""
   }
 }

@@ -130,6 +130,7 @@ export class GameScene extends Phaser.Scene {
   private lastTimerSeconds = -1;
   private territoriesDirty = true;
   private lastTerritorySignature = 0;
+  public isStressMode = false;
 
   // Interaction / Multi-Select Dragging
   private selectedSourceIds: string[] = [];
@@ -249,6 +250,8 @@ export class GameScene extends Phaser.Scene {
     }
     this.activeMatchId = launchData?.botMatch?.matchId ?? '';
     this.battlefieldId = launchData?.botMatch?.battlefieldId ?? 'crown_cross';
+    const searchParams = typeof window !== 'undefined' && window.location?.search ? new URLSearchParams(window.location.search) : null;
+    this.isStressMode = searchParams?.get('stress_armies') === '1' || Boolean((launchData as any)?.stressMode);
     this.matchActions = [];
     this.liveUnsubscribers = [];
     this.livePredictions = [];
@@ -2225,7 +2228,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private endMatch(): void {
-    if (this.isExiting || this.resultModalContainer || this.resultPending) return;
+    if (this.isExiting || this.resultModalContainer || this.resultPending || this.isStressMode) return;
 
     sounds.stopBattleMusic();
     this.resultPending = true;
@@ -2244,6 +2247,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private async finalizeMatch(): Promise<void> {
+    if (this.isStressMode) return;
     try {
       await this.backendConnectPromise;
       let settlement: MatchSettlement;

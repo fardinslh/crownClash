@@ -1,26 +1,26 @@
 # Graph Report - crownClash  (2026-09-12)
 
 ## Corpus Check
-- 132 files · ~115,387 words
+- 133 files · ~117,596 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1457 nodes · 3736 edges · 58 communities (41 shown, 16 thin omitted)
+- 1462 nodes · 3757 edges · 65 communities (43 shown, 20 thin omitted)
 - Extraction: 96% EXTRACTED · 4% INFERRED · 0% AMBIGUOUS · INFERRED: 164 edges (avg confidence: 0.84)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `65e16a7c`
+- Built from commit: `a761043c`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- pvp.ts
+- GameScene.ts
 - testing.T
 - CareerManager.ts
 - domain.go
 - GameScene
-- .openLivePvpLobby
+- PlatformAdapter
 - upgrades.ts
 - context.Context
 - TutorialController
@@ -29,10 +29,10 @@
 - types.go
 - CareerManager
 - DailyRewardType
-- GameScene.ts
+- KingdomScene.ts
 - UpgradeType
 - HudLayout.ts
-- CareerApi
+- NakamaClient
 - AnalyticsSink
 - compilerOptions
 - SoundEffects
@@ -53,82 +53,84 @@
 - compilerOptions
 - game/package.json
 - generate_units.py
-- PlatformAdapter
-- live_pvp.smoke.mjs
-- MenuLayout.ts
+- PlayerCareer
+- SmoothnessHelpers.ts
+- LOGICAL_HEIGHT
 - package.json
 - HapticImpactStyle
+- .bindLiveMatch
+- daily.ts
 - Crown Clash — Art Bible & Visual Direction
 - main.go
-- KingdomScene
+- HubLayouts.ts
+- LiveMatchClient.ts
+- commanders.ts
 - env.d.ts
+- UpgradeCardMeta.ts
 - graphify.js
 - setup_scene.py
 - github.com/fardinslh/crownclash/server-nakama
 - Verification Before Completion
+- wholeMatchSeconds
 - False-Green Guard
 - LiveMatchClient
 - Analytics event catalog
 - rules/graphify.md
 - GEMINI.md
-- HubLayouts.ts
+- TrainingScene
 
 ## God Nodes (most connected - your core abstractions)
-1. `GameScene` - 62 edges
+1. `GameScene` - 65 edges
 2. `CareerManager` - 56 edges
 3. `PlatformAdapter` - 56 edges
-4. `getSceneViewport()` - 30 edges
-5. `NewStore()` - 30 edges
-6. `BrowserPlatformAdapter` - 30 edges
+4. `BrowserPlatformAdapter` - 31 edges
+5. `getSceneViewport()` - 30 edges
+6. `NewStore()` - 30 edges
 7. `BalePlatformAdapter` - 29 edges
 8. `EitaaPlatformAdapter` - 29 edges
 9. `TelegramPlatformAdapter` - 29 edges
 10. `InitModule()` - 28 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `LiveReconciliationResult` --references--> `MarchingArmy`  [EXTRACTED]
-  apps/game/src/combat/LiveCombatFeedback.ts → packages/game-core/src/types.ts
 - `LiveServerPayload` --references--> `GameState`  [EXTRACTED]
   apps/game/src/api/LiveMatchClient.ts → packages/game-core/src/types.ts
+- `successResult()` --calls--> `createDefaultCareer()`  [EXTRACTED]
+  apps/game/src/upgrades/__tests__/UpgradePurchaseController.test.ts → packages/game-core/src/progression.ts
 - `CareerManager` --references--> `EconomyLedgerEntry`  [EXTRACTED]
   apps/game/src/career/CareerManager.ts → packages/game-core/src/progression.ts
-- `deriveLiveCombatArrivals()` --calls--> `resolveArrival()`  [EXTRACTED]
-  apps/game/src/combat/LiveCombatFeedback.ts → packages/game-core/src/combat.ts
-- `CommanderScene` --references--> `PlatformAdapter`  [EXTRACTED]
-  apps/game/src/scenes/CommanderScene.ts → packages/platform/src/types.ts
+- `CareerManager` --references--> `PlayerCareer`  [EXTRACTED]
+  apps/game/src/career/CareerManager.ts → packages/game-core/src/progression.ts
+- `CareerManager` --references--> `DailyState`  [EXTRACTED]
+  apps/game/src/career/CareerManager.ts → packages/game-core/src/types.ts
 
 ## Import Cycles
 - None detected.
 
-## Communities (58 total, 16 thin omitted)
+## Communities (65 total, 20 thin omitted)
 
-### Community 0 - "pvp.ts"
+### Community 0 - "GameScene.ts"
 Cohesion: 0.06
-Nodes (63): LiveMatchStarted, LiveServerPayload, AiMove, evaluateAiMove(), BattlefieldDefinition, BattlefieldId, BATTLEFIELDS, createLocalBotMatchTicket() (+55 more)
+Nodes (73): LiveMatchStarted, applyPendingLiveDispatches(), armyVisualId(), deriveLiveCombatArrivals(), LiveReconciliationResult, PendingLiveDispatch, reconcileLiveArmies(), rejectLivePrediction() (+65 more)
 
 ### Community 1 - "testing.T"
 Cohesion: 0.06
 Nodes (73): analyticsPayload(), analyticsPropsJSON(), analyticsTestEvent(), TestAnalyticsPayloadAcceptsCommanderEvents(), TestAnalyticsPayloadAcceptsDailyEvents(), TestAnalyticsPayloadAcceptsLeagueEvents(), TestAnalyticsPayloadAcceptsTutorialEvents(), TestAnalyticsPayloadAcceptsUpgradePanelViewedWithLegacyAndSourcedProps() (+65 more)
 
 ### Community 2 - "CareerManager.ts"
-Cohesion: 0.14
-Nodes (18): GameApiError, StaleSocketError, LiveMatchError, LiveMatchEvent, LiveMatchEventMap, LiveMatchMode, LiveMatchResult, isNakamaTransportError() (+10 more)
+Cohesion: 0.18
+Nodes (14): GameApiError, StaleSocketError, TrackedAnalyticsEvent, isNakamaTransportError(), normalizeNakamaError(), isStaleSocketError(), localStorageMock, storage (+6 more)
 
 ### Community 3 - "domain.go"
 Cohesion: 0.08
-Nodes (68): TestBattlefieldLayoutsStaySymmetricAndDistinct(), applyTerritoryLayout(), BuildLeagueState(), calculateDispatchUnits(), CalculateMatchRewards(), CommanderUnlockLevel(), CreateDefaultCareer(), CreateDefaultTerritories() (+60 more)
+Nodes (67): applyTerritoryLayout(), BuildLeagueState(), calculateDispatchUnits(), CalculateMatchRewards(), CreateDefaultCareer(), CreateDefaultTerritories(), CreateInitialGameState(), CreateInitialGameStateForBattlefield() (+59 more)
 
-### Community 4 - "GameScene"
+### Community 5 - "PlatformAdapter"
 Cohesion: 0.07
-Nodes (11): trackTerminalMatchEvent(), applyPendingLiveDispatches(), armyVisualId(), deriveLiveCombatArrivals(), LiveReconciliationResult, PendingLiveDispatch, reconcileLiveArmies(), rejectLivePrediction() (+3 more)
-
-### Community 5 - ".openLivePvpLobby"
-Cohesion: 0.11
-Nodes (14): isValidRoomCode(), LivePvpController, LivePvpListener, LivePvpState, LivePvpView, mapLivePvpError(), sanitizeRoomCode(), MenuScene (+6 more)
+Nodes (15): isValidRoomCode(), LivePvpController, LivePvpListener, LivePvpState, LivePvpView, mapLivePvpError(), sanitizeRoomCode(), MenuScene (+7 more)
 
 ### Community 6 - "upgrades.ts"
-Cohesion: 0.07
-Nodes (50): { isLocalCareerFallbackAllowed }, successResult(), { trackUpgradeEvent }, CommanderDefinition, COMMANDERS, DEFAULT_COMMANDER_ID, getCommander(), isCommanderUnlocked() (+42 more)
+Cohesion: 0.10
+Nodes (40): getCommander(), KINGDOM_TIERS, KINGDOM_UPGRADES, KingdomTier, KingdomTierId, MAX_KINGDOM_LEVEL, claimLeagueRewardLocally(), createLeagueState() (+32 more)
 
 ### Community 7 - "context.Context"
 Cohesion: 0.06
@@ -150,33 +152,25 @@ Nodes (3): { MockScene, MockGameObject, MockGraphics, MockContainer, storage }, 
 Cohesion: 0.12
 Nodes (31): AnalyticsInsertResult, BotMatchTicket, CommanderSelectionResult, DailyChestState, DailyClaimResult, DailyMissionState, DailyRewardType, DailyState (+23 more)
 
-### Community 12 - "CareerManager"
-Cohesion: 0.18
-Nodes (4): isLocalCareerFallbackAllowed(), CareerManager, PlayerCareer, DailyState
-
 ### Community 13 - "DailyRewardType"
-Cohesion: 0.20
-Nodes (5): DailyClaimRunner, DailyClaimRunnerHooks, result, DailyClaimResult, DailyRewardType
+Cohesion: 0.30
+Nodes (4): DailyClaimRunnerHooks, result, DailyClaimResult, DailyRewardType
 
-### Community 14 - "GameScene.ts"
-Cohesion: 0.18
-Nodes (24): sounds, platform, MISSION_ICONS, ArmyFollower, ArmyVisual, TerritoryVisual, CardHandle, { MockScene, MockGameObject, MockGraphics, MockContainer, storage } (+16 more)
+### Community 14 - "KingdomScene.ts"
+Cohesion: 0.22
+Nodes (16): sounds, MISSION_ICONS, CardHandle, { MockScene, MockGameObject, MockGraphics, MockContainer, storage }, LESSONS, TeamVisualTheme, THEME, isTutorialCompleted() (+8 more)
 
 ### Community 15 - "UpgradeType"
-Cohesion: 0.13
-Nodes (12): ScenePurchaseRunner, ScenePurchaseRunnerHooks, fakeResult, UPGRADE_CARD_META, UPGRADE_TYPES, UpgradeCardMeta, purchaseUpgradeThroughCareer(), UpgradeCareerSource (+4 more)
+Cohesion: 0.08
+Nodes (14): KingdomScene, ScenePurchaseRunner, ScenePurchaseRunnerHooks, fakeResult, { isLocalCareerFallbackAllowed }, successResult(), { trackUpgradeEvent }, purchaseUpgradeThroughCareer() (+6 more)
 
 ### Community 16 - "HudLayout.ts"
-Cohesion: 0.09
-Nodes (30): computeMarchStride(), DominanceBarDirtyChecker, DominanceDirtyResult, DustPuffItem, DustPuffSimulator, fastComputeDominance(), STRIDE_PERIOD_SECONDS, StrideMetrics (+22 more)
-
-### Community 17 - "CareerApi"
-Cohesion: 0.11
-Nodes (8): CareerApi, TrackedAnalyticsEvent, NakamaClient, getSharedGameApiClient(), BotMatchTicket, EconomyLedgerEntry, LeagueClaimResult, LeagueState
+Cohesion: 0.16
+Nodes (21): computeHudLayout(), DominanceBarLayout, DominanceCalculationInput, estimateTextWidthFallback(), fitTextToWidth(), formatCompactNumber(), formatHudCoins(), formatHudName() (+13 more)
 
 ### Community 18 - "AnalyticsSink"
 Cohesion: 0.14
-Nodes (9): AnalyticsEvent, isAnalyticsEvent(), isPrimitive(), ANALYTICS_BATCH_MAX_SIZE, AnalyticsSink, AnalyticsSinkOptions, documentListeners, listeners (+1 more)
+Nodes (8): AnalyticsEvent, isAnalyticsEvent(), isPrimitive(), ANALYTICS_BATCH_MAX_SIZE, AnalyticsSink, AnalyticsSinkOptions, documentListeners, listeners
 
 ### Community 19 - "compilerOptions"
 Cohesion: 0.10
@@ -186,17 +180,17 @@ Nodes (20): compilerOptions, allowImportingTsExtensions, baseUrl, isolatedModule
 Cohesion: 0.15
 Nodes (6): MatchMenuController, MatchMenuDependencies, MatchMenuState, MatchNavigationAnalyticsEvent, MatchQuitEvent, createController()
 
+### Community 24 - "CommanderScene"
+Cohesion: 0.42
+Nodes (3): CommanderScene, computeCommanderLayout(), getKingdomLevel()
+
 ### Community 25 - "platform/src/types.ts"
 Cohesion: 0.21
 Nodes (8): Window, Window, Window, PaymentInvoice, PaymentResult, PlatformTheme, PlatformType, ShareOptions
 
 ### Community 26 - "Analytics.ts"
-Cohesion: 0.10
-Nodes (19): ANALYTICS_EVENT_NAME_MAX_LENGTH, ANALYTICS_PROPERTY_KEY_MAX_LENGTH, ANALYTICS_PROPERTY_MAX_COUNT, ANALYTICS_PROPERTY_STRING_MAX_LENGTH, ANALYTICS_SCHEMA_VERSION, AnalyticsEventInput, AnalyticsPrimitive, createIdentifier() (+11 more)
-
-### Community 27 - "DailyScene"
-Cohesion: 0.14
-Nodes (12): DailyScene, advanceDailyState(), claimDailyRewardLocally(), createDailyState(), DailyClaimFailureReason, formatDailyReset(), MISSION_DEFINITIONS, normalizeDailyState() (+4 more)
+Cohesion: 0.11
+Nodes (20): ANALYTICS_EVENT_NAME_MAX_LENGTH, ANALYTICS_PROPERTY_KEY_MAX_LENGTH, ANALYTICS_PROPERTY_MAX_COUNT, ANALYTICS_PROPERTY_STRING_MAX_LENGTH, ANALYTICS_SCHEMA_VERSION, AnalyticsEventInput, AnalyticsPrimitive, createIdentifier() (+12 more)
 
 ### Community 28 - "game-core/package.json"
 Cohesion: 0.12
@@ -220,19 +214,23 @@ Nodes (12): compilerOptions, declaration, esModuleInterop, forceConsistentCasing
 
 ### Community 36 - "game/package.json"
 Cohesion: 0.07
-Nodes (26): dependencies, @crown-clash/game-core, @crown-clash/platform, @heroiclabs/nakama-js, phaser, devDependencies, @types/node, typescript (+18 more)
+Nodes (36): dependencies, @crown-clash/game-core, @crown-clash/platform, @heroiclabs/nakama-js, phaser, devDependencies, @types/node, typescript (+28 more)
 
 ### Community 37 - "generate_units.py"
 Cohesion: 0.31
 Nodes (10): assign_material(), build_toy_knight(), clear_mesh_objects(), get_or_create_material(), main(), Crown Clash - 2.5D Army Unit Token Generator Generates and renders stylized…, Builds a stylized 2.5D toy knight warrior figurine: - Round beveled plinth -…, render_sprite() (+2 more)
 
-### Community 39 - "live_pvp.smoke.mjs"
-Cohesion: 0.51
-Nodes (9): assert(), cleanDatabaseForPlayer(), parseRpcPayload(), queryDbMatchSettlementRow(), queryPostgres(), runSmokeTest(), sleep(), verifyZeroRemainingRows() (+1 more)
+### Community 38 - "PlayerCareer"
+Cohesion: 0.19
+Nodes (3): CareerApi, EconomyLedgerEntry, PlayerCareer
 
-### Community 40 - "MenuLayout.ts"
-Cohesion: 0.40
-Nodes (4): BASE_LAYOUT, computeMenuLayout(), MenuLayout, SURPLUS_WEIGHTS
+### Community 39 - "SmoothnessHelpers.ts"
+Cohesion: 0.15
+Nodes (11): computeMarchStride(), createStrideMetrics(), DominanceBarDirtyChecker, DominanceDirtyResult, DustPuffItem, DustPuffSimulator, fastComputeDominance(), STRIDE_PERIOD_SECONDS (+3 more)
+
+### Community 40 - "LOGICAL_HEIGHT"
+Cohesion: 0.22
+Nodes (6): BASE_LAYOUT, computeMenuLayout(), MenuLayout, SURPLUS_WEIGHTS, ExpandSimulationResult, LOGICAL_HEIGHT
 
 ### Community 41 - "package.json"
 Cohesion: 0.12
@@ -242,17 +240,33 @@ Nodes (16): description, devDependencies, typescript, typescript, name, private,
 Cohesion: 0.15
 Nodes (3): fallbackPlatform, HapticImpactStyle, HapticNotificationType
 
+### Community 44 - "daily.ts"
+Cohesion: 0.23
+Nodes (12): advanceDailyState(), claimDailyRewardLocally(), createDailyState(), DailyClaimFailureReason, formatDailyReset(), MISSION_DEFINITIONS, normalizeDailyState(), tehranDayFormatter (+4 more)
+
 ### Community 45 - "Crown Clash — Art Bible & Visual Direction"
 Cohesion: 0.12
 Nodes (15): 1. Visual Pillars, 2. Camera & Projection Standards, 3. Lighting Rig & World Setup, 4. Color Palette & Team Theming, 5. Territory Tier Proportions & Silhouettes, 6. Materials & Shading Rules, 7. VFX & Feedback Language, 8. Asset Master & Export Specifications (+7 more)
 
 ### Community 46 - "main.go"
 Cohesion: 0.06
-Nodes (70): canonicalForfeitStatus(), GameState, MatchStats, PlayerCareer, Store, Team, liveArmyID(), livePlayerMatchID() (+62 more)
+Nodes (71): canonicalForfeitStatus(), GameState, MatchStats, PlayerCareer, Store, Team, liveArmyID(), livePlayerMatchID() (+63 more)
 
-### Community 47 - "KingdomScene"
-Cohesion: 0.19
-Nodes (3): KingdomScene, computeKingdomLayout(), KingdomProgress
+### Community 47 - "HubLayouts.ts"
+Cohesion: 0.26
+Nodes (10): CommanderLayout, computeDailyLayout(), computeKingdomLayout(), computeLeagueLayout(), computeTrainingLayout(), DailyLayout, KINGDOM_COL_X, KingdomLayout (+2 more)
+
+### Community 48 - "LiveMatchClient.ts"
+Cohesion: 0.21
+Nodes (10): LiveMatchError, LiveMatchEvent, LiveMatchEventMap, LiveMatchMode, LiveMatchResult, LiveServerPayload, MatchSettlement, PvpAction (+2 more)
+
+### Community 49 - "commanders.ts"
+Cohesion: 0.28
+Nodes (6): CommanderDefinition, COMMANDERS, DEFAULT_COMMANDER_ID, isCommanderUnlocked(), normalizeCommanderId(), createDefaultCareer()
+
+### Community 52 - "UpgradeCardMeta.ts"
+Cohesion: 0.50
+Nodes (3): UPGRADE_CARD_META, UPGRADE_TYPES, UpgradeCardMeta
 
 ### Community 56 - "Verification Before Completion"
 Cohesion: 0.20
@@ -262,29 +276,29 @@ Nodes (9): Common Failures, Key Patterns, Overview, Rationalization Prevention, 
 Cohesion: 0.40
 Nodes (4): Build the proof, Completion gate, False-Green Guard, Prove test sensitivity
 
-### Community 67 - "HubLayouts.ts"
-Cohesion: 0.15
-Nodes (11): TrainingScene, isTutorialCompleted(), CommanderLayout, computeDailyLayout(), computeLeagueLayout(), computeTrainingLayout(), DailyLayout, KINGDOM_COL_X (+3 more)
+### Community 67 - "TrainingScene"
+Cohesion: 0.27
+Nodes (3): Lesson, TrainingScene, TutorialStepId
 
 ## Knowledge Gaps
-- **253 isolated node(s):** `name`, `version`, `private`, `type`, `dev` (+248 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 419 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **16 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **254 isolated node(s):** `name`, `version`, `private`, `type`, `dev` (+249 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 420 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **20 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `PlatformAdapter` connect `PlatformAdapter` to `TelegramPlatformAdapter`, `CareerManager.ts`, `HubLayouts.ts`, `GameScene`, `.openLivePvpLobby`, `upgrades.ts`, `CareerManager`, `GameScene.ts`, `KingdomScene`, `UpgradeType`, `CareerApi`, `BalePlatformAdapter`, `BrowserPlatformAdapter`, `CommanderScene`, `platform/src/types.ts`, `DailyScene`, `LeagueScene`, `EitaaPlatformAdapter`?**
-  _High betweenness centrality (0.084) - this node is a cross-community bridge._
-- **Why does `CareerManager` connect `CareerManager` to `CareerManager.ts`, `GameScene`, `.openLivePvpLobby`, `PlatformAdapter`, `GameScene.ts`, `KingdomScene`, `CareerApi`, `CommanderScene`, `DailyScene`, `LeagueScene`?**
-  _High betweenness centrality (0.038) - this node is a cross-community bridge._
+- **Why does `PlatformAdapter` connect `PlatformAdapter` to `GameScene.ts`, `TelegramPlatformAdapter`, `CareerManager.ts`, `TrainingScene`, `GameScene`, `PlayerCareer`, `KingdomScene.ts`, `UpgradeType`, `LiveMatchClient.ts`, `BalePlatformAdapter`, `BrowserPlatformAdapter`, `CommanderScene`, `platform/src/types.ts`, `DailyScene`, `LeagueScene`, `EitaaPlatformAdapter`?**
+  _High betweenness centrality (0.083) - this node is a cross-community bridge._
+- **Why does `CareerManager` connect `CareerManager` to `GameScene.ts`, `CareerManager.ts`, `GameScene`, `PlatformAdapter`, `PlayerCareer`, `daily.ts`, `KingdomScene.ts`, `UpgradeType`, `LiveMatchClient.ts`, `commanders.ts`, `CommanderScene`, `DailyScene`, `LeagueScene`?**
+  _High betweenness centrality (0.040) - this node is a cross-community bridge._
 - **Why does `TestGameObject` connect `TestGameObject` to `HubLayouts.ts`?**
-  _High betweenness centrality (0.033) - this node is a cross-community bridge._
+  _High betweenness centrality (0.027) - this node is a cross-community bridge._
 - **What connects `name`, `version`, `private` to the rest of the system?**
-  _253 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `pvp.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.06293706293706294 - nodes in this community are weakly interconnected._
+  _254 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `GameScene.ts` be split into smaller, more focused modules?**
+  _Cohesion score 0.060855639441775335 - nodes in this community are weakly interconnected._
 - **Should `testing.T` be split into smaller, more focused modules?**
-  _Cohesion score 0.059921710328214396 - nodes in this community are weakly interconnected._
-- **Should `CareerManager.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.13978494623655913 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.06022282445046673 - nodes in this community are weakly interconnected._
+- **Should `domain.go` be split into smaller, more focused modules?**
+  _Cohesion score 0.07950310559006211 - nodes in this community are weakly interconnected._

@@ -11,6 +11,7 @@ import { TrainingScene } from './scenes/TrainingScene.js';
 import { LeagueScene } from './scenes/LeagueScene.js';
 import { MenuScene } from './scenes/MenuScene.js';
 import { CommanderScene } from './scenes/CommanderScene.js';
+import { initDebugPerformanceIfEnabled } from './debug/DebugPerformanceHud.js';
 
 // 1. Initialize Platform Adapter (Bale -> Eitaa -> Telegram -> Browser).
 // Phaser must not boot before platform init resolves: scenes read the
@@ -74,6 +75,7 @@ const startApp = (): void => {
 
   const game = new Phaser.Game(config);
   (window as unknown as { __PHASER_GAME__?: Phaser.Game }).__PHASER_GAME__ = game;
+  initDebugPerformanceIfEnabled(game);
 };
 
 void platform.initialize()

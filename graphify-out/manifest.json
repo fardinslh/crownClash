@@ -138,9 +138,9 @@
     "semantic_hash": "31a50b949ba66c1a8f40abe68fe93cfc"
   },
   "apps/game/src/main.ts": {
-    "mtime": 1789157861.9384773,
-    "seen": 1789158040.9163978,
-    "ast_hash": "1de28edfe66c61a52498a16ae23b7f1c",
+    "mtime": 1789221657.5839474,
+    "seen": 1789221955.7140446,
+    "ast_hash": "31d7095da9bd264232af2758fb3ca623",
     "semantic_hash": ""
   },
   "apps/game/src/match/MatchMenuController.ts": {
@@ -192,9 +192,9 @@
     "semantic_hash": ""
   },
   "apps/game/src/scenes/GameScene.ts": {
-    "mtime": 1789219570.1577437,
-    "seen": 1789219761.1533184,
-    "ast_hash": "1faf43e2675e794c441eeff15ad76cf4",
+    "mtime": 1789221791.68155,
+    "seen": 1789221955.7140446,
+    "ast_hash": "e9b662b67aaad3a98b4a3e31bf92f30c",
     "semantic_hash": ""
   },
   "apps/game/src/scenes/KingdomScene.ts": {
@@ -891,6 +891,42 @@
     "mtime": 1789219558.055819,
     "seen": 1789219761.1533184,
     "ast_hash": "857ec9662b0c1923e560373f9fe9769f",
+    "semantic_hash": ""
+  },
+  "apps/game/src/debug/DebugPerformanceHud.ts": {
+    "mtime": 1789221848.3087795,
+    "seen": 1789221955.7140446,
+    "ast_hash": "43a98051cf6a4443a7f519fe1daa2ce1",
+    "semantic_hash": ""
+  },
+  "apps/game/src/debug/PerformanceMonitor.ts": {
+    "mtime": 1789221777.0841773,
+    "seen": 1789221955.7140446,
+    "ast_hash": "e1e3effc0e0816acb677f0d517ead19a",
+    "semantic_hash": ""
+  },
+  "apps/game/src/debug/StressModeController.ts": {
+    "mtime": 1789221569.9901378,
+    "seen": 1789221955.7140446,
+    "ast_hash": "d751d96a685db0dd1b895744363222d4",
+    "semantic_hash": ""
+  },
+  "apps/game/src/debug/__tests__/DebugPerformanceHud.test.ts": {
+    "mtime": 1789221837.1227832,
+    "seen": 1789221955.7140446,
+    "ast_hash": "e1cd0489e735f4c5df3c48db551b5dcc",
+    "semantic_hash": ""
+  },
+  "apps/game/src/pvp/__tests__/AdverseNetworkVerification.test.ts": {
+    "mtime": 1789221918.9176135,
+    "seen": 1789221955.7140446,
+    "ast_hash": "a5d56fdd6f2df0b0e311d19020346b85",
+    "semantic_hash": ""
+  },
+  "docs/QA_REAL_DEVICE_CHECKLIST.md": {
+    "mtime": 1789221940.4869304,
+    "seen": 1789221955.7140446,
+    "ast_hash": "56b39ec28aabac3323bebe55886bf7ab",
     "semantic_hash": ""
   }
 }
