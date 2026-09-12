@@ -1,0 +1,178 @@
+{
+  "id": "bench_background_resume_1789254179756",
+  "timestamp": "2026-09-12T23:02:59.756Z",
+  "environment": {
+    "host": "Browser Emulation (Headless Chrome on Windows)",
+    "isPhysicalDevice": false,
+    "renderer": "WebGL",
+    "gpuVendor": "Google Inc. (NVIDIA)",
+    "gpuRenderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Ti (0x00002803) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "isSoftwareRenderer": false,
+    "browserVersion": "Chrome/152.0.7977.84",
+    "viewport": {
+      "width": 375,
+      "height": 667,
+      "dpr": 2
+    },
+    "cpuThrottling": 4,
+    "network": "Fast 4G",
+    "buildMode": "production",
+    "targetFps": 60
+  },
+  "scenario": {
+    "name": "background_resume",
+    "durationSeconds": 45,
+    "warmupDurationSeconds": 4,
+    "seed": 555888,
+    "scheduleHash": "a3ea8e9d",
+    "targetArmyRange": {
+      "min": 5,
+      "max": 10
+    },
+    "description": "Combat for 5s, background for 10s (t=5 to t=15), then resume for 30s"
+  },
+  "metrics": {
+    "subsystemTimings": {
+      "simulationMsAvg": 0.34,
+      "hudMsAvg": 0.45,
+      "territoryVisualsMsAvg": 0.16,
+      "armyVisualsMsAvg": 0.32,
+      "combatArrivalsMsAvg": 0.25,
+      "tweensMsAvg": 0,
+      "renderMsAvg": 13.34,
+      "textureUploadsTotal": 472,
+      "gameObjectsCreatedTotal": 0,
+      "tweensCreatedTotal": 129
+    },
+    "presentedFps": 8.3,
+    "renderedFps": 6.5,
+    "simulationTicks": 292,
+    "simulationFps": 6.5,
+    "phaserUpdateDelta": {
+      "avgMs": 17.18,
+      "p50Ms": 16.4,
+      "p95Ms": 23.7,
+      "p99Ms": 36.9,
+      "maxMs": 45.7
+    },
+    "framesOver16Ms": 126,
+    "framesOver16Pct": 43.2,
+    "framesOver33Ms": 3,
+    "framesOver33Pct": 1,
+    "longTasks": {
+      "count": 0,
+      "totalDurationMs": 0,
+      "maxDurationMs": 0
+    },
+    "armyCounts": {
+      "min": 0,
+      "max": 8,
+      "avg": 5.3,
+      "peak": 8
+    },
+    "warmupArmySamples": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      2,
+      3,
+      3,
+      3,
+      3,
+      4,
+      4,
+      4,
+      4,
+      5,
+      5,
+      4,
+      4,
+      5,
+      5,
+      5,
+      7,
+      7,
+      7,
+      7,
+      8,
+      8,
+      7,
+      7,
+      8,
+      7,
+      6,
+      7,
+      6,
+      6,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      8
+    ],
+    "steadyStateArmySamples": [
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      8,
+      8,
+      8,
+      8,
+      8
+    ],
+    "steadyStateArmyCounts": {
+      "min": 7,
+      "max": 8,
+      "avg": 7.5,
+      "peak": 8
+    },
+    "peakObjects": 99,
+    "peakTweens": 45,
+    "memoryMb": {
+      "start": 15.7,
+      "peak": 21.8
+    },
+    "drawCalls": {
+      "total": 25152,
+      "avgPerFrame": 86.1
+    },
+    "sampleDurationMs": 45023,
+    "activeSampleDurationMs": 35023,
+    "backgroundDurationMs": 10000,
+    "lifecycleTransitions": [
+      {
+        "event": "visibilitychange",
+        "state": "hidden",
+        "timestampMs": 11369.5
+      },
+      {
+        "event": "freeze",
+        "state": "frozen",
+        "timestampMs": 11370.79999999702
+      },
+      {
+        "event": "resume",
+        "state": "resumed",
+        "timestampMs": 21371.39999999851
+      }
+    ],
+    "totalRenderedFrames": 292,
+    "duplicateFramesDropped": 0
+  },
+  "verification": {
+    "passed": true,
+    "failures": []
+  }
+}

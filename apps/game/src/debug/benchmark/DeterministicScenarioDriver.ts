@@ -164,5 +164,83 @@ export const SCENARIO_DEFINITIONS: Record<BenchmarkScenarioName, DeterministicSc
       return all.filter((d) => d.timeSec < 5.0 || d.timeSec >= 15.0);
     },
   },
+
+  rapid_dispatches: {
+    config: {
+      name: 'rapid_dispatches',
+      durationSeconds: 30,
+      warmupDurationSeconds: 3.0,
+      seed: 777111,
+      scheduleHash: '',
+      targetArmyRange: { min: 6, max: 18 },
+      description: 'High-frequency burst dispatches every 0.15s across lanes to stress object allocation',
+    },
+    generateSchedule: (_seed: number, durationSec: number) => {
+      const schedule: ScriptedDispatch[] = [];
+      const lanes: Array<{ sourceId: string; targetId: string; owner: 'player' | 'enemy' }> = [
+        { sourceId: 'p_base', targetId: 'n_top_left', owner: 'player' },
+        { sourceId: 'e_base', targetId: 'n_top_right', owner: 'enemy' },
+        { sourceId: 'p_base', targetId: 'n_bot_left', owner: 'player' },
+        { sourceId: 'e_base', targetId: 'n_bot_right', owner: 'enemy' },
+        { sourceId: 'p_base', targetId: 'n_center', owner: 'player' },
+        { sourceId: 'e_base', targetId: 'n_center', owner: 'enemy' },
+      ];
+      let t = 0.5;
+      let laneIdx = 0;
+      while (t <= durationSec + 1.0) {
+        const lane = lanes[laneIdx % lanes.length];
+        laneIdx++;
+        schedule.push({
+          timeSec: Math.round(t * 100) / 100,
+          sourceId: lane.sourceId,
+          targetId: lane.targetId,
+          owner: lane.owner,
+          units: 3,
+        });
+        t += 0.16;
+      }
+      return schedule;
+    },
+  },
+
+  late_match_pressure: {
+    config: {
+      name: 'late_match_pressure',
+      durationSeconds: 30,
+      warmupDurationSeconds: 3.0,
+      seed: 888222,
+      scheduleHash: '',
+      targetArmyRange: { min: 8, max: 25 },
+      description: 'High army pressure and continuous center tower collisions/captures to stress combat effects',
+    },
+    generateSchedule: (seed: number, durationSec: number) => {
+      const rng = createMulberry32(seed);
+      const schedule: ScriptedDispatch[] = [];
+      const targets = ['n_center', 'n_top_left', 'n_top_right', 'n_bot_left', 'n_bot_right'];
+      let t = 0.5;
+      while (t <= durationSec + 1.0) {
+        // Player wave towards center
+        const pTarget = targets[Math.floor(rng() * targets.length)];
+        schedule.push({
+          timeSec: Math.round(t * 100) / 100,
+          sourceId: 'p_base',
+          targetId: pTarget,
+          owner: 'player',
+          units: 4,
+        });
+        // Enemy wave towards center or bases
+        const eTarget = targets[Math.floor(rng() * targets.length)];
+        schedule.push({
+          timeSec: Math.round((t + 0.05) * 100) / 100,
+          sourceId: 'e_base',
+          targetId: eTarget,
+          owner: 'enemy',
+          units: 4,
+        });
+        t += 0.22;
+      }
+      return schedule;
+    },
+  },
 };
 

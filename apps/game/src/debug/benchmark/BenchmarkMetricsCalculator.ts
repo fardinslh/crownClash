@@ -32,6 +32,18 @@ export interface RawBenchmarkSampleInput {
     peak: number | null;
   };
   totalDrawCalls: number | null;
+  subsystemTimings?: {
+    simulationMs: number;
+    hudMs: number;
+    territoryVisualsMs: number;
+    armyVisualsMs: number;
+    combatArrivalsMs: number;
+    tweensMs: number;
+    renderMs: number;
+    textureUploads: number;
+    gameObjectsCreated: number;
+    tweensCreated: number;
+  };
 }
 
 export function calculatePercentiles(values: number[]): DeltaPercentiles {
@@ -178,7 +190,25 @@ export function computeBenchmarkMetrics(
     };
   }
 
+  let subsystemTimings: BenchmarkMetrics['subsystemTimings'] = undefined;
+  if (input.subsystemTimings && totalRenderedFrames > 0) {
+    const s = input.subsystemTimings;
+    subsystemTimings = {
+      simulationMsAvg: Math.round((s.simulationMs / totalRenderedFrames) * 100) / 100,
+      hudMsAvg: Math.round((s.hudMs / totalRenderedFrames) * 100) / 100,
+      territoryVisualsMsAvg: Math.round((s.territoryVisualsMs / totalRenderedFrames) * 100) / 100,
+      armyVisualsMsAvg: Math.round((s.armyVisualsMs / totalRenderedFrames) * 100) / 100,
+      combatArrivalsMsAvg: Math.round((s.combatArrivalsMs / totalRenderedFrames) * 100) / 100,
+      tweensMsAvg: Math.round((s.tweensMs / totalRenderedFrames) * 100) / 100,
+      renderMsAvg: Math.round((s.renderMs / totalRenderedFrames) * 100) / 100,
+      textureUploadsTotal: s.textureUploads,
+      gameObjectsCreatedTotal: s.gameObjectsCreated,
+      tweensCreatedTotal: s.tweensCreated,
+    };
+  }
+
   return {
+    subsystemTimings,
     presentedFps,
     renderedFps,
     simulationTicks: input.simulationTicks,

@@ -5,7 +5,9 @@ export type BenchmarkScenarioName =
   | 'normal_combat'
   | 'heavy_combat'
   | 'qa_stress'
-  | 'background_resume';
+  | 'background_resume'
+  | 'rapid_dispatches'
+  | 'late_match_pressure';
 
 export interface BenchmarkEnvironment {
   host: string;
@@ -60,7 +62,21 @@ export interface LifecycleTransition {
   timestampMs: number;
 }
 
+export interface SubsystemTimings {
+  simulationMsAvg: number;
+  hudMsAvg: number;
+  territoryVisualsMsAvg: number;
+  armyVisualsMsAvg: number;
+  combatArrivalsMsAvg: number;
+  tweensMsAvg: number;
+  renderMsAvg: number;
+  textureUploadsTotal: number;
+  gameObjectsCreatedTotal: number;
+  tweensCreatedTotal: number;
+}
+
 export interface BenchmarkMetrics {
+  subsystemTimings?: SubsystemTimings;
   // Authoritatively separated metrics
   presentedFps: number; // true measured presented frames per active second (unclamped)
   renderedFps: number; // raw Phaser render calls per second

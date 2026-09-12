@@ -65,6 +65,7 @@ class CdpClient {
     this.ws = ws;
     this.id = 1;
     this.callbacks = new Map();
+    this.eventListeners = new Map();
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data.toString());
       if (msg.id && this.callbacks.has(msg.id)) {
@@ -72,8 +73,17 @@ class CdpClient {
         this.callbacks.delete(msg.id);
         if (msg.error) reject(new Error(msg.error.message || JSON.stringify(msg.error)));
         else resolve(msg.result);
+      } else if (msg.method && this.eventListeners.has(msg.method)) {
+        for (const fn of this.eventListeners.get(msg.method)) {
+          fn(msg.params);
+        }
       }
     };
+  }
+
+  on(event, fn) {
+    if (!this.eventListeners.has(event)) this.eventListeners.set(event, []);
+    this.eventListeners.get(event).push(fn);
   }
 
   send(method, params = {}) {
@@ -101,15 +111,22 @@ export async function runDeterministicBenchmark(options = {}) {
   const cpuThrottling = options.cpuThrottling ?? 4;
   const disableWebgl = Boolean(options.disableWebgl);
   const slow4G = Boolean(options.slow4G);
+  const fast4G = Boolean(options.fast4G);
+  const recordTrace = Boolean(options.recordTrace);
+  const tracePath = options.tracePath;
+  const injectLongTaskMs = Number(options.injectLongTaskMs || 0);
   const rendererType = disableWebgl ? 'Canvas' : 'WebGL';
+  const networkName = slow4G ? 'Slow 4G' : fast4G ? 'Fast 4G' : 'LAN';
   const port = options.port || 4191;
   const cdpPort = options.cdpPort || 9251;
   const seed = options.seed ?? scenarioDef.config.seed;
 
   console.log(`\n======================================================`);
   console.log(`Deterministic Scenario: ${scenarioName} (${durationSec}s)`);
-  console.log(`Viewport: ${viewport.width}x${viewport.height}@${viewport.dpr} | CPU: ${cpuThrottling}x | Renderer: ${rendererType} | Network: ${slow4G ? 'Slow 4G' : 'LAN'}`);
+  console.log(`Viewport: ${viewport.width}x${viewport.height}@${viewport.dpr} | CPU: ${cpuThrottling}x | Renderer: ${rendererType} | Network: ${networkName}`);
   console.log(`PRNG Seed: ${seed} | Host: Browser Emulation (Headless Chrome on Windows)`);
+  if (recordTrace) console.log(`Performance Tracing: ENABLED`);
+  if (injectLongTaskMs > 0) console.log(`Synthetic Long Task Injection: ${injectLongTaskMs}ms`);
   console.log(`======================================================`);
 
   if (!fs.existsSync(DIST_DIR)) {
@@ -194,10 +211,37 @@ export async function runDeterministicBenchmark(options = {}) {
         uploadThroughput: (500 * 1024) / 8,
         connectionType: 'cellular3g',
       });
+    } else if (fast4G) {
+      await cdp.send('Network.enable');
+      await cdp.send('Network.emulateNetworkConditions', {
+        offline: false,
+        latency: 40,
+        downloadThroughput: (4 * 1024 * 1024) / 8,
+        uploadThroughput: (3 * 1024 * 1024) / 8,
+        connectionType: 'cellular4g',
+      });
+    }
+
+    if (recordTrace) {
+      console.log('Starting CDP Tracing (devtools.timeline, v8.execute)...');
+      await cdp.send('Tracing.start', {
+        traceConfig: {
+          recordMode: 'recordUntilFull',
+          includedCategories: [
+            'devtools.timeline',
+            'v8.execute',
+            'disabled-by-default-devtools.timeline',
+            'disabled-by-default-v8.cpu_profiler',
+            'blink.user_timing',
+          ],
+        },
+      });
     }
 
     // Inject authoritative measurement probe before DOM boot
     const preBootProbeScript = `
+      window.__INJECT_LONG_TASK_MS__ = ${injectLongTaskMs};
+      window.__LONG_TASK_INJECTED__ = false;
       window.__AUTHORITATIVE_PROBE__ = {
         renderFrames: [],
         simulationTicks: 0,
@@ -221,6 +265,18 @@ export async function runDeterministicBenchmark(options = {}) {
         schedule: null,
         scheduleIndex: 0,
         scenarioName: '',
+        subsystemTimings: {
+          simulationMs: 0,
+          hudMs: 0,
+          territoryVisualsMs: 0,
+          armyVisualsMs: 0,
+          combatArrivalsMs: 0,
+          tweensMs: 0,
+          renderMs: 0,
+          textureUploads: 0,
+          gameObjectsCreated: 0,
+          tweensCreated: 0,
+        },
       };
 
       // Listen to lifecycle & visibility events on both document and window
@@ -276,6 +332,20 @@ export async function runDeterministicBenchmark(options = {}) {
             }
             return origDrawElements.apply(this, args);
           };
+          const origTexImage2D = ctx.texImage2D;
+          ctx.texImage2D = function(...args) {
+            if (window.__AUTHORITATIVE_PROBE__.isSampling) {
+              window.__AUTHORITATIVE_PROBE__.subsystemTimings.textureUploads++;
+            }
+            return origTexImage2D.apply(this, args);
+          };
+          const origTexSubImage2D = ctx.texSubImage2D;
+          ctx.texSubImage2D = function(...args) {
+            if (window.__AUTHORITATIVE_PROBE__.isSampling) {
+              window.__AUTHORITATIVE_PROBE__.subsystemTimings.textureUploads++;
+            }
+            return origTexSubImage2D.apply(this, args);
+          };
         } else if (type === '2d') {
           if (window.__AUTHORITATIVE_PROBE__.actualRenderer === 'Unknown') {
             window.__AUTHORITATIVE_PROBE__.actualRenderer = 'Canvas';
@@ -311,8 +381,18 @@ export async function runDeterministicBenchmark(options = {}) {
         if (!game || window.__AUTHORITATIVE_PROBE__.gameAttached) return;
         window.__AUTHORITATIVE_PROBE__.gameAttached = true;
 
-        if (game.renderer) {
-          window.__AUTHORITATIVE_PROBE__.actualRenderer = game.renderer.type === 1 ? 'Canvas' : 'WebGL';
+        if (game.renderer && !game.renderer.__PROBE_INSTRUMENTED__) {
+          game.renderer.__PROBE_INSTRUMENTED__ = true;
+          const origRender = game.renderer.render;
+          if (typeof origRender === 'function') {
+            game.renderer.render = function(...args) {
+              if (!window.__AUTHORITATIVE_PROBE__.isSampling) return origRender.apply(this, args);
+              const t0 = performance.now();
+              const res = origRender.apply(this, args);
+              window.__AUTHORITATIVE_PROBE__.subsystemTimings.renderMs += (performance.now() - t0);
+              return res;
+            };
+          }
         }
 
         if (game.loop && typeof game.loop.setFPSLimit === 'function') {
@@ -325,7 +405,59 @@ export async function runDeterministicBenchmark(options = {}) {
           if (!probe.isSampling) return;
           probe.simulationTicks++;
 
+          // Synthetic long task injection check
+          if (window.__INJECT_LONG_TASK_MS__ > 0 && !window.__LONG_TASK_INJECTED__) {
+            const elapsedSec = (performance.now() - probe.startTime) / 1000;
+            if (elapsedSec >= 5.0) {
+              window.__LONG_TASK_INJECTED__ = true;
+              console.log('[PROBE] Injecting synthetic long task: ' + window.__INJECT_LONG_TASK_MS__ + 'ms');
+              const end = performance.now() + window.__INJECT_LONG_TASK_MS__;
+              while (performance.now() < end) {}
+            }
+          }
+
           const scene = game.scene?.getScene('GameScene');
+          if (scene && !scene.__PROBE_INSTRUMENTED__) {
+            scene.__PROBE_INSTRUMENTED__ = true;
+            const wrap = (target, fnName, statProp) => {
+              if (target && typeof target[fnName] === 'function') {
+                const orig = target[fnName];
+                target[fnName] = function(...args) {
+                  if (!window.__AUTHORITATIVE_PROBE__.isSampling) return orig.apply(this, args);
+                  const t0 = performance.now();
+                  const res = orig.apply(this, args);
+                  window.__AUTHORITATIVE_PROBE__.subsystemTimings[statProp] += (performance.now() - t0);
+                  return res;
+                };
+              }
+            };
+            wrap(scene, 'stepBotMatch', 'simulationMs');
+            wrap(scene, 'updateHud', 'hudMs');
+            wrap(scene, 'updateTerritoryVisuals', 'territoryVisualsMs');
+            wrap(scene, 'updateArmyVisuals', 'armyVisualsMs');
+            wrap(scene, 'onCombatArrival', 'combatArrivalsMs');
+
+            if (scene.tweens) {
+              wrap(scene.tweens, 'update', 'tweensMs');
+              const origAddTween = scene.tweens.add;
+              scene.tweens.add = function(...args) {
+                if (window.__AUTHORITATIVE_PROBE__.isSampling) {
+                  window.__AUTHORITATIVE_PROBE__.subsystemTimings.tweensCreated++;
+                }
+                return origAddTween.apply(this, args);
+              };
+            }
+            if (scene.add && typeof scene.add.existing === 'function') {
+              const origAddExisting = scene.add.existing;
+              scene.add.existing = function(...args) {
+                if (window.__AUTHORITATIVE_PROBE__.isSampling) {
+                  window.__AUTHORITATIVE_PROBE__.subsystemTimings.gameObjectsCreated++;
+                }
+                return origAddExisting.apply(this, args);
+              };
+            }
+          }
+
           if (scene && scene.gameState) {
             scene.gameState.status = 'playing';
 
@@ -507,6 +639,7 @@ export async function runDeterministicBenchmark(options = {}) {
           isSoftwareRenderer: probe.isSoftwareRenderer,
           duplicateFramesDropped: probe.duplicateFramesDropped,
           lifecycleTransitions: probe.lifecycleTransitions,
+          subsystemTimings: probe.subsystemTimings,
         };
       })()`,
       returnByValue: true,
@@ -531,6 +664,7 @@ export async function runDeterministicBenchmark(options = {}) {
         peakTweens: rawData.peakTweens,
         memoryMb: rawData.memoryMb,
         totalDrawCalls: rawData.totalDrawCalls,
+        subsystemTimings: rawData.subsystemTimings,
       },
       60, // target FPS bound
       scenarioDef.config.warmupDurationSeconds
@@ -569,7 +703,7 @@ export async function runDeterministicBenchmark(options = {}) {
         browserVersion,
         viewport,
         cpuThrottling,
-        network: slow4G ? 'Slow 4G' : 'LAN',
+        network: networkName,
         buildMode: 'production',
         targetFps: 60,
       },
@@ -583,6 +717,25 @@ export async function runDeterministicBenchmark(options = {}) {
       verification,
     };
 
+    if (recordTrace) {
+      console.log('Stopping CDP Tracing and collecting events...');
+      const traceEvents = [];
+      cdp.on('Tracing.dataCollected', (params) => {
+        if (params.value) traceEvents.push(...params.value);
+      });
+      const tracingCompletePromise = new Promise((resolve) => {
+        cdp.on('Tracing.tracingComplete', resolve);
+      });
+      await cdp.send('Tracing.end');
+      await tracingCompletePromise;
+
+      const traceDir = path.resolve(REPO_ROOT, 'qa-artifacts/traces');
+      if (!fs.existsSync(traceDir)) fs.mkdirSync(traceDir, { recursive: true });
+      const targetTracePath = tracePath || path.join(traceDir, `${scenarioName}_trace.json`);
+      fs.writeFileSync(targetTracePath, JSON.stringify(traceEvents));
+      console.log(`Saved Chrome trace to: ${targetTracePath} (${traceEvents.length} events)\n`);
+    }
+
     console.log('\n--- AUTHORITATIVE BENCHMARK SUMMARY ---');
     console.log(`GPU Vendor: ${rawData.gpuVendor} | GPU Renderer: ${rawData.gpuRenderer} (Software: ${rawData.isSoftwareRenderer})`);
     console.log(`Presented FPS: ${metrics.presentedFps} | Raw Rendered: ${metrics.renderedFps} FPS`);
@@ -592,6 +745,22 @@ export async function runDeterministicBenchmark(options = {}) {
     console.log(`Steady-State Armies: min ${metrics.steadyStateArmyCounts.min} | avg ${metrics.steadyStateArmyCounts.avg} | max ${metrics.steadyStateArmyCounts.max}`);
     console.log(`Objects: peak ${metrics.peakObjects} | Tweens: peak ${metrics.peakTweens} | Heap: peak ${metrics.memoryMb.peak ?? 'N/A'}MB`);
     console.log(`Draw Calls / frame: ${metrics.drawCalls?.avgPerFrame ?? 'N/A'} (total: ${metrics.drawCalls?.total ?? 'N/A'})`);
+    console.log(`Long Tasks (>50ms): ${metrics.longTasks.count} (max: ${metrics.longTasks.maxDurationMs}ms, total: ${metrics.longTasks.totalDurationMs}ms)`);
+    if (metrics.subsystemTimings) {
+      const s = metrics.subsystemTimings;
+      console.log('\n--- SUBSYSTEM ATTRIBUTION (avg ms/frame) ---');
+      console.log(`Simulation (stepBotMatch):     ${s.simulationMsAvg} ms/frame`);
+      console.log(`Army Visuals (updateArmies):   ${s.armyVisualsMsAvg} ms/frame`);
+      console.log(`Territory Visuals (sync):      ${s.territoryVisualsMsAvg} ms/frame`);
+      console.log(`HUD Updates (dominance/timer): ${s.hudMsAvg} ms/frame`);
+      console.log(`Combat Arrivals (effects):     ${s.combatArrivalsMsAvg} ms/frame`);
+      console.log(`Tweens Update:                 ${s.tweensMsAvg} ms/frame`);
+      console.log(`Phaser Rendering:              ${s.renderMsAvg} ms/frame`);
+      console.log(`Texture Uploads (total):       ${s.textureUploadsTotal}`);
+      console.log(`GameObjects Created (total):   ${s.gameObjectsCreatedTotal}`);
+      console.log(`Tweens Created (total):        ${s.tweensCreatedTotal}`);
+      console.log('--------------------------------------------');
+    }
     console.log(`Prerequisites Verification: ${verification.passed ? 'PASSED' : 'FAILED'}`);
     if (!verification.passed) {
       console.warn('Failures:', verification.failures);
@@ -601,7 +770,7 @@ export async function runDeterministicBenchmark(options = {}) {
       fs.mkdirSync(SUMMARIES_DIR, { recursive: true });
     }
 
-    const defaultFilename = `${scenarioName}_${viewport.width}x${viewport.height}_cpu${cpuThrottling}x_${rendererType.toLowerCase()}${slow4G ? '_slow4g' : ''}.json`;
+    const defaultFilename = `${scenarioName}_${viewport.width}x${viewport.height}_cpu${cpuThrottling}x_${rendererType.toLowerCase()}${slow4G ? '_slow4g' : fast4G ? '_fast4g' : ''}.json`;
     const outFilename = options.outFilename || defaultFilename;
     const outPath = path.join(SUMMARIES_DIR, outFilename);
     fs.writeFileSync(outPath, JSON.stringify(report, null, 2));
@@ -646,6 +815,12 @@ if (process.argv[1] && process.argv[1].endsWith('run-benchmark.mjs')) {
   const duration = parseInt(process.argv[3] || '30', 10);
   const disableWebgl = process.argv.includes('--canvas');
   const slow4G = process.argv.includes('--slow4g');
+  const fast4G = process.argv.includes('--fast4g');
+  const recordTrace = process.argv.includes('--trace');
+  const tracePathIdx = process.argv.indexOf('--trace-path');
+  const tracePath = tracePathIdx !== -1 ? process.argv[tracePathIdx + 1] : undefined;
+  const injectArg = process.argv.find((a) => a.startsWith('--inject-long-task='));
+  const injectLongTaskMs = injectArg ? parseInt(injectArg.split('=')[1], 10) : 0;
   const cpuThrottling = process.argv.includes('--1x') ? 1 : 4;
   const outIdx = process.argv.indexOf('--out');
   const outFilename = outIdx !== -1 ? process.argv[outIdx + 1] : undefined;
@@ -655,6 +830,10 @@ if (process.argv[1] && process.argv[1].endsWith('run-benchmark.mjs')) {
     durationSeconds: duration,
     disableWebgl,
     slow4G,
+    fast4G,
+    recordTrace,
+    tracePath,
+    injectLongTaskMs,
     cpuThrottling,
     outFilename,
   }).catch((err) => {
