@@ -20,6 +20,7 @@ import {
   getSceneViewport,
   setupSceneCamera,
 } from '../ui/Viewport.js';
+import { computeMenuLayout } from '../ui/MenuLayout.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 
@@ -82,6 +83,7 @@ export class MenuScene extends Phaser.Scene {
     });
 
     const { visibleWidth, visibleHeight } = getSceneViewport(this);
+    const layout = computeMenuLayout(visibleHeight);
     this.add.rectangle(
       visibleWidth / 2,
       visibleHeight / 2,
@@ -92,11 +94,11 @@ export class MenuScene extends Phaser.Scene {
 
     const glow = this.add.graphics();
     glow.fillStyle(0x1d4ed8, 0.16);
-    glow.fillCircle(LOGICAL_WIDTH / 2, 248, 118);
+    glow.fillCircle(LOGICAL_WIDTH / 2, layout.crestY, 118);
     glow.fillStyle(THEME.gold, 0.08);
-    glow.fillCircle(LOGICAL_WIDTH / 2, 248, 168);
+    glow.fillCircle(LOGICAL_WIDTH / 2, layout.crestY, 168);
 
-    const crest = this.add.container(LOGICAL_WIDTH / 2, 248);
+    const crest = this.add.container(LOGICAL_WIDTH / 2, layout.crestY);
     const crestRing = this.add.circle(0, 0, 78, 0x0c1322, 0.96).setStrokeStyle(2.5, THEME.gold, 0.95);
     const innerRing = this.add.circle(0, 0, 62, 0x111c33, 0.9).setStrokeStyle(1.5, 0x60a5fa, 0.55);
     const crown = this.add
@@ -108,7 +110,7 @@ export class MenuScene extends Phaser.Scene {
     crest.add([crestRing, innerRing, crown]);
     this.tweens.add({
       targets: crest,
-      y: 240,
+      y: layout.crestY - 8,
       duration: 1800,
       yoyo: true,
       repeat: -1,
@@ -116,7 +118,7 @@ export class MenuScene extends Phaser.Scene {
     });
 
     this.add
-      .text(LOGICAL_WIDTH / 2, 78, 'CROWN CLASH', {
+      .text(LOGICAL_WIDTH / 2, layout.titleY, 'CROWN CLASH', {
         fontFamily: FONT_FAMILY,
         fontSize: '34px',
         fontStyle: '900',
@@ -128,7 +130,7 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.add
-      .text(LOGICAL_WIDTH / 2, 114, 'TAKE THE REALM', {
+      .text(LOGICAL_WIDTH / 2, layout.subtitleY, 'TAKE THE REALM', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -140,10 +142,10 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.add
-      .rectangle(LOGICAL_WIDTH / 2, 368, 280, 34, 0x111c33, 0.95)
+      .rectangle(LOGICAL_WIDTH / 2, layout.rankY, 280, 34, 0x111c33, 0.95)
       .setStrokeStyle(1.5, rank.color, 0.9);
     this.add
-      .text(LOGICAL_WIDTH / 2, 368, `${rank.badge}  ${rank.name.toUpperCase()}  •  🏆 ${career.trophies}`, {
+      .text(LOGICAL_WIDTH / 2, layout.rankY, `${rank.badge}  ${rank.name.toUpperCase()}  •  🏆 ${career.trophies}`, {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: 'bold',
@@ -155,10 +157,10 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.add
-      .rectangle(LOGICAL_WIDTH / 2 - 72, 418, 124, 44, 0x0f172a, 0.95)
+      .rectangle(LOGICAL_WIDTH / 2 - 72, layout.statsY, 124, 44, 0x0f172a, 0.95)
       .setStrokeStyle(1.5, 0xf59e0b, 0.85);
     this.add
-      .text(LOGICAL_WIDTH / 2 - 72, 408, 'GOLD', {
+      .text(LOGICAL_WIDTH / 2 - 72, layout.statsY - 10, 'GOLD', {
         fontFamily: FONT_FAMILY,
         fontSize: '10px',
         fontStyle: 'bold',
@@ -169,7 +171,7 @@ export class MenuScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     this.add
-      .text(LOGICAL_WIDTH / 2 - 72, 426, `🪙 ${career.coins}`, {
+      .text(LOGICAL_WIDTH / 2 - 72, layout.statsY + 8, `🪙 ${career.coins}`, {
         fontFamily: FONT_FAMILY,
         fontSize: '16px',
         fontStyle: '900',
@@ -181,10 +183,10 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.add
-      .rectangle(LOGICAL_WIDTH / 2 + 72, 418, 124, 44, 0x0f172a, 0.95)
+      .rectangle(LOGICAL_WIDTH / 2 + 72, layout.statsY, 124, 44, 0x0f172a, 0.95)
       .setStrokeStyle(1.5, 0x818cf8, 0.85);
     this.add
-      .text(LOGICAL_WIDTH / 2 + 72, 408, 'WINS', {
+      .text(LOGICAL_WIDTH / 2 + 72, layout.statsY - 10, 'WINS', {
         fontFamily: FONT_FAMILY,
         fontSize: '10px',
         fontStyle: 'bold',
@@ -195,7 +197,7 @@ export class MenuScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     this.add
-      .text(LOGICAL_WIDTH / 2 + 72, 426, `👑 ${career.matchesWon}`, {
+      .text(LOGICAL_WIDTH / 2 + 72, layout.statsY + 8, `👑 ${career.matchesWon}`, {
         fontFamily: FONT_FAMILY,
         fontSize: '16px',
         fontStyle: '900',
@@ -208,7 +210,7 @@ export class MenuScene extends Phaser.Scene {
 
     const commander = getCommander(career.selectedCommanderId);
     this.add
-      .text(LOGICAL_WIDTH / 2, 461, `DOCTRINE  •  ${commander.name.toUpperCase()}`, {
+      .text(LOGICAL_WIDTH / 2, layout.doctrineY, `DOCTRINE  •  ${commander.name.toUpperCase()}`, {
         fontFamily: FONT_FAMILY,
         fontSize: '10px',
         fontStyle: '900',
@@ -218,11 +220,11 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     const playBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2, 500, 250, 56, 0x2563eb, 1)
+      .rectangle(LOGICAL_WIDTH / 2, layout.playY, 250, 56, 0x2563eb, 1)
       .setStrokeStyle(2.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
     const playText = this.add
-      .text(LOGICAL_WIDTH / 2, 500, 'PLAY  ⚔', {
+      .text(LOGICAL_WIDTH / 2, layout.playY, 'PLAY  ⚔', {
         fontFamily: FONT_FAMILY,
         fontSize: '22px',
         fontStyle: '900',
@@ -266,13 +268,13 @@ export class MenuScene extends Phaser.Scene {
 
     const liveStyle = secondaryButtonStyle(careerManager.isRemoteConnected());
     const liveBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2, 562, 250, 48, liveStyle.fill, 1)
+      .rectangle(LOGICAL_WIDTH / 2, layout.livePvpY, 250, 48, liveStyle.fill, 1)
       .setStrokeStyle(1.5, liveStyle.stroke, 1)
       .setInteractive({ useHandCursor: true });
     const liveText = this.add
       .text(
         LOGICAL_WIDTH / 2,
-        562,
+        layout.livePvpY,
         careerManager.isRemoteConnected() ? 'LIVE PVP  ⚔' : 'LIVE PVP OFFLINE',
         {
           fontFamily: FONT_FAMILY,
@@ -298,13 +300,13 @@ export class MenuScene extends Phaser.Scene {
 
     const trainingComplete = isTutorialCompleted(platform.getUser().id);
     const trainingBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2, 622, 250, 44, 0x1c1830, 1)
+      .rectangle(LOGICAL_WIDTH / 2, layout.trainingY, 250, 44, 0x1c1830, 1)
       .setStrokeStyle(1.5, THEME.gold, 0.9)
       .setInteractive({ useHandCursor: true });
     const trainingText = this.add
       .text(
         LOGICAL_WIDTH / 2,
-        622,
+        layout.trainingY,
         trainingComplete ? 'WAR ACADEMY  ✓' : 'NEW  •  WAR ACADEMY',
         {
           fontFamily: FONT_FAMILY,
@@ -327,11 +329,11 @@ export class MenuScene extends Phaser.Scene {
 
     const dailyAvailable = careerManager.isRemoteConnected() || isLocalCareerFallbackAllowed();
     const dailyBg = this.add
-      .rectangle(56, 680, 82, 44, dailyAvailable ? 0x1c1830 : 0x273449, 1)
+      .rectangle(56, layout.navigationY, 82, 44, dailyAvailable ? 0x1c1830 : 0x273449, 1)
       .setStrokeStyle(1.5, dailyAvailable ? THEME.gold : 0x475569, 0.9)
       .setInteractive({ useHandCursor: true });
     const dailyText = this.add
-      .text(56, 680, dailyAvailable ? 'DAILY' : 'OFFLINE', {
+      .text(56, layout.navigationY, dailyAvailable ? 'DAILY' : 'OFFLINE', {
         fontFamily: FONT_FAMILY,
         fontSize: dailyAvailable ? '12px' : '10px',
         fontStyle: '900',
@@ -354,11 +356,11 @@ export class MenuScene extends Phaser.Scene {
     }
 
     const leagueBg = this.add
-      .rectangle(152, 680, 82, 44, 0x151d31, 1)
+      .rectangle(152, layout.navigationY, 82, 44, 0x151d31, 1)
       .setStrokeStyle(1.5, 0x818cf8, 0.9)
       .setInteractive({ useHandCursor: true });
     const leagueText = this.add
-      .text(152, 680, 'LEAGUE', {
+      .text(152, layout.navigationY, 'LEAGUE', {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: '900',
@@ -377,11 +379,11 @@ export class MenuScene extends Phaser.Scene {
     });
 
     const kingdomBg = this.add
-      .rectangle(248, 680, 82, 44, 0x111c33, 1)
+      .rectangle(248, layout.navigationY, 82, 44, 0x111c33, 1)
       .setStrokeStyle(1.5, THEME.gold, 0.8)
       .setInteractive({ useHandCursor: true });
     const kingdomText = this.add
-      .text(248, 680, 'KINGDOM', {
+      .text(248, layout.navigationY, 'KINGDOM', {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: '900',
@@ -400,11 +402,11 @@ export class MenuScene extends Phaser.Scene {
     });
 
     const commanderBg = this.add
-      .rectangle(344, 680, 82, 44, 0x172033, 1)
+      .rectangle(344, layout.navigationY, 82, 44, 0x172033, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 0.85)
       .setInteractive({ useHandCursor: true });
     const commanderText = this.add
-      .text(344, 680, 'COUNCIL', {
+      .text(344, layout.navigationY, 'COUNCIL', {
         fontFamily: FONT_FAMILY,
         fontSize: '10px',
         fontStyle: '900',
