@@ -25,7 +25,6 @@ export default defineConfig({
     host: true
   },
   build: {
-    sourcemap: true,
     rollupOptions: {
       output: {
         manualChunks: {

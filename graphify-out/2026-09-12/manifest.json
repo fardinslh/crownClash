@@ -60,10 +60,10 @@
     "semantic_hash": "870b06e7bf58ebeaa66e31232edf71f8"
   },
   "apps/game/src/api/LiveMatchClient.ts": {
-    "mtime": 1789228060.7866118,
-    "seen": 1789228151.5456798,
-    "ast_hash": "4475ff439f841ab825682e643ea712e0",
-    "semantic_hash": ""
+    "mtime": 1789052733.780026,
+    "seen": 1789156887.812921,
+    "ast_hash": "98db1237a5e4a1e512a6201b3d1b8e21",
+    "semantic_hash": "98db1237a5e4a1e512a6201b3d1b8e21"
   },
   "apps/game/src/api/NakamaClient.ts": {
     "mtime": 1789130613.424642,
@@ -192,9 +192,9 @@
     "semantic_hash": ""
   },
   "apps/game/src/scenes/GameScene.ts": {
-    "mtime": 1789227706.524077,
-    "seen": 1789228151.5456798,
-    "ast_hash": "b9a974a4f01bc43ab850b0d2adf9cdeb",
+    "mtime": 1789224984.4735212,
+    "seen": 1789225886.7867548,
+    "ast_hash": "a89505c097928f47f0820758677af43b",
     "semantic_hash": ""
   },
   "apps/game/src/scenes/KingdomScene.ts": {
@@ -894,9 +894,9 @@
     "semantic_hash": ""
   },
   "apps/game/src/debug/DebugPerformanceHud.ts": {
-    "mtime": 1789227545.1529613,
-    "seen": 1789228151.5456798,
-    "ast_hash": "8caf7962d5d3d67a4e8c3732b60f6ffa",
+    "mtime": 1789225482.3903847,
+    "seen": 1789225886.7867548,
+    "ast_hash": "0c15b5970f4f7fa6fec172a962da2d30",
     "semantic_hash": ""
   },
   "apps/game/src/debug/PerformanceMonitor.ts": {
@@ -906,45 +906,27 @@
     "semantic_hash": ""
   },
   "apps/game/src/debug/StressModeController.ts": {
-    "mtime": 1789227527.294943,
-    "seen": 1789228151.5456798,
-    "ast_hash": "6d2f454f4d73e910d1c1682ae62d19e7",
+    "mtime": 1789225767.7050793,
+    "seen": 1789225886.7867548,
+    "ast_hash": "73a051fca711a72ea7e25c44c434eea4",
     "semantic_hash": ""
   },
   "apps/game/src/debug/__tests__/DebugPerformanceHud.test.ts": {
-    "mtime": 1789227790.430626,
-    "seen": 1789228151.5456798,
-    "ast_hash": "2ad0a2ff7f06151a56d87b873b39cc0b",
+    "mtime": 1789225797.5701516,
+    "seen": 1789225886.7867548,
+    "ast_hash": "93c845ea5d92c5ef8597bc0dd20a38ea",
     "semantic_hash": ""
   },
   "apps/game/src/pvp/__tests__/AdverseNetworkVerification.test.ts": {
-    "mtime": 1789228044.554106,
-    "seen": 1789228151.5456798,
-    "ast_hash": "dce6dcb09706fd02a91816f915846870",
+    "mtime": 1789225537.4707975,
+    "seen": 1789225886.7867548,
+    "ast_hash": "513b6746535a6b77d0284a946471662e",
     "semantic_hash": ""
   },
   "docs/QA_REAL_DEVICE_CHECKLIST.md": {
     "mtime": 1789221940.4869304,
     "seen": 1789221955.7140446,
     "ast_hash": "56b39ec28aabac3323bebe55886bf7ab",
-    "semantic_hash": ""
-  },
-  "apps/game/src/debug/qaLayout.ts": {
-    "mtime": 1789227482.0326657,
-    "seen": 1789228151.5456798,
-    "ast_hash": "4236b72d70806a01d3d10c071ed598e1",
-    "semantic_hash": ""
-  },
-  "apps/game/src/scenes/__tests__/GameSceneGuards.test.ts": {
-    "mtime": 1789227715.7892807,
-    "seen": 1789228151.5456798,
-    "ast_hash": "4fe0d410bc450d4152bd07c9a380925e",
-    "semantic_hash": ""
-  },
-  "apps/game/src/scenes/gameSceneGuards.ts": {
-    "mtime": 1789228090.6080534,
-    "seen": 1789228151.5456798,
-    "ast_hash": "26a303d5cfe83bb37a99754696835600",
     "semantic_hash": ""
   }
 }

@@ -11,7 +11,6 @@ import { TrainingScene } from './scenes/TrainingScene.js';
 import { LeagueScene } from './scenes/LeagueScene.js';
 import { MenuScene } from './scenes/MenuScene.js';
 import { CommanderScene } from './scenes/CommanderScene.js';
-import { detectDeviceCapabilities } from './performance/PerformanceProfile.js';
 
 // 1. Initialize Platform Adapter (Bale -> Eitaa -> Telegram -> Browser).
 // Phaser must not boot before platform init resolves: scenes read the
@@ -30,10 +29,11 @@ const startApp = (): void => {
   analyticsSink.start();
   trackSessionStart();
 
-  // Render the canvas at an optimized resolution mapped to device capabilities.
-  // Low-end mobile devices use clamped DPR (1.25) to avoid severe fill-rate bottlenecks.
-  const capabilities = detectDeviceCapabilities();
-  const RENDER_SCALE = capabilities.recommendedRenderScale;
+  // Render the canvas at a higher internal resolution than the 400x720
+  // logical coordinate system to avoid blurriness on high-DPI screens.
+  // The camera zoom (set in each scene's create()) maps logical
+  // coordinates back onto the scaled canvas.
+  const RENDER_SCALE = Math.min(window.devicePixelRatio || 1, 2);
 
   const config: Phaser.Types.Core.GameConfig = {
     type: Phaser.AUTO,
@@ -68,7 +68,6 @@ const startApp = (): void => {
       preBoot: (bootedGame) => {
         bootedGame.registry.set('platform', platform);
         bootedGame.registry.set('renderScale', RENDER_SCALE);
-        bootedGame.registry.set('deviceCapabilities', capabilities);
       },
     },
   };
