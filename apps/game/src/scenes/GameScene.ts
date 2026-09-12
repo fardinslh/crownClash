@@ -57,7 +57,6 @@ import {
 } from '../match/MatchMenuController.js';
 import {
   computeHudLayout,
-  formatDominancePercentages,
   formatHudCoins,
   formatHudName,
   formatHudTrophies,
@@ -68,6 +67,12 @@ import {
   getSceneViewport,
   setupSceneCamera,
 } from '../ui/Viewport.js';
+import {
+  computeMarchStride,
+  fastComputeDominance,
+  DominanceBarDirtyChecker,
+  DustPuffSimulator,
+} from '../combat/SmoothnessHelpers.js';
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 const MONO_FONT_FAMILY = '"Segoe UI", monospace, -apple-system, sans-serif';
@@ -90,6 +95,7 @@ interface ArmyFollower {
   sprite: Phaser.GameObjects.Image;
   relX: number;
   relY: number;
+  delaySeconds: number;
 }
 
 interface ArmyVisual {
@@ -105,6 +111,7 @@ interface ArmyVisual {
   dustInterval: number;
   dustColor: number;
   roleLabel: string;
+  phaseSeconds: number;
 }
 
 export class GameScene extends Phaser.Scene {
@@ -112,6 +119,14 @@ export class GameScene extends Phaser.Scene {
   private accumulators: Record<string, number> = {};
   private territoryVisuals: Map<string, TerritoryVisual> = new Map();
   private armyVisuals: Map<string, ArmyVisual> = new Map();
+
+  // Performance optimization state
+  private dustSimulator = new DustPuffSimulator(16);
+  private dustPool: Phaser.GameObjects.Arc[] = [];
+  private activeArmyIdsSet = new Set<string>();
+  private dominanceDirtyChecker = new DominanceBarDirtyChecker();
+  private lastTimerSeconds = -1;
+  private territoriesDirty = true;
 
   // Interaction / Multi-Select Dragging
   private selectedSourceIds: string[] = [];
@@ -323,6 +338,10 @@ export class GameScene extends Phaser.Scene {
     this.aiNextTick = PVP_AI_TICK_SECONDS;
     this.botStepRemainder = 0;
     this.lastHeartbeatSecond = -1;
+    this.initDustPool();
+    this.dominanceDirtyChecker.reset();
+    this.lastTimerSeconds = -1;
+    this.territoriesDirty = true;
 
     // Start atmospheric battle music
     sounds.startBattleMusic();
@@ -364,7 +383,18 @@ export class GameScene extends Phaser.Scene {
 
     // 5. Setup Pointer Input Listeners
     this.setupInputs();
+  }
 
+  private initDustPool(): void {
+    for (const arc of this.dustPool) {
+      arc.destroy();
+    }
+    this.dustPool = [];
+    this.dustSimulator.reset();
+    for (let i = 0; i < 16; i++) {
+      const arc = this.add.circle(0, 0, 3, 0xffffff, 0).setDepth(33).setVisible(false);
+      this.dustPool.push(arc);
+    }
   }
 
   private createArenaBackground(): void {
@@ -1802,6 +1832,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateTerritoryVisuals(): void {
+    if (!this.territoriesDirty) return;
+    this.territoriesDirty = false;
+
     for (const [id, vis] of this.territoryVisuals.entries()) {
       const stateTerritory = this.gameState.territories[id];
       if (!stateTerritory) continue;
@@ -1840,31 +1873,9 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private spawnDustPuff(x: number, y: number, color: number): void {
-    const jitterX = Math.random() * 4 - 2;
-    const jitterY = Math.random() * 3 - 1.5;
-    const dust = this.add
-      .circle(x + jitterX, y + 6 + jitterY, 3, color, 0.45)
-      .setDepth(33);
-
-    this.tweens.add({
-      targets: dust,
-      scale: 1.8,
-      alpha: 0,
-      y: dust.y - 4,
-      duration: 220,
-      onComplete: () => {
-        this.tweens.killTweensOf(dust);
-        dust.destroy();
-      },
-    });
-  }
-
   private destroyArmyVisual(visual: ArmyVisual): void {
     this.tweens.killTweensOf(visual.container);
-    this.tweens.killTweensOf(visual.leaderSprite);
     for (const f of visual.followers) {
-      this.tweens.killTweensOf(f.sprite);
       f.sprite.destroy();
       f.shadow.destroy();
     }
@@ -1878,20 +1889,24 @@ export class GameScene extends Phaser.Scene {
   private updateArmyVisuals(deltaSeconds: number): void {
     // Owner is part of the visual key as defense-in-depth against an older
     // server producing the same per-player sequence ID for both commanders.
-    const activeArmyIds = new Set(
-      this.gameState.armies.map((army) => `${army.owner}:${army.id}`)
-    );
+    this.activeArmyIdsSet.clear();
+    const armies = this.gameState.armies;
+    const armyCount = armies.length;
+    for (let i = 0; i < armyCount; i++) {
+      const army = armies[i];
+      this.activeArmyIdsSet.add(`${army.owner}:${army.id}`);
+    }
 
     // Destroy visuals for finished armies
     for (const [id, visual] of this.armyVisuals.entries()) {
-      if (!activeArmyIds.has(id)) {
+      if (!this.activeArmyIdsSet.has(id)) {
         this.destroyArmyVisual(visual);
         this.armyVisuals.delete(id);
       }
     }
 
     // Update or create visual for each active army
-    for (const army of this.gameState.armies) {
+    for (const army of armies) {
       const currentX = Phaser.Math.Linear(army.startX, army.targetX, army.progress);
       const currentY = Phaser.Math.Linear(army.startY, army.targetY, army.progress);
       const visualId = `${army.owner}:${army.id}`;
@@ -1964,23 +1979,14 @@ export class GameScene extends Phaser.Scene {
             .setScale(0.19)
             .setFlipX(isFacingLeft);
 
-          if (!this.reducedMotion) {
-            // Alternating rhythmic stride bounce
-            this.tweens.add({
-              targets: sprite,
-              y: f.y - 2.5,
-              scaleX: 0.175,
-              scaleY: 0.205,
-              duration: 130,
-              delay: f.delay,
-              yoyo: true,
-              repeat: -1,
-              ease: 'Sine.easeInOut',
-            });
-          }
-
           container.add([shadow, sprite]);
-          followers.push({ shadow, sprite, relX: f.x, relY: f.y });
+          followers.push({
+            shadow,
+            sprite,
+            relX: f.x,
+            relY: f.y,
+            delaySeconds: f.delay / 1000,
+          });
         }
 
         // Commander / Leader Unit
@@ -1990,20 +1996,6 @@ export class GameScene extends Phaser.Scene {
           .image(0, 0, leaderTexture)
           .setScale(0.25)
           .setFlipX(isFacingLeft);
-
-        if (!this.reducedMotion) {
-          // Leader stride bounce + squash/stretch
-          this.tweens.add({
-            targets: leaderSprite,
-            y: -3.5,
-            scaleX: 0.23,
-            scaleY: 0.27,
-            duration: 130,
-            yoyo: true,
-            repeat: -1,
-            ease: 'Sine.easeInOut',
-          });
-        }
 
         // High-contrast Troop Count Pill Badge
         const badgeY = -19;
@@ -2041,6 +2033,7 @@ export class GameScene extends Phaser.Scene {
           dustInterval: sourceType === 'stable' ? 0.09 : sourceType === 'barracks' ? 0.14 : 0.18,
           dustColor: roleStyle.color,
           roleLabel: roleStyle.label,
+          phaseSeconds: 0,
         };
         this.armyVisuals.set(visualId, visual);
         if (!this.reducedMotion) {
@@ -2066,11 +2059,48 @@ export class GameScene extends Phaser.Scene {
         visual.dustTimer -= deltaSeconds;
         if (!this.reducedMotion && visual.dustTimer <= 0) {
           visual.dustTimer = visual.dustInterval;
-          this.spawnDustPuff(
+          this.dustSimulator.spawn(
             currentX + visual.rearOffset.x,
             currentY + visual.rearOffset.y,
             visual.dustColor
           );
+        }
+      }
+
+      if (!this.reducedMotion) {
+        visual.phaseSeconds += deltaSeconds;
+        const leaderStride = computeMarchStride(visual.phaseSeconds, 0);
+        visual.leaderSprite.y = leaderStride.leaderY;
+        visual.leaderSprite.setScale(leaderStride.leaderScaleX, leaderStride.leaderScaleY);
+
+        const followerCount = visual.followers.length;
+        for (let fIdx = 0; fIdx < followerCount; fIdx++) {
+          const f = visual.followers[fIdx];
+          const fStride = computeMarchStride(visual.phaseSeconds, f.delaySeconds);
+          f.sprite.y = f.relY + fStride.followerYOffset;
+          f.sprite.setScale(fStride.followerScaleX, fStride.followerScaleY);
+        }
+      }
+    }
+
+    if (!this.reducedMotion) {
+      this.dustSimulator.update(deltaSeconds);
+      const dustItems = this.dustSimulator.getItems();
+      const poolLen = this.dustPool.length;
+      for (let i = 0; i < poolLen; i++) {
+        const item = dustItems[i];
+        const arc = this.dustPool[i];
+        if (!arc || !item) continue;
+        if (item.active) {
+          arc.setVisible(true);
+          arc.setPosition(item.x, item.y);
+          arc.setScale(item.scale);
+          arc.setAlpha(item.alpha);
+          if (arc.fillColor !== item.color) {
+            arc.setFillStyle(item.color, item.alpha);
+          }
+        } else if (arc.visible) {
+          arc.setVisible(false);
         }
       }
     }
@@ -2079,11 +2109,12 @@ export class GameScene extends Phaser.Scene {
   private updateHud(): void {
     // 1. Timer & Dynamic Tension Loop
     const remaining = Math.max(0, this.gameState.timeLimitSeconds - this.gameState.elapsedTimeSeconds);
-    const mins = Math.floor(remaining / 60);
-    const secs = Math.floor(remaining % 60);
-    const timerStr = `⏱ ${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    if (this.timerText.text !== timerStr) {
-      this.timerText.setText(timerStr);
+    const roundedSecs = Math.floor(remaining);
+    if (roundedSecs !== this.lastTimerSeconds) {
+      this.lastTimerSeconds = roundedSecs;
+      const mins = Math.floor(remaining / 60);
+      const secs = roundedSecs % 60;
+      this.timerText.setText(`⏱ ${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
     }
 
     if (remaining <= 15 && this.gameState.status === 'playing') {
@@ -2108,32 +2139,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // 2. Dynamic Tug-of-War Dominance Bar
-    // Combines territorial ownership and active field armies for live tactical responsiveness
-    const territories = Object.values(this.gameState.territories);
-    let playerStrength = 0;
-    let enemyStrength = 0;
-    let neutralStrength = 0;
-
-    territories.forEach((t) => {
-      if (t.owner === 'player') playerStrength += 35 + t.units;
-      else if (t.owner === 'enemy') enemyStrength += 35 + t.units;
-      else neutralStrength += 15 + t.units;
-    });
-
-    this.gameState.armies.forEach((a) => {
-      if (a.owner === 'player') playerStrength += a.units;
-      else if (a.owner === 'enemy') enemyStrength += a.units;
-    });
-
-    const dominance = formatDominancePercentages({
-      playerStrength,
-      enemyStrength,
-      neutralStrength,
-      playerArmiesCount: this.gameState.armies.filter((a) => a.owner === 'player').length,
-      enemyTerritoriesCount: territories.filter((t) => t.owner === 'enemy').length,
-      enemyArmiesCount: this.gameState.armies.filter((a) => a.owner === 'enemy').length,
-    });
-
+    const dominance = fastComputeDominance(this.gameState);
     const playerPct = dominance.playerPct;
     const neutralPct = dominance.neutralPct;
 
@@ -2141,16 +2147,19 @@ export class GameScene extends Phaser.Scene {
     const playerWidth = Math.max(14, (playerPct / 100) * barTotalWidth);
     const neutralWidth = Math.max(8, (neutralPct / 100) * barTotalWidth);
     const enemyWidth = Math.max(14, barTotalWidth - playerWidth - neutralWidth);
-
     const barStartX = this.dominanceBarStartX;
-    this.playerBar.setPosition(barStartX, this.playerBar.y).setDisplaySize(playerWidth, 12);
-    this.neutralBar.setPosition(barStartX + playerWidth, this.neutralBar.y).setDisplaySize(neutralWidth, 12);
-    this.enemyBar.setPosition(barStartX + playerWidth + neutralWidth, this.enemyBar.y).setDisplaySize(enemyWidth, 12);
 
-    if (this.playerDomText.text !== dominance.playerDomText) {
+    const dirty = this.dominanceDirtyChecker.check(dominance);
+    if (dirty.barsChanged) {
+      this.playerBar.setPosition(barStartX, this.playerBar.y).setDisplaySize(playerWidth, 12);
+      this.neutralBar.setPosition(barStartX + playerWidth, this.neutralBar.y).setDisplaySize(neutralWidth, 12);
+      this.enemyBar.setPosition(barStartX + playerWidth + neutralWidth, this.enemyBar.y).setDisplaySize(enemyWidth, 12);
+    }
+
+    if (dirty.playerTextChanged) {
       this.playerDomText.setText(dominance.playerDomText);
     }
-    if (this.enemyDomText.text !== dominance.enemyDomText) {
+    if (dirty.enemyTextChanged) {
       this.enemyDomText.setText(dominance.enemyDomText);
     }
 
@@ -2171,7 +2180,9 @@ export class GameScene extends Phaser.Scene {
 
     // Smooth Tug-of-War Crown Needle glide towards the leading front
     const targetCrownX = barStartX + playerWidth + neutralWidth / 2;
-    this.tugCrown.x = Phaser.Math.Linear(this.tugCrown.x, targetCrownX, 0.12);
+    if (Math.abs(this.tugCrown.x - targetCrownX) > 0.1) {
+      this.tugCrown.x = Phaser.Math.Linear(this.tugCrown.x, targetCrownX, 0.12);
+    }
   }
 
   private endMatch(): void {
@@ -3424,6 +3435,13 @@ export class GameScene extends Phaser.Scene {
       vis.container.destroy();
     }
     this.territoryVisuals.clear();
+    for (const arc of this.dustPool) {
+      arc.destroy();
+    }
+    this.dustPool = [];
+    this.dustSimulator.reset();
+    this.activeArmyIdsSet.clear();
+    this.dominanceDirtyChecker.reset();
     this.input.removeAllListeners();
     this.livePredictions = [];
     this.lastAuthoritativeState = null;

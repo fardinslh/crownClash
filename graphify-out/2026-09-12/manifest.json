@@ -192,9 +192,9 @@
     "semantic_hash": ""
   },
   "apps/game/src/scenes/GameScene.ts": {
-    "mtime": 1789203924.610779,
-    "seen": 1789203976.3229513,
-    "ast_hash": "f1cb0f1ea9a4180efc8cdfc1d6963346",
+    "mtime": 1789215299.4471045,
+    "seen": 1789215572.7571547,
+    "ast_hash": "91d4967839825e14d4aec78dd102b0dc",
     "semantic_hash": ""
   },
   "apps/game/src/scenes/KingdomScene.ts": {
@@ -666,9 +666,9 @@
     "semantic_hash": "31d7d8eea28492aa14396f47361944b6"
   },
   "apps/game/src/ui/HudLayout.ts": {
-    "mtime": 1789196699.3359709,
-    "seen": 1789196716.2251875,
-    "ast_hash": "4830e32a27139261bb61d0d453fedcd9",
+    "mtime": 1789215362.0860782,
+    "seen": 1789215572.7571547,
+    "ast_hash": "c79c99155d288a01786bfd622e0ceabf",
     "semantic_hash": ""
   },
   "apps/game/src/ui/Viewport.ts": {
@@ -678,9 +678,9 @@
     "semantic_hash": ""
   },
   "apps/game/src/ui/__tests__/HudLayout.test.ts": {
-    "mtime": 1789196706.0363486,
-    "seen": 1789196716.2251875,
-    "ast_hash": "58a288a967f59d84a0c99c0587d422ec",
+    "mtime": 1789215346.311633,
+    "seen": 1789215572.7571547,
+    "ast_hash": "c904546bed2031ccb9c82b755ed7f911",
     "semantic_hash": ""
   },
   "apps/game/src/ui/__tests__/ScaleViewport.test.ts": {
