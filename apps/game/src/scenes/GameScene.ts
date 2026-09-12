@@ -55,7 +55,14 @@ import {
   MatchMenuController,
   type MatchMenuState,
 } from '../match/MatchMenuController.js';
-import { computeHudLayout, formatDominancePercentages } from '../ui/HudLayout.js';
+import {
+  computeHudLayout,
+  formatDominancePercentages,
+  formatHudCoins,
+  formatHudName,
+  formatHudTrophies,
+  getPillMaxContentWidth,
+} from '../ui/HudLayout.js';
 import {
   bindSceneViewportResize,
   getSceneViewport,
@@ -602,8 +609,8 @@ export class GameScene extends Phaser.Scene {
     const { visibleWidth, visibleHeight } = getSceneViewport(this);
 
     // Compute player HUD label width for dynamic pill sizing
-    const playerLabel = this.computePlayerHudLabel();
-    const tempText = this.add.text(0, 0, playerLabel, {
+    const playerLabelCandidate = this.computePlayerHudLabel();
+    const tempText = this.add.text(0, 0, playerLabelCandidate, {
       fontFamily: FONT_FAMILY,
       fontSize: '11px',
       fontStyle: 'bold',
@@ -612,7 +619,7 @@ export class GameScene extends Phaser.Scene {
     const textWidth = Math.ceil(tempText.width);
     tempText.destroy();
 
-    const hudLayout = computeHudLayout(visibleWidth, textWidth);
+    const hudLayout = computeHudLayout(visibleWidth, textWidth, { isLiveMode: this.liveMode });
     this.dominanceBarTotalWidth = hudLayout.dominanceBar.trackWidth;
     this.dominanceBarStartX = hudLayout.dominanceBar.bounds.x;
 
@@ -658,6 +665,9 @@ export class GameScene extends Phaser.Scene {
       .setStrokeStyle(1.5, 0x3b82f6, 0.9)
       .setDepth(95);
 
+    const playerMaxW = getPillMaxContentWidth(hudLayout.playerPill.visibleBounds.width);
+    const playerLabel = this.computePlayerHudLabel(playerMaxW);
+
     this.add
       .text(hudLayout.playerPill.center.x, hudLayout.playerPill.center.y, playerLabel, {
         fontFamily: FONT_FAMILY,
@@ -684,11 +694,12 @@ export class GameScene extends Phaser.Scene {
       .setStrokeStyle(1.5, 0x818cf8, 0.9)
       .setDepth(95);
 
+    const trophyMaxW = getPillMaxContentWidth(hudLayout.trophyPill.visibleBounds.width);
     this.hudTrophiesText = this.add
       .text(
         hudLayout.trophyPill.center.x,
         hudLayout.trophyPill.center.y,
-        `🏆 ${career.trophies}`,
+        formatHudTrophies(career.trophies, trophyMaxW),
         {
           fontFamily: FONT_FAMILY,
           fontSize: '11px',
@@ -715,13 +726,16 @@ export class GameScene extends Phaser.Scene {
       .setStrokeStyle(1.5, this.liveMode ? 0xf87171 : 0xf59e0b, 0.9)
       .setDepth(95);
 
+    const coinMaxW = getPillMaxContentWidth(hudLayout.coinPill.visibleBounds.width);
+    const coinOrOpponentLabel = this.liveMode
+      ? formatHudName(this.liveOpponentName, coinMaxW, '🔴 ')
+      : formatHudCoins(career.coins, coinMaxW);
+
     this.hudCoinsText = this.add
       .text(
         hudLayout.coinPill.center.x,
         hudLayout.coinPill.center.y,
-        this.liveMode
-          ? `🔴 ${this.formatShortName(this.liveOpponentName, 6)}`
-          : `🪙 ${career.coins}`,
+        coinOrOpponentLabel,
         {
           fontFamily: FONT_FAMILY,
           fontSize: '11px',
@@ -808,10 +822,12 @@ export class GameScene extends Phaser.Scene {
     // Auto-update HUD when career balance changes (bot battles only for coins)
     this.careerSubscription = this.careerManager.subscribe((updatedCareer) => {
       if (this.hudCoinsText && this.hudCoinsText.active && !this.liveMode) {
-        this.hudCoinsText.setText(`🪙 ${updatedCareer.coins}`);
+        const coinPillMaxW = getPillMaxContentWidth(hudLayout.coinPill.visibleBounds.width);
+        this.hudCoinsText.setText(formatHudCoins(updatedCareer.coins, coinPillMaxW));
       }
       if (this.hudTrophiesText && this.hudTrophiesText.active) {
-        this.hudTrophiesText.setText(`🏆 ${updatedCareer.trophies}`);
+        const trophyPillMaxW = getPillMaxContentWidth(hudLayout.trophyPill.visibleBounds.width);
+        this.hudTrophiesText.setText(formatHudTrophies(updatedCareer.trophies, trophyPillMaxW));
       }
     });
 
@@ -916,21 +932,25 @@ export class GameScene extends Phaser.Scene {
       .setDepth(96);
   }
 
-  private computePlayerHudLabel(): string {
+  private computePlayerHudLabel(maxContentWidth?: number): string {
     const rawName = this.platform.getUser().username || this.platform.getUser().firstName || 'Commander';
+    if (maxContentWidth !== undefined) {
+      return formatHudName(rawName, maxContentWidth, '🔵 ');
+    }
     return `🔵 ${this.formatShortName(rawName, 7)}`;
   }
 
   private formatShortName(name: string, maxLen = 8): string {
     if (!name) return 'Player';
     const trimmed = name.trim();
+    let candidate = trimmed;
     if (trimmed.startsWith('Commander_')) {
-      return 'Cmdr ' + trimmed.slice(10, 14);
+      candidate = 'Cmdr ' + (trimmed.slice(10, 14) || trimmed.slice(10));
     }
-    if (trimmed.length > maxLen) {
-      return trimmed.slice(0, maxLen - 1) + '…';
+    if (candidate.length > maxLen) {
+      return candidate.slice(0, maxLen - 1) + '…';
     }
-    return trimmed;
+    return candidate;
   }
 
   private getTerritoryUnderPointer(pointer: Phaser.Input.Pointer): Territory | null {

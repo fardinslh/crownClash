@@ -1,13 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeHudLayout,
+  fitTextToWidth,
+  formatCompactNumber,
   formatDominancePercentages,
+  formatHudCoins,
+  formatHudName,
+  formatHudTrophies,
+  getPillMaxContentWidth,
+  measureHudTextWidth,
   rectanglesIntersect,
   type Rect,
 } from '../HudLayout.js';
 
 describe('HudLayout', () => {
-  const TEST_PORTRAIT_WIDTHS = [360, 390, 400, 412, 430];
+  const TEST_PORTRAIT_WIDTHS = [360, 375, 390, 400, 412, 430];
 
   describe('rectanglesIntersect helper', () => {
     it('detects intersecting rectangles', () => {
@@ -35,81 +42,211 @@ describe('HudLayout', () => {
     });
   });
 
-  describe('Mobile Portrait Viewports HUD Geometry', () => {
+  describe('Text measurement and truncation helpers', () => {
+    it('measures text width with proportional metrics', () => {
+      expect(measureHudTextWidth('')).toBe(0);
+      const shortWidth = measureHudTextWidth('ABC');
+      const longWidth = measureHudTextWidth('ABCDEFGHIJKLM');
+      expect(shortWidth).toBeGreaterThan(0);
+      expect(longWidth).toBeGreaterThan(shortWidth);
+    });
+
+    it('fitTextToWidth preserves text when within maxWidth', () => {
+      const text = 'Short';
+      const fitted = fitTextToWidth(text, 100);
+      expect(fitted).toBe(text);
+    });
+
+    it('fitTextToWidth truncates and appends ellipsis when exceeding maxWidth', () => {
+      const text = 'A Very Long Commander Name That Definitely Exceeds Pill';
+      const maxWidth = 50;
+      const fitted = fitTextToWidth(text, maxWidth);
+      expect(fitted.endsWith('…')).toBe(true);
+      expect(measureHudTextWidth(fitted)).toBeLessThanOrEqual(maxWidth);
+    });
+
+    it('fitTextToWidth handles Unicode multi-byte characters safely without corruption', () => {
+      const text = '👑⚔️🛡️🔥🌟💫⚡️✨';
+      const maxWidth = 45;
+      const fitted = fitTextToWidth(text, maxWidth);
+      expect(measureHudTextWidth(fitted)).toBeLessThanOrEqual(maxWidth);
+      expect(fitted.endsWith('…')).toBe(true);
+    });
+
+    it('formatCompactNumber formats values correctly', () => {
+      expect(formatCompactNumber(0)).toBe('0');
+      expect(formatCompactNumber(175)).toBe('175');
+      expect(formatCompactNumber(9999)).toBe('9999');
+      expect(formatCompactNumber(12500)).toBe('12.5k');
+      expect(formatCompactNumber(250000)).toBe('250k');
+      expect(formatCompactNumber(1500000)).toBe('1.5M');
+    });
+  });
+
+  describe('HUD Label Formatting and Content Containment', () => {
+    it('formats Commander_9960 with 🔴 prefix to fit inside opponent pill content width', () => {
+      // 68px pill has 58px content width; 72px pill has 62px content width
+      const maxContentWidth = 58;
+      const formatted = formatHudName('Commander_9960', maxContentWidth, '🔴 ');
+
+      expect(formatted.startsWith('🔴 Cmdr')).toBe(true);
+      expect(formatted.endsWith('…')).toBe(true);
+      const measured = measureHudTextWidth(formatted);
+      expect(measured).toBeLessThanOrEqual(maxContentWidth);
+    });
+
+    it('handles empty or whitespace names gracefully', () => {
+      const playerFallback = formatHudName('', 80, '🔵 ');
+      expect(playerFallback).toBe('🔵 Player');
+      expect(measureHudTextWidth(playerFallback)).toBeLessThanOrEqual(80);
+
+      const opponentFallback = formatHudName('   ', 80, '🔴 ');
+      expect(opponentFallback).toBe('🔴 Opponent');
+      expect(measureHudTextWidth(opponentFallback)).toBeLessThanOrEqual(80);
+
+      const constrainedOpponent = formatHudName('   ', 58, '🔴 ');
+      expect(constrainedOpponent.startsWith('🔴 Opp')).toBe(true);
+      expect(constrainedOpponent.endsWith('…')).toBe(true);
+      expect(measureHudTextWidth(constrainedOpponent)).toBeLessThanOrEqual(58);
+    });
+
+    it('formats Persian names within content bounds', () => {
+      const maxContentWidth = 58;
+      const persianName = 'علیرضا رضایی پور';
+      const formatted = formatHudName(persianName, maxContentWidth, '🔵 ');
+      expect(measureHudTextWidth(formatted)).toBeLessThanOrEqual(maxContentWidth);
+      expect(formatted.endsWith('…')).toBe(true);
+    });
+
+    it('formats CJK names within content bounds', () => {
+      const maxContentWidth = 58;
+      const cjkName = '征服者王最高司令官';
+      const formatted = formatHudName(cjkName, maxContentWidth, '🔴 ');
+      expect(measureHudTextWidth(formatted)).toBeLessThanOrEqual(maxContentWidth);
+      expect(formatted.endsWith('…')).toBe(true);
+    });
+
+    it('formats coin counts within coin pill content bounds', () => {
+      const maxContentWidth = 58;
+      expect(measureHudTextWidth(formatHudCoins(175, maxContentWidth))).toBeLessThanOrEqual(maxContentWidth);
+      expect(measureHudTextWidth(formatHudCoins(12500, maxContentWidth))).toBeLessThanOrEqual(maxContentWidth);
+      expect(measureHudTextWidth(formatHudCoins(1500000, maxContentWidth))).toBeLessThanOrEqual(maxContentWidth);
+    });
+
+    it('formats trophy counts within trophy pill content bounds', () => {
+      const maxContentWidth = 46; // 56px pill - 10px padding = 46px
+      expect(measureHudTextWidth(formatHudTrophies(18, maxContentWidth))).toBeLessThanOrEqual(maxContentWidth);
+      expect(measureHudTextWidth(formatHudTrophies(4500, maxContentWidth))).toBeLessThanOrEqual(maxContentWidth);
+      expect(measureHudTextWidth(formatHudTrophies(99999, maxContentWidth))).toBeLessThanOrEqual(maxContentWidth);
+    });
+  });
+
+  describe('Mobile Portrait Viewports HUD Geometry and Containment', () => {
     TEST_PORTRAIT_WIDTHS.forEach((width) => {
-      describe(`Viewport width: ${width}px`, () => {
-        it('asserts the visible menu rectangle does NOT intersect the dominance bar', () => {
-          const layout = computeHudLayout(width);
+      ['Bot Match' as const, 'Live PvP' as const].forEach((modeName) => {
+        const isLiveMode = modeName === 'Live PvP';
 
-          const menuVis = layout.menuButton.visibleBounds;
-          const domBounds = layout.dominanceBar.bounds;
+        describe(`Viewport width: ${width}px (${modeName})`, () => {
+          it('asserts the visible menu rectangle does NOT intersect the dominance bar', () => {
+            const layout = computeHudLayout(width, 50, { isLiveMode });
 
-          // Mandatory assertion: visible menu button does not intersect dominance bar
-          const intersects = rectanglesIntersect(menuVis, domBounds);
-          expect(intersects).toBe(false);
+            const menuVis = layout.menuButton.visibleBounds;
+            const domBounds = layout.dominanceBar.bounds;
 
-          // Assert positive vertical clearance between visible menu and dominance bar
-          const verticalClearance = domBounds.y - (menuVis.y + menuVis.height);
-          expect(verticalClearance).toBeGreaterThanOrEqual(10);
-        });
+            const intersects = rectanglesIntersect(menuVis, domBounds);
+            expect(intersects).toBe(false);
 
-        it('preserves a minimum 44x44 interactive touch target', () => {
-          const layout = computeHudLayout(width);
-          const hitBounds = layout.menuButton.hitBounds;
+            const verticalClearance = domBounds.y - (menuVis.y + menuVis.height);
+            expect(verticalClearance).toBeGreaterThanOrEqual(10);
+          });
 
-          expect(hitBounds.width).toBeGreaterThanOrEqual(44);
-          expect(hitBounds.height).toBeGreaterThanOrEqual(44);
-        });
+          it('preserves a minimum 44x44 interactive touch target', () => {
+            const layout = computeHudLayout(width, 50, { isLiveMode });
+            const hitBounds = layout.menuButton.hitBounds;
 
-        it('asserts the 44x44 interactive touch target does NOT intersect the dominance bar', () => {
-          const layout = computeHudLayout(width);
+            expect(hitBounds.width).toBeGreaterThanOrEqual(44);
+            expect(hitBounds.height).toBeGreaterThanOrEqual(44);
+          });
 
-          const menuHit = layout.menuButton.hitBounds;
-          const domBounds = layout.dominanceBar.bounds;
+          it('asserts the 44x44 interactive touch target does NOT intersect the dominance bar', () => {
+            const layout = computeHudLayout(width, 50, { isLiveMode });
 
-          const intersects = rectanglesIntersect(menuHit, domBounds);
-          expect(intersects).toBe(false);
+            const menuHit = layout.menuButton.hitBounds;
+            const domBounds = layout.dominanceBar.bounds;
 
-          const clearance = domBounds.y - (menuHit.y + menuHit.height);
-          expect(clearance).toBeGreaterThanOrEqual(1);
-        });
+            const intersects = rectanglesIntersect(menuHit, domBounds);
+            expect(intersects).toBe(false);
 
-        it('keeps icon and hit target strictly centered and aligned', () => {
-          const layout = computeHudLayout(width);
+            const clearance = domBounds.y - (menuHit.y + menuHit.height);
+            expect(clearance).toBeGreaterThanOrEqual(1);
+          });
 
-          const center = layout.menuButton.center;
-          const vis = layout.menuButton.visibleBounds;
-          const hit = layout.menuButton.hitBounds;
+          it('keeps icon and hit target strictly centered and aligned', () => {
+            const layout = computeHudLayout(width, 50, { isLiveMode });
 
-          expect(vis.x + vis.width / 2).toBeCloseTo(center.x);
-          expect(vis.y + vis.height / 2).toBeCloseTo(center.y);
+            const center = layout.menuButton.center;
+            const vis = layout.menuButton.visibleBounds;
+            const hit = layout.menuButton.hitBounds;
 
-          expect(hit.x + hit.width / 2).toBeCloseTo(center.x);
-          expect(hit.y + hit.height / 2).toBeCloseTo(center.y);
-        });
+            expect(vis.x + vis.width / 2).toBeCloseTo(center.x);
+            expect(vis.y + vis.height / 2).toBeCloseTo(center.y);
 
-        it('asserts Row 1 pills do not collide with each other or the menu hit area', () => {
-          const layout = computeHudLayout(width);
+            expect(hit.x + hit.width / 2).toBeCloseTo(center.x);
+            expect(hit.y + hit.height / 2).toBeCloseTo(center.y);
+          });
 
-          const pills = [
-            layout.playerPill.visibleBounds,
-            layout.trophyPill.visibleBounds,
-            layout.coinPill.visibleBounds,
-            layout.clockPill.visibleBounds,
-          ];
+          it('asserts Row 1 pills do not collide with each other or the menu hit area', () => {
+            const layout = computeHudLayout(width, 50, { isLiveMode });
 
-          for (let i = 0; i < pills.length - 1; i++) {
-            const current = pills[i];
-            const next = pills[i + 1];
-            expect(rectanglesIntersect(current, next)).toBe(false);
-            expect(next.x).toBeGreaterThan(current.x + current.width);
-          }
+            const pills = [
+              layout.playerPill.visibleBounds,
+              layout.trophyPill.visibleBounds,
+              layout.coinPill.visibleBounds,
+              layout.clockPill.visibleBounds,
+            ];
 
-          // Clock pill must not intersect menu hit zone
-          const clockPill = layout.clockPill.visibleBounds;
-          const menuHit = layout.menuButton.hitBounds;
-          expect(rectanglesIntersect(clockPill, menuHit)).toBe(false);
-          expect(menuHit.x).toBeGreaterThanOrEqual(clockPill.x + clockPill.width);
+            for (let i = 0; i < pills.length - 1; i++) {
+              const current = pills[i];
+              const next = pills[i + 1];
+              expect(rectanglesIntersect(current, next)).toBe(false);
+              expect(next.x - (current.x + current.width)).toBeGreaterThanOrEqual(5);
+            }
+
+            // Clock pill must not intersect menu hit zone
+            const clockPill = layout.clockPill.visibleBounds;
+            const menuHit = layout.menuButton.hitBounds;
+            expect(rectanglesIntersect(clockPill, menuHit)).toBe(false);
+            expect(menuHit.x).toBeGreaterThanOrEqual(clockPill.x + clockPill.width);
+          });
+
+          it('asserts all 4 HUD labels fit strictly inside their respective pill content bounds', () => {
+            const layout = computeHudLayout(width, 60, { isLiveMode });
+
+            // 1. Player label
+            const playerContentWidth = getPillMaxContentWidth(layout.playerPill.visibleBounds.width);
+            const playerLabel = formatHudName('Commander_1234', playerContentWidth, '🔵 ');
+            const playerMeasured = measureHudTextWidth(playerLabel);
+            expect(playerMeasured).toBeLessThanOrEqual(playerContentWidth);
+
+            // 2. Trophy label
+            const trophyContentWidth = getPillMaxContentWidth(layout.trophyPill.visibleBounds.width);
+            const trophyLabel = formatHudTrophies(1850, trophyContentWidth);
+            const trophyMeasured = measureHudTextWidth(trophyLabel);
+            expect(trophyMeasured).toBeLessThanOrEqual(trophyContentWidth);
+
+            // 3. Coin / Opponent label
+            const coinContentWidth = getPillMaxContentWidth(layout.coinPill.visibleBounds.width);
+            const coinOrOpponentLabel = isLiveMode
+              ? formatHudName('Commander_9960', coinContentWidth, '🔴 ')
+              : formatHudCoins(50000, coinContentWidth);
+            const coinMeasured = measureHudTextWidth(coinOrOpponentLabel);
+            expect(coinMeasured).toBeLessThanOrEqual(coinContentWidth);
+
+            // 4. Timer label (⏱ 01:30)
+            const clockContentWidth = getPillMaxContentWidth(layout.clockPill.visibleBounds.width);
+            const timerMeasured = measureHudTextWidth('⏱ 01:30', { fontSize: 12, mono: true });
+            expect(timerMeasured).toBeLessThanOrEqual(clockContentWidth);
+          });
         });
       });
     });
