@@ -106,6 +106,7 @@ export interface PlatformAdapter {
    */
   showBackButton(onClick: () => void): void;
   hideBackButton(): void;
+  triggerBackButton(): void;
 
   /**
    * Opens an external link safely through the messenger client.

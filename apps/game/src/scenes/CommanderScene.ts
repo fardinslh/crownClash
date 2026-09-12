@@ -23,6 +23,7 @@ export class CommanderScene extends Phaser.Scene {
   private careerManager!: CareerManager;
   private active = true;
   private pending = false;
+  private isExiting = false;
   private background!: Phaser.GameObjects.Rectangle;
   private powerBadgeText!: Phaser.GameObjects.Text;
   private cards: Phaser.GameObjects.Container[] = [];
@@ -37,6 +38,7 @@ export class CommanderScene extends Phaser.Scene {
     this.platform = (this.registry.get('platform') as PlatformAdapter) || createPlatformAdapter();
     this.careerManager = CareerManager.getInstance(this.platform.getUser().id);
     this.active = true;
+    this.isExiting = false;
     this.buildScene();
     this.platform.showBackButton(() => this.close());
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -162,7 +164,9 @@ export class CommanderScene extends Phaser.Scene {
   }
 
   private close(): void {
+    if (this.isExiting) return;
     if (this.pending) return this.showToast('Equipping commander...');
+    this.isExiting = true;
     this.platform.hapticSelection();
     this.scene.start('MenuScene');
   }

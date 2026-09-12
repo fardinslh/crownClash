@@ -8,6 +8,7 @@ import {
 describe('MatchMenuController', () => {
   function createController(overrides: Partial<MatchMenuDependencies> = {}) {
     const trackQuit = vi.fn((_event: MatchQuitEvent) => true);
+    const trackAnalytics = vi.fn();
     const closeLiveClient = vi.fn();
     const onStateChange = vi.fn();
     const onExitConfirmed = vi.fn();
@@ -19,6 +20,7 @@ describe('MatchMenuController', () => {
       getDurationSeconds,
       closeLiveClient,
       trackQuit,
+      trackAnalytics,
       onStateChange,
       onExitConfirmed,
       ...overrides,
@@ -29,6 +31,7 @@ describe('MatchMenuController', () => {
       controller,
       deps,
       trackQuit,
+      trackAnalytics,
       closeLiveClient,
       onStateChange,
       onExitConfirmed,
@@ -98,30 +101,96 @@ describe('MatchMenuController', () => {
   });
 
   describe('Platform back button step-back navigation', () => {
-    it('opens menu when closed, closes menu when open, and steps back from confirm without abandoning match', () => {
-      const { controller, trackQuit, closeLiveClient, onExitConfirmed } = createController();
+    it('opens confirmation when closed, closes menu when open, and cancels confirm without abandoning match', () => {
+      const { controller, trackQuit, trackAnalytics, closeLiveClient, onExitConfirmed } = createController();
 
-      // 1. When closed -> opens menu
+      // 1. When closed (active match) -> platform back opens confirmation directly
       expect(controller.getState()).toBe('closed');
       controller.handleBackButton();
-      expect(controller.getState()).toBe('menu');
-
-      // 2. When in menu -> closes menu
-      controller.handleBackButton();
-      expect(controller.getState()).toBe('closed');
-
-      // 3. When in confirm -> steps back to menu
-      controller.openMenu();
-      controller.openConfirm();
       expect(controller.getState()).toBe('confirm');
+      expect(trackAnalytics).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'match_leave_requested' })
+      );
 
+      // 2. When in confirm (opened from match) -> platform back cancels and resumes match
+      controller.handleBackButton();
+      expect(controller.getState()).toBe('closed');
+      expect(trackAnalytics).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'match_leave_cancelled' })
+      );
+      expect(trackAnalytics).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'match_resumed' })
+      );
+
+      // 3. When in menu -> platform back closes menu (resumes match)
+      controller.openMenu();
+      expect(controller.getState()).toBe('menu');
+      controller.handleBackButton();
+      expect(controller.getState()).toBe('closed');
+
+      // 4. When in confirm (opened from menu) -> platform back steps back to menu
+      controller.openMenu();
+      controller.openConfirm('menu');
+      expect(controller.getState()).toBe('confirm');
       controller.handleBackButton();
       expect(controller.getState()).toBe('menu');
 
-      // 4. Must never immediately abandon match or emit quit events
+      // 5. Must never immediately abandon match or emit quit events
       expect(trackQuit).not.toHaveBeenCalled();
       expect(closeLiveClient).not.toHaveBeenCalled();
       expect(onExitConfirmed).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Match navigation analytics', () => {
+    it('tracks match_menu_opened, match_resumed, match_leave_requested, match_leave_cancelled, and match_quit_confirmed', () => {
+      const { controller, trackAnalytics, trackQuit } = createController({
+        liveMode: false,
+        matchId: 'analytics_test_1',
+      });
+
+      controller.openMenu();
+      expect(trackAnalytics).toHaveBeenCalledWith({
+        name: 'match_menu_opened',
+        matchId: 'analytics_test_1',
+        mode: 'bot',
+      });
+
+      controller.closeMenu();
+      expect(trackAnalytics).toHaveBeenCalledWith({
+        name: 'match_resumed',
+        matchId: 'analytics_test_1',
+        mode: 'bot',
+      });
+
+      controller.openConfirm('menu');
+      expect(trackAnalytics).toHaveBeenCalledWith({
+        name: 'match_leave_requested',
+        matchId: 'analytics_test_1',
+        mode: 'bot',
+      });
+
+      controller.backToMenu();
+      expect(trackAnalytics).toHaveBeenCalledWith({
+        name: 'match_leave_cancelled',
+        matchId: 'analytics_test_1',
+        mode: 'bot',
+      });
+
+      controller.confirmExit();
+      expect(trackAnalytics).toHaveBeenCalledWith({
+        name: 'match_quit_confirmed',
+        matchId: 'analytics_test_1',
+        mode: 'bot',
+        durationSeconds: 45,
+      });
+      // Existing match_quit event must also be tracked
+      expect(trackQuit).toHaveBeenCalledWith({
+        name: 'match_quit',
+        matchId: 'analytics_test_1',
+        mode: 'bot',
+        durationSeconds: 45,
+      });
     });
   });
 

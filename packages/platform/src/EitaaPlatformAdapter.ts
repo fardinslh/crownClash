@@ -50,6 +50,16 @@ export class EitaaPlatformAdapter implements PlatformAdapter {
     } catch (err) {
       console.warn('[Platform:eitaa] Failed during initialization:', err);
     }
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+          this.emit('appPaused');
+        } else {
+          this.emit('appResumed');
+        }
+      });
+    }
   }
 
   ready(): void {
@@ -156,6 +166,13 @@ export class EitaaPlatformAdapter implements PlatformAdapter {
       this.eitaaBridge?.BackButton?.hide?.();
     } catch {
       // Ignored
+    }
+  }
+
+  triggerBackButton(): void {
+    this.emit('backButtonClicked');
+    if (this.backButtonCallback) {
+      this.backButtonCallback();
     }
   }
 

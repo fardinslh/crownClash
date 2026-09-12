@@ -32,6 +32,16 @@ export type AnalyticsEventInput =
       mode: 'bot' | 'live';
       durationSeconds: number;
     }
+  | { name: 'match_menu_opened'; matchId: string; mode: 'bot' | 'live' }
+  | { name: 'match_resumed'; matchId: string; mode: 'bot' | 'live' }
+  | { name: 'match_leave_requested'; matchId: string; mode: 'bot' | 'live' }
+  | { name: 'match_leave_cancelled'; matchId: string; mode: 'bot' | 'live' }
+  | {
+      name: 'match_quit_confirmed';
+      matchId: string;
+      mode: 'bot' | 'live';
+      durationSeconds: number;
+    }
   | { name: 'match_reward_received'; matchId: string; mode: 'bot' | 'live' }
   | { name: 'upgrade_panel_viewed'; source: 'menu' | 'result' }
   | { name: 'upgrade_purchase_succeeded'; purchaseId: string }
@@ -82,6 +92,11 @@ const EVENT_NAMES: ReadonlySet<AnalyticsEvent['name']> = new Set([
   'match_start',
   'match_end',
   'match_quit',
+  'match_menu_opened',
+  'match_resumed',
+  'match_leave_requested',
+  'match_leave_cancelled',
+  'match_quit_confirmed',
   'match_reward_received',
   'upgrade_panel_viewed',
   'upgrade_purchase_succeeded',

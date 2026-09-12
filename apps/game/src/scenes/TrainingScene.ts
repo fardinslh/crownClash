@@ -4,6 +4,7 @@ import { createPlatformAdapter, type PlatformAdapter } from '@crown-clash/platfo
 import { trackEvent } from '../analytics/Analytics.js';
 import { sounds } from '../audio/SoundEffects.js';
 import { THEME } from '../theme.js';
+import { CareerManager } from '../career/CareerManager.js';
 import {
   isTutorialCompleted,
   markTutorialCompleted,
@@ -74,12 +75,14 @@ export class TrainingScene extends Phaser.Scene {
   private menuBg!: Phaser.GameObjects.Rectangle;
   private menuText!: Phaser.GameObjects.Text;
   private backHandler?: () => void;
+  private isExiting = false;
 
   constructor() {
     super({ key: 'TrainingScene' });
   }
 
   create(): void {
+    this.isExiting = false;
     setupSceneCamera(this);
     bindSceneViewportResize(this, (vp) => this.applyLayout(vp));
     this.reducedMotion =
@@ -410,7 +413,7 @@ export class TrainingScene extends Phaser.Scene {
   }
 
   private advance(): void {
-    if (this.finished) return;
+    if (this.finished || this.isExiting) return;
     const lesson = LESSONS[this.lessonIndex];
     if (this.analyticsActive) {
       trackEvent({ name: 'tutorial_step_completed', stepId: lesson.id });
@@ -422,6 +425,7 @@ export class TrainingScene extends Phaser.Scene {
       return;
     }
 
+    this.isExiting = true;
     this.finished = true;
     this.nextButton.disableInteractive();
     if (this.analyticsActive) {
@@ -430,10 +434,23 @@ export class TrainingScene extends Phaser.Scene {
     }
     sounds.playDispatch();
     this.platform.hapticNotification('success');
-    this.scene.start('GameScene', { source: 'menu' });
+    const careerManager = CareerManager.getInstance(this.platform.getUser().id);
+    void careerManager
+      .startBotMatch(this.platform)
+      .then((botMatch) => {
+        if (!this.scene.isActive()) return;
+        this.scene.start('GameScene', { source: 'menu', botMatch });
+      })
+      .catch((error: unknown) => {
+        console.warn('[TrainingScene] Post-tutorial match start fallback to menu:', error);
+        if (!this.scene.isActive()) return;
+        this.scene.start('MenuScene');
+      });
   }
 
   private closeTraining(): void {
+    if (this.isExiting) return;
+    this.isExiting = true;
     if (this.analyticsActive && !this.finished) {
       trackEvent({
         name: 'tutorial_skipped',

@@ -55,6 +55,24 @@ describe('Crown Clash - Platform Architecture Tests', () => {
       expect(() => adapter.hapticNotification('success')).not.toThrow();
       expect(() => adapter.hapticSelection()).not.toThrow();
     });
+
+    it('controls back button visibility and invokes callback on trigger', () => {
+      const adapter = new BrowserPlatformAdapter();
+      const backSpy = vi.fn();
+      const eventSpy = vi.fn();
+
+      adapter.on('backButtonClicked', eventSpy);
+      adapter.showBackButton(backSpy);
+      adapter.triggerBackButton();
+
+      expect(backSpy).toHaveBeenCalledTimes(1);
+      expect(eventSpy).toHaveBeenCalledTimes(1);
+
+      adapter.hideBackButton();
+      adapter.triggerBackButton();
+      expect(backSpy).toHaveBeenCalledTimes(1); // Not called again when hidden
+      expect(eventSpy).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('BalePlatformAdapter', () => {

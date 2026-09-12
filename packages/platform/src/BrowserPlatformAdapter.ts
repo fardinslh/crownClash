@@ -153,6 +153,13 @@ export class BrowserPlatformAdapter implements PlatformAdapter {
     this.backButtonCallback = null;
   }
 
+  triggerBackButton(): void {
+    this.emit('backButtonClicked');
+    if (this.backButtonCallback) {
+      this.backButtonCallback();
+    }
+  }
+
   openLink(url: string): void {
     if (typeof window !== 'undefined') {
       window.open(url, '_blank', 'noopener,noreferrer');

@@ -53,12 +53,14 @@ export class KingdomScene extends Phaser.Scene {
   private toastBg!: Phaser.GameObjects.Rectangle;
   private toastText!: Phaser.GameObjects.Text;
   private backButtonHandler?: () => void;
+  private isExiting = false;
 
   constructor() {
     super({ key: 'KingdomScene' });
   }
 
   create(): void {
+    this.isExiting = false;
     setupSceneCamera(this);
     bindSceneViewportResize(this, (viewport) => this.applyLayout(viewport));
     this.reducedMotion =
@@ -638,6 +640,7 @@ export class KingdomScene extends Phaser.Scene {
   }
 
   private closeKingdom(): void {
+    if (this.isExiting) return;
     // Leaving mid-purchase would strand the in-flight request's UI callbacks
     // on a torn-down scene and let MenuScene render pre-purchase career data,
     // so the hub stays open until the purchase settles.
@@ -645,6 +648,7 @@ export class KingdomScene extends Phaser.Scene {
       this.showToast('Finishing your upgrade…');
       return;
     }
+    this.isExiting = true;
     this.scene.start('MenuScene');
   }
 

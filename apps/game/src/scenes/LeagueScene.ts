@@ -43,6 +43,7 @@ export class LeagueScene extends Phaser.Scene {
   private active = false;
   private visitId = 0;
   private reducedMotion = false;
+  private isExiting = false;
 
   constructor() {
     super({ key: 'LeagueScene' });
@@ -50,6 +51,7 @@ export class LeagueScene extends Phaser.Scene {
 
   create(): void {
     this.active = true;
+    this.isExiting = false;
     this.visitId += 1;
     this.state = undefined;
     this.content = undefined;
@@ -346,10 +348,12 @@ export class LeagueScene extends Phaser.Scene {
   }
 
   private closeLeague(): void {
+    if (this.isExiting) return;
     if (this.pendingRankId) {
       this.showToast('Finishing your reward claim…');
       return;
     }
+    this.isExiting = true;
     this.scene.start('MenuScene');
   }
 

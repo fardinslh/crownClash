@@ -49,6 +49,7 @@ export class DailyScene extends Phaser.Scene {
   private visitId = 0;
   private loadingReset = false;
   private reducedMotion = false;
+  private isExiting = false;
 
   constructor() {
     super({ key: 'DailyScene' });
@@ -58,6 +59,7 @@ export class DailyScene extends Phaser.Scene {
     // Phaser reuses Scene instances. Reset every visit-scoped field that was
     // invalidated by the previous SHUTDOWN before starting new async work.
     this.active = true;
+    this.isExiting = false;
     this.visitId += 1;
     this.loadingReset = false;
     this.state = undefined;
@@ -563,10 +565,12 @@ export class DailyScene extends Phaser.Scene {
   }
 
   private closeDaily(): void {
+    if (this.isExiting) return;
     if (!this.claimRunner.requestClose()) {
       this.showToast('Finishing your reward claim…');
       return;
     }
+    this.isExiting = true;
     this.scene.start('MenuScene');
   }
 

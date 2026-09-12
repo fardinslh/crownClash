@@ -54,6 +54,16 @@ export class BalePlatformAdapter implements PlatformAdapter {
     } catch (err) {
       console.warn('[Platform:bale] Failed during initialization:', err);
     }
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+          this.emit('appPaused');
+        } else {
+          this.emit('appResumed');
+        }
+      });
+    }
   }
 
   ready(): void {
@@ -190,6 +200,13 @@ export class BalePlatformAdapter implements PlatformAdapter {
       this.baleBridge?.BackButton?.hide?.();
     } catch {
       // Ignored
+    }
+  }
+
+  triggerBackButton(): void {
+    this.emit('backButtonClicked');
+    if (this.backButtonCallback) {
+      this.backButtonCallback();
     }
   }
 

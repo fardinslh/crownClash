@@ -169,6 +169,7 @@ export class GameScene extends Phaser.Scene {
 
   // Platform Adapter
   private platform!: PlatformAdapter;
+  private lifecycleUnsubscribers: Array<() => void> = [];
 
   // Audio Atmosphere Tension
   private lastHeartbeatSecond: number = -1;
@@ -226,6 +227,16 @@ export class GameScene extends Phaser.Scene {
     this.matchActions = [];
     this.liveUnsubscribers = [];
     this.livePredictions = [];
+    this.lifecycleUnsubscribers = [];
+    const unpause = this.platform.on('appPaused', () => {
+      sounds.stopBattleMusic();
+    });
+    const unresume = this.platform.on('appResumed', () => {
+      if (this.gameState?.status === 'playing' && !sounds.isMuted()) {
+        sounds.startBattleMusic();
+      }
+    });
+    this.lifecycleUnsubscribers.push(unpause, unresume);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.platform.hideBackButton();
       this.cleanup();
@@ -261,6 +272,7 @@ export class GameScene extends Phaser.Scene {
         }
       },
       trackQuit: (event) => trackTerminalMatchEvent(event),
+      trackAnalytics: (event) => trackEvent(event),
       onStateChange: (state) => this.handleMatchMenuStateChange(state),
       onExitConfirmed: () => this.handleMatchExitConfirmed(),
       isModalVisible: () =>
@@ -272,7 +284,7 @@ export class GameScene extends Phaser.Scene {
     });
     this.platform.showBackButton(() => {
       if (this.isExiting) return;
-      if (this.resultModalContainer) {
+      if (this.resultModalContainer || this.syncingModalContainer) {
         this.returnToMenu();
         return;
       }
@@ -2868,11 +2880,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   private returnToMenu(): void {
+    if (this.isExiting) return;
+    this.isExiting = true;
     sounds.stopBattleMusic();
     this.resultPending = false;
     this.input.enabled = false;
     this.resultModalContainer?.destroy();
     this.resultModalContainer = undefined;
+    this.syncingModalContainer?.destroy();
+    this.syncingModalContainer = undefined;
     this.matchMenuModalContainer?.destroy();
     this.matchMenuModalContainer = undefined;
     this.scene.start('MenuScene');
@@ -2892,7 +2908,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleMatchExitConfirmed(): void {
-    this.isExiting = true;
     this.matchMenuModalContainer?.destroy();
     this.matchMenuModalContainer = undefined;
     this.returnToMenu();
@@ -3050,7 +3065,7 @@ export class GameScene extends Phaser.Scene {
     this.bindPressFeedback(leaveBg, leaveText);
     leaveBg.on('pointerdown', () => {
       this.platform.hapticSelection();
-      this.matchMenuController.openConfirm();
+      this.matchMenuController.openConfirm('menu');
     });
     elements.push(leaveBg, leaveText);
 
@@ -3400,5 +3415,11 @@ export class GameScene extends Phaser.Scene {
     this.liveUnsubscribers = [];
     this.liveClient?.close();
     this.liveClient = undefined;
+    this.resultModalContainer?.destroy();
+    this.resultModalContainer = undefined;
+    for (const unsubscribe of this.lifecycleUnsubscribers) {
+      unsubscribe();
+    }
+    this.lifecycleUnsubscribers = [];
   }
 }

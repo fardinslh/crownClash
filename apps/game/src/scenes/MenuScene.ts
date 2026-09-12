@@ -27,29 +27,32 @@ const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Hel
 export class MenuScene extends Phaser.Scene {
   private liveClient?: LiveMatchClient;
   private pvpController?: LivePvpController;
-  private backButtonUnregister?: () => void;
   private joinCodeInput?: HTMLInputElement;
   private joinCodeInputCleanup?: () => void;
+  private isTransitioning = false;
 
   constructor() {
     super({ key: 'MenuScene' });
   }
 
   shutdown(): void {
+    this.isTransitioning = false;
     this.pvpController?.destroy();
     this.pvpController = undefined;
     this.liveClient?.close();
     this.liveClient = undefined;
-    this.backButtonUnregister?.();
-    this.backButtonUnregister = undefined;
+    const platform = this.registry.get('platform') as PlatformAdapter | undefined;
+    platform?.hideBackButton();
     this.joinCodeInputCleanup?.();
     this.joinCodeInput = undefined;
     this.joinCodeInputCleanup = undefined;
   }
 
   create(): void {
+    this.isTransitioning = false;
     setupSceneCamera(this);
     bindSceneViewportResize(this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.shutdown());
 
     const platform: PlatformAdapter =
       (this.registry.get('platform') as PlatformAdapter) || createPlatformAdapter();
@@ -245,6 +248,8 @@ export class MenuScene extends Phaser.Scene {
       playText.setScale(1);
     });
     playBg.on('pointerdown', () => {
+      if (this.isTransitioning) return;
+      this.isTransitioning = true;
       playBg.disableInteractive();
       playText.setText('SCOUTING...');
       void careerManager.startBotMatch(platform).then((botMatch) => {
@@ -254,6 +259,7 @@ export class MenuScene extends Phaser.Scene {
         this.scene.start('GameScene', { source: 'menu', botMatch });
       }).catch((error: unknown) => {
         console.error('[MenuScene] Match start failed:', error);
+        this.isTransitioning = false;
         if (!this.scene.isActive()) return;
         playText.setText('TRY AGAIN');
         playBg.setInteractive({ useHandCursor: true });
@@ -321,6 +327,8 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
     this.bindPressFeedback(trainingBg, trainingText);
     trainingBg.on('pointerdown', () => {
+      if (this.isTransitioning) return;
+      this.isTransitioning = true;
       trainingBg.disableInteractive();
       sounds.playReinforce();
       platform.hapticSelection();
@@ -346,6 +354,8 @@ export class MenuScene extends Phaser.Scene {
     this.bindPressFeedback(dailyBg, dailyText);
     if (dailyAvailable) {
       dailyBg.on('pointerdown', () => {
+        if (this.isTransitioning) return;
+        this.isTransitioning = true;
         dailyBg.disableInteractive();
         sounds.playReinforce();
         platform.hapticSelection();
@@ -372,6 +382,8 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
     this.bindPressFeedback(leagueBg, leagueText);
     leagueBg.on('pointerdown', () => {
+      if (this.isTransitioning) return;
+      this.isTransitioning = true;
       leagueBg.disableInteractive();
       sounds.playTrophy();
       platform.hapticSelection();
@@ -395,6 +407,8 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
     this.bindPressFeedback(kingdomBg, kingdomText);
     kingdomBg.on('pointerdown', () => {
+      if (this.isTransitioning) return;
+      this.isTransitioning = true;
       kingdomBg.disableInteractive();
       sounds.playReinforce();
       platform.hapticSelection();
@@ -418,6 +432,8 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
     this.bindPressFeedback(commanderBg, commanderText);
     commanderBg.on('pointerdown', () => {
+      if (this.isTransitioning) return;
+      this.isTransitioning = true;
       commanderBg.disableInteractive();
       sounds.playReinforce();
       platform.hapticSelection();
@@ -557,8 +573,6 @@ export class MenuScene extends Phaser.Scene {
       this.liveClient = undefined;
       controller.destroy();
       this.pvpController = undefined;
-      this.backButtonUnregister?.();
-      this.backButtonUnregister = undefined;
       platform.hideBackButton();
       cleanupJoinInput();
       overlay.destroy();
@@ -785,21 +799,25 @@ export class MenuScene extends Phaser.Scene {
       switch (view) {
         case 'lobby':
           lobbyView.setVisible(true);
-          this.backButtonUnregister?.();
-          platform.hideBackButton();
-          this.backButtonUnregister = platform.on('backButtonClicked', closeLobby);
           platform.showBackButton(closeLobby);
           break;
         case 'creating':
         case 'joining':
-        case 'queueing':
+        case 'queueing': {
           loadingView.setVisible(true);
           loadText.setText(
             view === 'creating' ? 'CREATING ROOM…' :
             view === 'joining'  ? 'JOINING ROOM…' :
                                    'FINDING OPPONENT…'
           );
+          const cancelMatchmaking = (): void => {
+            this.liveClient?.close();
+            this.liveClient = undefined;
+            controller.cancel();
+          };
+          platform.showBackButton(cancelMatchmaking);
           break;
+        }
         case 'waiting': {
           waitingView.setVisible(true);
           const formatted = opts.code
@@ -814,8 +832,6 @@ export class MenuScene extends Phaser.Scene {
             copyBg.setFillStyle(0x1c2a1c, 1);
           }
           const backToLobby = (): void => controller.cancel();
-          this.backButtonUnregister?.();
-          this.backButtonUnregister = platform.on('backButtonClicked', backToLobby);
           platform.showBackButton(backToLobby);
           break;
         }
@@ -824,15 +840,20 @@ export class MenuScene extends Phaser.Scene {
           joinInput.style.display = 'block';
           joinErrorText.setText(opts.error ?? '');
           const backToLobby = (): void => controller.cancel();
-          this.backButtonUnregister?.();
-          this.backButtonUnregister = platform.on('backButtonClicked', backToLobby);
           platform.showBackButton(backToLobby);
           break;
         }
-        case 'error':
+        case 'error': {
           errorView.setVisible(true);
           errMsg.setText(opts.error ?? 'Could not connect to Live PvP.');
+          const errBack = (): void => {
+            this.liveClient?.close();
+            this.liveClient = undefined;
+            controller.returnToLobby();
+          };
+          platform.showBackButton(errBack);
           break;
+        }
       }
     };
 
@@ -867,13 +888,13 @@ export class MenuScene extends Phaser.Scene {
       });
 
       client.on('match_started', (match) => {
+        if (this.isTransitioning) return;
+        this.isTransitioning = true;
         matchStarted = true;
         trackEvent({ name: 'live_match_started', matchId: match.matchId });
         controller.destroy();
         this.pvpController = undefined;
         platform.hideBackButton();
-        this.backButtonUnregister?.();
-        this.backButtonUnregister = undefined;
         cleanupJoinInput();
         overlay.destroy();
         this.liveClient = undefined;
