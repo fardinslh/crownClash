@@ -98,7 +98,7 @@ interface TerritoryVisual {
 }
 
 interface ArmyFollower {
-  shadow: Phaser.GameObjects.Ellipse;
+  shadow: Phaser.GameObjects.Image | Phaser.GameObjects.Ellipse;
   sprite: Phaser.GameObjects.Image;
   relX: number;
   relY: number;
@@ -108,10 +108,12 @@ interface ArmyFollower {
 interface ArmyVisual {
   id: string;
   container: Phaser.GameObjects.Container;
+  roleAura?: Phaser.GameObjects.Image | Phaser.GameObjects.Arc;
   leaderSprite: Phaser.GameObjects.Image;
-  leaderShadow: Phaser.GameObjects.Ellipse;
-  badgeBg: Phaser.GameObjects.Rectangle;
+  leaderShadow: Phaser.GameObjects.Image | Phaser.GameObjects.Ellipse;
+  badgeBg: Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle;
   badgeText: Phaser.GameObjects.Text;
+  badgeColor: number;
   followers: ArmyFollower[];
   rearOffset: { x: number; y: number };
   dustTimer: number;
@@ -232,6 +234,7 @@ export class GameScene extends Phaser.Scene {
   create(): void {
     setupSceneCamera(this);
     bindSceneViewportResize(this);
+    this.initArmyVisualTextures();
     this.reducedMotion =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
@@ -1986,8 +1989,131 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private initArmyVisualTextures(): void {
+    if (!this.textures || typeof this.textures.exists !== 'function') return;
+    if (typeof document === 'undefined' || !document.createElement) return;
+
+    // 1. Soft Elliptical Shadow Texture (32x16, white fill with radial alpha falloff)
+    if (!this.textures.exists('cc_army_shadow')) {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 32;
+        canvas.height = 16;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          const grad = ctx.createRadialGradient(16, 8, 0, 16, 8, 14);
+          grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+          grad.addColorStop(0.7, 'rgba(255, 255, 255, 0.85)');
+          grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.ellipse(16, 8, 15, 7, 0, 0, Math.PI * 2);
+          ctx.fill();
+          this.textures.addCanvas('cc_army_shadow', canvas);
+        }
+      } catch (err) {
+        console.warn('[GameScene] Failed to create cc_army_shadow texture:', err);
+      }
+    }
+
+    // 2. Role Aura Ring Textures (Normal and Fortress)
+    if (!this.textures.exists('cc_army_aura_normal')) {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 64;
+        canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+          ctx.beginPath();
+          ctx.arc(32, 32, 30, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.82)';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(32, 32, 28.5, 0, Math.PI * 2);
+          ctx.stroke();
+
+          this.textures.addCanvas('cc_army_aura_normal', canvas);
+        }
+      } catch (err) {
+        console.warn('[GameScene] Failed to create cc_army_aura_normal texture:', err);
+      }
+    }
+
+    if (!this.textures.exists('cc_army_aura_fortress')) {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 64;
+        canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+          ctx.beginPath();
+          ctx.arc(32, 32, 30, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.82)';
+          ctx.lineWidth = 6;
+          ctx.beginPath();
+          ctx.arc(32, 32, 27, 0, Math.PI * 2);
+          ctx.stroke();
+
+          this.textures.addCanvas('cc_army_aura_fortress', canvas);
+        }
+      } catch (err) {
+        console.warn('[GameScene] Failed to create cc_army_aura_fortress texture:', err);
+      }
+    }
+  }
+
+  private getOrCreateBadgeTexture(strokeColor: number, width: number): string | null {
+    if (!this.textures || typeof this.textures.exists !== 'function') return null;
+    if (typeof document === 'undefined' || !document.createElement) return null;
+
+    const colorHex = strokeColor.toString(16).padStart(6, '0');
+    const key = `cc_badge_${colorHex}_${width}`;
+    if (this.textures.exists(key)) return key;
+
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = width * 2;
+      canvas.height = 36;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+
+      ctx.scale(2, 2);
+      const strokeCss = `#${colorHex}`;
+      const fillCss = 'rgba(9, 13, 22, 0.94)';
+
+      ctx.fillStyle = fillCss;
+      ctx.strokeStyle = strokeCss;
+      ctx.lineWidth = 1.5;
+
+      const radius = 4;
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(0.75, 0.75, width - 1.5, 18 - 1.5, radius);
+      } else {
+        ctx.rect(0.75, 0.75, width - 1.5, 18 - 1.5);
+      }
+      ctx.fill();
+      ctx.stroke();
+
+      this.textures.addCanvas(key, canvas);
+      return key;
+    } catch (err) {
+      console.warn(`[GameScene] Failed to create badge texture for width ${width}:`, err);
+      return null;
+    }
+  }
+
   private destroyArmyVisual(visual: ArmyVisual): void {
     this.tweens.killTweensOf(visual.container);
+    if (visual.roleAura) {
+      visual.roleAura.destroy();
+    }
     for (const f of visual.followers) {
       f.sprite.destroy();
       f.shadow.destroy();
@@ -2063,8 +2189,9 @@ export class GameScene extends Phaser.Scene {
           });
         }
 
+        let speedLines: Phaser.GameObjects.Graphics | undefined;
         if (sourceType === 'stable') {
-          const speedLines = this.add.graphics();
+          speedLines = this.add.graphics();
           speedLines.lineStyle(2, roleStyle.color, 0.65);
           for (const offset of [-7, 0, 7]) {
             speedLines.lineBetween(
@@ -2074,25 +2201,41 @@ export class GameScene extends Phaser.Scene {
               -sin * 21 + perpY * offset
             );
           }
-          container.add(speedLines);
         }
 
-        const roleAura = this.add
-          .circle(0, 1, 15, roleStyle.color, 0.1)
-          .setStrokeStyle(sourceType === 'fortress' ? 3 : 1.5, roleStyle.color, 0.82);
-        container.add(roleAura);
+        // 1. Role Aura (Batch-friendly Image running on MultiPipeline)
+        let roleAura: Phaser.GameObjects.Image | Phaser.GameObjects.Arc;
+        const auraTexture = sourceType === 'fortress' ? 'cc_army_aura_fortress' : 'cc_army_aura_normal';
+        if (this.textures?.exists(auraTexture)) {
+          roleAura = this.add
+            .image(0, 1, auraTexture)
+            .setDisplaySize(30, 30)
+            .setTint(roleStyle.color);
+        } else {
+          roleAura = this.add
+            .circle(0, 1, 15, roleStyle.color, 0.1)
+            .setStrokeStyle(sourceType === 'fortress' ? 3 : 1.5, roleStyle.color, 0.82);
+        }
 
+        // 2. Followers (Shadows & Sprites)
         const followers: ArmyFollower[] = [];
         const followerTexture = army.owner === 'player' ? 'unit_follower_player' : 'unit_follower_enemy';
+        const hasShadowTexture = Boolean(this.textures?.exists('cc_army_shadow'));
 
         for (const f of followerOffsets) {
-          const shadow = this.add.ellipse(f.x, f.y + 7, 13, 6, 0x000000, 0.32);
+          const shadow = hasShadowTexture
+            ? this.add
+                .image(f.x, f.y + 7, 'cc_army_shadow')
+                .setDisplaySize(13, 6)
+                .setTint(0x000000)
+                .setAlpha(0.32)
+            : this.add.ellipse(f.x, f.y + 7, 13, 6, 0x000000, 0.32);
+
           const sprite = this.add
             .image(f.x, f.y, followerTexture)
             .setScale(0.19)
             .setFlipX(isFacingLeft);
 
-          container.add([shadow, sprite]);
           followers.push({
             shadow,
             sprite,
@@ -2102,21 +2245,35 @@ export class GameScene extends Phaser.Scene {
           });
         }
 
-        // Commander / Leader Unit
-        const leaderShadow = this.add.ellipse(0, 9, 18, 7, 0x000000, 0.38);
+        // 3. Commander / Leader Unit
+        const leaderShadow = hasShadowTexture
+          ? this.add
+              .image(0, 9, 'cc_army_shadow')
+              .setDisplaySize(18, 7)
+              .setTint(0x000000)
+              .setAlpha(0.38)
+          : this.add.ellipse(0, 9, 18, 7, 0x000000, 0.38);
+
         const leaderTexture = army.owner === 'player' ? 'unit_leader_player' : 'unit_leader_enemy';
         const leaderSprite = this.add
           .image(0, 0, leaderTexture)
           .setScale(0.25)
           .setFlipX(isFacingLeft);
 
-        // High-contrast Troop Count Pill Badge
+        // 4. High-contrast Troop Count Pill Badge
         const badgeY = -19;
         const initialUnits = `${roleStyle.label} ${army.units}`;
         const badgeWidth = Math.max(42, initialUnits.length * 7 + 14);
-        const badgeBg = this.add
-          .rectangle(0, badgeY, badgeWidth, 18, 0x090d16, 0.94)
-          .setStrokeStyle(1.5, roleStyle.color, 1);
+
+        const badgeKey = this.getOrCreateBadgeTexture(roleStyle.color, badgeWidth);
+        let badgeBg: Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle;
+        if (badgeKey && this.textures?.exists(badgeKey)) {
+          badgeBg = this.add.image(0, badgeY, badgeKey).setDisplaySize(badgeWidth, 18);
+        } else {
+          badgeBg = this.add
+            .rectangle(0, badgeY, badgeWidth, 18, 0x090d16, 0.94)
+            .setStrokeStyle(1.5, roleStyle.color, 1);
+        }
 
         const badgeText = this.add
           .text(0, badgeY, initialUnits, {
@@ -2130,16 +2287,35 @@ export class GameScene extends Phaser.Scene {
           })
           .setOrigin(0.5);
 
-        container.add([leaderShadow, leaderSprite, badgeBg, badgeText]);
+        // 5. Grouped Render Hierarchy to prevent MultiPipeline <-> ShapePipeline thrashing:
+        // Layer 0: Role aura (MultiPipeline)
+        // Layer 1: Follower shadows & Leader shadow (MultiPipeline - cc_army_shadow)
+        // Layer 2: Speedlines (if stable)
+        // Layer 3: Follower sprites & Leader sprite (MultiPipeline - unit textures)
+        // Layer 4: Badge background (MultiPipeline - cc_badge_...)
+        // Layer 5: Badge text (Canvas Text)
+        const elementsToAdd: Phaser.GameObjects.GameObject[] = [];
+        if (roleAura) elementsToAdd.push(roleAura);
+        for (const f of followers) elementsToAdd.push(f.shadow);
+        elementsToAdd.push(leaderShadow);
+        if (speedLines) elementsToAdd.push(speedLines);
+        for (const f of followers) elementsToAdd.push(f.sprite);
+        elementsToAdd.push(leaderSprite);
+        elementsToAdd.push(badgeBg);
+        elementsToAdd.push(badgeText);
+
+        container.add(elementsToAdd);
 
         const lastOffset = followerOffsets[followerOffsets.length - 1] ?? { x: 0, y: 0 };
         visual = {
           id: visualId,
           container,
+          roleAura,
           leaderSprite,
           leaderShadow,
           badgeBg,
           badgeText,
+          badgeColor: roleStyle.color,
           followers,
           rearOffset: { x: lastOffset.x, y: lastOffset.y },
           dustTimer: 0.05,
@@ -2165,7 +2341,15 @@ export class GameScene extends Phaser.Scene {
         if (visual.badgeText.text !== unitsStr) {
           visual.badgeText.setText(unitsStr);
           const newWidth = Math.max(42, unitsStr.length * 7 + 14);
-          visual.badgeBg.setSize(newWidth, 18);
+          if (visual.badgeBg instanceof Phaser.GameObjects.Rectangle) {
+            visual.badgeBg.setSize(newWidth, 18);
+          } else {
+            const newKey = this.getOrCreateBadgeTexture(visual.badgeColor, newWidth);
+            if (newKey && visual.badgeBg.texture?.key !== newKey) {
+              visual.badgeBg.setTexture(newKey);
+              visual.badgeBg.setDisplaySize(newWidth, 18);
+            }
+          }
         }
 
         // Emit rhythmic dust puff behind rearmost follower
