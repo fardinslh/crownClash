@@ -169,5 +169,15 @@ describe('Crown Clash - Platform Architecture Tests', () => {
 
       expect(createPlatformAdapter()).toBeInstanceOf(BalePlatformAdapter);
     });
+
+    it('does not treat the inert Bale SDK namespace as an active Bale session', () => {
+      vi.stubGlobal('window', {
+        Bale: { WebApp: { initData: '' } },
+        navigator: { userAgent: 'Mozilla/5.0 Chrome/138 Safari/537.36' },
+        location: { search: '' },
+      });
+
+      expect(createPlatformAdapter()).toBeInstanceOf(BrowserPlatformAdapter);
+    });
   });
 });

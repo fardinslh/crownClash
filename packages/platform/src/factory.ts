@@ -33,7 +33,7 @@ export function createPlatformAdapter(): PlatformAdapter {
 
   // 2. Bale Mini App detection
   if (
-    Boolean(window.Bale?.WebApp) ||
+    Boolean(window.Bale?.WebApp?.initData) ||
     Boolean(window.BaleApp) ||
     userAgent.includes('Bale') ||
     params.has('bale_id')
