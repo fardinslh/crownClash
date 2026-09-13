@@ -1,13 +1,13 @@
 import { Territory } from './types.js';
 import type { PlayerUpgradeModifiers } from './upgrades.js';
-import { normalizeBattlefieldId, type BattlefieldId } from './battlefields.js';
+import { getBattlefield, type BattlefieldId } from './battlefields.js';
 
 export const LOGICAL_WIDTH = 400;
 export const LOGICAL_HEIGHT = 720;
 
 /**
- * Creates the initial default map for Prototype v0.1.
- * 9 territories arranged in a 3-tier mobile-friendly portrait battlefield.
+ * Creates the initial territories for the selected battlefield.
+ * Clones templates from the data-driven battlefield definition and applies player/enemy modifiers.
  */
 export function createDefaultTerritories(
   playerModifiers: PlayerUpgradeModifiers = {
@@ -22,143 +22,36 @@ export function createDefaultTerritories(
   },
   battlefieldId: BattlefieldId = 'crown_cross'
 ): Record<string, Territory> {
-  const territories: Record<string, Territory> = {
-    'p_base': {
-      id: 'p_base',
-      name: 'Player Fortress',
-      x: 200,
-      y: 610,
-      radius: 36,
-      owner: 'player',
-      units: playerModifiers.startingUnits,
-      maxUnits: 65,
-      productionRate: 1.2 * playerModifiers.productionRateMultiplier,
-      tier: 3,
-      type: 'fortress',
-    },
-    'e_base': {
-      id: 'e_base',
-      name: 'Enemy Citadel',
-      x: 200,
-      y: 110,
-      radius: 36,
-      owner: 'enemy',
-      units: enemyModifiers.startingUnits,
-      maxUnits: 65,
-      productionRate: 1.2 * enemyModifiers.productionRateMultiplier,
-      tier: 3,
-      type: 'fortress',
-    },
-    'n_bot_left': {
-      id: 'n_bot_left',
-      name: 'Southwest Barracks',
-      x: 85,
-      y: 485,
-      radius: 27,
-      owner: 'neutral',
-      units: 8,
-      maxUnits: 40,
-      productionRate: 0.9,
-      tier: 1,
-      type: 'barracks',
-    },
-    'n_bot_right': {
-      id: 'n_bot_right',
-      name: 'Southeast Stable',
-      x: 315,
-      y: 485,
-      radius: 27,
-      owner: 'neutral',
-      units: 8,
-      maxUnits: 40,
-      productionRate: 0.9,
-      tier: 1,
-      type: 'stable',
-    },
-    'n_center': {
-      id: 'n_center',
-      name: 'Crown Keep',
-      x: 200,
-      y: 360,
-      radius: 32,
-      owner: 'neutral',
-      units: 14,
-      maxUnits: 55,
-      productionRate: 1.1,
-      tier: 2,
-      type: 'fortress',
-    },
-    'n_mid_left': {
-      id: 'n_mid_left',
-      name: 'West Barracks',
-      x: 75,
-      y: 360,
-      radius: 26,
-      owner: 'neutral',
-      units: 10,
-      maxUnits: 40,
-      productionRate: 0.85,
-      tier: 1,
-      type: 'barracks',
-    },
-    'n_mid_right': {
-      id: 'n_mid_right',
-      name: 'East Barracks',
-      x: 325,
-      y: 360,
-      radius: 26,
-      owner: 'neutral',
-      units: 10,
-      maxUnits: 40,
-      productionRate: 0.85,
-      tier: 1,
-      type: 'barracks',
-    },
-    'n_top_left': {
-      id: 'n_top_left',
-      name: 'Northwest Stable',
-      x: 85,
-      y: 235,
-      radius: 27,
-      owner: 'neutral',
-      units: 8,
-      maxUnits: 40,
-      productionRate: 0.9,
-      tier: 1,
-      type: 'stable',
-    },
-    'n_top_right': {
-      id: 'n_top_right',
-      name: 'Northeast Barracks',
-      x: 315,
-      y: 235,
-      radius: 27,
-      owner: 'neutral',
-      units: 8,
-      maxUnits: 40,
-      productionRate: 0.9,
-      tier: 1,
-      type: 'barracks',
-    },
-  };
+  const battlefield = getBattlefield(battlefieldId);
+  const territories: Record<string, Territory> = {};
 
-  const id = normalizeBattlefieldId(battlefieldId);
-  if (id === 'twin_passes') {
-    Object.assign(territories.n_bot_left, { x: 105, y: 505, units: 6, type: 'stable' });
-    Object.assign(territories.n_bot_right, { x: 295, y: 505, units: 6, type: 'stable' });
-    Object.assign(territories.n_mid_left, { x: 72, y: 360, units: 12, type: 'barracks' });
-    Object.assign(territories.n_mid_right, { x: 328, y: 360, units: 12, type: 'barracks' });
-    Object.assign(territories.n_center, { x: 200, y: 360, units: 20 });
-    Object.assign(territories.n_top_left, { x: 105, y: 215, units: 6, type: 'stable' });
-    Object.assign(territories.n_top_right, { x: 295, y: 215, units: 6, type: 'stable' });
-  } else if (id === 'royal_ring') {
-    Object.assign(territories.n_bot_left, { x: 140, y: 500, units: 9, type: 'barracks' });
-    Object.assign(territories.n_bot_right, { x: 260, y: 500, units: 9, type: 'barracks' });
-    Object.assign(territories.n_mid_left, { x: 65, y: 360, units: 7, type: 'stable' });
-    Object.assign(territories.n_mid_right, { x: 335, y: 360, units: 7, type: 'stable' });
-    Object.assign(territories.n_center, { x: 200, y: 360, units: 10 });
-    Object.assign(territories.n_top_left, { x: 140, y: 220, units: 9, type: 'barracks' });
-    Object.assign(territories.n_top_right, { x: 260, y: 220, units: 9, type: 'barracks' });
+  for (const template of battlefield.territories) {
+    let units = template.units;
+    let productionRate = template.productionRate;
+
+    if (template.id === 'p_base' || template.owner === 'player') {
+      units = playerModifiers.startingUnits;
+      productionRate = template.productionRate * playerModifiers.productionRateMultiplier;
+    } else if (template.id === 'e_base' || template.owner === 'enemy') {
+      units = enemyModifiers.startingUnits;
+      productionRate = template.productionRate * enemyModifiers.productionRateMultiplier;
+    }
+
+    territories[template.id] = {
+      id: template.id,
+      name: template.name,
+      x: template.x,
+      y: template.y,
+      radius: template.radius,
+      owner: template.owner,
+      units,
+      maxUnits: template.maxUnits,
+      productionRate,
+      tier: template.tier,
+      type: template.type,
+    };
   }
+
   return territories;
 }
+

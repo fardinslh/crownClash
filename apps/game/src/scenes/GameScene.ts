@@ -475,25 +475,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     const lanesGraphics = this.add.graphics().setDepth(2);
-
-    const connections: [string, string][] = [
-      ['p_base', 'n_bot_left'],
-      ['p_base', 'n_center'],
-      ['p_base', 'n_bot_right'],
-      ['n_bot_left', 'n_mid_left'],
-      ['n_bot_right', 'n_mid_right'],
-      ['n_mid_left', 'n_center'],
-      ['n_mid_right', 'n_center'],
-      ['n_mid_left', 'n_top_left'],
-      ['n_mid_right', 'n_top_right'],
-      ['n_center', 'e_base'],
-      ['n_top_left', 'e_base'],
-      ['n_top_right', 'e_base'],
-      ['n_bot_left', 'n_center'],
-      ['n_bot_right', 'n_center'],
-      ['n_top_left', 'n_center'],
-      ['n_top_right', 'n_center'],
-    ];
+    const battlefield = getBattlefield(this.battlefieldId);
+    const connections = battlefield.roads;
 
     const terrs = this.gameState.territories;
 
@@ -543,7 +526,11 @@ export class GameScene extends Phaser.Scene {
       lanesGraphics.strokeCircle(t.x, t.y + 3, t.radius + 5);
     });
 
-    const centerTerr = terrs['n_center'];
+    const centerTerr =
+      terrs['n_center'] ??
+      Object.values(terrs).find(
+        (t) => t.owner === 'neutral' && t.tier >= 2 && t.type === 'fortress'
+      );
     if (centerTerr) {
       lanesGraphics.lineStyle(1.5, THEME.gold, 0.28);
       lanesGraphics.strokeCircle(centerTerr.x, centerTerr.y, 58);
@@ -1713,7 +1700,10 @@ export class GameScene extends Phaser.Scene {
 
     if (arrival.captured) {
       const capturedByPlayer = arrival.attackerOwner === 'player';
-      if (arrival.targetId === 'n_center' && capturedByPlayer) {
+      const isCrownKeep =
+        arrival.targetId === 'n_center' ||
+        (vis.territory.type === 'fortress' && vis.territory.tier === 2);
+      if (isCrownKeep && capturedByPlayer) {
         sounds.playCrownCapture();
       } else if (capturedByPlayer) {
         sounds.playCapture();
@@ -1722,7 +1712,7 @@ export class GameScene extends Phaser.Scene {
       }
       if (!this.reducedMotion) {
         this.cameras.main.shake(
-          arrival.targetId === 'n_center' ? 160 : 100,
+          isCrownKeep ? 160 : 100,
           capturedByPlayer ? 0.006 : 0.0045
         );
       }
@@ -1923,7 +1913,7 @@ export class GameScene extends Phaser.Scene {
     if (territory.id === 'e_base') {
       return territory.owner === 'enemy' ? 'citadel_enemy' : 'citadel_player';
     }
-    if (territory.id === 'n_center') {
+    if (territory.id === 'n_center' || (territory.tier === 2 && territory.type === 'fortress')) {
       return `crown_keep_${territory.owner}`;
     }
     return `outpost_${territory.owner}`;

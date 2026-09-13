@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"math"
 	"reflect"
 	"regexp"
 	"strings"
@@ -14,34 +15,96 @@ import (
 )
 
 func TestBattlefieldLayoutsStaySymmetricAndDistinct(t *testing.T) {
-	ids := []string{"crown_cross", "twin_passes", "royal_ring"}
-	bottomLeftX := make([]float64, 0, len(ids))
-	centerUnits := make([]int, 0, len(ids))
-	for _, id := range ids {
-		territories := CreateTerritoriesForBattlefield(DefaultModifiers(), DefaultModifiers(), id)
-		if len(territories) != 9 {
-			t.Fatalf("%s: expected 9 territories, got %d", id, len(territories))
-		}
-		if territories["p_base"].Y+territories["e_base"].Y != 720 ||
-			territories["n_bot_left"].X+territories["n_bot_right"].X != 400 ||
-			territories["n_top_left"].X+territories["n_top_right"].X != 400 {
-			t.Fatalf("%s: layout is not mirrored: %+v", id, territories)
-		}
-		bottomLeftX = append(bottomLeftX, territories["n_bot_left"].X)
-		centerUnits = append(centerUnits, territories["n_center"].Units)
+	expectedCounts := map[string]int{
+		"crown_cross": 9,
+		"twin_passes": 8,
+		"royal_ring":  10,
 	}
-	if bottomLeftX[0] != 85 || bottomLeftX[1] != 105 || bottomLeftX[2] != 140 ||
-		centerUnits[0] != 14 || centerUnits[1] != 20 || centerUnits[2] != 10 {
-		t.Fatalf("battlefields are not distinct: x=%v center=%v", bottomLeftX, centerUnits)
+
+	for id, expectedCount := range expectedCounts {
+		territories := CreateTerritoriesForBattlefield(DefaultModifiers(), DefaultModifiers(), id)
+		if len(territories) != expectedCount {
+			t.Fatalf("%s: expected %d territories, got %d", id, expectedCount, len(territories))
+		}
+
+		pBase := territories["p_base"]
+		eBase := territories["e_base"]
+		if pBase.X != 200 || eBase.X != 200 || pBase.Y+eBase.Y != 720 {
+			t.Fatalf("%s: bases are not symmetric: pBase=%+v, eBase=%+v", id, pBase, eBase)
+		}
+
+		// 180-degree rotational symmetry
+		for tID, terr := range territories {
+			rotX := 400 - terr.X
+			rotY := 720 - terr.Y
+			found := false
+			for _, other := range territories {
+				if math.Abs(other.X-rotX) < 1e-4 && math.Abs(other.Y-rotY) < 1e-4 {
+					found = true
+					if terr.Owner == TeamPlayer && other.Owner != TeamEnemy {
+						t.Fatalf("%s: territory %s owner mismatch with counterpart %s", id, tID, other.ID)
+					}
+					if terr.Owner == TeamNeutral && other.Owner != TeamNeutral {
+						t.Fatalf("%s: neutral territory %s counterpart is not neutral", id, tID)
+					}
+					if terr.Tier != other.Tier || terr.Type != other.Type || terr.Units != other.Units || terr.MaxUnits != other.MaxUnits {
+						t.Fatalf("%s: territory %s attributes mismatch with counterpart %s", id, tID, other.ID)
+					}
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("%s: territory %s at (%f, %f) has no symmetric counterpart at (%f, %f)", id, tID, terr.X, terr.Y, rotX, rotY)
+			}
+		}
+
+		// Roads validation
+		roads, ok := battlefieldRoads[id]
+		if !ok || len(roads) == 0 {
+			t.Fatalf("%s: missing road definitions", id)
+		}
+		seenRoads := make(map[string]bool)
+		for _, road := range roads {
+			a, b := road[0], road[1]
+			if _, exists := territories[a]; !exists {
+				t.Fatalf("%s: road endpoint %s not in territories", id, a)
+			}
+			if _, exists := territories[b]; !exists {
+				t.Fatalf("%s: road endpoint %s not in territories", id, b)
+			}
+			if a == b {
+				t.Fatalf("%s: self-road [%s, %s]", id, a, b)
+			}
+			key := a + "<->" + b
+			if a > b {
+				key = b + "<->" + a
+			}
+			if seenRoads[key] {
+				t.Fatalf("%s: duplicate road %s", id, key)
+			}
+			seenRoads[key] = true
+		}
 	}
 }
 
 func TestBotBattlefieldReplayIsDeterministic(t *testing.T) {
-	actions := []PvpAction{
-		{Sequence: 0, AtSeconds: 0, SourceID: "p_base", TargetID: "n_center"},
-		{Sequence: 1, AtSeconds: 4, SourceID: "p_base", TargetID: "n_bot_left"},
+	actionsByBattlefield := map[string][]PvpAction{
+		"crown_cross": {
+			{Sequence: 0, AtSeconds: 0, SourceID: "p_base", TargetID: "n_center"},
+			{Sequence: 1, AtSeconds: 4, SourceID: "p_base", TargetID: "n_bot_left"},
+		},
+		"twin_passes": {
+			{Sequence: 0, AtSeconds: 0, SourceID: "p_base", TargetID: "n_west_gate_s"},
+			{Sequence: 1, AtSeconds: 4, SourceID: "p_base", TargetID: "n_east_gate_s"},
+		},
+		"royal_ring": {
+			{Sequence: 0, AtSeconds: 0, SourceID: "p_base", TargetID: "n_ring_sw"},
+			{Sequence: 1, AtSeconds: 4, SourceID: "p_base", TargetID: "n_ring_se"},
+		},
 	}
+
 	for _, id := range []string{"crown_cross", "twin_passes", "royal_ring"} {
+		actions := actionsByBattlefield[id]
 		firstState, firstSummary, err := SimulateBotBattleOnBattlefield(actions, DefaultModifiers(), id)
 		if err != nil {
 			t.Fatal(err)
