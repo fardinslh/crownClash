@@ -73,6 +73,7 @@ import {
   getSceneViewport,
   setupSceneCamera,
 } from '../ui/Viewport.js';
+import { computeResultRankPresentation } from '../ui/ResultModalLayout.js';
 import {
   computeMarchStride,
   createStrideMetrics,
@@ -2634,12 +2635,14 @@ export class GameScene extends Phaser.Scene {
 
     // Rank Tier Banner (e.g. ⚔️ SOLDIER RANK • 🏆 120)
     const rankTier = settlement.newRank;
+    const rankPresentation = computeResultRankPresentation(settlement.rankPromoted);
     const rankBanner = this.add
-      .rectangle(0, -208, 280, 36, 0x111c33, 0.95)
-      .setStrokeStyle(1.5, rankTier.color, 0.9);
+      .rectangle(0, rankPresentation.rankY, 280, 36, 0x111c33, 0.95)
+      .setStrokeStyle(1.5, rankTier.color, 0.9)
+      .setVisible(rankPresentation.showRankSummary);
 
     const rankText = this.add
-      .text(0, -214, `${rankTier.badge} ${rankTier.name.toUpperCase()} (🏆 ${settlement.newCareer.trophies})`, {
+      .text(0, rankPresentation.rankY - 6, `${rankTier.badge} ${rankTier.name.toUpperCase()} (🏆 ${settlement.newCareer.trophies})`, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -2648,13 +2651,17 @@ export class GameScene extends Phaser.Scene {
         strokeThickness: 2,
         resolution: 2,
       })
-      .setOrigin(0.5);
+      .setOrigin(0.5)
+      .setVisible(rankPresentation.showRankSummary);
 
     const leagueProgress = getLeagueProgress(settlement.newCareer.trophies);
-    const rankProgressTrack = this.add.rectangle(0, -198, 252, 4, 0x080d18, 1);
+    const rankProgressTrack = this.add
+      .rectangle(0, rankPresentation.rankY + 10, 252, 4, 0x080d18, 1)
+      .setVisible(rankPresentation.showRankSummary);
     const rankProgressFill = this.add
-      .rectangle(-126, -198, Math.max(3, 252 * leagueProgress.progress), 3, rankTier.color, 1)
-      .setOrigin(0, 0.5);
+      .rectangle(-126, rankPresentation.rankY + 10, Math.max(3, 252 * leagueProgress.progress), 3, rankTier.color, 1)
+      .setOrigin(0, 0.5)
+      .setVisible(rankPresentation.showRankSummary);
 
     // Two Big Reward Cards: Trophies Card and Gold Card
     const trophyCardX = -72;
@@ -2772,10 +2779,10 @@ export class GameScene extends Phaser.Scene {
 
     // Rank Promotion Banner (if promoted)
     let promoContainer: Phaser.GameObjects.Container | null = null;
-    if (settlement.rankPromoted) {
-      promoContainer = this.add.container(0, -208);
+    if (rankPresentation.showPromotion) {
+      promoContainer = this.add.container(0, rankPresentation.rankY);
       const promoGlow = this.add
-        .rectangle(0, 0, 284, 28, 0xf59e0b, 0.3)
+        .rectangle(0, 0, 284, 28, 0x3b2f0b, 1)
         .setStrokeStyle(2, 0xfde047, 1);
       const promoText = this.add
         .text(0, 0, `🎉 PROMOTED TO ${rankTier.name.toUpperCase()}!`, {
