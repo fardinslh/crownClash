@@ -14,6 +14,9 @@ import {
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
   interface Window {
+    Bale?: {
+      WebApp?: any;
+    };
     BaleApp?: any;
     Telegram?: {
       WebApp?: any;
@@ -31,7 +34,7 @@ export class BalePlatformAdapter implements PlatformAdapter {
 
   constructor() {
     if (typeof window !== 'undefined') {
-      this.baleBridge = window.BaleApp || window.Telegram?.WebApp || null;
+      this.baleBridge = window.Bale?.WebApp || window.BaleApp || window.Telegram?.WebApp || null;
     }
     this.user = this.extractBaleUser();
   }

@@ -11,6 +11,7 @@ import { TrainingScene } from './scenes/TrainingScene.js';
 import { LeagueScene } from './scenes/LeagueScene.js';
 import { MenuScene } from './scenes/MenuScene.js';
 import { CommanderScene } from './scenes/CommanderScene.js';
+import { selectRenderProfile } from './render/RenderProfile.js';
 
 // 1. Initialize Platform Adapter (Bale -> Eitaa -> Telegram -> Browser).
 // Phaser must not boot before platform init resolves: scenes read the
@@ -33,10 +34,18 @@ const startApp = (): void => {
   // logical coordinate system to avoid blurriness on high-DPI screens.
   // The camera zoom (set in each scene's create()) maps logical
   // coordinates back onto the scaled canvas.
-  const RENDER_SCALE = Math.min(window.devicePixelRatio || 1, 2);
+  // Bale's legacy Android WebGL compositor can stall for seconds while presenting
+  // the game canvas. Keep the existing high-DPI WebGL path for capable devices.
+  const renderProfile = selectRenderProfile({
+    platform: platform.platform,
+    devicePixelRatio: window.devicePixelRatio || 1,
+    userAgent: navigator.userAgent,
+    deviceMemory: (navigator as Navigator & { deviceMemory?: number }).deviceMemory,
+  });
+  const RENDER_SCALE = renderProfile.renderScale;
 
   const config: Phaser.Types.Core.GameConfig = {
-    type: Phaser.AUTO,
+    type: renderProfile.renderer === 'canvas' ? Phaser.CANVAS : Phaser.AUTO,
     parent: 'game-container',
     width: LOGICAL_WIDTH * RENDER_SCALE,
     height: LOGICAL_HEIGHT * RENDER_SCALE,
@@ -68,6 +77,7 @@ const startApp = (): void => {
       preBoot: (bootedGame) => {
         bootedGame.registry.set('platform', platform);
         bootedGame.registry.set('renderScale', RENDER_SCALE);
+        bootedGame.registry.set('reducedEffects', renderProfile.reducedEffects);
       },
     },
   };

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   BalePlatformAdapter,
   BrowserPlatformAdapter,
@@ -8,6 +8,10 @@ import {
 } from '../index.js';
 
 describe('Crown Clash - Platform Architecture Tests', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   describe('BrowserPlatformAdapter', () => {
     it('initializes with platform identity as browser', () => {
       const adapter = new BrowserPlatformAdapter();
@@ -92,6 +96,35 @@ describe('Crown Clash - Platform Architecture Tests', () => {
       const user = adapter.getUser();
       expect(user.languageCode).toBe('fa');
     });
+
+    it('reads signed identity from the official Bale.WebApp bridge', () => {
+      vi.stubGlobal('window', {
+        Bale: {
+          WebApp: {
+            initData: 'query_id=signed-bale-payload',
+            initDataUnsafe: {
+              user: {
+                id: 90210,
+                username: 'crown_tester',
+                first_name: 'Crown',
+                language_code: 'fa',
+              },
+            },
+          },
+        },
+        location: { search: '' },
+      });
+
+      const adapter = new BalePlatformAdapter();
+
+      expect(adapter.getInitDataRaw()).toBe('query_id=signed-bale-payload');
+      expect(adapter.getUser()).toMatchObject({
+        id: '90210',
+        username: 'crown_tester',
+        firstName: 'Crown',
+        languageCode: 'fa',
+      });
+    });
   });
 
   describe('EitaaPlatformAdapter', () => {
@@ -125,6 +158,16 @@ describe('Crown Clash - Platform Architecture Tests', () => {
       const adapter = createPlatformAdapter();
       expect(adapter).toBeDefined();
       expect(['browser', 'bale', 'eitaa', 'telegram']).toContain(adapter.platform);
+    });
+
+    it('detects the official Bale.WebApp bridge', () => {
+      vi.stubGlobal('window', {
+        Bale: { WebApp: { initData: 'signed' } },
+        navigator: { userAgent: 'Android WebView' },
+        location: { search: '' },
+      });
+
+      expect(createPlatformAdapter()).toBeInstanceOf(BalePlatformAdapter);
     });
   });
 });

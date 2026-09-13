@@ -236,8 +236,9 @@ export class GameScene extends Phaser.Scene {
     bindSceneViewportResize(this);
     this.initArmyVisualTextures();
     this.reducedMotion =
-      typeof window !== 'undefined' &&
-      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+      this.registry.get('reducedEffects') === true ||
+      (typeof window !== 'undefined' &&
+        window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true);
 
     this.platform = (this.registry.get('platform') as PlatformAdapter) || createPlatformAdapter();
     const user = this.platform.getUser();
