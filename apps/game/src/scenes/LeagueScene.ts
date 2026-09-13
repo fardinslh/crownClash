@@ -130,7 +130,7 @@ export class LeagueScene extends Phaser.Scene {
 
   applyLayout(vp: SceneViewport): void {
     const layout = computeLeagueLayout(vp.visibleHeight);
-    this.background.setPosition(vp.visibleWidth / 2, vp.visibleHeight / 2).setSize(vp.visibleWidth, vp.visibleHeight);
+    this.background.setPosition(LOGICAL_WIDTH / 2, vp.visibleHeight / 2).setSize(vp.visibleWidth, vp.visibleHeight);
     this.statusText.setY(layout.statusTextY);
     if (this.retryBg) this.retryBg.setY(layout.retryY);
     if (this.retryText) this.retryText.setY(layout.retryY);

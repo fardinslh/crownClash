@@ -325,4 +325,50 @@ describe('HudLayout', () => {
       expect(result.isLastEnemyArmy).toBe(false);
     });
   });
+
+  describe('originX support for non-zero camera scroll (e.g. Samsung J5 Canvas)', () => {
+    it('defaults originX to 0 when omitted', () => {
+      const defaultLayout = computeHudLayout(400, 50);
+      const explicitZeroLayout = computeHudLayout(400, 50, { originX: 0 });
+
+      expect(defaultLayout.headerBar.x).toBe(0);
+      expect(defaultLayout.playerPill.visibleBounds.x).toBe(explicitZeroLayout.playerPill.visibleBounds.x);
+      expect(defaultLayout.menuButton.center.x).toBe(explicitZeroLayout.menuButton.center.x);
+      expect(defaultLayout.dominanceBar.center.x).toBe(explicitZeroLayout.dominanceBar.center.x);
+    });
+
+    it('shifts headerBar and anchor elements by originX when originX is negative (wider screen / centered camera)', () => {
+      const originX = -33; // Samsung Galaxy J5 scrollX
+      const screenWidth = 466; // visibleWidth
+      const layout = computeHudLayout(screenWidth, 50, { originX });
+
+      // Header bar spans screenWidth starting from originX
+      expect(layout.headerBar.x).toBe(-33);
+      expect(layout.headerBar.width).toBe(466);
+
+      // Player pill is anchored to left edge (originX + 10)
+      expect(layout.playerPill.visibleBounds.x).toBe(-33 + 10);
+
+      // Menu button is anchored to right edge (originX + screenWidth - 25)
+      expect(layout.menuButton.center.x).toBe(-33 + 466 - 25);
+
+      // Dominance bar is centered at originX + screenWidth / 2
+      expect(layout.dominanceBar.center.x).toBe(-33 + 466 / 2);
+    });
+
+    it('ensures no HUD elements overlap when originX != 0', () => {
+      const originX = -33;
+      const screenWidth = 466;
+      const layout = computeHudLayout(screenWidth, 50, { originX });
+
+      const pills = [layout.playerPill, layout.trophyPill, layout.coinPill, layout.clockPill];
+      for (let i = 0; i < pills.length; i++) {
+        for (let j = i + 1; j < pills.length; j++) {
+          expect(rectanglesIntersect(pills[i].visibleBounds, pills[j].visibleBounds)).toBe(false);
+        }
+        expect(rectanglesIntersect(pills[i].visibleBounds, layout.menuButton.visibleBounds)).toBe(false);
+      }
+    });
+  });
 });
+

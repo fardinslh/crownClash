@@ -88,7 +88,7 @@ export class MenuScene extends Phaser.Scene {
     const { visibleWidth, visibleHeight } = getSceneViewport(this);
     const layout = computeMenuLayout(visibleHeight);
     this.add.rectangle(
-      visibleWidth / 2,
+      LOGICAL_WIDTH / 2,
       visibleHeight / 2,
       visibleWidth,
       visibleHeight,
@@ -490,7 +490,7 @@ export class MenuScene extends Phaser.Scene {
     // Root overlay – centred coordinate system (0,0 = screen centre)
     const { visibleWidth, visibleHeight } = getSceneViewport(this);
     const overlay = this.add
-      .container(visibleWidth / 2, visibleHeight / 2)
+      .container(LOGICAL_WIDTH / 2, visibleHeight / 2)
       .setDepth(150);
 
     // Dim the background; swallow all pointer events so nothing behind fires

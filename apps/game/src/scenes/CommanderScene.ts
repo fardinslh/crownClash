@@ -52,7 +52,7 @@ export class CommanderScene extends Phaser.Scene {
     const viewport = getSceneViewport(this);
     const layout = computeCommanderLayout(viewport.visibleHeight);
     this.background = this.add.rectangle(
-      viewport.visibleWidth / 2,
+      LOGICAL_WIDTH / 2,
       viewport.visibleHeight / 2,
       viewport.visibleWidth,
       viewport.visibleHeight,
@@ -83,7 +83,7 @@ export class CommanderScene extends Phaser.Scene {
   private applyLayout(viewport: SceneViewport): void {
     const layout = computeCommanderLayout(viewport.visibleHeight);
     this.background
-      .setPosition(viewport.visibleWidth / 2, viewport.visibleHeight / 2)
+      .setPosition(LOGICAL_WIDTH / 2, viewport.visibleHeight / 2)
       .setSize(viewport.visibleWidth, viewport.visibleHeight);
     this.powerBadgeText.setY(layout.powerBadgeY);
     this.cards.forEach((card, index) => {

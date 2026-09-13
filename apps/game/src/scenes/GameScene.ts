@@ -442,7 +442,7 @@ export class GameScene extends Phaser.Scene {
 
     this.add
       .rectangle(
-        visibleWidth / 2,
+        LOGICAL_WIDTH / 2,
         visibleHeight / 2,
         visibleWidth,
         visibleHeight,
@@ -453,24 +453,24 @@ export class GameScene extends Phaser.Scene {
     // Broad team-colored light pools make the two fronts readable without
     // competing with the territory ownership colors.
     this.add
-      .ellipse(visibleWidth / 2, 112, 470, 260, THEME.teams.enemy.dark, 0.12)
+      .ellipse(LOGICAL_WIDTH / 2, 112, Math.max(470, visibleWidth), 260, THEME.teams.enemy.dark, 0.12)
       .setDepth(0);
     this.add
-      .ellipse(visibleWidth / 2, visibleHeight - 70, 500, 290, THEME.teams.player.dark, 0.14)
+      .ellipse(LOGICAL_WIDTH / 2, visibleHeight - 70, Math.max(500, visibleWidth), 290, THEME.teams.player.dark, 0.14)
       .setDepth(0);
 
     const fieldGraphics = this.add.graphics().setDepth(1);
     fieldGraphics.fillStyle(0x101827, 0.42);
-    fieldGraphics.fillRoundedRect(10, 78, visibleWidth - 20, visibleHeight - 98, 18);
+    fieldGraphics.fillRoundedRect(10, 78, LOGICAL_WIDTH - 20, visibleHeight - 98, 18);
 
     // Subtle command-grid structure adds scale and keeps the empty arena from
     // looking like a flat color fill.
     fieldGraphics.lineStyle(1, 0x334155, 0.12);
-    for (let x = 28; x < visibleWidth; x += 36) {
+    for (let x = 28; x < LOGICAL_WIDTH - 10; x += 36) {
       fieldGraphics.lineBetween(x, 88, x, visibleHeight - 30);
     }
     for (let y = 94; y < visibleHeight - 28; y += 36) {
-      fieldGraphics.lineBetween(18, y, visibleWidth - 18, y);
+      fieldGraphics.lineBetween(18, y, LOGICAL_WIDTH - 18, y);
     }
 
     const lanesGraphics = this.add.graphics().setDepth(2);
@@ -680,7 +680,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createHud(): void {
-    const { visibleWidth, visibleHeight } = getSceneViewport(this);
+    const { visibleWidth, visibleHeight, scrollX } = getSceneViewport(this);
 
     // Compute player HUD label width for dynamic pill sizing
     const playerLabelCandidate = this.computePlayerHudLabel();
@@ -693,28 +693,31 @@ export class GameScene extends Phaser.Scene {
     const textWidth = Math.ceil(tempText.width);
     tempText.destroy();
 
-    const hudLayout = computeHudLayout(visibleWidth, textWidth, { isLiveMode: this.liveMode });
+    const hudLayout = computeHudLayout(visibleWidth, textWidth, {
+      isLiveMode: this.liveMode,
+      originX: scrollX,
+    });
     this.dominanceBarTotalWidth = hudLayout.dominanceBar.trackWidth;
     this.dominanceBarStartX = hudLayout.dominanceBar.bounds.x;
 
     // 1. Header Glass Panel Bar (y: 0 to 70)
     this.add
-      .rectangle(visibleWidth / 2, 39, visibleWidth, 74, 0x000000, 0.36)
+      .rectangle(LOGICAL_WIDTH / 2, 39, visibleWidth, 74, 0x000000, 0.36)
       .setDepth(89);
 
     this.add
-      .rectangle(visibleWidth / 2, 35, visibleWidth, 70, 0x090f1d, 0.96)
+      .rectangle(LOGICAL_WIDTH / 2, 35, visibleWidth, 70, 0x090f1d, 0.96)
       .setDepth(90);
 
     this.add
-      .rectangle(visibleWidth / 2, 70, visibleWidth, 1.5, 0x1e293b, 1)
+      .rectangle(LOGICAL_WIDTH / 2, 70, visibleWidth, 1.5, 0x1e293b, 1)
       .setDepth(91);
     this.add
-      .rectangle(visibleWidth / 4, 70, visibleWidth / 2, 1.5, THEME.teams.player.primary, 0.58)
+      .rectangle(LOGICAL_WIDTH / 2 - visibleWidth / 4, 70, visibleWidth / 2, 1.5, THEME.teams.player.primary, 0.58)
       .setDepth(92);
     this.add
       .rectangle(
-        (visibleWidth * 3) / 4,
+        LOGICAL_WIDTH / 2 + visibleWidth / 4,
         70,
         visibleWidth / 2,
         1.5,
@@ -971,15 +974,15 @@ export class GameScene extends Phaser.Scene {
     // 4. Bottom Tactical Control Hint Bar
     const bottomBarY = Math.max(691, visibleHeight - 28);
     this.add
-      .rectangle(visibleWidth / 2, bottomBarY + 3, Math.min(364, visibleWidth - 36), 42, 0x000000, 0.34)
+      .rectangle(LOGICAL_WIDTH / 2, bottomBarY + 3, Math.min(364, visibleWidth - 36), 42, 0x000000, 0.34)
       .setDepth(94);
     this.add
-      .rectangle(visibleWidth / 2, bottomBarY, Math.min(360, visibleWidth - 40), 40, 0x090f1d, 0.94)
+      .rectangle(LOGICAL_WIDTH / 2, bottomBarY, Math.min(360, visibleWidth - 40), 40, 0x090f1d, 0.94)
       .setStrokeStyle(1.5, 0x334155, 0.92)
       .setDepth(95);
 
     this.add
-      .text(visibleWidth / 2, bottomBarY - 9, 'DEF shields  •  PROD trains  •  SPD marches', {
+      .text(LOGICAL_WIDTH / 2, bottomBarY - 9, 'DEF shields  •  PROD trains  •  SPD marches', {
         fontFamily: MONO_FONT_FAMILY,
         fontSize: '10px',
         fontStyle: 'bold',
@@ -993,7 +996,7 @@ export class GameScene extends Phaser.Scene {
       ? `⚔ Live battle vs ${this.formatShortName(this.liveOpponentName, 12)}`
       : '⚔ Drag across towers to attack or reinforce';
     this.bottomHintText = this.add
-      .text(visibleWidth / 2, bottomBarY + 10, initialHint, {
+      .text(LOGICAL_WIDTH / 2, bottomBarY + 10, initialHint, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -2584,7 +2587,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     const { visibleWidth, visibleHeight } = getSceneViewport(this);
-    const modal = this.add.container(visibleWidth / 2, visibleHeight / 2).setDepth(200);
+    const modal = this.add.container(LOGICAL_WIDTH / 2, visibleHeight / 2).setDepth(200);
     this.resultModalContainer = modal;
     modal.setScale(0.8);
     modal.setAlpha(0);
@@ -3052,8 +3055,8 @@ export class GameScene extends Phaser.Scene {
   private showSettlementError(error: unknown): void {
     console.error('[GameScene] Match settlement failed:', error);
 
-    const { visibleWidth, visibleHeight } = getSceneViewport(this);
-    const modal = this.add.container(visibleWidth / 2, visibleHeight / 2).setDepth(220);
+    const { visibleHeight } = getSceneViewport(this);
+    const modal = this.add.container(LOGICAL_WIDTH / 2, visibleHeight / 2).setDepth(220);
     this.resultModalContainer = modal;
 
     const card = this.add
@@ -3153,7 +3156,7 @@ export class GameScene extends Phaser.Scene {
   private renderSyncingModal(): void {
     if (this.syncingModalContainer) return;
     const { visibleWidth, visibleHeight } = getSceneViewport(this);
-    const modal = this.add.container(visibleWidth / 2, visibleHeight / 2).setDepth(210);
+    const modal = this.add.container(LOGICAL_WIDTH / 2, visibleHeight / 2).setDepth(210);
     this.syncingModalContainer = modal;
 
     const backdrop = this.add
@@ -3285,7 +3288,7 @@ export class GameScene extends Phaser.Scene {
 
   private renderMatchMenuModal(): void {
     const { visibleWidth, visibleHeight } = getSceneViewport(this);
-    const modal = this.add.container(visibleWidth / 2, visibleHeight / 2).setDepth(150);
+    const modal = this.add.container(LOGICAL_WIDTH / 2, visibleHeight / 2).setDepth(150);
     this.matchMenuModalContainer = modal;
 
     const backdrop = this.add
@@ -3428,7 +3431,7 @@ export class GameScene extends Phaser.Scene {
 
   private renderMatchConfirmModal(): void {
     const { visibleWidth, visibleHeight } = getSceneViewport(this);
-    const modal = this.add.container(visibleWidth / 2, visibleHeight / 2).setDepth(150);
+    const modal = this.add.container(LOGICAL_WIDTH / 2, visibleHeight / 2).setDepth(150);
     this.matchMenuModalContainer = modal;
 
     const backdrop = this.add

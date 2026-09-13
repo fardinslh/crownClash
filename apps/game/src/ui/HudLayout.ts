@@ -56,6 +56,7 @@ export interface HudFontStyle {
 export interface HudLayoutOptions {
   isLiveMode?: boolean;
   coinOrOpponentTextWidth?: number;
+  originX?: number;
 }
 
 export function getPillMaxContentWidth(pillWidth: number): number {
@@ -324,9 +325,11 @@ export function computeHudLayout(
   playerTextWidth: number = 50,
   options: HudLayoutOptions = {}
 ): HudLayoutResult {
+  const originX = options.originX ?? 0;
+
   // 1. Header glass panel background spans the full width of the viewport
   const headerBar: Rect = {
-    x: 0,
+    x: originX,
     y: 0,
     width: screenWidth,
     height: 70,
@@ -334,7 +337,7 @@ export function computeHudLayout(
 
   // 2. Menu button (Right side)
   // Preserves >= 44x44 touch target while keeping visible frame compact (36x26)
-  const menuCenterX = screenWidth - 25;
+  const menuCenterX = originX + screenWidth - 25;
   const menuCenterY = 20;
   const menuVisibleWidth = 36;
   const menuVisibleHeight = 26;
@@ -383,7 +386,7 @@ export function computeHudLayout(
   const desiredPlayerWidth = Math.ceil(playerTextWidth) + 14;
   const playerPillWidth = Math.min(maxPlayerWidth, Math.max(68, desiredPlayerWidth));
 
-  const playerPillStartX = 10;
+  const playerPillStartX = originX + 10;
   const playerPill: HudElementLayout = {
     center: { x: playerPillStartX + playerPillWidth / 2, y: pillY },
     visibleBounds: {
@@ -437,9 +440,9 @@ export function computeHudLayout(
   const barStartX = (screenWidth - barWidth) / 2;
 
   const dominanceBar: DominanceBarLayout = {
-    center: { x: screenWidth / 2, y: barY },
+    center: { x: originX + screenWidth / 2, y: barY },
     bounds: {
-      x: barStartX,
+      x: originX + barStartX,
       y: barY - barHeight / 2,
       width: barWidth,
       height: barHeight,
