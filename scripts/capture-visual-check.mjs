@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { CdpClient, waitForWebSocketOpen } from './cdp-client.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,41 +44,6 @@ function startStaticServer(port = 4195) {
   });
 }
 
-class CdpClient {
-  constructor(ws) {
-    this.ws = ws;
-    this.id = 1;
-    this.callbacks = new Map();
-    this.eventListeners = new Map();
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data.toString());
-      if (msg.id && this.callbacks.has(msg.id)) {
-        const { resolve, reject } = this.callbacks.get(msg.id);
-        this.callbacks.delete(msg.id);
-        if (msg.error) reject(new Error(msg.error.message || JSON.stringify(msg.error)));
-        else resolve(msg.result);
-      } else if (msg.method && this.eventListeners.has(msg.method)) {
-        for (const fn of this.eventListeners.get(msg.method)) {
-          fn(msg.params);
-        }
-      }
-    };
-  }
-
-  on(event, fn) {
-    if (!this.eventListeners.has(event)) this.eventListeners.set(event, []);
-    this.eventListeners.get(event).push(fn);
-  }
-
-  send(method, params = {}) {
-    return new Promise((resolve, reject) => {
-      const msgId = this.id++;
-      this.callbacks.set(msgId, { resolve, reject });
-      this.ws.send(JSON.stringify({ id: msgId, method, params }));
-    });
-  }
-}
-
 async function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -104,15 +70,14 @@ async function captureViewportScreenshot(viewport, filename, serverPort, cdpPort
     chromeProcess = spawn(CHROME_PATH, chromeFlags, { stdio: 'ignore' });
     await sleep(1500);
 
-    const listRes = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
+    const listRes = await fetch(`http://127.0.0.1:${cdpPort}/json/list`, {
+      signal: AbortSignal.timeout(10_000),
+    });
     const tabs = await listRes.json();
     const pageTab = tabs.find((t) => t.type === 'page') || tabs[0];
     ws = new WebSocket(pageTab.webSocketDebuggerUrl);
 
-    await new Promise((res, rej) => {
-      ws.onopen = res;
-      ws.onerror = rej;
-    });
+    await waitForWebSocketOpen(ws);
 
     const cdp = new CdpClient(ws);
     await cdp.send('Page.enable');
