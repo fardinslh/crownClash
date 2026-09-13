@@ -954,21 +954,21 @@
     "semantic_hash": ""
   },
   "apps/game/src/debug/benchmark/BenchmarkMetricsCalculator.ts": {
-    "mtime": 1789251322.7798605,
-    "seen": 1789251635.1568012,
-    "ast_hash": "9d1b3f2987e0e46938cdc26c1a247272",
+    "mtime": 1789253622.0440073,
+    "seen": 1789254360.404623,
+    "ast_hash": "a212d16a100811f60d53adbbe15e7d39",
     "semantic_hash": ""
   },
   "apps/game/src/debug/benchmark/BenchmarkTypes.ts": {
-    "mtime": 1789251223.343382,
-    "seen": 1789251635.1568012,
-    "ast_hash": "c321ebb141b144f2fe9431b75f4da2ac",
+    "mtime": 1789253583.405354,
+    "seen": 1789254360.404623,
+    "ast_hash": "5ece9c10d56b68760d04e51e3a560a9c",
     "semantic_hash": ""
   },
   "apps/game/src/debug/benchmark/DeterministicScenarioDriver.ts": {
-    "mtime": 1789246091.5281541,
-    "seen": 1789246282.7712195,
-    "ast_hash": "0afac71fd40d86979624be43af18bb1a",
+    "mtime": 1789254069.1108718,
+    "seen": 1789254360.404623,
+    "ast_hash": "467c7d5663ec1514f9cfe30c64b8535e",
     "semantic_hash": ""
   },
   "apps/game/src/debug/benchmark/__tests__/BenchmarkComparator.test.ts": {
@@ -1002,9 +1002,9 @@
     "semantic_hash": ""
   },
   "scripts/run-benchmark.mjs": {
-    "mtime": 1789251354.7462163,
-    "seen": 1789251635.1568012,
-    "ast_hash": "240aaa1bf2d4250f81e6fef1f9f5af70",
+    "mtime": 1789253745.2134557,
+    "seen": 1789254360.404623,
+    "ast_hash": "0fc617c65f735ba9e98a3c9b9ffc3157",
     "semantic_hash": ""
   },
   "qa-artifacts/summaries/normal_combat_run3.json": {
@@ -1059,6 +1059,60 @@
     "mtime": 1789251589.591342,
     "seen": 1789251635.1568012,
     "ast_hash": "974fa8653bd7981bc01036fcb7037d66",
+    "semantic_hash": ""
+  },
+  "qa-artifacts/summaries/diag_background_resume.json": {
+    "mtime": 1789254179.7566478,
+    "seen": 1789254360.404623,
+    "ast_hash": "d107781cebb09159bae55ceea7bb5117",
+    "semantic_hash": ""
+  },
+  "qa-artifacts/summaries/diag_heavy_combat.json": {
+    "mtime": 1789253928.8644485,
+    "seen": 1789254360.404623,
+    "ast_hash": "4ef55ba41ebc5df196cd11f52dea0d86",
+    "semantic_hash": ""
+  },
+  "qa-artifacts/summaries/diag_late_match_pressure.json": {
+    "mtime": 1789254121.779819,
+    "seen": 1789254360.404623,
+    "ast_hash": "64d9111032ce99787d2739e76bad734d",
+    "semantic_hash": ""
+  },
+  "qa-artifacts/summaries/diag_normal_combat.json": {
+    "mtime": 1789253882.0372233,
+    "seen": 1789254360.404623,
+    "ast_hash": "96247bcb4e11ad6ec3f54aa846e18819",
+    "semantic_hash": ""
+  },
+  "qa-artifacts/summaries/diag_rapid_dispatches.json": {
+    "mtime": 1789253973.498611,
+    "seen": 1789254360.404623,
+    "ast_hash": "e11635adb30d61d9b6bae1f97b989050",
+    "semantic_hash": ""
+  },
+  "qa-artifacts/summaries/false_green_red.json": {
+    "mtime": 1789253789.0031087,
+    "seen": 1789254360.404623,
+    "ast_hash": "47ab66666ee0d6c479fb43c18a322464",
+    "semantic_hash": ""
+  },
+  "qa-artifacts/summaries/false_green_restored.json": {
+    "mtime": 1789253814.8570833,
+    "seen": 1789254360.404623,
+    "ast_hash": "5c44be4cc0fc93c73936e8d9df9249e1",
+    "semantic_hash": ""
+  },
+  "qa-artifacts/false-green-diagnostic-report.md": {
+    "mtime": 1789253840.1886501,
+    "seen": 1789254360.404623,
+    "ast_hash": "c2d0fc93ac008e0b5bc981366658616b",
+    "semantic_hash": ""
+  },
+  "qa-artifacts/mobile-stutter-diagnostics.md": {
+    "mtime": 1789254331.0324721,
+    "seen": 1789254360.404623,
+    "ast_hash": "bb39e2bfa61db9ebc234b96256669509",
     "semantic_hash": ""
   }
 }

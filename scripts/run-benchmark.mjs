@@ -447,14 +447,32 @@ export async function runDeterministicBenchmark(options = {}) {
                 return origAddTween.apply(this, args);
               };
             }
-            if (scene.add && typeof scene.add.existing === 'function') {
-              const origAddExisting = scene.add.existing;
-              scene.add.existing = function(...args) {
-                if (window.__AUTHORITATIVE_PROBE__.isSampling) {
-                  window.__AUTHORITATIVE_PROBE__.subsystemTimings.gameObjectsCreated++;
+            if (scene.add && typeof scene.add.circle === 'function') {
+              const factoryMethods = [
+                'graphics',
+                'container',
+                'rectangle',
+                'circle',
+                'ellipse',
+                'image',
+                'text',
+                'sprite',
+                'existing',
+              ];
+              for (const fn of factoryMethods) {
+                if (typeof scene.add[fn] === 'function') {
+                  const origFactory = scene.add[fn];
+                  scene.add[fn] = function(...args) {
+                    if (window.__AUTHORITATIVE_PROBE__.isSampling) {
+                      window.__AUTHORITATIVE_PROBE__.subsystemTimings.gameObjectsCreated =
+                        (window.__AUTHORITATIVE_PROBE__.subsystemTimings.gameObjectsCreated || 0) + 1;
+                    }
+                    return origFactory.apply(this, args);
+                  };
                 }
-                return origAddExisting.apply(this, args);
-              };
+              }
+            } else {
+              window.__AUTHORITATIVE_PROBE__.subsystemTimings.gameObjectsCreated = null;
             }
           }
 
@@ -687,6 +705,7 @@ export async function runDeterministicBenchmark(options = {}) {
         expectedDurationSeconds: durationSec,
         targetArmyRange: scenarioDef.config.targetArmyRange,
         targetFps: 60,
+        maxAllowedLongTasks: scenarioDef.config.maxAllowedLongTasks,
       }
     );
 
@@ -757,7 +776,7 @@ export async function runDeterministicBenchmark(options = {}) {
       console.log(`Tweens Update:                 ${s.tweensMsAvg} ms/frame`);
       console.log(`Phaser Rendering:              ${s.renderMsAvg} ms/frame`);
       console.log(`Texture Uploads (total):       ${s.textureUploadsTotal}`);
-      console.log(`GameObjects Created (total):   ${s.gameObjectsCreatedTotal}`);
+      console.log(`GameObjects Created (total):   ${s.gameObjectsCreatedTotal !== null ? s.gameObjectsCreatedTotal : 'N/A (instrumentation unavailable)'}`);
       console.log(`Tweens Created (total):        ${s.tweensCreatedTotal}`);
       console.log('--------------------------------------------');
     }

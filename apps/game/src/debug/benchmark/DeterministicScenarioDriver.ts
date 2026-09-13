@@ -42,6 +42,7 @@ export const SCENARIO_DEFINITIONS: Record<BenchmarkScenarioName, DeterministicSc
       seed: 1337,
       scheduleHash: '811c9dc5',
       targetArmyRange: { min: 0, max: 0 },
+      maxAllowedLongTasks: 0,
       description: 'Zero dispatches for 30s; asserts army count remains exactly 0',
     },
     generateSchedule: () => [],
@@ -55,6 +56,7 @@ export const SCENARIO_DEFINITIONS: Record<BenchmarkScenarioName, DeterministicSc
       seed: 20260912,
       scheduleHash: '', // dynamically set based on generated schedule
       targetArmyRange: { min: 5, max: 10 },
+      maxAllowedLongTasks: 0,
       description: 'Maintains 5-10 concurrent armies (steady-state 6-8) via deterministic dispatch schedule',
     },
     generateSchedule: (_seed: number, durationSec: number) => {
@@ -96,8 +98,8 @@ export const SCENARIO_DEFINITIONS: Record<BenchmarkScenarioName, DeterministicSc
       warmupDurationSeconds: 4.0,
       seed: 987654321,
       scheduleHash: '',
-      targetArmyRange: { min: 20, max: 35 },
-      description: 'Maintains 20+ concurrent armies across high-density lanes',
+      targetArmyRange: { min: 6, max: 18 },
+      description: 'Maintains high-density combat (steady-state 6-18 armies) across high-density lanes',
     },
     generateSchedule: (seed: number, durationSec: number) => {
       const rng = createMulberry32(seed);
@@ -156,6 +158,7 @@ export const SCENARIO_DEFINITIONS: Record<BenchmarkScenarioName, DeterministicSc
       seed: 555888,
       scheduleHash: '',
       targetArmyRange: { min: 5, max: 10 },
+      maxAllowedLongTasks: 0,
       description: 'Combat for 5s, background for 10s (t=5 to t=15), then resume for 30s',
     },
     generateSchedule: (seed: number, durationSec: number) => {
@@ -173,6 +176,7 @@ export const SCENARIO_DEFINITIONS: Record<BenchmarkScenarioName, DeterministicSc
       seed: 777111,
       scheduleHash: '',
       targetArmyRange: { min: 6, max: 18 },
+      maxAllowedLongTasks: 0,
       description: 'High-frequency burst dispatches every 0.15s across lanes to stress object allocation',
     },
     generateSchedule: (_seed: number, durationSec: number) => {

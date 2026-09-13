@@ -279,6 +279,112 @@ describe('BenchmarkMetricsCalculator', () => {
       expect(res.passed).toBe(false);
       expect(res.failures.some(f => f.includes('INVALID_BACKGROUND_TRANSITION'))).toBe(true);
     });
+
+    it('fails verification with EXPECTED_NO_LONG_TASKS when long tasks exceed maxAllowedLongTasks', () => {
+      const res = verifyPrerequisites(
+        makeMetrics({
+          longTasks: { count: 1, totalDurationMs: 91, maxDurationMs: 91 },
+        }),
+        {
+          renderer: 'WebGL',
+          isSoftwareRenderer: false,
+          viewport: { width: 375, height: 667, dpr: 2 },
+          buildMode: 'production',
+        },
+        {
+          ...standardPrereqs,
+          maxAllowedLongTasks: 0,
+        }
+      );
+
+      expect(res.passed).toBe(false);
+      expect(res.failures).toContainEqual(expect.stringContaining('EXPECTED_NO_LONG_TASKS'));
+      expect(res.failures[0]).toContain('observed 1 long tasks >50ms (total 91ms, max 91ms), exceeding allowed threshold of 0');
+    });
+
+    it('passes verification when long tasks are zero and maxAllowedLongTasks is 0', () => {
+      const res = verifyPrerequisites(
+        makeMetrics({
+          longTasks: { count: 0, totalDurationMs: 0, maxDurationMs: 0 },
+        }),
+        {
+          renderer: 'WebGL',
+          isSoftwareRenderer: false,
+          viewport: { width: 375, height: 667, dpr: 2 },
+          buildMode: 'production',
+        },
+        {
+          ...standardPrereqs,
+          maxAllowedLongTasks: 0,
+        }
+      );
+
+      expect(res.passed).toBe(true);
+      expect(res.failures).toEqual([]);
+    });
+  });
+
+  describe('SubsystemTimings calculation', () => {
+    it('records non-zero gameObjectsCreatedTotal when provided by instrumentation', () => {
+      const metrics = computeBenchmarkMetrics(
+        {
+          sampleDurationMs: 1000,
+          renderFrames: [{ timestampMs: 1000, deltaMs: 16.6 }],
+          simulationTicks: 60,
+          longTasks: [],
+          peakObjects: 10,
+          peakTweens: 2,
+          memoryMb: { start: 10, peak: 12 },
+          totalDrawCalls: 100,
+          subsystemTimings: {
+            simulationMs: 5,
+            hudMs: 2,
+            territoryVisualsMs: 1,
+            armyVisualsMs: 2,
+            combatArrivalsMs: 1,
+            tweensMs: 0.1,
+            renderMs: 8,
+            textureUploads: 50,
+            gameObjectsCreated: 142,
+            tweensCreated: 24,
+          },
+        },
+        60
+      );
+
+      expect(metrics.subsystemTimings?.gameObjectsCreatedTotal).toBe(142);
+      expect(metrics.subsystemTimings?.tweensCreatedTotal).toBe(24);
+    });
+
+    it('sets gameObjectsCreatedTotal to null when instrumentation is unavailable, never false zero', () => {
+      const metrics = computeBenchmarkMetrics(
+        {
+          sampleDurationMs: 1000,
+          renderFrames: [{ timestampMs: 1000, deltaMs: 16.6 }],
+          simulationTicks: 60,
+          longTasks: [],
+          peakObjects: 10,
+          peakTweens: 2,
+          memoryMb: { start: 10, peak: 12 },
+          totalDrawCalls: 100,
+          subsystemTimings: {
+            simulationMs: 5,
+            hudMs: 2,
+            territoryVisualsMs: 1,
+            armyVisualsMs: 2,
+            combatArrivalsMs: 1,
+            tweensMs: 0.1,
+            renderMs: 8,
+            textureUploads: 50,
+            gameObjectsCreated: null,
+            tweensCreated: 24,
+          },
+        },
+        60
+      );
+
+      expect(metrics.subsystemTimings?.gameObjectsCreatedTotal).toBeNull();
+    });
   });
 });
 

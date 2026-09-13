@@ -213,4 +213,49 @@ describe('False-Green Negative Control Suite', () => {
       expect(result.reasonCode).toBe('MISSING_COMPARISON_IDENTITY');
     }
   });
+
+  it('NEGATIVE CONTROL 10: injected synthetic long task fails verification with EXPECTED_NO_LONG_TASKS', () => {
+    const metricsWithLongTask = createMockValidMetrics({
+      longTasks: { count: 1, totalDurationMs: 91, maxDurationMs: 91 },
+    });
+    const result = verifyPrerequisites(
+      metricsWithLongTask,
+      {
+        renderer: 'WebGL',
+        isSoftwareRenderer: false,
+        viewport: { width: 375, height: 667, dpr: 2 },
+        buildMode: 'production',
+      },
+      {
+        ...validPrerequisites,
+        maxAllowedLongTasks: 0,
+      }
+    );
+
+    expect(result.passed).toBe(false);
+    expect(result.failures).toContainEqual(expect.stringContaining('EXPECTED_NO_LONG_TASKS'));
+    expect(result.failures[0]).toContain('observed 1 long tasks >50ms (total 91ms, max 91ms), exceeding allowed threshold of 0');
+  });
+
+  it('POSITIVE CONTROL 11: clean run with 0 long tasks passes verification with failures = []', () => {
+    const cleanMetrics = createMockValidMetrics({
+      longTasks: { count: 0, totalDurationMs: 0, maxDurationMs: 0 },
+    });
+    const result = verifyPrerequisites(
+      cleanMetrics,
+      {
+        renderer: 'WebGL',
+        isSoftwareRenderer: false,
+        viewport: { width: 375, height: 667, dpr: 2 },
+        buildMode: 'production',
+      },
+      {
+        ...validPrerequisites,
+        maxAllowedLongTasks: 0,
+      }
+    );
+
+    expect(result.passed).toBe(true);
+    expect(result.failures).toEqual([]);
+  });
 });

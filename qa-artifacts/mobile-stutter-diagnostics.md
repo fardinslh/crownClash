@@ -8,21 +8,22 @@
 
 ## Executive Summary
 
-Diagnostic benchmarks and Chrome DevTools performance traces across 5 representative scenarios reveal that **Phaser WebGL Rendering (enderer.render) is the single dominant bottleneck causing mobile gameplay stutter**, consuming **81% to 105% of the total 16.6ms frame budget** (averaging 17.03ms - 17.83ms in combat scenarios, with draw call counts reaching 143 to 157 per frame).
+Diagnostic benchmarks and Chrome DevTools performance traces across 5 representative scenarios identify **CPU Main-Thread Render-Path Execution (enderer.render) as the primary bottleneck causing gameplay stutter under mobile-constrained conditions**, consuming **13.5ms to 16.6ms per frame** (81% to 100% of the 16.6ms frame budget), accompanied by **98 to 152 WebGL draw calls per frame** and **100 to 142 texture uploads per second**.
 
 In contrast, **pure game logic and simulation are fast and well within budget**:
-- Game simulation (stepBotMatch): **0.23ms - 0.56ms** / frame
-- Army Visuals (updateArmies): **0.23ms - 0.51ms** / frame
-- Territory state sync: **0.12ms - 0.25ms** / frame
-- HUD updates: **0.35ms - 0.45ms** / frame
+- Game simulation (stepBotMatch): **0.22ms - 0.48ms** / frame
+- Army movement & visual updates: **0.22ms - 0.42ms** / frame
+- Territory state sync: **0.11ms - 0.21ms** / frame
+- HUD updates: **0.33ms - 0.48ms** / frame
 
-The stutter and framerate degradation (dropping from 60 FPS to 47.3 FPS under heavy combat and late-match pressure) is driven by two specific rendering pipeline defects:
-1. **Draw Call Explosion via Batch-Breaking Visual Hierarchy**: Armies and territories interleave `Phaser.GameObjects.Shape` primitives (elliptical shadows, circular auras, rectangular badge backgrounds) with `Phaser.GameObjects.Image` sprites from texture atlases. This repeatedly flushes the WebGL batch 8 to 11 times *per army*, driving draw calls to **157 calls/frame**.
-2. **Offscreen Canvas Texture Upload Churn (gl.texSubImage2D)**: Dynamic troop badges, tower counters, and floating combat text use `Phaser.GameObjects.Text`. Updating these strings redraws an offscreen HTML `<canvas>` and issues `gl.texSubImage2D` calls to the GPU—generating **over 4,190 texture uploads in 30 seconds (~140 uploads/second)** and causing GPU pipeline stalls.
+**Important Architectural Distinction (Measured vs Inferred)**:
+- enderer.render measures **CPU JavaScript main-thread scene traversal and WebGL command dispatch time**, *not* GPU hardware execution time.
+- GPU hardware execution occurs asynchronously in the browser GPU process and is captured via trace events like GPUTask (which reached **29.73ms** during a 62.8ms hitch).
+- Texture upload counts (	exSubImage2D) prove that frequent pixel transfers occurred (~140/sec); the assertion that these transfers cause bus stalls is an architectural hypothesis based on mobile GPU memory models, not a directly instrumented hardware counter.
 
 ---
 
-## 1. Scenario Benchmark Results
+## 1. Measured Scenario Benchmark Results
 
 All scenarios were executed under:
 - Viewport: `375×667`, DPR: `2.0`
@@ -31,15 +32,15 @@ All scenarios were executed under:
 - Network: Fast 4G (`40ms` latency, `4Mbps` down, `3Mbps` up)
 - Warm-up period: Documented and excluded from steady-state verification.
 
-| Scenario | Presented FPS | Update Delta (Avg / P95 / Max) | Frames >16.7ms | Frames >33.3ms | Long Tasks (>50ms) | Draw Calls / Frame | Texture Uploads (30s) | Phaser Render ms/frame | Simulation ms/frame |
+| Scenario | Presented FPS | Update Delta (Avg / P95 / Max) | Frames >16.7ms | Frames >33.3ms | Long Tasks (>50ms) | Draw Calls / Frame | Texture Uploads (30s) | Phaser Render ms/frame (CPU) | Simulation ms/frame (CPU) |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **normal_combat** | **59.6** | 16.8ms / 22.3ms / 44.8ms | 38.1% | 0.2% | 0 (0ms) | 98.3 | 3,034 | 13.62ms | 0.23ms |
-| **heavy_combat** | **49.4** | 20.2ms / 26.1ms / 62.4ms | 90.7% | 0.8% | 4 (229ms) | 143.5 | 4,102 | 17.03ms | 0.53ms |
-| **rapid_dispatches** | **54.6** | 18.3ms / 23.2ms / 48.5ms | 71.4% | 0.4% | 0 (0ms) | 118.4 | 3,680 | 15.47ms | 0.40ms |
-| **late_match_pressure** | **47.3** | 21.1ms / 26.9ms / 61.2ms | 95.4% | 1.2% | 3 (172ms) | 157.1 | 4,193 | 17.83ms | 0.56ms |
-| **background_resume** | **8.3** (suspended 10s) | 17.2ms / 23.7ms / 45.7ms | 43.2% | 1.0% | 0 (0ms) | 86.1 | 472 | 13.34ms | 0.34ms |
+| **normal_combat** | **59.5** | 16.8ms / 22.5ms / 49.6ms | 37.0% | 0.2% | 0 (0ms) | 98.0 | 3,025 | 13.51ms | 0.22ms |
+| **heavy_combat** | **53.9** | 18.5ms / 23.7ms / 46.7ms | 69.7% | 0.6% | 0 (0ms) | 139.9 | 4,209 | 15.80ms | 0.44ms |
+| **rapid_dispatches** | **58.0** | 17.2ms / 22.5ms / 43.6ms | 44.6% | 0.3% | 0 (0ms) | 118.2 | 3,797 | 14.48ms | 0.35ms |
+| **late_match_pressure** | **51.6** | 19.4ms / 24.8ms / 57.4ms | 81.3% | 0.7% | 1 (57ms) | 152.4 | 4,262 | 16.64ms | 0.48ms |
+| **background_resume** | **8.3** (suspended 10s) | 17.3ms / 23.4ms / 45.0ms | 41.6% | 0.7% | 0 (0ms) | 85.6 | 464 | 13.37ms | 0.32ms |
 
-*Tracked raw summary files*:
+*Tracked JSON Summaries*:
 - `qa-artifacts/summaries/diag_normal_combat.json`
 - `qa-artifacts/summaries/diag_heavy_combat.json`
 - `qa-artifacts/summaries/diag_rapid_dispatches.json`
@@ -48,134 +49,121 @@ All scenarios were executed under:
 
 ---
 
-## 2. Subsystem Attribution Breakdown
+## 2. Subsystem Attribution Breakdown (Measured CPU Timings)
 
-In-page high-resolution performance probes (`performance.now()`) wrapped around discrete subsystem methods within `GameScene` reveal where frame time is spent:
+In-page high-resolution performance probes (`performance.now()`) wrapped around discrete subsystem methods within `GameScene` measure main-thread CPU time:
 
 | Subsystem | normal_combat | heavy_combat | rapid_dispatches | late_match_pressure | background_resume |
 |:---|:---:|:---:|:---:|:---:|:---:|
-| **Simulation (stepBotMatch)** | 0.23ms | 0.53ms | 0.40ms | 0.56ms | 0.34ms |
-| **Army Visuals (updateArmies)** | 0.23ms | 0.49ms | 0.37ms | 0.51ms | 0.32ms |
-| **Territory Visuals (sync)** | 0.12ms | 0.22ms | 0.17ms | 0.25ms | 0.16ms |
-| **HUD Updates (dominance/timer)** | 0.35ms | 0.38ms | 0.36ms | 0.38ms | 0.45ms |
-| **Combat Arrivals (effects/sounds)** | 0.17ms | 0.46ms | 0.34ms | 0.50ms | 0.25ms |
+| **Simulation (stepBotMatch)** | 0.22ms | 0.44ms | 0.35ms | 0.48ms | 0.32ms |
+| **Army Visuals (updateArmies)** | 0.22ms | 0.42ms | 0.32ms | 0.42ms | 0.30ms |
+| **Territory Visuals (sync)** | 0.11ms | 0.20ms | 0.15ms | 0.21ms | 0.17ms |
+| **HUD Updates (dominance/timer)** | 0.33ms | 0.34ms | 0.33ms | 0.34ms | 0.45ms |
+| **Combat Arrivals (effects/sounds)** | 0.17ms | 0.39ms | 0.29ms | 0.41ms | 0.23ms |
 | **Tweens Update** | <0.01ms | <0.01ms | <0.01ms | <0.01ms | <0.01ms |
-| **Phaser WebGL Rendering** | **13.62ms** | **17.03ms** | **15.47ms** | **17.83ms** | **13.34ms** |
-| **Tweens Created (allocations)** | 721 | 1,580 | 1,290 | 1,745 | 129 |
-| **Peak Display Objects** | 90 | 113 | 99 | 117 | 99 |
-
-**Key Subsystem Takeaways**:
-- The game simulation logic is extremely light and scalable (only **0.56ms** during 19 concurrent armies).
-- Visual updates (calculating march strides, positions) are lean (only **0.51ms**).
-- Phaser WebGL Rendering is the bottleneck, scaling from **13.62ms up to 17.83ms** as army counts increase.
+| **Phaser Render Path (enderer.render)** | **13.51ms** | **15.80ms** | **14.48ms** | **16.64ms** | **13.37ms** |
+| **Texture Uploads (	exSubImage2D count)** | 3,025 | 4,209 | 3,797 | 4,262 | 464 |
+| **GameObjects Created (observed count)** | 1,591 | 3,640 | 3,033 | 3,966 | 284 |
+| **Tweens Created (observed count)** | 715 | 1,475 | 1,290 | 1,603 | 117 |
+| **Peak Display Objects** | 90 | 110 | 98 | 118 | 98 |
 
 ---
 
-## 3. Deep Trace Window Analysis (Worst Hitches)
+## 3. Trace Window Validation & Subsystem Breakdown
 
-We analyzed the collected Chrome DevTools performance traces (`qa-artifacts/traces/heavy_combat_trace.json` and `qa-artifacts/traces/late_match_pressure_trace.json`).
+Chrome DevTools traces (`qa-artifacts/traces/heavy_combat_trace.json` and `qa-artifacts/traces/late_match_pressure_trace.json`) were parsed to isolate steady-state match hitches (>50ms).
 
-### Worst Match-Time Hitch in heavy_combat:
+### Measured Trace Slices for Steady-State Hitch (62.79ms in heavy_combat):
 - **Timestamp**: `40469912900` µs (~24.5s into match)
-- **Duration**: **62.79ms** (3.8 frame drops)
-- **Top Slices**:
-  - `RunTask`: 62.79ms
+- **Top-Level Task (RunTask)**: **62.79ms**
+- **Slices inside Task**:
   - `FireAnimationFrame`: 61.39ms
-  - `FunctionCall` (`phaser-BwSGr_Za.js:1022` - Phaser Game Step & Render): **61.17ms**
-  - `GPUTask` (GPU process executing WebGL draw calls): **29.73ms** (48.5% of the frame)
-  - `MinorGC`: 0.83ms
-  - `Layout / Style`: 0.00ms
-  - `Commit / PrePaint`: 0.45ms
+  - `FunctionCall` (Phaser Game Loop & Render: `phaser-BwSGr_Za.js:1022`): **61.17ms**
+  - `GPUTask` (GPU process executing WebGL command stream): **29.73ms** (48.5% of the hitch window)
+  - `MinorGC`: **0.83ms**
+  - `Layout / Style` (DOM reflow): **0.00ms**
+  - `Commit / PrePaint`: **0.45ms**
 
-### Worst Match-Time Hitch in late_match_pressure:
-- **Timestamp**: `40653121011` µs (~17.2s into match)
-- **Duration**: **94.94ms**
-- **Top Slices**:
-  - `FireAnimationFrame`: 92.34ms
-  - `FunctionCall` (`phaser-BwSGr_Za.js:1022`): **91.51ms**
-  - `GPUTask`: **37.13ms**
-  - `V8.StackGuard / HandleInterrupts`: 17.16ms
-  - `MinorGC`: 1.64ms
-  - `Layout / Style`: 0.82ms
+### What enderer.render Actually Includes:
+In Phaser 3/4 WebGL mode, game.renderer.render() runs synchronously on the **CPU main thread**:
+1. Traverses the display list of active scenes and containers.
+2. Computes hierarchical world transform matrices for every display node.
+3. Performs culling against the camera viewport.
+4. Checks pipeline bindings: when moving between different pipelines (e.g. GraphicsPipeline / ShapePipeline vs MultiPipeline), it flushes the current vertex buffer to the WebGL command buffer.
+5. Issues WebGL API calls (gl.drawArrays, gl.drawElements, gl.bindTexture, etc.).
 
-### Trace Attribution Conclusions:
-1. **Did Garbage Collection dominate?** **NO**. Trace-wide GC pauses were short (0.8ms - 1.6ms for MinorGC, 4ms - 5.5ms for MajorGC). GC did NOT create the 62ms or 94ms frame hitches.
-2. **Did Layout / Style dominate?** **NO**. DOM Layout/Style was 0ms during match playback (canvas rendering).
-3. **Did Script / Compile dominate?** **NO**. Code is pre-compiled; JIT warm-up occurs before steady state.
-4. **What dominated?** **The Phaser Game Loop & WebGL GPU Pipeline**. Specifically, WebGL batch flushes and GPU command stream synchronization during `game.renderer.render()`.
+**Conclusion on Trace Attribution**:
+- **Did DOM Layout / Style dominate?** **NO** (0.00ms).
+- **Did Garbage Collection dominate the hitch?** **NO** (MinorGC was 0.83ms). Trace-wide GC pauses were short (0.8ms - 1.6ms), though cumulative GC time across 30s reached 2.27s due to high allocation frequency.
+- **Did JavaScript simulation logic dominate?** **NO** (stepBotMatch was 0.44ms).
+- **What dominated?** **The combined cost of CPU render-path command generation and GPU process command execution (GPUTask: 29.73ms)**, driven by high draw-call and state-transition frequency.
 
 ---
 
-## 4. Root Causes & Ranked Bottlenecks
+## 4. Measured Facts versus Inferred Explanations
 
-### Rank 1: WebGL Batch-Breaking via Interleaved Shapes and Atlas Sprites (Critical Impact)
-- **Mechanism**: In `GameScene.ts` (`createArmyVisual`), each army creates:
-  1. Role Aura: `Phaser.GameObjects.Arc` (`circle`) -> **Shape Pipeline**
-  2. Follower 1-4: `Phaser.GameObjects.Ellipse` (shadow) -> **Shape Pipeline**
-  3. Follower 1-4: `Phaser.GameObjects.Image` (unit sprite) -> **MultiPipeline (Texture Atlas)**
-  4. Leader: `Phaser.GameObjects.Ellipse` (shadow) -> **Shape Pipeline**
-  5. Leader: `Phaser.GameObjects.Image` (unit sprite) -> **MultiPipeline (Texture Atlas)**
-  6. Troop Badge: `Phaser.GameObjects.Rectangle` (badgeBg) -> **Shape Pipeline**
-  7. Troop Badge: `Phaser.GameObjects.Text` (badgeText) -> **Canvas Texture**
-- **Impact**: Because Phaser renders children sequentially, each switch between `Shape` and `Sprite` flushes the WebGL batch and changes shaders. For 15 active armies, this creates **140 to 157 draw calls every single frame**. On mobile tiled GPUs (Mali, Adreno), this causes severe state thrashing and pipeline stalls.
+To ensure scientific rigor, we strictly distinguish empirically measured data from structural inferences and projections:
 
-### Rank 2: Offscreen HTML Canvas Texture Re-Uploads (gl.texSubImage2D) (High Impact)
-- **Mechanism**: `Phaser.GameObjects.Text` creates an invisible `<canvas>` element. When `.setText()` is called on:
-  - Tower unit counts (`vis.unitText.setText` in `syncTerritoryVisuals`)
-  - Army troop counts (`visual.badgeText.setText` in `updateArmyVisuals`)
-  - Floating damage/capture numbers (`spawnFloatingText` in `onCombatArrival`)
-  Phaser re-renders the string on the 2D canvas and calls `gl.texSubImage2D` to upload pixels to GPU memory.
-- **Impact**: **4,193 texture uploads per 30 seconds (~140/sec)**. Each upload forces CPU-GPU memory bus synchronization, creating stutter during intense combat.
+### Measured Facts:
+1. **CPU Render-path timing**: enderer.render consumes **13.51ms to 16.64ms** per frame on 4× throttled CPU, leaving minimal headroom for 60 FPS (which requires total frame time ≤ 16.6ms).
+2. **Draw-call count**: Average draw calls per frame scale from **98.0** in normal combat to **152.4** in late-match pressure.
+3. **Texture upload count**: Direct intercept of gl.texImage2D and gl.texSubImage2D recorded **3,025 to 4,262 uploads in 30 seconds (~100 to 142/sec)**.
+4. **Allocation volume**: scene.add factory wrapping recorded **1,591 to 3,966 GameObjects** and **715 to 1,603 Tweens** instantiated across 30 seconds.
+5. **GPU execution presence**: Chrome trace demonstrates that during a 62.8ms hitch, the browser GPU process was active for **29.73ms (GPUTask)**.
 
-### Rank 3: Ephemeral GameObject and Tween Churn on Combat Arrivals (Moderate Impact)
-- **Mechanism**: On every territory capture, `onCombatArrival` instantiates:
-  - 8 spark rectangles + 8 Tweens (`spawnCaptureBurst`)
-  - 1 impact ring circle + 1 Tween (`spawnImpactRing`)
-  - 1 flash circle + 1 Tween (`spawnCaptureFlash`)
-  - 1 floating Text + 1 Tween (`spawnFloatingText`)
-  - 1 container scale pop Tween
-  Total: **11 GameObjects and 11 Tweens created and destroyed per capture**.
-- **Impact**: In 30s of `late_match_pressure`, **1,745 tweens were allocated**. Across the trace, V8 executed 741 MinorGC cycles totaling **2.27 seconds of GC time** (7.5% of total runtime). While individual GC pauses are 1ms, the cumulative allocation pressure degrades CPU cache locality and raises mobile thermals.
+### Structural Explanations (Inferences / Hypotheses):
+1. **Batch Breaking Mechanism**: Code inspection of createArmyVisual reveals that each army container interleaves Arc (role aura), Ellipse (shadows), and Rectangle (badge backgrounds) with Image (sprites). In Phaser's sequential renderer, transitions between Shape pipelines and Texture MultiPipelines trigger batch flushes. *Inference*: This architectural interleaving is the primary structural reason draw calls scale with army count.
+2. **Texture Upload Impact**: In Phaser, Text objects draw to an internal 2D canvas and re-upload pixels via gl.texSubImage2D when text changes. *Inference*: The 140 uploads/second observed in combat likely contribute to GPU memory bus pressure and pipeline synchronization overhead, especially on shared-memory mobile architectures.
+3. **GC Pressure**: 741 MinorGC events were recorded in trace. *Inference*: The continuous creation and destruction of combat sparks and floating texts (11 objects per capture) drives MinorGC frequency, reducing CPU cache efficiency.
 
 ---
 
-## 5. Scaling Hazards: 2v2 and Larger Maps
+## 5. Projections for 2v2 and Larger Maps (Architectural Modeling)
 
-1. **2v2 Combat Explosion**:
-   - In 2v2, with 4 active commanders and expanded 12-16 node maps, concurrent armies will routinely reach **35 to 50 armies**.
-   - Under current architecture (11 draw calls/army + 6 draw calls/tower):
-     \text{Draw Calls}_{2v2} = (40 \times 11) + (14 \times 6) = 440 + 84 = 524 \text{ draw calls/frame}
-   - On low-end mobile devices (e.g. Android WebViews with Mali-G52 or Adreno 610), >200 draw calls causes catastrophic framerate drops to 15-20 FPS.
-2. **Texture Upload Flooding**:
-   - 40 armies constantly updating unit counts + 14 towers producing troops will push texture uploads to **>350 uploads/sec**, completely saturating mobile memory bus bandwidth.
+*Note: The following figures are mathematical extrapolations based on linear component scaling, not empirical measurements.*
+
+1. **Draw Call Scaling Model**:
+   - In 1v1: 15 armies + 7 territories $\approx$ 140 - 152 draw calls.
+   - In 2v2: 4 players, 30 to 45 concurrent armies, 12 to 16 territories.
+   - *Projected draw calls*: If visual hierarchy remains unbatched (~8-10 flushes per army), draw calls would project to **350 - 500+ draw calls/frame**. On mobile WebViews with low-end GPUs (Mali-G52, Adreno 610), >200 draw calls typically triggers severe driver-overhead framerate degradation.
+2. **Texture Upload Scaling Model**:
+   - In 2v2, with 40 armies and 14 territories updating counters, projected texture uploads could exceed **300 - 400 uploads/sec**, increasing memory bus contention.
 
 ---
 
-## 6. Recommended First Optimization Target
+## 6. Corrected Bottleneck Ranking
+
+1. **Rank 1 (Critical): CPU Render-Path Command Generation & WebGL State Thrashing**  
+   - *Evidence*: enderer.render takes **13.5ms - 16.6ms** per frame; draw calls reach **152.4/frame**.  
+   - *Impact*: Direct cause of framerate drops below 60 FPS under 4× CPU throttling.
+2. **Rank 2 (High): Frequent Canvas Texture Re-Uploads**  
+   - *Evidence*: **~100 - 142 	exSubImage2D calls per second** recorded across all combat scenarios.  
+   - *Impact*: Ongoing CPU-GPU data transfer overhead.
+3. **Rank 3 (Moderate): GameObject and Tween Allocation Churn**  
+   - *Evidence*: **3,000 - 3,966 GameObjects** and **1,200 - 1,600 Tweens** created in 30s; 741 MinorGC events in trace.  
+   - *Impact*: Background memory churn and CPU cache degradation.
+
+---
+
+## 7. Evidence-Supported First Optimization Recommendation
 
 ### Recommendation:
-**Batch the Army Visuals by Replacing Geometric Shapes with Atlas Sprites and Eliminating Batch Breaks.**
+**Consolidate Army Visual Elements into Texture Atlas Sprites to Enable Continuous WebGL Batching.**
 
-### Why This Must Come First:
-1. **Directly addresses the #1 bottleneck (Phaser Rendering: 17.8ms)**: Rendering accounts for >80% of frame time. Optimizing game simulation (which is already 0.5ms) would yield zero perceptible gain.
-2. **Smallest high-impact change**:
-   - Instead of instantiating `Phaser.GameObjects.Ellipse` for unit shadows and `Rectangle` for badge backgrounds, render shadows and badges as sprites from the existing game texture atlas (or a single white-pixel texture batchable in `MultiPipeline`).
-   - Group the rendering order: all shadows together, all sprites together, or render as a unified sprite hierarchy that doesn't switch WebGL pipelines.
-3. **Paves the way for 2v2**: Decouples army count from draw call count. 40 armies can render in **under 20-30 draw calls** instead of 524 draw calls.
-4. **Metric Target**:
-   - Draw calls per frame: **157 -> ~25-35** (75-80% reduction).
-   - Render time per frame: **17.8ms -> 6-8ms** under 4× CPU throttle.
-   - Heavy combat FPS: **47.3 FPS -> 60.0 FPS**.
-   - Zero long tasks (>50ms).
-5. **Determinism & Multiplayer Risk**:
-   - **ZERO risk**: The visual representation in `GameScene` is completely decoupled from `@crown-clash/game-core` simulation state and server authority. No network packets, RNG seeds, or combat math are affected.
+### Evidence-Backed Rationale:
+1. **Directly addresses the primary measured bottleneck**: enderer.render consumes over 80% of total frame time. Game simulation (stepBotMatch) takes only 0.22ms - 0.48ms; optimizing logic cannot meaningfully improve framerate.
+2. **Eliminates WebGL state switches**: Replacing geometric Shape primitives (Ellipse shadows, Rectangle badge backgrounds) with atlas-backed sprites allows army visuals to render inside Phaser's existing MultiPipeline without flushing the WebGL batch between every shadow and sprite.
+3. **Target Metric Improvements**:
+   - Draw calls per frame: Reduction from **~140 - 152 down to ~25 - 40**.
+   - CPU render-path duration (enderer.render): Reduction from **16.6ms to <10ms** under 4× CPU throttling.
+   - FPS under heavy combat: Improvement from **51-54 FPS to stable 60 FPS**.
+4. **Determinism & Multiplayer Risk**:
+   - **Zero risk**: Visual display objects in GameScene are completely decoupled from @crown-clash/game-core simulation state, PRNG seeds, and network settlement.
 
 ---
 
-## 7. False-Green Guard Verification Summary
+## 8. Instrumentation Limitations & Transparency
 
-As recorded in `qa-artifacts/false-green-diagnostic-report.md`:
-1. **Deliberate Negative Injection**: Injected a 75ms synthetic blocking task into `normal_combat 15`.
-   - Result: Prerequisite failed (`EXPECTED_NO_LONG_TASKS: observed 1 long tasks >50ms (total 91ms)`), max frame delta 91.3ms. Output: `qa-artifacts/summaries/false_green_red.json`.
-2. **Clean Restoration**: Removed injection and re-ran `normal_combat 15`.
-   - Result: Prerequisite passed cleanly (`failures: []`), 0 long tasks, max frame delta 45.2ms. Output: `qa-artifacts/summaries/false_green_restored.json`.
+- **GameObject Creation**: Factory wrapping on scene.add (['graphics', 'container', 'rectangle', 'circle', 'ellipse', 'image', 'text', 'sprite', 'existing']) successfully observes GameObjects created through scene factory methods (reporting 1,591 - 3,966 creations). If instrumentation is unavailable in an environment, the field evaluates to 
+ull rather than a misleading zero.
+- **Hardware GPU Counters**: Detailed GPU memory bandwidth and bus stall metrics are not directly observable via Chrome CDP on headless desktop environments. GPU impact is evaluated via trace GPUTask slices and draw call / upload counts.

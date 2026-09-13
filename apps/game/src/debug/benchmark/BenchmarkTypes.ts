@@ -38,6 +38,7 @@ export interface BenchmarkScenarioConfig {
     min: number;
     max: number;
   };
+  maxAllowedLongTasks?: number;
   description: string;
 }
 
@@ -71,7 +72,7 @@ export interface SubsystemTimings {
   tweensMsAvg: number;
   renderMsAvg: number;
   textureUploadsTotal: number;
-  gameObjectsCreatedTotal: number;
+  gameObjectsCreatedTotal: number | null;
   tweensCreatedTotal: number;
 }
 
@@ -131,6 +132,7 @@ export interface BenchmarkPrerequisites {
   targetArmyRange: { min: number; max: number };
   targetFps: number;
   targetFpsTolerance?: number; // default 1.5
+  maxAllowedLongTasks?: number;
 }
 
 export interface BenchmarkVerificationResult {

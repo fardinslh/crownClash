@@ -41,7 +41,7 @@ export interface RawBenchmarkSampleInput {
     tweensMs: number;
     renderMs: number;
     textureUploads: number;
-    gameObjectsCreated: number;
+    gameObjectsCreated: number | null;
     tweensCreated: number;
   };
 }
@@ -365,6 +365,15 @@ export function verifyPrerequisites(
     failures.push(
       `Insufficient frames captured: ${metrics.totalRenderedFrames} < minimum required ${minRequiredFrames}`
     );
+  }
+
+  // 11. Long tasks verification policy
+  if (prerequisites.maxAllowedLongTasks !== undefined) {
+    if (metrics.longTasks.count > prerequisites.maxAllowedLongTasks) {
+      failures.push(
+        `EXPECTED_NO_LONG_TASKS: observed ${metrics.longTasks.count} long tasks >50ms (total ${Math.round(metrics.longTasks.totalDurationMs)}ms, max ${Math.round(metrics.longTasks.maxDurationMs)}ms), exceeding allowed threshold of ${prerequisites.maxAllowedLongTasks}`
+      );
+    }
   }
 
   return {
