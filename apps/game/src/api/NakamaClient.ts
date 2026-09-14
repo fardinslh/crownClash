@@ -16,7 +16,12 @@ import type {
   BotMatchTicket,
 } from '@crown-clash/game-core';
 import type { PlatformAdapter } from '@crown-clash/platform';
-import { StaleSocketError, type CareerApi, type TrackedAnalyticsEvent } from './GameApiClient.js';
+import {
+  StaleSocketError,
+  type CareerApi,
+  type ClientObservedStatus,
+  type TrackedAnalyticsEvent,
+} from './GameApiClient.js';
 import { LiveMatchClient } from './LiveMatchClient.js';
 
 export function isNakamaTransportError(error: unknown): boolean {
@@ -173,9 +178,13 @@ export class NakamaClient implements CareerApi {
 
   public async settleMatch(
     matchId: string,
-    actions: readonly PvpAction[]
+    actions: readonly PvpAction[],
+    clientObservedStatus?: ClientObservedStatus
   ): Promise<MatchSettlement> {
-    const result = await this.rpc('match/settle', JSON.stringify({ matchId, actions }));
+    const result = await this.rpc(
+      'match/settle',
+      JSON.stringify({ matchId, actions, clientObservedStatus })
+    );
     return (JSON.parse(result) as { settlement: MatchSettlement }).settlement;
   }
 

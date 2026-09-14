@@ -197,7 +197,7 @@ func TestSettleMatchRejectsForeignBotTicketBeforeCareerMutation(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"player_id", "battlefield_id"}).AddRow("player_1", "royal_ring"))
 	mock.ExpectRollback()
 
-	_, err = NewStore(db).SettleMatchVerified(context.Background(), "player_2", "bot_foreign", nil)
+	_, _, err = NewStore(db).SettleMatchVerified(context.Background(), "player_2", "bot_foreign", nil)
 	if !errors.Is(err, ErrBotMatchOwnership) {
 		t.Fatalf("expected ownership error, got %v", err)
 	}
@@ -220,7 +220,7 @@ func TestSettleMatchRejectsMissingBotTicketBeforeCareerMutation(t *testing.T) {
 		WithArgs("forged_match").WillReturnError(sql.ErrNoRows)
 	mock.ExpectRollback()
 
-	_, err = NewStore(db).SettleMatchVerified(context.Background(), "player_1", "forged_match", nil)
+	_, _, err = NewStore(db).SettleMatchVerified(context.Background(), "player_1", "forged_match", nil)
 	if !errors.Is(err, ErrBotMatchNotFound) {
 		t.Fatalf("expected missing ticket error, got %v", err)
 	}
@@ -249,7 +249,7 @@ func TestSettleMatchReplayRejectsAnotherPlayersSettlement(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"settlement"}).AddRow(stored))
 	mock.ExpectRollback()
 
-	_, err = NewStore(db).SettleMatchVerified(context.Background(), "player_2", "bot_settled", nil)
+	_, _, err = NewStore(db).SettleMatchVerified(context.Background(), "player_2", "bot_settled", nil)
 	if !errors.Is(err, ErrBotMatchOwnership) {
 		t.Fatalf("expected ownership error, got %v", err)
 	}
@@ -279,7 +279,7 @@ func TestSettleMatchReplayReturnsStoredResultWithoutCareerMutation(t *testing.T)
 		WillReturnRows(sqlmock.NewRows([]string{"settlement"}).AddRow(stored))
 	mock.ExpectRollback()
 
-	settlement, err := NewStore(db).SettleMatchVerified(context.Background(), "player_1", "bot_settled", nil)
+	settlement, _, err := NewStore(db).SettleMatchVerified(context.Background(), "player_1", "bot_settled", nil)
 	if err != nil {
 		t.Fatalf("unexpected replay error: %v", err)
 	}

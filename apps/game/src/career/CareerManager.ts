@@ -35,7 +35,7 @@ import {
   createLocalBotMatchTicket,
 } from '@crown-clash/game-core';
 import type { PlatformAdapter } from '@crown-clash/platform';
-import { StaleSocketError, type CareerApi } from '../api/GameApiClient.js';
+import { StaleSocketError, type CareerApi, type ClientObservedStatus } from '../api/GameApiClient.js';
 import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { getSharedGameApiClient } from '../api/sharedClient.js';
 import { LiveMatchClient } from '../api/LiveMatchClient.js';
@@ -148,11 +148,12 @@ export class CareerManager {
   public async recordMatchResultRemote(
     actions: readonly PvpAction[],
     matchId: string,
-    platform?: PlatformAdapter
+    platform?: PlatformAdapter,
+    clientObservedStatus?: ClientObservedStatus
   ): Promise<MatchSettlement> {
     const api = this.requireRemoteApi();
     try {
-      const settlement = await api.settleMatch(matchId, actions);
+      const settlement = await api.settleMatch(matchId, actions, clientObservedStatus);
       this.applyRemoteState(settlement.newCareer, settlement.ledgerEntries);
       return settlement;
     } catch (error) {
@@ -163,7 +164,7 @@ export class CareerManager {
       // so victory progress is preserved.
       this.remoteConnected = false;
       await this.connect(platform, api);
-      const settlement = await api.settleMatch(matchId, actions);
+      const settlement = await api.settleMatch(matchId, actions, clientObservedStatus);
       this.applyRemoteState(settlement.newCareer, settlement.ledgerEntries);
       return settlement;
     }

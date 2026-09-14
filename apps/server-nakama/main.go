@@ -420,26 +420,35 @@ func rpcGetLedger(store *Store) rpcFn {
 	}
 }
 
-func parseActionPayload(payload string) (string, []PvpAction, error) {
+func parseActionPayload(payload string) (string, []PvpAction, string, error) {
 	var request struct {
-		MatchID string      `json:"matchId"`
-		Actions []PvpAction `json:"actions"`
+		MatchID              string      `json:"matchId"`
+		Actions              []PvpAction `json:"actions"`
+		ClientObservedStatus string      `json:"clientObservedStatus"`
 	}
 	if err := json.Unmarshal([]byte(payload), &request); err != nil {
-		return "", nil, errors.New("invalid_payload")
+		return "", nil, "", errors.New("invalid_payload")
 	}
 	if len(request.MatchID) < 1 || len(request.MatchID) > 128 {
-		return "", nil, errors.New("invalid_match_id")
+		return "", nil, "", errors.New("invalid_match_id")
 	}
 	if len(request.Actions) > MaxPvpActions {
-		return "", nil, errors.New("invalid_actions")
+		return "", nil, "", errors.New("invalid_actions")
 	}
 	for index := range request.Actions {
 		if request.Actions[index].Sequence != index {
-			return "", nil, errors.New("invalid_action_sequence")
+			return "", nil, "", errors.New("invalid_action_sequence")
 		}
 	}
-	return request.MatchID, request.Actions, nil
+	// clientObservedStatus is untrusted diagnostic data sent by the client.
+	// It is validated here so the settlement path can rely on an
+	// empty-or-known value; it never influences status, stats, or rewards.
+	switch request.ClientObservedStatus {
+	case "", "victory", "defeat", "draw":
+	default:
+		return "", nil, "", errors.New("invalid_client_status")
+	}
+	return request.MatchID, request.Actions, request.ClientObservedStatus, nil
 }
 
 func rpcSettleMatch(store *Store, nk runtime.NakamaModule) rpcFn {
@@ -448,19 +457,45 @@ func rpcSettleMatch(store *Store, nk runtime.NakamaModule) rpcFn {
 		if !ok || userID == "" {
 			return "", errors.New("unauthenticated")
 		}
-		matchID, actions, err := parseActionPayload(payload)
+		matchID, actions, clientObservedStatus, err := parseActionPayload(payload)
 		if err != nil {
 			return "", err
 		}
-		settlement, err := store.SettleMatchVerified(ctx, userID, matchID, actions)
+		settlement, diagnostics, err := store.SettleMatchVerified(ctx, userID, matchID, actions)
 		if err != nil {
 			logger.WithField("error", err).Warn("settle failed")
 			return "", err
 		}
+		logBotStatusMismatch(logger, matchID, clientObservedStatus, settlement.Status, len(actions), diagnostics)
 		submitTrophies(ctx, nk, userID, int64(settlement.NewCareer.Trophies))
 		response, _ := json.Marshal(map[string]any{"settlement": settlement})
 		return string(response), nil
 	}
+}
+
+// logBotStatusMismatch emits exactly one structured warning when the
+// diagnostic-only client-reported status differs from the authoritative
+// settlement status. clientObservedStatus is untrusted and never influences
+// the settlement itself. Stored/idempotent settlement replays pass nil
+// diagnostics and never log, so retries cannot produce duplicate warnings.
+func logBotStatusMismatch(logger runtime.Logger, matchID, clientObservedStatus, authoritativeStatus string, submittedActionCount int, diagnostics *BotSettlementDiagnostics) {
+	if clientObservedStatus == "" || diagnostics == nil || clientObservedStatus == authoritativeStatus {
+		return
+	}
+	logger.WithFields(map[string]interface{}{
+		"matchId":              matchID,
+		"battlefieldId":        diagnostics.BattlefieldID,
+		"clientObservedStatus": clientObservedStatus,
+		"authoritativeStatus":  authoritativeStatus,
+		"submittedActionCount": submittedActionCount,
+		"processedActionCount": diagnostics.ActionsProcessed,
+		"skippedActionCount":   submittedActionCount - diagnostics.ActionsProcessed,
+		"authoritativePlayerModifiers": map[string]interface{}{
+			"startingUnits":            diagnostics.Modifiers.StartingUnits,
+			"productionRateMultiplier": diagnostics.Modifiers.ProductionRateMultiplier,
+			"armySpeedMultiplier":      diagnostics.Modifiers.ArmySpeedMultiplier,
+		},
+	}).Warn("bot_result_status_mismatch")
 }
 
 func rpcPurchaseUpgrade(store *Store) rpcFn {

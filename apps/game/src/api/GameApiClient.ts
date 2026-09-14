@@ -21,6 +21,13 @@ import type { AnalyticsEvent } from '../analytics/Analytics.js';
 export type TrackedAnalyticsEvent = AnalyticsEvent;
 
 /**
+ * Client-observed match status sent with a bot settlement request.
+ * Diagnostic-only and untrusted: the server always derives the
+ * authoritative status and rewards independently.
+ */
+export type ClientObservedStatus = 'victory' | 'defeat' | 'draw';
+
+/**
  * Career and economy API surface consumed by CareerManager.
  *
  * Async PvP raid methods were removed when the project moved to live-only
@@ -31,7 +38,11 @@ export interface CareerApi {
   getCareer(): Promise<PlayerCareer>;
   getLedger(limit?: number): Promise<EconomyLedgerEntry[]>;
   startBotMatch(): Promise<BotMatchTicket>;
-  settleMatch(matchId: string, actions: readonly PvpAction[]): Promise<MatchSettlement>;
+  settleMatch(
+    matchId: string,
+    actions: readonly PvpAction[],
+    clientObservedStatus?: ClientObservedStatus
+  ): Promise<MatchSettlement>;
   purchaseUpgrade(type: UpgradeType, purchaseId: string): Promise<UpgradePurchaseResult>;
   selectCommander(commanderId: CommanderId): Promise<CommanderSelectionResult>;
   getDailyState(): Promise<DailyState>;

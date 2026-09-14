@@ -287,24 +287,35 @@ func (s *Store) SettleMatch(ctx context.Context, userID, status string, stats Ma
 	return settlement, nil
 }
 
+// BotSettlementDiagnostics carries non-authoritative context about how a
+// fresh bot settlement was derived. It exists purely for status-mismatch
+// diagnostics and is never returned for stored-replay settlements.
+type BotSettlementDiagnostics struct {
+	BattlefieldID    string
+	Modifiers        PlayerUpgradeModifiers
+	ActionsProcessed int
+}
+
 // SettleMatchVerified settles a single-player bot match by replaying the
 // recorded player actions through the authoritative simulation. The client
 // supplies only dispatch intents; status, stats, and rewards are derived
 // server-side and cannot be forged.
-func (s *Store) SettleMatchVerified(ctx context.Context, userID, matchID string, actions []PvpAction) (MatchSettlement, error) {
+func (s *Store) SettleMatchVerified(ctx context.Context, userID, matchID string, actions []PvpAction) (MatchSettlement, *BotSettlementDiagnostics, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return MatchSettlement{}, err
+		return MatchSettlement{}, nil, err
 	}
 	defer tx.Rollback()
 
 	if existing, err := findStoredSettlement(ctx, tx, matchID); err != nil {
-		return MatchSettlement{}, err
+		return MatchSettlement{}, nil, err
 	} else if existing != nil {
 		if existing.NewCareer.PlayerID != userID {
-			return MatchSettlement{}, ErrBotMatchOwnership
+			return MatchSettlement{}, nil, ErrBotMatchOwnership
 		}
-		return *existing, nil
+		// Stored/idempotent replay: no fresh simulation, so no mismatch
+		// diagnostics. Callers must not log mismatch warnings for replays.
+		return *existing, nil, nil
 	}
 
 	var battlefieldID string
@@ -314,45 +325,50 @@ func (s *Store) SettleMatchVerified(ctx context.Context, userID, matchID string,
 		FROM bot_matches WHERE match_id = $1 FOR UPDATE
 	`, matchID).Scan(&ticketOwner, &battlefieldID)
 	if errors.Is(ticketErr, sql.ErrNoRows) {
-		return MatchSettlement{}, ErrBotMatchNotFound
+		return MatchSettlement{}, nil, ErrBotMatchNotFound
 	}
 	if ticketErr != nil {
-		return MatchSettlement{}, ticketErr
+		return MatchSettlement{}, nil, ticketErr
 	}
 	if ticketOwner != userID {
-		return MatchSettlement{}, ErrBotMatchOwnership
+		return MatchSettlement{}, nil, ErrBotMatchOwnership
 	}
 
 	career, err := getCareerForUpdate(ctx, tx, userID)
 	if err != nil {
-		return MatchSettlement{}, err
+		return MatchSettlement{}, nil, err
 	}
 	// A concurrent request may have committed while this transaction waited
 	// for the player's row lock.
 	if existing, err := findStoredSettlement(ctx, tx, matchID); err != nil {
-		return MatchSettlement{}, err
+		return MatchSettlement{}, nil, err
 	} else if existing != nil {
 		if existing.NewCareer.PlayerID != userID {
-			return MatchSettlement{}, ErrBotMatchOwnership
+			return MatchSettlement{}, nil, ErrBotMatchOwnership
 		}
-		return *existing, nil
+		return *existing, nil, nil
 	}
 
-	_, summary, err := SimulateBotBattleOnBattlefield(actions, UpgradeModifiers(career), battlefieldID)
+	modifiers := UpgradeModifiers(career)
+	_, summary, err := SimulateBotBattleOnBattlefield(actions, modifiers, battlefieldID)
 	if err != nil {
-		return MatchSettlement{}, err
+		return MatchSettlement{}, nil, err
 	}
 	settlement, err := s.persistSettlement(ctx, tx, career, summary.Status, summary.Stats, matchID)
 	if err != nil {
-		return MatchSettlement{}, err
+		return MatchSettlement{}, nil, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE bot_matches SET settled_at = now() WHERE match_id = $1`, matchID); err != nil {
-		return MatchSettlement{}, err
+		return MatchSettlement{}, nil, err
 	}
 	if err := tx.Commit(); err != nil {
-		return MatchSettlement{}, err
+		return MatchSettlement{}, nil, err
 	}
-	return settlement, nil
+	return settlement, &BotSettlementDiagnostics{
+		BattlefieldID:    battlefieldID,
+		Modifiers:        modifiers,
+		ActionsProcessed: summary.ActionsProcessed,
+	}, nil
 }
 
 func (s *Store) PurchaseUpgrade(ctx context.Context, userID string, upgrade UpgradeType, purchaseID string) (UpgradePurchaseResult, error) {

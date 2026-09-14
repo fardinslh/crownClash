@@ -2573,10 +2573,14 @@ export class GameScene extends Phaser.Scene {
       let settlement: MatchSettlement;
       if (this.careerManager.isRemoteConnected()) {
         // Server replays the recorded actions and derives the outcome.
+        // The locally observed status is sent along as diagnostic-only,
+        // untrusted evidence so the server can log a structured warning
+        // when it disagrees with its own authoritative settlement.
         settlement = await this.careerManager.recordMatchResultRemote(
           this.matchActions,
           this.activeMatchId,
-          this.platform
+          this.platform,
+          this.gameState.status as 'victory' | 'defeat' | 'draw'
         );
       } else if (isLocalCareerFallbackAllowed()) {
         settlement = this.careerManager.recordMatchResult(
