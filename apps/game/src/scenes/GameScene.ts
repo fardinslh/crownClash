@@ -74,6 +74,7 @@ import {
   setupSceneCamera,
 } from '../ui/Viewport.js';
 import { computeResultRankPresentation } from '../ui/ResultModalLayout.js';
+import { createBattlefieldDecorations } from '../ui/BattlefieldArenaLayout.js';
 import {
   computeMarchStride,
   createStrideMetrics,
@@ -440,6 +441,8 @@ export class GameScene extends Phaser.Scene {
 
   private createArenaBackground(): void {
     const { visibleWidth, visibleHeight } = getSceneViewport(this);
+    const battlefield = getBattlefield(this.battlefieldId);
+    const arena = battlefield.visual;
 
     this.add
       .rectangle(
@@ -461,12 +464,12 @@ export class GameScene extends Phaser.Scene {
       .setDepth(0);
 
     const fieldGraphics = this.add.graphics().setDepth(1);
-    fieldGraphics.fillStyle(0x101827, 0.42);
+    fieldGraphics.fillStyle(arena.field, 0.58);
     fieldGraphics.fillRoundedRect(10, 78, LOGICAL_WIDTH - 20, visibleHeight - 98, 18);
 
     // Subtle command-grid structure adds scale and keeps the empty arena from
     // looking like a flat color fill.
-    fieldGraphics.lineStyle(1, 0x334155, 0.12);
+    fieldGraphics.lineStyle(1, arena.grid, 0.14);
     for (let x = 28; x < LOGICAL_WIDTH - 10; x += 36) {
       fieldGraphics.lineBetween(x, 88, x, visibleHeight - 30);
     }
@@ -474,8 +477,38 @@ export class GameScene extends Phaser.Scene {
       fieldGraphics.lineBetween(18, y, LOGICAL_WIDTH - 18, y);
     }
 
+    // Every map gets a recognizable silhouette, rendered once into the same
+    // static Graphics object to stay cheap on low-end Canvas devices.
+    fieldGraphics.lineStyle(2, arena.motifColor, 0.16);
+    fieldGraphics.fillStyle(arena.motifColor, 0.06);
+    for (const decoration of createBattlefieldDecorations(arena.motif, visibleHeight)) {
+      if (decoration.kind === 'line') {
+        fieldGraphics.lineBetween(decoration.x1, decoration.y1, decoration.x2, decoration.y2);
+      } else if (decoration.kind === 'ellipse') {
+        const segments = 28;
+        for (let index = 0; index < segments; index++) {
+          const start = (index / segments) * Math.PI * 2;
+          const end = ((index + 1) / segments) * Math.PI * 2;
+          fieldGraphics.lineBetween(
+            decoration.x + Math.cos(start) * decoration.width * 0.5,
+            decoration.y + Math.sin(start) * decoration.height * 0.5,
+            decoration.x + Math.cos(end) * decoration.width * 0.5,
+            decoration.y + Math.sin(end) * decoration.height * 0.5
+          );
+        }
+      } else {
+        fieldGraphics.fillTriangle(
+          decoration.x1,
+          decoration.y1,
+          decoration.x2,
+          decoration.y2,
+          decoration.x3,
+          decoration.y3
+        );
+      }
+    }
+
     const lanesGraphics = this.add.graphics().setDepth(2);
-    const battlefield = getBattlefield(this.battlefieldId);
     const connections = battlefield.roads;
 
     const terrs = this.gameState.territories;
@@ -490,7 +523,7 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    lanesGraphics.lineStyle(12, 0x111c2d, 0.94);
+    lanesGraphics.lineStyle(12, arena.road, 0.94);
     connections.forEach(([idA, idB]) => {
       const a = terrs[idA];
       const b = terrs[idB];
@@ -499,7 +532,7 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    lanesGraphics.fillStyle(0x64748b, 0.22);
+    lanesGraphics.fillStyle(arena.roadInlay, 0.26);
     connections.forEach(([idA, idB]) => {
       const a = terrs[idA];
       const b = terrs[idB];
@@ -518,11 +551,11 @@ export class GameScene extends Phaser.Scene {
 
     // Ground sockets visually anchor the rendered 2.5D buildings.
     Object.values(terrs).forEach((t) => {
-      lanesGraphics.fillStyle(0x050a12, 0.96);
+      lanesGraphics.fillStyle(arena.socket, 0.96);
       lanesGraphics.fillCircle(t.x, t.y + 3, t.radius + 10);
-      lanesGraphics.lineStyle(2, 0x334155, 0.72);
+      lanesGraphics.lineStyle(2, arena.grid, 0.76);
       lanesGraphics.strokeCircle(t.x, t.y + 3, t.radius + 10);
-      lanesGraphics.lineStyle(1, 0x94a3b8, 0.18);
+      lanesGraphics.lineStyle(1, arena.roadInlay, 0.2);
       lanesGraphics.strokeCircle(t.x, t.y + 3, t.radius + 5);
     });
 

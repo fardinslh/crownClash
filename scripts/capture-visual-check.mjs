@@ -11,6 +11,7 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 const DIST_DIR = path.resolve(REPO_ROOT, 'apps/game/dist');
 const SCREENSHOTS_DIR = path.resolve(REPO_ROOT, 'qa-artifacts/screenshots');
 const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+const BATTLEFIELD_ID = process.argv[2] || 'crown_cross';
 
 const MIME_TYPES = {
   '.html': 'text/html',
@@ -112,7 +113,7 @@ async function captureViewportScreenshot(viewport, filename, serverPort, cdpPort
         if (game) {
           game.scene.start('GameScene', {
             source: 'menu',
-            botMatch: { matchId: 'vis_' + Date.now(), battlefieldId: 'crown_cross' }
+            botMatch: { matchId: 'vis_' + Date.now(), battlefieldId: '${BATTLEFIELD_ID}' }
           });
         }
       })()`,
@@ -124,19 +125,24 @@ async function captureViewportScreenshot(viewport, filename, serverPort, cdpPort
       expression: `(() => {
         const scene = window.__PHASER_GAME__?.scene?.getScene('GameScene');
         if (scene && typeof scene.executeQaDispatch === 'function') {
-          scene.executeQaDispatch('p_base', 'n_center', 'player');
-          scene.executeQaDispatch('e_base', 'n_center', 'enemy');
-          scene.executeQaDispatch('p_base', 'n_bot_left', 'player');
-          scene.executeQaDispatch('e_base', 'n_top_right', 'enemy');
-          scene.executeQaDispatch('p_base', 'n_top_left', 'player');
-          scene.executeQaDispatch('e_base', 'n_bot_right', 'enemy');
+          const territories = Object.values(scene.gameState?.territories || {});
+          const playerBase = territories.find(t => t.owner === 'player');
+          const enemyBase = territories.find(t => t.owner === 'enemy');
+          const neutrals = territories.filter(t => t.owner === 'neutral');
+          const nearest = (base) => [...neutrals].sort((a, b) =>
+            Math.hypot(a.x - base.x, a.y - base.y) - Math.hypot(b.x - base.x, b.y - base.y)
+          );
+          const playerTargets = playerBase ? nearest(playerBase).slice(0, 2) : [];
+          const enemyTargets = enemyBase ? nearest(enemyBase).slice(0, 2) : [];
+          playerTargets.forEach(target => scene.executeQaDispatch(playerBase.id, target.id, 'player'));
+          enemyTargets.forEach(target => scene.executeQaDispatch(enemyBase.id, target.id, 'enemy'));
         }
       })()`,
     });
 
-    // Wait 1.5s for armies to march mid-field
+    // Wait briefly so armies remain visible mid-field on fast simulations.
     console.log(`Waiting for marching armies at ${viewport.width}x${viewport.height}@${viewport.dpr}...`);
-    await sleep(1500);
+    await sleep(300);
 
     // Inspect army visual game objects in active scene
     const evalRes = await cdp.send('Runtime.evaluate', {
@@ -210,11 +216,11 @@ async function captureViewportScreenshot(viewport, filename, serverPort, cdpPort
 }
 
 async function main() {
-  console.log('--- Visual Verification Check ---');
+  console.log(`--- Visual Verification Check: ${BATTLEFIELD_ID} ---`);
   // Viewport 1: 375x667 @ 2 (iPhone SE / compact mobile)
   const res1 = await captureViewportScreenshot(
     { width: 375, height: 667, dpr: 2 },
-    'visual_check_375x667.png',
+    `visual_check_${BATTLEFIELD_ID}_375x667.png`,
     4197,
     9265
   );
@@ -222,7 +228,7 @@ async function main() {
   // Viewport 2: 430x932 @ 2 (iPhone 16 Pro Max / large mobile)
   const res2 = await captureViewportScreenshot(
     { width: 430, height: 932, dpr: 2 },
-    'visual_check_430x932.png',
+    `visual_check_${BATTLEFIELD_ID}_430x932.png`,
     4198,
     9266
   );

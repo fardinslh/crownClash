@@ -16,6 +16,19 @@ describe('data-driven battlefield architecture', () => {
     expect(() => validateAllBattlefields(BATTLEFIELDS)).not.toThrow();
   });
 
+  it('defines a unique, valid visual identity for every battlefield', () => {
+    expect(new Set(BATTLEFIELDS.map((battlefield) => battlefield.visual.motif)).size).toBe(
+      BATTLEFIELDS.length
+    );
+    expect(new Set(BATTLEFIELDS.map((battlefield) => battlefield.visual.field)).size).toBe(
+      BATTLEFIELDS.length
+    );
+    for (const battlefield of BATTLEFIELDS) {
+      expect(battlefield.visual.motif).toBe(battlefield.id);
+      expect(battlefield.visual.motifColor).toBe(battlefield.accent);
+    }
+  });
+
   describe('validation rules', () => {
     const baseValid = BATTLEFIELDS[0];
 
@@ -127,7 +140,11 @@ describe('data-driven battlefield architecture', () => {
     it('rejects structurally identical maps in validateAllBattlefields', () => {
       const duplicates: readonly BattlefieldDefinition[] = [
         baseValid,
-        { ...baseValid, id: 'twin_passes' },
+        {
+          ...baseValid,
+          id: 'twin_passes',
+          visual: { ...baseValid.visual, motif: 'twin_passes' },
+        },
       ];
       expect(() => validateAllBattlefields(duplicates)).toThrow(/not structurally distinct/);
     });

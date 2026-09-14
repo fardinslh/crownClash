@@ -4,6 +4,18 @@ export type BattlefieldId = 'crown_cross' | 'twin_passes' | 'royal_ring';
 
 export type RoadConnection = readonly [string, string];
 
+export type BattlefieldMotif = 'crown_cross' | 'twin_passes' | 'royal_ring';
+
+export interface BattlefieldVisualTheme {
+  readonly motif: BattlefieldMotif;
+  readonly field: number;
+  readonly grid: number;
+  readonly road: number;
+  readonly roadInlay: number;
+  readonly socket: number;
+  readonly motifColor: number;
+}
+
 export interface BattlefieldTerritoryTemplate {
   readonly id: string;
   readonly name: string;
@@ -23,6 +35,7 @@ export interface BattlefieldDefinition {
   readonly name: string;
   readonly subtitle: string;
   readonly accent: number;
+  readonly visual: BattlefieldVisualTheme;
   readonly territories: readonly BattlefieldTerritoryTemplate[];
   readonly roads: readonly RoadConnection[];
 }
@@ -40,6 +53,7 @@ export const BATTLEFIELDS: readonly BattlefieldDefinition[] = Object.freeze(
   (rawBattlefields as unknown as readonly BattlefieldDefinition[]).map((b) =>
     Object.freeze({
       ...b,
+      visual: Object.freeze({ ...b.visual }),
       territories: Object.freeze(b.territories.map((t) => Object.freeze({ ...t }))),
       roads: Object.freeze(b.roads.map((r) => Object.freeze([r[0], r[1]]) as unknown as RoadConnection)),
     })
@@ -70,6 +84,15 @@ export function createLocalBotMatchTicket(now = Date.now()): BotMatchTicket {
  * Throws a descriptive Error if any invariant fails.
  */
 export function validateBattlefieldDefinition(definition: BattlefieldDefinition): void {
+  if (definition.visual.motif !== definition.id) {
+    throw new Error(`Battlefield "${definition.id}" must use matching visual motif`);
+  }
+  for (const [key, color] of Object.entries(definition.visual).filter(([key]) => key !== 'motif')) {
+    if (!Number.isInteger(color) || (color as number) < 0 || (color as number) > 0xffffff) {
+      throw new Error(`Battlefield "${definition.id}" has invalid visual color "${key}"`);
+    }
+  }
+
   // 1. unique territory IDs
   const terrMap = new Map<string, BattlefieldTerritoryTemplate>();
   for (const t of definition.territories) {
