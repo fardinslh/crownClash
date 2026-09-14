@@ -1,7 +1,10 @@
 package main
 
 import (
+	_ "embed"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"strconv"
 )
@@ -14,29 +17,64 @@ const (
 	baseArmyTravelSpeed = 140.0
 )
 
-var battlefieldTerritoryOrder = map[string][]string{
-	"crown_cross": {
-		"p_base", "e_base", "n_bot_left", "n_bot_right", "n_center",
-		"n_mid_left", "n_mid_right", "n_top_left", "n_top_right",
-	},
-	"twin_passes": {
-		"p_base", "e_base", "n_west_gate_s", "n_west_pass", "n_west_gate_n",
-		"n_east_gate_s", "n_east_pass", "n_east_gate_n",
-	},
-	"royal_ring": {
-		"p_base", "e_base", "n_ring_sw", "n_ring_se", "n_ring_w_s",
-		"n_ring_e_s", "n_ring_w_n", "n_ring_e_n", "n_ring_nw", "n_ring_ne",
-	},
+//go:embed battlefields.json
+var battlefieldsJSON []byte
+
+type battlefieldTerritoryJSON struct {
+	ID             string        `json:"id"`
+	Name           string        `json:"name"`
+	X              float64       `json:"x"`
+	Y              float64       `json:"y"`
+	Radius         float64       `json:"radius"`
+	Owner          Team          `json:"owner"`
+	Units          int           `json:"units"`
+	MaxUnits       int           `json:"maxUnits"`
+	ProductionRate float64       `json:"productionRate"`
+	Tier           int           `json:"tier"`
+	Type           TerritoryType `json:"type"`
+}
+
+type battlefieldDefinitionJSON struct {
+	ID          string                     `json:"id"`
+	Name        string                     `json:"name"`
+	Subtitle    string                     `json:"subtitle"`
+	Accent      int                        `json:"accent"`
+	Territories []battlefieldTerritoryJSON `json:"territories"`
+	Roads       [][2]string                `json:"roads"`
+}
+
+var (
+	authoritativeBattlefields      = make(map[string]battlefieldDefinitionJSON)
+	authoritativeBattlefieldOrders = make(map[string][]string)
+	authoritativeBattlefieldRoads  = make(map[string][][2]string)
+	battlefieldRoads               map[string][][2]string
+)
+
+func init() {
+	var list []battlefieldDefinitionJSON
+	if err := json.Unmarshal(battlefieldsJSON, &list); err != nil {
+		panic(fmt.Sprintf("failed to unmarshal embedded battlefields.json: %v", err))
+	}
+	for _, b := range list {
+		authoritativeBattlefields[b.ID] = b
+		authoritativeBattlefieldRoads[b.ID] = b.Roads
+		order := make([]string, len(b.Territories))
+		for i, t := range b.Territories {
+			order[i] = t.ID
+		}
+		authoritativeBattlefieldOrders[b.ID] = order
+	}
+	battlefieldRoads = authoritativeBattlefieldRoads
 }
 
 func territoryOrderForBattlefield(battlefieldID string) []string {
-	if order, ok := battlefieldTerritoryOrder[battlefieldID]; ok {
+	if order, ok := authoritativeBattlefieldOrders[battlefieldID]; ok {
 		return order
 	}
-	return battlefieldTerritoryOrder["crown_cross"]
+	return authoritativeBattlefieldOrders["crown_cross"]
 }
 
-var territoryOrder = battlefieldTerritoryOrder["crown_cross"]
+var territoryOrder = territoryOrderForBattlefield("crown_cross")
 
 var ErrPvpTooManyActions = errors.New("too_many_actions")
 var ErrPvpInvalidSequence = errors.New("invalid_sequence")
@@ -328,103 +366,37 @@ func IsBattlefieldID(value string) bool {
 	return false
 }
 
-var battlefieldRoads = map[string][][2]string{
-	"crown_cross": {
-		{"p_base", "n_bot_left"},
-		{"p_base", "n_center"},
-		{"p_base", "n_bot_right"},
-		{"n_bot_left", "n_mid_left"},
-		{"n_bot_right", "n_mid_right"},
-		{"n_mid_left", "n_center"},
-		{"n_mid_right", "n_center"},
-		{"n_mid_left", "n_top_left"},
-		{"n_mid_right", "n_top_right"},
-		{"n_center", "e_base"},
-		{"n_top_left", "e_base"},
-		{"n_top_right", "e_base"},
-		{"n_bot_left", "n_center"},
-		{"n_bot_right", "n_center"},
-		{"n_top_left", "n_center"},
-		{"n_top_right", "n_center"},
-	},
-	"twin_passes": {
-		{"p_base", "n_west_gate_s"},
-		{"p_base", "n_east_gate_s"},
-		{"n_west_gate_s", "n_west_pass"},
-		{"n_east_gate_s", "n_east_pass"},
-		{"n_west_pass", "n_east_pass"},
-		{"n_west_pass", "n_west_gate_n"},
-		{"n_east_pass", "n_east_gate_n"},
-		{"n_west_gate_n", "e_base"},
-		{"n_east_gate_n", "e_base"},
-	},
-	"royal_ring": {
-		{"p_base", "n_ring_sw"},
-		{"p_base", "n_ring_se"},
-		{"n_ring_sw", "n_ring_se"},
-		{"n_ring_sw", "n_ring_w_s"},
-		{"n_ring_se", "n_ring_e_s"},
-		{"n_ring_w_s", "n_ring_w_n"},
-		{"n_ring_e_s", "n_ring_e_n"},
-		{"n_ring_w_n", "n_ring_nw"},
-		{"n_ring_e_n", "n_ring_ne"},
-		{"n_ring_nw", "n_ring_ne"},
-		{"n_ring_nw", "e_base"},
-		{"n_ring_ne", "e_base"},
-	},
-}
-
 func CreateTerritoriesForBattlefield(player, enemy PlayerUpgradeModifiers, battlefieldID string) map[string]Territory {
-	if !IsBattlefieldID(battlefieldID) {
-		battlefieldID = "crown_cross"
+	b, ok := authoritativeBattlefields[battlefieldID]
+	if !ok {
+		b = authoritativeBattlefields["crown_cross"]
 	}
-	switch battlefieldID {
-	case "twin_passes":
-		return map[string]Territory{
-			"p_base":        {ID: "p_base", Name: "Player Fortress", X: 200, Y: 610, Radius: 36, Owner: TeamPlayer, Units: player.StartingUnits, MaxUnits: 65, ProductionRate: 1.2 * player.ProductionRateMultiplier, Tier: 3, Type: TerritoryFortress},
-			"e_base":        {ID: "e_base", Name: "Enemy Citadel", X: 200, Y: 110, Radius: 36, Owner: TeamEnemy, Units: enemy.StartingUnits, MaxUnits: 65, ProductionRate: 1.2 * enemy.ProductionRateMultiplier, Tier: 3, Type: TerritoryFortress},
-			"n_west_gate_s": {ID: "n_west_gate_s", Name: "Southwest Gate", X: 100, Y: 490, Radius: 27, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.9, Tier: 1, Type: TerritoryStable},
-			"n_west_pass":   {ID: "n_west_pass", Name: "West Pass", X: 90, Y: 360, Radius: 28, Owner: TeamNeutral, Units: 14, MaxUnits: 45, ProductionRate: 1.0, Tier: 2, Type: TerritoryBarracks},
-			"n_west_gate_n": {ID: "n_west_gate_n", Name: "Northwest Gate", X: 100, Y: 230, Radius: 27, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.9, Tier: 1, Type: TerritoryStable},
-			"n_east_gate_s": {ID: "n_east_gate_s", Name: "Southeast Gate", X: 300, Y: 490, Radius: 27, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.9, Tier: 1, Type: TerritoryStable},
-			"n_east_pass":   {ID: "n_east_pass", Name: "East Pass", X: 310, Y: 360, Radius: 28, Owner: TeamNeutral, Units: 14, MaxUnits: 45, ProductionRate: 1.0, Tier: 2, Type: TerritoryBarracks},
-			"n_east_gate_n": {ID: "n_east_gate_n", Name: "Northeast Gate", X: 300, Y: 230, Radius: 27, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.9, Tier: 1, Type: TerritoryStable},
+	territories := make(map[string]Territory, len(b.Territories))
+	for _, t := range b.Territories {
+		units := t.Units
+		prodRate := t.ProductionRate
+		if t.ID == "p_base" || t.Owner == TeamPlayer {
+			units = player.StartingUnits
+			prodRate = t.ProductionRate * player.ProductionRateMultiplier
+		} else if t.ID == "e_base" || t.Owner == TeamEnemy {
+			units = enemy.StartingUnits
+			prodRate = t.ProductionRate * enemy.ProductionRateMultiplier
 		}
-	case "royal_ring":
-		return map[string]Territory{
-			"p_base":     {ID: "p_base", Name: "Player Fortress", X: 200, Y: 610, Radius: 36, Owner: TeamPlayer, Units: player.StartingUnits, MaxUnits: 65, ProductionRate: 1.2 * player.ProductionRateMultiplier, Tier: 3, Type: TerritoryFortress},
-			"e_base":     {ID: "e_base", Name: "Enemy Citadel", X: 200, Y: 110, Radius: 36, Owner: TeamEnemy, Units: enemy.StartingUnits, MaxUnits: 65, ProductionRate: 1.2 * enemy.ProductionRateMultiplier, Tier: 3, Type: TerritoryFortress},
-			"n_ring_sw":  {ID: "n_ring_sw", Name: "Southwest Bastion", X: 125, Y: 505, Radius: 26, Owner: TeamNeutral, Units: 9, MaxUnits: 40, ProductionRate: 0.9, Tier: 1, Type: TerritoryBarracks},
-			"n_ring_se":  {ID: "n_ring_se", Name: "Southeast Bastion", X: 275, Y: 505, Radius: 26, Owner: TeamNeutral, Units: 9, MaxUnits: 40, ProductionRate: 0.9, Tier: 1, Type: TerritoryBarracks},
-			"n_ring_w_s": {ID: "n_ring_w_s", Name: "West Lower Outpost", X: 65, Y: 415, Radius: 26, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.85, Tier: 1, Type: TerritoryStable},
-			"n_ring_e_s": {ID: "n_ring_e_s", Name: "East Lower Outpost", X: 335, Y: 415, Radius: 26, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.85, Tier: 1, Type: TerritoryStable},
-			"n_ring_w_n": {ID: "n_ring_w_n", Name: "West Upper Outpost", X: 65, Y: 305, Radius: 26, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.85, Tier: 1, Type: TerritoryStable},
-			"n_ring_e_n": {ID: "n_ring_e_n", Name: "East Upper Outpost", X: 335, Y: 305, Radius: 26, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.85, Tier: 1, Type: TerritoryStable},
-			"n_ring_nw":  {ID: "n_ring_nw", Name: "Northwest Bastion", X: 125, Y: 215, Radius: 26, Owner: TeamNeutral, Units: 9, MaxUnits: 40, ProductionRate: 0.9, Tier: 1, Type: TerritoryBarracks},
-			"n_ring_ne":  {ID: "n_ring_ne", Name: "Northeast Bastion", X: 275, Y: 215, Radius: 26, Owner: TeamNeutral, Units: 9, MaxUnits: 40, ProductionRate: 0.9, Tier: 1, Type: TerritoryBarracks},
-		}
-	default: // "crown_cross"
-		return map[string]Territory{
-			"p_base":      {ID: "p_base", Name: "Player Fortress", X: 200, Y: 610, Radius: 36, Owner: TeamPlayer, Units: player.StartingUnits, MaxUnits: 65, ProductionRate: 1.2 * player.ProductionRateMultiplier, Tier: 3, Type: TerritoryFortress},
-			"e_base":      {ID: "e_base", Name: "Enemy Citadel", X: 200, Y: 110, Radius: 36, Owner: TeamEnemy, Units: enemy.StartingUnits, MaxUnits: 65, ProductionRate: 1.2 * enemy.ProductionRateMultiplier, Tier: 3, Type: TerritoryFortress},
-			"n_bot_left":  {ID: "n_bot_left", Name: "Southwest Barracks", X: 85, Y: 485, Radius: 27, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.9, Tier: 1, Type: TerritoryBarracks},
-			"n_bot_right": {ID: "n_bot_right", Name: "Southeast Stable", X: 315, Y: 485, Radius: 27, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.9, Tier: 1, Type: TerritoryStable},
-			"n_center":    {ID: "n_center", Name: "Crown Keep", X: 200, Y: 360, Radius: 32, Owner: TeamNeutral, Units: 14, MaxUnits: 55, ProductionRate: 1.1, Tier: 2, Type: TerritoryFortress},
-			"n_mid_left":  {ID: "n_mid_left", Name: "West Barracks", X: 75, Y: 360, Radius: 26, Owner: TeamNeutral, Units: 10, MaxUnits: 40, ProductionRate: 0.85, Tier: 1, Type: TerritoryBarracks},
-			"n_mid_right": {ID: "n_mid_right", Name: "East Barracks", X: 325, Y: 360, Radius: 26, Owner: TeamNeutral, Units: 10, MaxUnits: 40, ProductionRate: 0.85, Tier: 1, Type: TerritoryBarracks},
-			"n_top_left":  {ID: "n_top_left", Name: "Northwest Stable", X: 85, Y: 235, Radius: 27, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.9, Tier: 1, Type: TerritoryStable},
-			"n_top_right": {ID: "n_top_right", Name: "Northeast Barracks", X: 315, Y: 235, Radius: 27, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.9, Tier: 1, Type: TerritoryBarracks},
+		territories[t.ID] = Territory{
+			ID:             t.ID,
+			Name:           t.Name,
+			X:              t.X,
+			Y:              t.Y,
+			Radius:         t.Radius,
+			Owner:          t.Owner,
+			Units:          units,
+			MaxUnits:       t.MaxUnits,
+			ProductionRate: prodRate,
+			Tier:           t.Tier,
+			Type:           t.Type,
 		}
 	}
-}
-
-func applyTerritoryLayout(territories map[string]Territory, id string, x, y float64, units int, territoryType TerritoryType) {
-	territory := territories[id]
-	territory.X = x
-	territory.Y = y
-	territory.Units = units
-	territory.Type = territoryType
-	territories[id] = territory
+	return territories
 }
 
 func DefaultModifiers() PlayerUpgradeModifiers {

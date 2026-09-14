@@ -87,6 +87,69 @@ func TestBattlefieldLayoutsStaySymmetricAndDistinct(t *testing.T) {
 	}
 }
 
+func TestBattlefieldAuthoritativeFieldParity(t *testing.T) {
+	for id, def := range authoritativeBattlefields {
+		territories := CreateTerritoriesForBattlefield(DefaultModifiers(), DefaultModifiers(), id)
+		if len(territories) != len(def.Territories) {
+			t.Fatalf("%s: territory count mismatch: got %d, expected %d", id, len(territories), len(def.Territories))
+		}
+		for _, template := range def.Territories {
+			terr, exists := territories[template.ID]
+			if !exists {
+				t.Fatalf("%s: missing territory ID %q", id, template.ID)
+			}
+			if terr.ID != template.ID {
+				t.Fatalf("%s: territory ID mismatch: got %q, expected %q", id, terr.ID, template.ID)
+			}
+			if terr.Name != template.Name {
+				t.Fatalf("%s/%s: name mismatch: got %q, expected %q", id, terr.ID, terr.Name, template.Name)
+			}
+			if terr.X != template.X || terr.Y != template.Y {
+				t.Fatalf("%s/%s: coordinates mismatch: got (%f, %f), expected (%f, %f)", id, terr.ID, terr.X, terr.Y, template.X, template.Y)
+			}
+			if terr.Radius != template.Radius {
+				t.Fatalf("%s/%s: radius mismatch: got %f, expected %f", id, terr.ID, terr.Radius, template.Radius)
+			}
+			if terr.Owner != template.Owner {
+				t.Fatalf("%s/%s: ownership mismatch: got %q, expected %q", id, terr.ID, terr.Owner, template.Owner)
+			}
+			expectedUnits := template.Units
+			if template.ID == "p_base" || template.Owner == TeamPlayer {
+				expectedUnits = 20
+			} else if template.ID == "e_base" || template.Owner == TeamEnemy {
+				expectedUnits = 20
+			}
+			if terr.Units != expectedUnits {
+				t.Fatalf("%s/%s: units mismatch: got %d, expected %d", id, terr.ID, terr.Units, expectedUnits)
+			}
+			if terr.MaxUnits != template.MaxUnits {
+				t.Fatalf("%s/%s: maxUnits mismatch: got %d, expected %d", id, terr.ID, terr.MaxUnits, template.MaxUnits)
+			}
+			expectedProd := template.ProductionRate
+			if terr.ProductionRate != expectedProd {
+				t.Fatalf("%s/%s: production mismatch: got %f, expected %f", id, terr.ID, terr.ProductionRate, expectedProd)
+			}
+			if terr.Tier != template.Tier {
+				t.Fatalf("%s/%s: tier mismatch: got %d, expected %d", id, terr.ID, terr.Tier, template.Tier)
+			}
+			if terr.Type != template.Type {
+				t.Fatalf("%s/%s: type mismatch: got %q, expected %q", id, terr.ID, terr.Type, template.Type)
+			}
+		}
+
+		roads := battlefieldRoads[id]
+		if len(roads) != len(def.Roads) {
+			t.Fatalf("%s: road count mismatch: got %d, expected %d", id, len(roads), len(def.Roads))
+		}
+		for i, r := range def.Roads {
+			actual := roads[i]
+			if actual[0] != r[0] || actual[1] != r[1] {
+				t.Fatalf("%s: road %d mismatch: got %v, expected %v", id, i, actual, r)
+			}
+		}
+	}
+}
+
 func TestBotBattlefieldReplayIsDeterministic(t *testing.T) {
 	actionsByBattlefield := map[string][]PvpAction{
 		"crown_cross": {

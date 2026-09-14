@@ -1,0 +1,96 @@
+[
+  {
+    "id": "crown_cross",
+    "name": "Crown Cross",
+    "subtitle": "Control the central keep",
+    "accent": 16096779,
+    "territories": [
+      { "id": "p_base", "name": "Player Fortress", "x": 200, "y": 610, "radius": 36, "owner": "player", "units": 20, "maxUnits": 65, "productionRate": 1.2, "tier": 3, "type": "fortress" },
+      { "id": "e_base", "name": "Enemy Citadel", "x": 200, "y": 110, "radius": 36, "owner": "enemy", "units": 20, "maxUnits": 65, "productionRate": 1.2, "tier": 3, "type": "fortress" },
+      { "id": "n_bot_left", "name": "Southwest Barracks", "x": 85, "y": 485, "radius": 27, "owner": "neutral", "units": 8, "maxUnits": 40, "productionRate": 0.9, "tier": 1, "type": "barracks" },
+      { "id": "n_bot_right", "name": "Southeast Stable", "x": 315, "y": 485, "radius": 27, "owner": "neutral", "units": 8, "maxUnits": 40, "productionRate": 0.9, "tier": 1, "type": "stable" },
+      { "id": "n_center", "name": "Crown Keep", "x": 200, "y": 360, "radius": 32, "owner": "neutral", "units": 14, "maxUnits": 55, "productionRate": 1.1, "tier": 2, "type": "fortress" },
+      { "id": "n_mid_left", "name": "West Barracks", "x": 75, "y": 360, "radius": 26, "owner": "neutral", "units": 10, "maxUnits": 40, "productionRate": 0.85, "tier": 1, "type": "barracks" },
+      { "id": "n_mid_right", "name": "East Barracks", "x": 325, "y": 360, "radius": 26, "owner": "neutral", "units": 10, "maxUnits": 40, "productionRate": 0.85, "tier": 1, "type": "barracks" },
+      { "id": "n_top_left", "name": "Northwest Stable", "x": 85, "y": 235, "radius": 27, "owner": "neutral", "units": 8, "maxUnits": 40, "productionRate": 0.9, "tier": 1, "type": "stable" },
+      { "id": "n_top_right", "name": "Northeast Barracks", "x": 315, "y": 235, "radius": 27, "owner": "neutral", "units": 8, "maxUnits": 40, "productionRate": 0.9, "tier": 1, "type": "barracks" }
+    ],
+    "roads": [
+      ["p_base", "n_bot_left"],
+      ["p_base", "n_center"],
+      ["p_base", "n_bot_right"],
+      ["n_bot_left", "n_mid_left"],
+      ["n_bot_right", "n_mid_right"],
+      ["n_mid_left", "n_center"],
+      ["n_mid_right", "n_center"],
+      ["n_mid_left", "n_top_left"],
+      ["n_mid_right", "n_top_right"],
+      ["n_center", "e_base"],
+      ["n_top_left", "e_base"],
+      ["n_top_right", "e_base"],
+      ["n_bot_left", "n_center"],
+      ["n_bot_right", "n_center"],
+      ["n_top_left", "n_center"],
+      ["n_top_right", "n_center"]
+    ]
+  },
+  {
+    "id": "twin_passes",
+    "name": "Twin Passes",
+    "subtitle": "Fast towers rule the flanks",
+    "accent": 3718648,
+    "territories": [
+      { "id": "p_base", "name": "Player Fortress", "x": 200, "y": 610, "radius": 36, "owner": "player", "units": 20, "maxUnits": 65, "productionRate": 1.2, "tier": 3, "type": "fortress" },
+      { "id": "e_base", "name": "Enemy Citadel", "x": 200, "y": 110, "radius": 36, "owner": "enemy", "units": 20, "maxUnits": 65, "productionRate": 1.2, "tier": 3, "type": "fortress" },
+      { "id": "n_west_gate_s", "name": "Southwest Gate", "x": 100, "y": 490, "radius": 27, "owner": "neutral", "units": 8, "maxUnits": 40, "productionRate": 0.9, "tier": 1, "type": "stable" },
+      { "id": "n_west_pass", "name": "West Pass", "x": 90, "y": 360, "radius": 28, "owner": "neutral", "units": 14, "maxUnits": 45, "productionRate": 1.0, "tier": 2, "type": "barracks" },
+      { "id": "n_west_gate_n", "name": "Northwest Gate", "x": 100, "y": 230, "radius": 27, "owner": "neutral", "units": 8, "maxUnits": 40, "productionRate": 0.9, "tier": 1, "type": "stable" },
+      { "id": "n_east_gate_s", "name": "Southeast Gate", "x": 300, "y": 490, "radius": 27, "owner": "neutral", "units": 8, "maxUnits": 40, "productionRate": 0.9, "tier": 1, "type": "stable" },
+      { "id": "n_east_pass", "name": "East Pass", "x": 310, "y": 360, "radius": 28, "owner": "neutral", "units": 14, "maxUnits": 45, "productionRate": 1.0, "tier": 2, "type": "barracks" },
+      { "id": "n_east_gate_n", "name": "Northeast Gate", "x": 300, "y": 230, "radius": 27, "owner": "neutral", "units": 8, "maxUnits": 40, "productionRate": 0.9, "tier": 1, "type": "stable" }
+    ],
+    "roads": [
+      ["p_base", "n_west_gate_s"],
+      ["p_base", "n_east_gate_s"],
+      ["n_west_gate_s", "n_west_pass"],
+      ["n_east_gate_s", "n_east_pass"],
+      ["n_west_pass", "n_east_pass"],
+      ["n_west_pass", "n_west_gate_n"],
+      ["n_east_pass", "n_east_gate_n"],
+      ["n_west_gate_n", "e_base"],
+      ["n_east_gate_n", "e_base"]
+    ]
+  },
+  {
+    "id": "royal_ring",
+    "name": "Royal Ring",
+    "subtitle": "Choose your attack lane",
+    "accent": 10980346,
+    "territories": [
+      { "id": "p_base", "name": "Player Fortress", "x": 200, "y": 610, "radius": 36, "owner": "player", "units": 20, "maxUnits": 65, "productionRate": 1.2, "tier": 3, "type": "fortress" },
+      { "id": "e_base", "name": "Enemy Citadel", "x": 200, "y": 110, "radius": 36, "owner": "enemy", "units": 20, "maxUnits": 65, "productionRate": 1.2, "tier": 3, "type": "fortress" },
+      { "id": "n_ring_sw", "name": "Southwest Bastion", "x": 125, "y": 505, "radius": 26, "owner": "neutral", "units": 9, "maxUnits": 40, "productionRate": 0.9, "tier": 1, "type": "barracks" },
+      { "id": "n_ring_se", "name": "Southeast Bastion", "x": 275, "y": 505, "radius": 26, "owner": "neutral", "units": 9, "maxUnits": 40, "productionRate": 0.9, "tier": 1, "type": "barracks" },
+      { "id": "n_ring_w_s", "name": "West Lower Outpost", "x": 65, "y": 415, "radius": 26, "owner": "neutral", "units": 8, "maxUnits": 40, "productionRate": 0.85, "tier": 1, "type": "stable" },
+      { "id": "n_ring_e_s", "name": "East Lower Outpost", "x": 335, "y": 415, "radius": 26, "owner": "neutral", "units": 8, "maxUnits": 40, "productionRate": 0.85, "tier": 1, "type": "stable" },
+      { "id": "n_ring_w_n", "name": "West Upper Outpost", "x": 65, "y": 305, "radius": 26, "owner": "neutral", "units": 8, "maxUnits": 40, "productionRate": 0.85, "tier": 1, "type": "stable" },
+      { "id": "n_ring_e_n", "name": "East Upper Outpost", "x": 335, "y": 305, "radius": 26, "owner": "neutral", "units": 8, "maxUnits": 40, "productionRate": 0.85, "tier": 1, "type": "stable" },
+      { "id": "n_ring_nw", "name": "Northwest Bastion", "x": 125, "y": 215, "radius": 26, "owner": "neutral", "units": 9, "maxUnits": 40, "productionRate": 0.9, "tier": 1, "type": "barracks" },
+      { "id": "n_ring_ne", "name": "Northeast Bastion", "x": 275, "y": 215, "radius": 26, "owner": "neutral", "units": 9, "maxUnits": 40, "productionRate": 0.9, "tier": 1, "type": "barracks" }
+    ],
+    "roads": [
+      ["p_base", "n_ring_sw"],
+      ["p_base", "n_ring_se"],
+      ["n_ring_sw", "n_ring_se"],
+      ["n_ring_sw", "n_ring_w_s"],
+      ["n_ring_se", "n_ring_e_s"],
+      ["n_ring_w_s", "n_ring_w_n"],
+      ["n_ring_e_s", "n_ring_e_n"],
+      ["n_ring_w_n", "n_ring_nw"],
+      ["n_ring_e_n", "n_ring_ne"],
+      ["n_ring_nw", "n_ring_ne"],
+      ["n_ring_nw", "e_base"],
+      ["n_ring_ne", "e_base"]
+    ]
+  }
+]

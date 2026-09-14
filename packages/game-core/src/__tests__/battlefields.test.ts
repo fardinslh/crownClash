@@ -306,5 +306,41 @@ describe('data-driven battlefield architecture', () => {
         expect(territories.e_base.productionRate).toBeCloseTo(1.2 * 1.25);
       }
     });
+
+    it('asserts complete field parity across IDs, names, coordinates, radius, ownership, units, maxUnits, production, tier/type, and roads', () => {
+      for (const def of BATTLEFIELDS) {
+        const runtimeTerritories = createDefaultTerritories(undefined, undefined, def.id);
+
+        expect(Object.keys(runtimeTerritories)).toHaveLength(def.territories.length);
+
+        for (const template of def.territories) {
+          const terr = runtimeTerritories[template.id];
+          expect(terr).toBeDefined();
+          expect(terr.id).toBe(template.id);
+          expect(terr.name).toBe(template.name);
+          expect(terr.x).toBe(template.x);
+          expect(terr.y).toBe(template.y);
+          expect(terr.radius).toBe(template.radius);
+          expect(terr.owner).toBe(template.owner);
+          const expectedUnits =
+            template.id === 'p_base' || template.owner === 'player'
+              ? 20
+              : template.id === 'e_base' || template.owner === 'enemy'
+              ? 20
+              : template.units;
+          expect(terr.units).toBe(expectedUnits);
+          expect(terr.maxUnits).toBe(template.maxUnits);
+          expect(terr.productionRate).toBeCloseTo(template.productionRate);
+          expect(terr.tier).toBe(template.tier);
+          expect(terr.type).toBe(template.type);
+        }
+
+        expect(def.roads).toHaveLength(def.roads.length);
+        for (const [a, b] of def.roads) {
+          expect(runtimeTerritories[a]).toBeDefined();
+          expect(runtimeTerritories[b]).toBeDefined();
+        }
+      }
+    });
   });
 });
