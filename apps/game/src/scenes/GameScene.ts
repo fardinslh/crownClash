@@ -75,6 +75,7 @@ import {
 } from '../ui/Viewport.js';
 import { computeResultRankPresentation } from '../ui/ResultModalLayout.js';
 import { createBattlefieldDecorations } from '../ui/BattlefieldArenaLayout.js';
+import { drawTowerRoleIcon } from '../ui/TowerRoleIcon.js';
 import {
   computeMarchStride,
   createStrideMetrics,
@@ -94,7 +95,7 @@ interface TerritoryVisual {
   ring: Phaser.GameObjects.Arc;
   unitBadge: Phaser.GameObjects.Rectangle;
   unitText: Phaser.GameObjects.Text;
-  typeText: Phaser.GameObjects.Text;
+  typeIcon: Phaser.GameObjects.Graphics;
   lastOwner?: Team;
   lastUnits?: number;
 }
@@ -638,20 +639,17 @@ export class GameScene extends Phaser.Scene {
         })
         .setOrigin(0.5);
 
-      const typeStyle = TERRITORY_TYPE_PRESENTATION[territory.type];
-      const typeText = this.add
-        .text(0, badgeY + 18, typeStyle.label, {
-          fontFamily: MONO_FONT_FAMILY,
-          fontSize: '9px',
-          fontStyle: 'bold',
-          color: `#${typeStyle.color.toString(16).padStart(6, '0')}`,
-          backgroundColor: '#070d1a',
-          padding: { x: 3, y: 1 },
-          resolution: 2,
-        })
-        .setOrigin(0.5);
+      // Tower role icon (replaces the SPD/DEF/PROD text label), centered
+      // beneath the unit badge. Drawn once at visual creation; the icon is
+      // drawn around the graphics origin so scale pulses stay centered.
+      // Badge bottom is badgeY + 11; centering the 16px icon at badgeY + 21
+      // keeps its top edge 2 logical px clear of the badge.
+      const roleIconSize = 16;
+      const typeIcon = this.add.graphics();
+      drawTowerRoleIcon(typeIcon, territory.type, -roleIconSize / 2, -roleIconSize / 2, roleIconSize);
+      typeIcon.setPosition(0, badgeY + 21);
 
-      container.add([groundShadow, ring, basePlate, sprite, unitBadge, unitText, typeText]);
+      container.add([groundShadow, ring, basePlate, sprite, unitBadge, unitText, typeIcon]);
 
       // Make interactive for touch / click
       container.setSize(territory.radius * 2.5, territory.radius * 2.5);
@@ -670,7 +668,7 @@ export class GameScene extends Phaser.Scene {
         ring,
         unitBadge,
         unitText,
-        typeText,
+        typeIcon,
         lastOwner: territory.owner,
         lastUnits: territory.units,
       });
@@ -1836,7 +1834,7 @@ export class GameScene extends Phaser.Scene {
         fortressBlocked ? targetRoleStyle.color : THEME.teams.enemy.light,
         fortressBlocked ? 1.7 : 1.35
       );
-      if (fortressBlocked) this.pulseTerritoryRole(vis, targetRoleStyle.color);
+      if (fortressBlocked) this.pulseTerritoryRole(vis);
     }
     this.markTerritoriesDirty();
   }
@@ -1900,14 +1898,13 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private pulseTerritoryRole(vis: TerritoryVisual, color: number): void {
+  private pulseTerritoryRole(vis: TerritoryVisual): void {
     if (this.reducedMotion) return;
-    this.tweens.killTweensOf([vis.typeText, vis.unitBadge]);
-    vis.typeText.setScale(1).setAlpha(1);
+    this.tweens.killTweensOf([vis.typeIcon, vis.unitBadge]);
+    vis.typeIcon.setScale(1).setAlpha(1);
     vis.unitBadge.setScale(1);
-    vis.typeText.setColor(`#${color.toString(16).padStart(6, '0')}`);
     this.tweens.add({
-      targets: [vis.typeText, vis.unitBadge],
+      targets: [vis.typeIcon, vis.unitBadge],
       scale: 1.18,
       duration: 90,
       yoyo: true,
@@ -1995,10 +1992,7 @@ export class GameScene extends Phaser.Scene {
       }
 
       if (producedUnit) {
-        this.pulseTerritoryRole(
-          vis,
-          TERRITORY_TYPE_PRESENTATION.barracks.color
-        );
+        this.pulseTerritoryRole(vis);
       }
 
       if (vis.lastOwner !== stateTerritory.owner) {
@@ -3776,7 +3770,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.armyVisuals.clear();
     for (const vis of this.territoryVisuals.values()) {
-      this.tweens.killTweensOf([vis.container, vis.ring, vis.typeText, vis.unitBadge]);
+      this.tweens.killTweensOf([vis.container, vis.ring, vis.typeIcon, vis.unitBadge]);
       vis.container.destroy();
     }
     this.territoryVisuals.clear();

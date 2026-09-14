@@ -215,8 +215,14 @@ const { MockScene, MockGameObject, MockGraphics, MockContainer, MockVector2 } = 
     lineStyle() { return this; }
     fillStyle() { return this; }
     beginPath() { return this; }
-    moveTo() { return this; }
-    lineTo() { return this; }
+    moveTo(x: number, y: number) {
+      this.commands.push(`moveTo:${x},${y}`);
+      return this;
+    }
+    lineTo(x: number, y: number) {
+      this.commands.push(`lineTo:${x},${y}`);
+      return this;
+    }
     strokePath() { return this; }
     fillPath() { return this; }
     closePath() { return this; }
@@ -228,7 +234,10 @@ const { MockScene, MockGameObject, MockGraphics, MockContainer, MockVector2 } = 
     }
     fillRoundedRect() { return this; }
     strokeRoundedRect() { return this; }
-    fillCircle() { return this; }
+    fillCircle(cx: number, cy: number, radius: number) {
+      this.commands.push(`fillCircle:${cx},${cy},${radius}`);
+      return this;
+    }
     strokeCircle() { return this; }
     fillEllipse() { return this; }
     fillTriangle() { return this; }
@@ -621,5 +630,100 @@ describe('GameScene Territory Visual Synchronization', () => {
     // Signature change MUST detect the divergence and update visual
     expect(pBaseVisual.unitText.text).toBe('42');
     expect(pBaseVisual.lastUnits).toBe(42);
+  });
+});
+
+describe('GameScene Tower Role Icons', () => {
+  let scene: GameScene;
+  let platform: BrowserPlatformAdapter;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    platform = new BrowserPlatformAdapter();
+    scene = new GameScene();
+    scene.registry.set('platform', platform);
+    scene.scene.settings.data = {
+      mode: 'bot',
+      botMatch: {
+        matchId: 'bot_test_icons',
+        battlefieldId: 'crown_cross',
+      },
+    };
+    scene.create();
+  });
+
+  const parseIconCoordinates = (commands: string[]): number[] =>
+    commands
+      .filter((c) => /^(moveTo|lineTo|fillCircle):/.test(c))
+      .map((c) => c.split(':')[1].split(',').map(Number))
+      .flat();
+
+  it('creates a drawn role icon for all three territory types and adds it to its territory container', () => {
+    const visuals = (scene as any).territoryVisuals as Map<string, any>;
+    expect(visuals.size).toBe(9);
+
+    const types = new Set<string>();
+    for (const [id, vis] of visuals) {
+      expect(vis.typeIcon, `typeIcon defined for ${id}`).toBeDefined();
+      expect(vis.typeIcon.parentContainer, `icon in container for ${id}`).toBe(vis.container);
+      expect(vis.typeIcon.commands.length, `icon drawn for ${id}`).toBeGreaterThan(0);
+      // Centered horizontally and positioned beneath the unit badge.
+      expect(vis.typeIcon.x, `icon x centered for ${id}`).toBe(0);
+      // Badge is 22px tall, so its bottom edge is unitBadge.y + 11. The 16px
+      // icon spans typeIcon.y - 8 .. typeIcon.y + 8 and must clear the badge
+      // bottom by at least 2 logical px (no badge overlap).
+      expect(vis.typeIcon.y - 8, `icon clears badge for ${id}`).toBeGreaterThanOrEqual(
+        vis.unitBadge.y + 11 + 2
+      );
+      types.add(vis.territory.type);
+    }
+    expect(types).toEqual(new Set(['fortress', 'barracks', 'stable']));
+  });
+
+  it('draws each icon at approximately 16 logical px centered on its origin', () => {
+    const visuals = (scene as any).territoryVisuals as Map<string, any>;
+    for (const [id, vis] of visuals) {
+      const coords = parseIconCoordinates(vis.typeIcon.commands);
+      expect(coords.length, `icon geometry recorded for ${id}`).toBeGreaterThan(0);
+      const min = Math.min(...coords);
+      const max = Math.max(...coords);
+      // A 16px icon drawn around the origin spans at most -8..8; painted
+      // shapes fill most of that box (>= 8px painted extent).
+      expect(min, `icon min coordinate for ${id}`).toBeGreaterThanOrEqual(-8);
+      expect(max, `icon max coordinate for ${id}`).toBeLessThanOrEqual(8);
+      expect(max - min, `icon extent for ${id}`).toBeGreaterThanOrEqual(8);
+      expect(max - min, `icon extent for ${id}`).toBeLessThanOrEqual(16);
+    }
+  });
+
+  it('creates no per-tower SPD/DEF/PROD text label', () => {
+    const roleLabels = ['SPD', 'DEF', 'PROD'];
+    const textObjects = (scene as any).children.list.filter(
+      (obj: any) => typeof obj.text === 'string'
+    );
+    const roleTexts = textObjects.filter((obj: any) => roleLabels.includes(obj.text));
+    expect(roleTexts).toHaveLength(0);
+  });
+
+  it('pulses the role icon and destroys it with its territory container without throwing', () => {
+    const visuals = (scene as any).territoryVisuals as Map<string, any>;
+    const fortress = visuals.get('p_base');
+    const barracks = visuals.get('n_bot_left');
+    const stable = visuals.get('n_bot_right');
+    expect(fortress).toBeDefined();
+    expect(barracks).toBeDefined();
+    expect(stable).toBeDefined();
+
+    expect(() => (scene as any).pulseTerritoryRole(fortress)).not.toThrow();
+    expect(() => (scene as any).pulseTerritoryRole(barracks)).not.toThrow();
+    expect(() => (scene as any).pulseTerritoryRole(stable)).not.toThrow();
+    // Pulse resets the icon transform after the tween setup.
+    expect(fortress.typeIcon.scaleX).toBe(1);
+    expect(fortress.typeIcon.alpha).toBe(1);
+
+    expect(() => (scene as any).cleanup()).not.toThrow();
+    expect(fortress.typeIcon.destroyed).toBe(true);
+    expect(barracks.typeIcon.destroyed).toBe(true);
+    expect(stable.typeIcon.destroyed).toBe(true);
   });
 });
