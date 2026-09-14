@@ -26,6 +26,7 @@ import {
   stepSimulation,
   TERRITORY_TYPE_PRESENTATION,
   Territory,
+  TerritoryType,
   Team,
   UpgradeType,
 } from '@crown-clash/game-core';
@@ -173,6 +174,7 @@ export class GameScene extends Phaser.Scene {
   private enemyDomText!: Phaser.GameObjects.Text;
   private tugCrown!: Phaser.GameObjects.Text;
   private bottomHintText!: Phaser.GameObjects.Text;
+  private legendGroups: Array<{ type: TerritoryType; icon: Phaser.GameObjects.Graphics; word: Phaser.GameObjects.Text }> = [];
   private hudCoinsText!: Phaser.GameObjects.Text;
   private hudTrophiesText!: Phaser.GameObjects.Text;
   private dominanceBarTotalWidth = 350;
@@ -1000,16 +1002,44 @@ export class GameScene extends Phaser.Scene {
       .setStrokeStyle(1.5, 0x334155, 0.92)
       .setDepth(95);
 
-    this.add
-      .text(LOGICAL_WIDTH / 2, bottomBarY - 9, 'DEF shields  •  PROD trains  •  SPD marches', {
-        fontFamily: MONO_FONT_FAMILY,
-        fontSize: '10px',
-        fontStyle: 'bold',
-        color: '#f8c76a',
-        resolution: 2,
-      })
-      .setOrigin(0.5)
-      .setDepth(96);
+    // Legend: three compact role-icon + word groups on one centered row.
+    // Created once here; never redrawn per frame. Reset first: the scene
+    // instance survives restarts, so a rematch must not append to the
+    // previous match's entries.
+    this.legendGroups = [];
+    const legendY = bottomBarY - 9;
+    const legendIconSize = 13;
+    const iconWordGap = 5;
+    const groupGap = 18;
+    const legendSpecs: Array<{ type: TerritoryType; word: string }> = [
+      { type: 'fortress', word: 'SHIELDS' },
+      { type: 'barracks', word: 'TRAINS' },
+      { type: 'stable', word: 'MARCHES' },
+    ];
+    const legendWords = legendSpecs.map((spec) =>
+      this.add
+        .text(0, legendY, spec.word, {
+          fontFamily: MONO_FONT_FAMILY,
+          fontSize: '10px',
+          fontStyle: 'bold',
+          color: '#f8c76a',
+          resolution: 2,
+        })
+        .setOrigin(0, 0.5)
+        .setDepth(96)
+    );
+    const groupWidths = legendWords.map((word) => legendIconSize + iconWordGap + word.width);
+    const legendRowWidth =
+      groupWidths.reduce((sum, w) => sum + w, 0) + groupGap * (legendSpecs.length - 1);
+    let legendCursorX = LOGICAL_WIDTH / 2 - legendRowWidth / 2;
+    legendSpecs.forEach((spec, i) => {
+      const icon = this.add.graphics();
+      drawTowerRoleIcon(icon, spec.type, -legendIconSize / 2, -legendIconSize / 2, legendIconSize);
+      icon.setPosition(legendCursorX + legendIconSize / 2, legendY).setDepth(96);
+      legendWords[i].setPosition(legendCursorX + legendIconSize + iconWordGap, legendY);
+      this.legendGroups.push({ type: spec.type, icon, word: legendWords[i] });
+      legendCursorX += groupWidths[i] + groupGap;
+    });
 
     const initialHint = this.liveMode
       ? `⚔ Live battle vs ${this.formatShortName(this.liveOpponentName, 12)}`

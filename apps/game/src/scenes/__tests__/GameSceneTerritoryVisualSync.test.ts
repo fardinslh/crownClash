@@ -727,3 +727,163 @@ describe('GameScene Tower Role Icons', () => {
     expect(stable.typeIcon.destroyed).toBe(true);
   });
 });
+
+describe('GameScene Bottom Legend Role Icons', () => {
+  let scene: GameScene;
+  let platform: BrowserPlatformAdapter;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    platform = new BrowserPlatformAdapter();
+    scene = new GameScene();
+    scene.registry.set('platform', platform);
+    scene.scene.settings.data = {
+      mode: 'bot',
+      botMatch: {
+        matchId: 'bot_test_legend',
+        battlefieldId: 'crown_cross',
+      },
+    };
+    scene.create();
+  });
+
+  // Mirrors createHud(): inner panel is min(360, visibleWidth - 40) wide,
+  // 40 tall, centered at bottomBarY = max(691, visibleHeight - 28).
+  const getPanelBounds = () => {
+    const renderScale = (scene.registry.get('renderScale') as number) || 1;
+    const visibleWidth = Math.max(400, Math.round(scene.scale.gameSize.width / renderScale));
+    const visibleHeight = Math.max(720, Math.round(scene.scale.gameSize.height / renderScale));
+    const bottomBarY = Math.max(691, visibleHeight - 28);
+    const panelWidth = Math.min(360, visibleWidth - 40);
+    return {
+      left: 200 - panelWidth / 2,
+      right: 200 + panelWidth / 2,
+      top: bottomBarY - 20,
+      bottom: bottomBarY + 20,
+      bottomBarY,
+    };
+  };
+
+  it('draws exactly three legend role icons in fortress, barracks, stable order on one row', () => {
+    const groups = (scene as any).legendGroups as Array<{ type: string; icon: any; word: any }>;
+    expect(groups).toHaveLength(3);
+    expect(groups.map((g) => g.type)).toEqual(['fortress', 'barracks', 'stable']);
+
+    // Each legend icon is a Graphics object with actual drawn geometry.
+    for (const g of groups) {
+      expect(Array.isArray(g.icon.commands), 'legend icon is a drawn Graphics').toBe(true);
+      expect(g.icon.commands.length, `legend icon drawn for ${g.type}`).toBeGreaterThan(0);
+      // Icons use a 13px box around their origin.
+      const coords = g.icon.commands
+        .filter((c: string) => /^(moveTo|lineTo|fillCircle):/.test(c))
+        .map((c: string) => c.split(':')[1].split(',').map(Number))
+        .flat();
+      expect(Math.min(...coords)).toBeGreaterThanOrEqual(-6.5);
+      expect(Math.max(...coords)).toBeLessThanOrEqual(6.5);
+      expect(Math.max(...coords) - Math.min(...coords)).toBeGreaterThanOrEqual(8);
+      expect(Math.max(...coords) - Math.min(...coords)).toBeLessThanOrEqual(13);
+    }
+
+    // One row: all icons and words share the same vertical center.
+    const rowY = groups[0].icon.y;
+    for (const g of groups) {
+      expect(g.icon.y, `icon row alignment for ${g.type}`).toBe(rowY);
+      expect(g.word.y, `word row alignment for ${g.type}`).toBe(rowY);
+    }
+
+    // Drawn once at creation: simulation ticks must not redraw legend icons.
+    const commandsBefore = groups.map((g) => g.icon.commands.length);
+    for (let i = 0; i < 30; i++) {
+      scene.update(i * 20, 20);
+    }
+    expect(groups.map((g) => g.icon.commands.length)).toEqual(commandsBefore);
+  });
+
+  it('shows SHIELDS, TRAINS, MARCHES with no DEF/PROD/SPD and keeps the drag helper', () => {
+    const groups = (scene as any).legendGroups as Array<{ type: string; icon: any; word: any }>;
+    expect(groups.map((g) => g.word.text)).toEqual(['SHIELDS', 'TRAINS', 'MARCHES']);
+    for (const g of groups) {
+      expect(g.word.text).not.toMatch(/DEF|PROD|SPD/);
+    }
+
+    // The old abbreviation legend must be gone entirely.
+    const allTexts = (scene as any).children.list
+      .filter((obj: any) => typeof obj.text === 'string')
+      .map((obj: any) => obj.text as string);
+    expect(allTexts.some((t: string) => /DEF shields|PROD trains|SPD marches/.test(t))).toBe(false);
+
+    // Second helper line must remain unchanged.
+    const hint = (scene as any).bottomHintText as any;
+    expect(hint).toBeDefined();
+    expect(hint.text).toContain('Drag across towers');
+  });
+
+  it('fits every legend object inside the bottom panel with >= 4px icon-word gaps, centered', () => {
+    const groups = (scene as any).legendGroups as Array<{ type: string; icon: any; word: any }>;
+    const panel = getPanelBounds();
+
+    for (const g of groups) {
+      // Icon spans iconSize/2 = 6.5 around its center.
+      expect(g.icon.x - 6.5, `icon left inside panel for ${g.type}`).toBeGreaterThanOrEqual(panel.left);
+      expect(g.icon.x + 6.5, `icon right inside panel for ${g.type}`).toBeLessThanOrEqual(panel.right);
+      expect(g.icon.y - 6.5, `icon top inside panel for ${g.type}`).toBeGreaterThanOrEqual(panel.top);
+      expect(g.icon.y + 6.5, `icon bottom inside panel for ${g.type}`).toBeLessThanOrEqual(panel.bottom);
+
+      // Word text uses origin (0, 0.5).
+      expect(g.word.x, `word left inside panel for ${g.type}`).toBeGreaterThanOrEqual(panel.left);
+      expect(g.word.x + g.word.width, `word right inside panel for ${g.type}`).toBeLessThanOrEqual(panel.right);
+      expect(g.word.y - g.word.height / 2, `word top inside panel for ${g.type}`).toBeGreaterThanOrEqual(panel.top);
+      expect(g.word.y + g.word.height / 2, `word bottom inside panel for ${g.type}`).toBeLessThanOrEqual(panel.bottom);
+
+      // At least 4 logical px between each icon and its word.
+      expect(g.word.x - (g.icon.x + 6.5), `icon-word gap for ${g.type}`).toBeGreaterThanOrEqual(4);
+    }
+
+    // The whole row is horizontally centered on the panel.
+    const rowLeft = groups[0].icon.x - 6.5;
+    const rowRight = groups[groups.length - 1].word.x + groups[groups.length - 1].word.width;
+    expect(Math.abs((rowLeft + rowRight) / 2 - 200)).toBeLessThanOrEqual(1);
+
+    // No collision with the helper line below: legend row bottom stays above it.
+    for (const g of groups) {
+      expect(g.icon.y + 6.5, `icon clears helper line for ${g.type}`).toBeLessThan(panel.bottomBarY + 10);
+    }
+  });
+
+  it('resets legendGroups on re-create so rematches do not accumulate stale entries', () => {
+    const firstGroups = [...(scene as any).legendGroups];
+    expect(firstGroups).toHaveLength(3);
+
+    // Simulate a scene restart on the SAME instance (Phaser restart keeps the
+    // scene object alive): shutdown destroys the display list, then create()
+    // runs again.
+    for (const old of firstGroups) {
+      old.icon.destroy();
+      old.word.destroy();
+    }
+
+    scene.create();
+
+    // Exactly 3 entries after recreation, not 6 accumulated ones.
+    const groups = (scene as any).legendGroups as Array<{ type: string; icon: any; word: any }>;
+    expect(groups, 'legend must not accumulate across restarts').toHaveLength(3);
+    expect(groups.map((g) => g.word.text)).toEqual(['SHIELDS', 'TRAINS', 'MARCHES']);
+
+    // Every stored icon and word belongs to the current scene display list
+    // and is a live (non-destroyed) object of this create pass.
+    const displayList = (scene as any).children.list;
+    for (const g of groups) {
+      expect(displayList.includes(g.icon), 'legend icon belongs to current scene').toBe(true);
+      expect(displayList.includes(g.word), 'legend word belongs to current scene').toBe(true);
+      expect(g.icon.destroyed).toBe(false);
+      expect(g.word.destroyed).toBe(false);
+    }
+
+    // Previous legend objects are destroyed and no longer referenced.
+    for (const old of firstGroups) {
+      expect(groups, 'stale group must not be referenced').not.toContain(old);
+      expect(old.icon.destroyed, 'previous legend icon destroyed on shutdown').toBe(true);
+      expect(old.word.destroyed, 'previous legend word destroyed on shutdown').toBe(true);
+    }
+  });
+});
