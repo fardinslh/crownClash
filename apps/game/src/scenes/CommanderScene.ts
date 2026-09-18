@@ -4,6 +4,7 @@ import {
   type CommanderDefinition, type CommanderId,
 } from '@crown-clash/game-core';
 import { createPlatformAdapter, type PlatformAdapter } from '@crown-clash/platform';
+import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { trackEvent } from '../analytics/Analytics.js';
 import { sounds } from '../audio/SoundEffects.js';
 import { CareerManager } from '../career/CareerManager.js';
@@ -137,6 +138,9 @@ export class CommanderScene extends Phaser.Scene {
     if (this.pending) return;
     this.pending = true;
     try {
+      if (!this.careerManager.isRemoteConnected() && !isLocalCareerFallbackAllowed()) {
+        await this.careerManager.connect(this.platform);
+      }
       const result = await this.careerManager.selectCommander(commanderId);
       if (!this.active) return;
       if (!result.success) return this.showToast('Commander is still locked.');

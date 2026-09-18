@@ -57,8 +57,8 @@ export function evaluateAiMove(
           // Neutral territory
           if (canCapture) {
             score = 65 + typeValue + (12 - defenseStrength) * 2 - distancePenalty;
-            // High strategic value for the Crown Keep (center)
-            if (target.id === 'n_center') {
+            // High strategic value for the Crown Keep (center) or high-tier fortress
+            if (target.id === 'n_center' || (target.tier >= 2 && target.type === 'fortress')) {
               score += 35;
             }
           } else {

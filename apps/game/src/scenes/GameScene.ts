@@ -22,6 +22,7 @@ import {
   MAX_PVP_ACTIONS,
   PVP_AI_TICK_SECONDS,
   PVP_SIMULATION_TICK_SECONDS,
+  PlayerCareer,
   PvpAction,
   stepSimulation,
   TERRITORY_TYPE_PRESENTATION,
@@ -254,6 +255,7 @@ export class GameScene extends Phaser.Scene {
       liveClient?: LiveMatchClient;
       liveMatch?: LiveMatchStarted;
       botMatch?: BotMatchTicket;
+      career?: PlayerCareer;
     } | undefined;
     this.liveMode = launchData?.mode === 'live';
     this.liveClient = launchData?.liveClient;
@@ -320,7 +322,7 @@ export class GameScene extends Phaser.Scene {
             console.warn('[GameScene] Backend unavailable, using local career cache:', error);
           })
       : Promise.resolve();
-    this.createUpgradedMatchState();
+    this.createUpgradedMatchState(launchData?.career ?? this.careerManager.getCareer());
     if (this.liveMode && launchData?.liveMatch) {
       this.gameState = launchData.liveMatch.state;
       this.lastAuthoritativeState = launchData.liveMatch.state;
@@ -3650,8 +3652,8 @@ export class GameScene extends Phaser.Scene {
     this.scene.restart({ source: 'rematch', mode: 'bot', botMatch });
   }
 
-  private createUpgradedMatchState(): void {
-    const modifiers = getPlayerUpgradeModifiers(this.careerManager.getCareer());
+  private createUpgradedMatchState(career = this.careerManager.getCareer()): void {
+    const modifiers = getPlayerUpgradeModifiers(career);
     this.playerArmySpeedMultiplier = modifiers.armySpeedMultiplier;
     this.enemyArmySpeedMultiplier = 1;
     this.gameState = createInitialGameState({

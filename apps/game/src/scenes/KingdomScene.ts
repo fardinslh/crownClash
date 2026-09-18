@@ -9,6 +9,7 @@ import {
   UpgradeType,
 } from '@crown-clash/game-core';
 import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
+import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { CareerManager } from '../career/CareerManager.js';
 import { trackUpgradeEvent } from '../analytics/Analytics.js';
 import { THEME } from '../theme.js';
@@ -74,8 +75,11 @@ export class KingdomScene extends Phaser.Scene {
     // started by an earlier visit can never fire hooks into this (or a
     // future) visit after shutdown().
     const runner = new ScenePurchaseRunner(
-      (type) =>
-        purchaseUpgradeThroughCareer(this.careerManager, this.platform, type, {
+      async (type) => {
+        if (!this.careerManager.isRemoteConnected() && !isLocalCareerFallbackAllowed()) {
+          await this.careerManager.connect(this.platform);
+        }
+        return purchaseUpgradeThroughCareer(this.careerManager, this.platform, type, {
           onMilestone: (level) => {
             if (!runner.isActive) return;
             const position = this.cards.get(type)?.container;
@@ -90,7 +94,8 @@ export class KingdomScene extends Phaser.Scene {
               this.reducedMotion
             );
           },
-        }),
+        });
+      },
       {
         onPendingChanged: () => this.refreshAll(),
         onResult: (type, purchase) => {

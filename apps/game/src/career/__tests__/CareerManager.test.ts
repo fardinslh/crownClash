@@ -820,4 +820,55 @@ describe('CareerManager', () => {
       expect(logins).toBe(1);
     }
   });
+
+  it('preserves the connected singleton instance across scene transitions when remote login returns a backend user UUID', async () => {
+    const platformId = 'platform_guest_user_123';
+    const serverUserId = '52cc0d05-2c5b-4dc6-9bd7-3d2675557979';
+    const serverCareer = {
+      ...createDefaultCareer(serverUserId),
+      startingGarrisonLevel: 4,
+      productionLevel: 3,
+      armySpeedLevel: 2,
+      selectedCommanderId: 'quartermaster' as const,
+    };
+    const fakeApi: CareerApi = {
+      login: async () => serverCareer,
+      getCareer: async () => serverCareer,
+      getLedger: async () => [],
+      startBotMatch: async () => ({ matchId: 'bot_test', battlefieldId: 'crown_cross' }),
+      settleMatch: async () => { throw new Error('not_used_in_test'); },
+      purchaseUpgrade: async () => { throw new Error('not_used_in_test'); },
+      selectCommander: async () => { throw new Error('not_used_in_test'); },
+      getDailyState: async () => { throw new Error('not_used_in_test'); },
+      claimDailyReward: async () => { throw new Error('not_used_in_test'); },
+      getLeagueState: async () => { throw new Error('not_used_in_test'); },
+      claimLeagueReward: async () => { throw new Error('not_used_in_test'); },
+      trackEvents: async () => undefined,
+      openLiveMatch: () => { throw new Error('not_used_in_test'); },
+      isAuthenticated: () => true,
+    };
+    const adapter = {
+      platform: 'browser',
+      getUser: () => ({ id: platformId }),
+      getInitDataRaw: () => `user=${platformId}`,
+    } as PlatformAdapter;
+
+    // First scene (e.g. MenuScene) obtains manager and connects
+    const scene1Manager = CareerManager.getInstance(platformId);
+    await scene1Manager.connect(adapter, fakeApi);
+    expect(scene1Manager.isRemoteConnected()).toBe(true);
+    expect(scene1Manager.getCareer().startingGarrisonLevel).toBe(4);
+    expect(scene1Manager.getCareer().selectedCommanderId).toBe('quartermaster');
+
+    // Next scene (e.g. GameScene or CommanderScene) calls getInstance with platform user ID
+    const scene2Manager = CareerManager.getInstance(platformId);
+
+    // Must be the exact same connected instance, not re-instantiated and disconnected
+    expect(scene2Manager).toBe(scene1Manager);
+    expect(scene2Manager.isRemoteConnected()).toBe(true);
+    expect(scene2Manager.getCareer().startingGarrisonLevel).toBe(4);
+    expect(scene2Manager.getCareer().productionLevel).toBe(3);
+    expect(scene2Manager.getCareer().armySpeedLevel).toBe(2);
+    expect(scene2Manager.getCareer().selectedCommanderId).toBe('quartermaster');
+  });
 });

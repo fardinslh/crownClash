@@ -49,6 +49,7 @@ export function isStaleSocketError(error: unknown): boolean {
 
 export class CareerManager {
   private static instance: CareerManager | null = null;
+  private readonly platformUserId: string;
   private career: PlayerCareer;
   private ledger: EconomyLedgerEntry[] = [];
   private listeners: Set<(career: PlayerCareer) => void> = new Set();
@@ -62,6 +63,7 @@ export class CareerManager {
   private connectPromise: Promise<PlayerCareer> | null = null;
 
   private constructor(playerId: string) {
+    this.platformUserId = playerId;
     this.storageKey = `crown_clash_career_${playerId}`;
     this.ledgerStorageKey = `crown_clash_ledger_${playerId}`;
     this.dailyStorageKey = `crown_clash_daily_${playerId}`;
@@ -72,7 +74,7 @@ export class CareerManager {
   }
 
   public static getInstance(playerId = 'player_guest'): CareerManager {
-    if (!CareerManager.instance || CareerManager.instance.career.playerId !== playerId) {
+    if (!CareerManager.instance || CareerManager.instance.platformUserId !== playerId) {
       CareerManager.instance = new CareerManager(playerId);
     }
     return CareerManager.instance;
@@ -171,6 +173,20 @@ export class CareerManager {
   }
 
   public async startBotMatch(platform?: PlatformAdapter): Promise<BotMatchTicket> {
+    if (this.connectPromise) {
+      try {
+        await this.connectPromise;
+      } catch {
+        // Handled below
+      }
+    }
+    if (!this.remoteConnected && platform) {
+      try {
+        await this.connect(platform);
+      } catch (error) {
+        if (!isLocalCareerFallbackAllowed()) throw error;
+      }
+    }
     if (this.remoteConnected) {
       const api = this.requireRemoteApi();
       try {
@@ -191,6 +207,13 @@ export class CareerManager {
   }
 
   public async purchaseUpgradeRemote(type: UpgradeType): Promise<UpgradePurchaseResult> {
+    if (this.connectPromise) {
+      try {
+        await this.connectPromise;
+      } catch {
+        // Connection error will be raised by requireRemoteApi() below
+      }
+    }
     const purchaseId = `upgrade_${type}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const result = await this.requireRemoteApi().purchaseUpgrade(type, purchaseId);
 
@@ -202,6 +225,13 @@ export class CareerManager {
   }
 
   public async selectCommander(commanderId: CommanderId): Promise<CommanderSelectionResult> {
+    if (this.connectPromise) {
+      try {
+        await this.connectPromise;
+      } catch {
+        // Handled below
+      }
+    }
     if (this.remoteConnected) {
       const result = await this.requireRemoteApi().selectCommander(commanderId);
       if (result.success) this.applyRemoteState(result.newCareer, []);
