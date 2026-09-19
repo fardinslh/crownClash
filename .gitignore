@@ -21,3 +21,5 @@ qa-artifacts/traces/
 qa-artifacts/**/*.cpuprofile
 graphify-out/20??-??-??/
 graphify-out/cache/ast/
+scenarios.json
+qa-artifacts/bot-parity/

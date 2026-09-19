@@ -427,6 +427,57 @@ describe('Crown Clash - Domain Logic Tests', () => {
 
       expect(move).toEqual({ fromId: 'e_base', toId: 'n_top_right' });
     });
+
+    // Regression: cross-engine AI parity. The Go server fuses `a - b*c` into
+    // one FMA (single rounding) while JavaScript rounds per operation, so the
+    // e_base -> n_center attack score of exactly `25 - 10 - 250*0.06` is 0 in
+    // TypeScript but +5.5e-16 in Go. Without an epsilon the server AI attacked
+    // where the client AI held position, diverging bot-match settlement.
+    it('rejects a borderline zero attack score that FMA rounding flips positive on the server', () => {
+      const territories = createDefaultTerritories();
+      // Exact diverging harness state (s38 at the t=10.8 AI tick).
+      territories['e_base'].units = 15;
+      territories['n_center'] = {
+        ...territories['n_center'],
+        owner: 'player',
+        units: 10,
+      };
+
+      const move = evaluateAiMove(territories, 'enemy', 8);
+      expect(move).toBeNull();
+    });
+
+    it('still acts on a decisive capture opportunity', () => {
+      const territories = createDefaultTerritories();
+      territories['e_base'].units = 20;
+
+      const move = evaluateAiMove(territories, 'enemy', 8);
+      expect(move).toEqual({ fromId: 'e_base', toId: 'n_top_right' });
+    });
+
+    it('treats scores inside the AI epsilon as no move and above it as a move', () => {
+      const territories = createDefaultTerritories();
+      territories['e_base'].units = 15;
+
+      // distance chosen so the best score is 25 - 10 - distance*0.06 = 5e-10
+      // (above zero, below the 1e-9 epsilon): must not act. This is the
+      // sensitivity control for the epsilon: reverting to `score > 0` fails.
+      const belowEpsilon = (15.0 - 5e-10) / 0.06;
+      territories['n_center'] = {
+        ...territories['n_center'],
+        owner: 'player',
+        units: 10,
+        y: territories['e_base'].y + belowEpsilon,
+      };
+      expect(evaluateAiMove(territories, 'enemy', 8)).toBeNull();
+
+      // Score of 5e-6 (above the epsilon) must act.
+      const aboveEpsilon = (15.0 - 5e-6) / 0.06;
+      territories['n_center'].y = territories['e_base'].y + aboveEpsilon;
+      const move = evaluateAiMove(territories, 'enemy', 8);
+      expect(move).not.toBeNull();
+      expect(move!.toId).toBe('n_center');
+    });
   });
 
   describe('Async PvP replay (simulatePvpBattle)', () => {

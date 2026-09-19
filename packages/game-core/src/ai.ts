@@ -8,6 +8,18 @@ export interface AiMove {
 }
 
 /**
+ * Minimum score for the AI to act. Scores within this epsilon of zero are
+ * treated as "no move" so client and server decide identically: the Go
+ * runtime may fuse `a - b*c` into one FMA instruction (single rounding)
+ * while JavaScript rounds each operation, so a borderline score such as
+ * `25 - units - distance*0.06` can evaluate to exactly 0 in TypeScript but
+ * ±1e-16 in Go. Without the epsilon that ghost sign flip made the enemy AI
+ * pick different targets on the server replay, diverging bot-match
+ * settlement from the client prediction.
+ */
+const AI_SCORE_EPSILON = 1e-9;
+
+/**
  * Evaluates the board state and decides an action for the AI team.
  * Evaluates all ready AI territories to find the highest tactical leverage opportunity.
  */
@@ -85,5 +97,5 @@ export function evaluateAiMove(
     }
   }
 
-  return bestScore > 0 ? bestMove : null;
+  return bestScore > AI_SCORE_EPSILON ? bestMove : null;
 }

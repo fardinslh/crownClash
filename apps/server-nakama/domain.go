@@ -605,6 +605,15 @@ func stepSimulation(state GameState, accumulators map[string]float64, delta floa
 	return state, accumulators
 }
 
+// aiScoreEpsilon is the minimum score for the AI to act. The Go compiler may
+// fuse `a - b*c` into a single-rounding FMA while the TypeScript client
+// rounds each operation, so a borderline score (e.g. `25 - units -
+// distance*0.06` over an axis-aligned 250-unit distance) evaluates to
+// exactly 0 in JavaScript but +5.5e-16 in Go. The epsilon keeps both engines
+// on the same side of the decision so authoritative bot settlement stays in
+// parity with the client prediction.
+const aiScoreEpsilon = 1e-9
+
 func evaluateAIMove(state GameState) (string, string, bool) {
 	bestScore := math.Inf(-1)
 	fromID, toID := "", ""
@@ -661,7 +670,7 @@ func evaluateAIMove(state GameState) (string, string, bool) {
 			}
 		}
 	}
-	return fromID, toID, bestScore > 0
+	return fromID, toID, bestScore > aiScoreEpsilon
 }
 
 // SimulatePvpBattle replays an asynchronous PvP attack against the
