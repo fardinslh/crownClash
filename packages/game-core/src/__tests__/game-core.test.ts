@@ -480,6 +480,55 @@ describe('Crown Clash - Domain Logic Tests', () => {
     });
   });
 
+  describe('Production accumulator parity (cross-engine)', () => {
+    // The Go server FMA-fuses `acc + rate*delta` into one rounding while
+    // JavaScript rounds per operation; the numerical audit reproduced a
+    // grant-sequence divergence at tick 800 for rate 1.1*1.5 with the
+    // barracks multiplier (accumulator exactly on the integer boundary in
+    // real arithmetic: client 1.0000000000000033, server 0.9999999999999999).
+    // Accumulators within the shared 1e-9 epsilon of an integer are snapped
+    // identically on both engines so unit grants happen on the same tick.
+    const auditTerritory = (productionRate: number): Record<string, Territory> => ({
+      n_center: {
+        id: 'n_center',
+        name: 'Audit Keep',
+        x: 200,
+        y: 360,
+        radius: 32,
+        owner: 'player',
+        units: 0,
+        maxUnits: 65,
+        productionRate,
+        tier: 2,
+        type: 'barracks',
+      },
+    });
+
+    it('grants a unit when the accumulator lands 5e-10 below the boundary (snap)', () => {
+      const territories = auditTerritory(1.65);
+      // One tick of 1.65*1.25*0.02 = 0.04125 lands 5e-10 below 1.
+      const result = tickUnitGeneration(territories, { n_center: 1 - 0.04125 - 5e-10 }, 0.02);
+      expect(result.territories.n_center.units).toBe(1);
+    });
+
+    it('does not grant when the accumulator is a full 1e-7 below the boundary', () => {
+      const territories = auditTerritory(1.65);
+      const result = tickUnitGeneration(territories, { n_center: 1 - 0.04125 - 1e-7 }, 0.02);
+      expect(result.territories.n_center.units).toBe(0);
+    });
+
+    it('matches the server grant sequence on the reproduced razor edge (33 units at tick 800)', () => {
+      const territories = auditTerritory(1.1 * 1.5);
+      let accumulators: Record<string, number> = {};
+      for (let step = 1; step <= 800; step++) {
+        const result = tickUnitGeneration(territories, accumulators, 0.02);
+        territories.n_center = result.territories.n_center;
+        accumulators = result.accumulators;
+      }
+      expect(territories.n_center.units).toBe(33);
+    });
+  });
+
   describe('Async PvP replay (simulatePvpBattle)', () => {
     it('uses the same simulation ticks across irregular render frames', () => {
       const frames = [0.016, 0.033, 0.008, 0.041, 0.102, 0.017, 0.063];

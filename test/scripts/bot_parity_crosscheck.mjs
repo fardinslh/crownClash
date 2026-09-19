@@ -19,9 +19,8 @@
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import * as core from '../../packages/game-core/dist/packages/game-core/src/index.js';
 import {
@@ -35,7 +34,7 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 // Scenario generation
 // ---------------------------------------------------------------------------
 
-function careerOf(garrison, production, speed, commander = 'crown_guard') {
+export function careerOf(garrison, production, speed, commander = 'crown_guard') {
   return {
     playerId: 'parity',
     coins: 0,
@@ -50,6 +49,19 @@ function careerOf(garrison, production, speed, commander = 'crown_guard') {
 }
 
 const BATTLEFIELDS = ['crown_cross', 'twin_passes', 'royal_ring'];
+
+// Boundary modifier sets for the fast set: the speed levels whose
+// distance/(140*speed) march durations land closest to the 1.0s clamp and to
+// whole-tick boundaries (identified by the numerical audit), crossed with
+// both speed commanders, plus heavy production churn levels.
+const BOUNDARY_CAREERS = [
+  { id: 'spd5_vanguard', career: careerOf(5, 8, 5, 'vanguard') },
+  { id: 'spd10_vanguard', career: careerOf(5, 8, 10, 'vanguard') },
+  { id: 'spd20_vanguard', career: careerOf(5, 8, 20, 'vanguard') },
+  { id: 'spd5_quartermaster', career: careerOf(5, 8, 5, 'quartermaster') },
+  { id: 'spd10_quartermaster', career: careerOf(5, 8, 10, 'quartermaster') },
+  { id: 'spd20_quartermaster', career: careerOf(5, 8, 20, 'quartermaster') },
+];
 
 function buildScenarios() {
   const scenarios = [];
@@ -103,6 +115,40 @@ function buildScenarios() {
     playerPolicy: null,
   });
 
+  // Boundary scenarios for the fast set:
+  // - high churn: maxed production + fast marches + continuous dispatching
+  //   (simultaneous arrivals, arrival+production on the same tick, maximal
+  //   accumulator churn) on every battlefield;
+  // - speed razor edges: march durations near the 1.0s clamp and whole-tick
+  //   boundaries on every battlefield.
+  // Modifier extremes are already covered above (default/mid/upgraded/
+  // production-log/maxed x all battlefields x all policies).
+  const highChurnPolicy = { firstActionAt: 0.2, interval: 0.4, maxActions: 0, multiSources: 3 };
+  for (const battlefieldId of BATTLEFIELDS) {
+    scenarioId++;
+    scenarios.push({
+      id: `s${scenarioId}_boundary_highchurn_${battlefieldId}`,
+      kind: 'prediction',
+      battlefieldId,
+      career: careerOf(20, 20, 20, 'crown_guard'),
+      expect: { startingUnits: 50, productionRateMultiplier: 1.7, armySpeedMultiplier: 1.525 },
+      playerPolicy: highChurnPolicy,
+    });
+  }
+  for (const boundary of BOUNDARY_CAREERS) {
+    for (const battlefieldId of BATTLEFIELDS) {
+      scenarioId++;
+      scenarios.push({
+        id: `s${scenarioId}_boundary_${boundary.id}_${battlefieldId}`,
+        kind: 'prediction',
+        battlefieldId,
+        career: boundary.career,
+        expect: null,
+        playerPolicy: highChurnPolicy,
+      });
+    }
+  }
+
   // Replay-invalid actions: structurally valid sequences containing actions
   // the replay engine must SKIP (nonexistent source, unknown target,
   // self-target). Both engines must skip identically and agree on status.
@@ -132,6 +178,7 @@ function buildScenarios() {
 // ---------------------------------------------------------------------------
 
 function assertModifiers(set) {
+  if (!set.expect) return core.getPlayerUpgradeModifiers(set.career);
   const modifiers = core.getPlayerUpgradeModifiers(set.career);
   for (const [key, expected] of Object.entries(set.expect)) {
     const actual = modifiers[key];
@@ -350,6 +397,41 @@ function compareScenario(tsResult, goResult) {
 }
 
 // ---------------------------------------------------------------------------
+// Reusable pipeline: TS prediction + TS replay + Go replay + comparison.
+// Exported for the seeded stress runner (bot_parity_stress.mjs).
+// ---------------------------------------------------------------------------
+
+export async function runPipeline(scenarios, { keepArtifacts = false } = {}) {
+  const tsResults = await runTsSide(scenarios);
+  const artifactBase = path.join(REPO_ROOT, 'qa-artifacts', 'bot-parity');
+  fs.mkdirSync(artifactBase, { recursive: true });
+  const workDir = fs.mkdtempSync(path.join(artifactBase, 'run-'));
+  let goResults;
+  try {
+    goResults = runGoSide(tsResults, workDir);
+  } finally {
+    if (!keepArtifacts) {
+      fs.rmSync(workDir, { recursive: true, force: true });
+    } else {
+      console.log(`      Artifacts kept in ${workDir}`);
+    }
+  }
+  if (goResults.length !== tsResults.length) {
+    throw new Error(`Go replay returned ${goResults.length} results for ${tsResults.length} scenarios`);
+  }
+  const comparisons = [];
+  for (let i = 0; i < scenarios.length; i++) {
+    const tsResult = tsResults[i];
+    const goResult = goResults[i];
+    if (goResult.id !== tsResult.id) {
+      throw new Error(`result ordering mismatch at index ${i}: ${tsResult.id} vs ${goResult.id}`);
+    }
+    comparisons.push({ scenario: scenarios[i], tsResult, goResult, ...compareScenario(tsResult, goResult) });
+  }
+  return comparisons;
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -365,42 +447,18 @@ async function main() {
   const scenarios = onlyFilter
     ? allScenarios.filter((s) => s.id.includes(onlyFilter) || String(allScenarios.indexOf(s)) === onlyFilter)
     : allScenarios;
-  console.log(`Generated ${allScenarios.length} scenarios (3 battlefields x 5 modifier sets x 3 policies + idle + invalid-actions).`);
+  console.log(`Generated ${allScenarios.length} scenarios (3 battlefields x 5 modifier sets x 3 policies + boundary sets + idle + invalid-actions).`);
   if (onlyFilter) console.log(`Filtered to ${scenarios.length} matching "${onlyFilter}".\n`);
 
-  console.log('[1/3] Running TS client prediction + TS replay engine...');
-  const tsResults = await runTsSide(scenarios);
-  console.log(`      ${tsResults.length} scenarios simulated on the TypeScript engine.`);
+  console.log('[1/2] Running TS prediction + TS replay + Go authoritative replay...');
+  const keepArg = keepArtifacts ? { keepArtifacts: true } : {};
+  const comparisons = await runPipeline(scenarios, keepArg);
+  console.log(`      ${comparisons.length} scenarios simulated on both engines.\n`);
 
-  console.log('[2/3] Replaying identical actions through the Go authoritative engine...');
-  // Artifacts must live under the repository (colima only mounts the home
-  // directory into the VM, so /tmp bind mounts arrive empty). The directory
-  // is gitignored via `qa-artifacts/bot-parity/`.
-  const artifactBase = path.join(REPO_ROOT, 'qa-artifacts', 'bot-parity');
-  fs.mkdirSync(artifactBase, { recursive: true });
-  const workDir = fs.mkdtempSync(path.join(artifactBase, 'run-'));
-  let goResults;
-  try {
-    goResults = runGoSide(tsResults, workDir);
-  } finally {
-    if (!keepArtifacts) {
-      fs.rmSync(workDir, { recursive: true, force: true });
-    } else {
-      console.log(`      Artifacts kept in ${workDir}`);
-    }
-  }
-  console.log(`      ${goResults.length} scenarios replayed on the Go engine.\n`);
-
-  console.log('[3/3] Comparing statuses, stats, and state checkpoints...');
+  console.log('[2/2] Comparing statuses, stats, and state checkpoints...');
   let failureCount = 0;
   const statusAgreement = { prediction: 0, replay: 0 };
-  for (let i = 0; i < scenarios.length; i++) {
-    const tsResult = tsResults[i];
-    const goResult = goResults[i];
-    if (goResult.id !== tsResult.id) {
-      throw new Error(`result ordering mismatch at index ${i}: ${tsResult.id} vs ${goResult.id}`);
-    }
-    const { problems, drifts } = compareScenario(tsResult, goResult);
+  for (const { tsResult, goResult, problems, drifts } of comparisons) {
     if (tsResult.predictionStatus === goResult.status) statusAgreement.prediction++;
     if (tsResult.tsReplayStatus === goResult.status) statusAgreement.replay++;
 
@@ -430,7 +488,9 @@ async function main() {
   console.log('\n[BOT PARITY CROSSCHECK PASSED] All scenarios agree across engines.');
 }
 
-main().catch((error) => {
-  console.error('\n[BOT PARITY CROSSCHECK FAILED]', error);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error('\n[BOT PARITY CROSSCHECK FAILED]', error);
+    process.exit(1);
+  });
+}

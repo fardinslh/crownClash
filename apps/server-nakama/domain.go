@@ -516,6 +516,18 @@ func dispatchArmy(state *GameState, sourceID, targetID string, owner Team, multi
 	return nil
 }
 
+// The TypeScript client rounds each float operation separately while this
+// runtime may fuse `acc + rate*delta` into one FMA (single rounding). The
+// numerical audit reproduced the two engines straddling the integer grant
+// boundary at tick 800 for the production rate 1.1*1.5 with the barracks
+// multiplier (client 1.0000000000000033 vs server 0.9999999999999999),
+// shifting a territory's unit count between client prediction and
+// authoritative replay. Accumulators within this epsilon of an integer are
+// snapped to it identically on both engines: the epsilon is far below the
+// smallest per-tick production increment (0.85*0.02) and far above
+// accumulated FMA drift (<1e-11 over a full 90s match).
+const productionAccumulatorEpsilon = 1e-9
+
 func tickGeneration(state *GameState, accumulators map[string]float64, delta float64) map[string]float64 {
 	next := make(map[string]float64, len(accumulators))
 	order := territoryOrderForBattlefield(state.BattlefieldID)
@@ -525,7 +537,13 @@ func tickGeneration(state *GameState, accumulators map[string]float64, delta flo
 			next[id] = 0
 			continue
 		}
-		current := accumulators[id] + territory.ProductionRate*territoryProductionMultiplier(territory.Type)*delta
+		raw := accumulators[id] + territory.ProductionRate*territoryProductionMultiplier(territory.Type)*delta
+		var current float64
+		if nearest := math.Round(raw); math.Abs(raw-nearest) < productionAccumulatorEpsilon {
+			current = nearest
+		} else {
+			current = raw
+		}
 		whole := int(math.Floor(current))
 		if whole > 0 {
 			allowed := maxInt(0, territory.MaxUnits-territory.Units)
