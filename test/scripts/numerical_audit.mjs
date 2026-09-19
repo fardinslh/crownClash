@@ -369,20 +369,36 @@ function runGoSide(cases, workDir) {
     aiCases: cases.ai,
   }), 'utf8');
 
-  execFileSync(
-    'docker',
-    [
-      'run', '--rm',
-      '-v', `${REPO_ROOT}:/repo:ro`,
-      '-v', `${workDir}:/data`,
-      '-w', '/repo/apps/server-nakama',
-      '-e', `NUMERICAL_AUDIT_SCENARIOS=/data/${path.basename(scenariosPath)}`,
-      '-e', `NUMERICAL_AUDIT_OUTPUT=/data/${path.basename(outputPath)}`,
-      'golang:1.26.5',
-      'go', 'test', '-run', 'TestNumericalAuditDump', '-count=1', '-v', '.',
-    ],
-    { stdio: ['ignore', 'pipe', 'pipe'] }
-  );
+  if (process.env.CROSS_ENGINE_GO_MODE === 'host') {
+    execFileSync(
+      'go',
+      ['test', '-run', 'TestNumericalAuditDump', '-count=1', '-v', '.'],
+      {
+        cwd: path.join(REPO_ROOT, 'apps', 'server-nakama'),
+        env: {
+          ...process.env,
+          NUMERICAL_AUDIT_SCENARIOS: scenariosPath,
+          NUMERICAL_AUDIT_OUTPUT: outputPath,
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }
+    );
+  } else {
+    execFileSync(
+      'docker',
+      [
+        'run', '--rm',
+        '-v', `${REPO_ROOT}:/repo:ro`,
+        '-v', `${workDir}:/data`,
+        '-w', '/repo/apps/server-nakama',
+        '-e', `NUMERICAL_AUDIT_SCENARIOS=/data/${path.basename(scenariosPath)}`,
+        '-e', `NUMERICAL_AUDIT_OUTPUT=/data/${path.basename(outputPath)}`,
+        'golang:1.26.5',
+        'go', 'test', '-run', 'TestNumericalAuditDump', '-count=1', '-v', '.',
+      ],
+      { stdio: ['ignore', 'pipe', 'pipe'] }
+    );
+  }
 
   if (!fs.existsSync(outputPath)) {
     throw new Error('Go audit produced no output file (fail closed)');

@@ -232,7 +232,8 @@ async function runTsSide(scenarios) {
 }
 
 // ---------------------------------------------------------------------------
-// Go engine execution (official golang toolchain container)
+// Go engine execution. CI already installs the pinned Go toolchain, while
+// local runs use the official container so developers need no host Go setup.
 // ---------------------------------------------------------------------------
 
 function runGoSide(tsResults, workDir) {
@@ -246,20 +247,32 @@ function runGoSide(tsResults, workDir) {
     actions: result.actions,
   }))), 'utf8');
 
-  execFileSync(
-    'docker',
-    [
-      'run', '--rm',
-      '-v', `${REPO_ROOT}:/repo:ro`,
-      '-v', `${workDir}:/data`,
-      '-w', '/repo/apps/server-nakama',
-      '-e', `PARITY_SCENARIOS=/data/${path.basename(scenariosPath)}`,
-      '-e', `PARITY_OUTPUT=/data/${path.basename(outputPath)}`,
-      'golang:1.26.5',
-      'go', 'test', '-run', 'TestParityReplayDump', '-count=1', '-v', '.',
-    ],
-    { stdio: ['ignore', 'pipe', 'pipe'] }
-  );
+  if (process.env.CROSS_ENGINE_GO_MODE === 'host') {
+    execFileSync(
+      'go',
+      ['test', '-run', 'TestParityReplayDump', '-count=1', '-v', '.'],
+      {
+        cwd: path.join(REPO_ROOT, 'apps', 'server-nakama'),
+        env: { ...process.env, PARITY_SCENARIOS: scenariosPath, PARITY_OUTPUT: outputPath },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }
+    );
+  } else {
+    execFileSync(
+      'docker',
+      [
+        'run', '--rm',
+        '-v', `${REPO_ROOT}:/repo:ro`,
+        '-v', `${workDir}:/data`,
+        '-w', '/repo/apps/server-nakama',
+        '-e', `PARITY_SCENARIOS=/data/${path.basename(scenariosPath)}`,
+        '-e', `PARITY_OUTPUT=/data/${path.basename(outputPath)}`,
+        'golang:1.26.5',
+        'go', 'test', '-run', 'TestParityReplayDump', '-count=1', '-v', '.',
+      ],
+      { stdio: ['ignore', 'pipe', 'pipe'] }
+    );
+  }
 
   if (!fs.existsSync(outputPath)) {
     throw new Error('Go replay dump produced no output file (fail closed)');

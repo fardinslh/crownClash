@@ -65,9 +65,13 @@ jobs:
 
       - name: Cross-engine bot parity (TypeScript vs real Go replay)
         run: npm run test:parity
+        env:
+          CROSS_ENGINE_GO_MODE: host
 
       - name: Numerical boundary audit
         run: npm run test:audit -- --fast
+        env:
+          CROSS_ENGINE_GO_MODE: host
 
   real-stack:
     name: Real Nakama/Postgres stack regression
