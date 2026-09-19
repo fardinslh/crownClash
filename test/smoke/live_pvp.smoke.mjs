@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 import { Client } from '@heroiclabs/nakama-js';
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /**
  * End-to-End Smoke Test for Live PvP on authoritative Nakama & PostgreSQL.
@@ -24,7 +27,49 @@ import { execFileSync } from 'node:child_process';
 
 const NAKAMA_HOST = process.env.NAKAMA_HOST || '127.0.0.1';
 const NAKAMA_PORT = process.env.NAKAMA_PORT || '7350';
-const NAKAMA_SERVER_KEY = process.env.NAKAMA_SERVER_KEY || 'defaultkey';
+
+/**
+ * Reads one key from a dotenv-style file. Values may be quoted
+ * (`KEY="secret value"` / `KEY='v'`), prefixed with `export`, or carry an
+ * inline comment (`KEY=value # note`), so parse line-by-line instead of
+ * matching with a regex. Missing file or key yields undefined. The loaded
+ * value is a server credential and must never be logged.
+ */
+function loadEnvValue(filePath, key) {
+  let content;
+  try {
+    content = readFileSync(filePath, 'utf8');
+  } catch {
+    return undefined;
+  }
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const withoutExport = line.startsWith('export ') ? line.slice('export '.length).trim() : line;
+    const eq = withoutExport.indexOf('=');
+    if (eq <= 0) continue;
+    if (withoutExport.slice(0, eq).trim() !== key) continue;
+    let value = withoutExport.slice(eq + 1).trim();
+    if (value.length >= 2 && (value.startsWith('"') || value.startsWith("'"))) {
+      const quote = value[0];
+      const end = value.indexOf(quote, 1);
+      if (end === -1) continue; // unterminated quote: treat as unset
+      value = value.slice(1, end);
+    } else {
+      const commentStart = value.indexOf(' #');
+      if (commentStart !== -1) value = value.slice(0, commentStart).trim();
+    }
+    if (value) return value;
+  }
+  return undefined;
+}
+
+// Prefer the explicit environment; otherwise read the repository .env that
+// docker compose uses, so the smoke client presents the same socket key as
+// the stack. With neither present (CI), fall back to Nakama's defaultkey.
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const NAKAMA_SERVER_KEY =
+  process.env.NAKAMA_SERVER_KEY || loadEnvValue(path.join(REPO_ROOT, '.env'), 'NAKAMA_SERVER_KEY') || 'defaultkey';
 const NAKAMA_SSL = process.env.NAKAMA_SSL === 'true';
 
 // Opcodes from apps/server-nakama/live.go

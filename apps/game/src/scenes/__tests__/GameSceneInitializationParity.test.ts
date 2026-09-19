@@ -307,13 +307,30 @@ vi.mock('../../audio/SoundEffects.js', () => ({
 import { GameScene } from '../GameScene.js';
 import { CareerManager } from '../../career/CareerManager.js';
 import { BrowserPlatformAdapter } from '@crown-clash/platform';
-import { createDefaultCareer, type PlayerCareer } from '@crown-clash/game-core';
+import {
+  createDefaultCareer,
+  settleMatch,
+  type MatchSettlement,
+  type PlayerCareer,
+} from '@crown-clash/game-core';
 import type { CareerApi } from '../../api/GameApiClient.js';
+
+/**
+ * Deterministically drains pending microtasks (promise continuations) without
+ * relying on real timers, so assertions about whether a response has or has
+ * not been applied cannot race the test runner.
+ */
+async function flushMicrotasks(times = 25): Promise<void> {
+  for (let i = 0; i < times; i++) {
+    await Promise.resolve();
+  }
+}
 
 describe('GameScene Initialization Parity & Late-Response Guards', () => {
   beforeEach(() => {
     storage.clear();
     vi.clearAllMocks();
+    (CareerManager as any).instance = null;
   });
 
   it('Finding 1: Delayed login response never resets troops produced during an advancing match', async () => {
@@ -343,8 +360,9 @@ describe('GameScene Initialization Parity & Late-Response Guards', () => {
     };
 
     const manager = CareerManager.getInstance(platformUserId);
-    // Connect is in-flight
-    void manager.connect(platform, fakeApi);
+    // Connect is in-flight; keep the handle so the continuation can be
+    // awaited deterministically after the delayed response resolves.
+    const connectDone = manager.connect(platform, fakeApi);
 
     const scene = new GameScene();
     scene.registry.set('platform', platform);
@@ -367,60 +385,39 @@ describe('GameScene Initialization Parity & Late-Response Guards', () => {
 
     // Delayed authoritative login completes with unchanged starting units (20)
     resolveConnect(createDefaultCareer(platformUserId));
-    await new Promise((r) => setTimeout(r, 20));
+    // Awaiting the connect promise guarantees the career apply + listener
+    // notification completed before the assertions: if a late-sync reset
+    // returned, it would already have happened here.
+    await connectDone;
 
     // Critical assertion: p_base troops MUST NOT be reset back to 20!
     expect((scene as any).gameState.territories['p_base'].units).toBe(26);
   });
 
-  it('Finding 2: Production-only career differences are correctly initialized before simulation', () => {
+  it('Finding 2: Startup waits for delayed login and initializes authoritative production rate over stale cache', async () => {
     const platform = new BrowserPlatformAdapter();
     const platformUserId = platform.getUser().id;
 
-    // Career with only production upgraded: garrison=0 (startingUnits=20), speed=0 (multiplier=1), production=5 (multiplier=1.4)
-    const productionOnlyCareer: PlayerCareer = {
+    // 1. Start with stale cached production in local storage (level 0 -> prod multiplier 1.0 -> 1.2 units/s)
+    const staleCareer: PlayerCareer = {
       ...createDefaultCareer(platformUserId),
       startingGarrisonLevel: 0,
-      productionLevel: 5, // 1 + 5 * 0.08 = 1.4 multiplier
+      productionLevel: 0,
       armySpeedLevel: 0,
       selectedCommanderId: 'crown_guard',
     };
+    storage.set(`crown_clash_career_${platformUserId}`, JSON.stringify(staleCareer));
 
-    // Save this career in storage for the platform user
-    storage.set(`crown_clash_career_${platformUserId}`, JSON.stringify(productionOnlyCareer));
-
-    const scene = new GameScene();
-    scene.registry.set('platform', platform);
-    scene.scene.settings.data = {
-      mode: 'bot',
-      botMatch: { matchId: 'bot_prod_test', battlefieldId: 'crown_cross' },
-    };
-    scene.create();
-
-    const pBase = (scene as any).gameState.territories['p_base'];
-    expect(pBase.units).toBe(20);
-    expect((scene as any).playerArmySpeedMultiplier).toBe(1.0);
-    // Expected productionRate: baseline 1.2 * 1.4 = 1.68
-    expect(pBase.productionRate).toBeCloseTo(1.68, 4);
-
-    // Verify flawed late-sync method has been removed from GameScene
-    expect((scene as any).syncMatchStateWithAuthoritativeCareer).toBeUndefined();
-  });
-
-  it('Late responses cannot mutate a departed scene after shutdown or a newer match', async () => {
-    const platform = new BrowserPlatformAdapter();
-    const platformUserId = platform.getUser().id;
-
-    let resolveConnect!: (career: PlayerCareer) => void;
-    const connectPromise = new Promise<PlayerCareer>((res) => {
-      resolveConnect = res;
+    let resolveLogin!: (career: PlayerCareer) => void;
+    const loginPromise = new Promise<PlayerCareer>((res) => {
+      resolveLogin = res;
     });
 
     const fakeApi: CareerApi = {
-      login: async () => connectPromise,
+      login: async () => loginPromise,
       getCareer: async () => createDefaultCareer(platformUserId),
       getLedger: async () => [],
-      startBotMatch: async () => ({ matchId: 'bot_shutdown_test', battlefieldId: 'crown_cross' }),
+      startBotMatch: async () => ({ matchId: 'bot_prod_auth_ticket', battlefieldId: 'crown_cross' }),
       settleMatch: async () => { throw new Error('not_used'); },
       purchaseUpgrade: async () => { throw new Error('not_used'); },
       selectCommander: async () => { throw new Error('not_used'); },
@@ -436,31 +433,172 @@ describe('GameScene Initialization Parity & Late-Response Guards', () => {
     const manager = CareerManager.getInstance(platformUserId);
     void manager.connect(platform, fakeApi);
 
+    // Exercise real startup method
+    let ticketResolved = false;
+    const ticketPromise = manager.startBotMatch(platform).then((ticket) => {
+      ticketResolved = true;
+      return ticket;
+    });
+
+    // Deterministically drain microtasks: startBotMatch reaches its await on
+    // the pending login and cannot resolve until the login is released. No
+    // real-timer sleep is needed.
+    await flushMicrotasks();
+
+    // Assert that bot startup WAITS for login to finish before issuing the ticket
+    expect(ticketResolved).toBe(false);
+
+    // Resolve login returning authoritative career differing ONLY in production (level 5 -> 1.4 multiplier -> 1.68 units/s)
+    const authoritativeCareer: PlayerCareer = {
+      ...createDefaultCareer(platformUserId),
+      startingGarrisonLevel: 0,
+      productionLevel: 5,
+      armySpeedLevel: 0,
+      selectedCommanderId: 'crown_guard',
+    };
+    resolveLogin(authoritativeCareer);
+
+    // Ticket now resolves via real startup flow
+    const ticket = await ticketPromise;
+    expect(ticketResolved).toBe(true);
+    expect(ticket.matchId).toBe('bot_prod_auth_ticket');
+
+    // Create GameScene with the real ticket
     const scene = new GameScene();
     scene.registry.set('platform', platform);
     scene.scene.settings.data = {
       mode: 'bot',
-      botMatch: { matchId: 'bot_shutdown_test', battlefieldId: 'crown_cross' },
+      botMatch: ticket,
     };
     scene.create();
 
-    // Advance match a few ticks
-    scene.update(20, 20);
-    const initialUnits = (scene as any).gameState.territories['p_base'].units;
+    const pBase = (scene as any).gameState.territories['p_base'];
+    expect(pBase.units).toBe(20);
+    expect((scene as any).playerArmySpeedMultiplier).toBe(1.0);
+    // Baseline 1.2 * 1.4 = 1.68, NOT the stale 1.2
+    expect(pBase.productionRate).toBeCloseTo(1.68, 4);
+    expect(pBase.productionRate).not.toBeCloseTo(1.2, 4);
 
-    // Scene shuts down (e.g. user leaves to menu or starts rematch)
-    scene.events.emit('shutdown');
+    // Verify flawed late-sync method has been removed from GameScene
+    expect((scene as any).syncMatchStateWithAuthoritativeCareer).toBeUndefined();
+  });
 
-    // Delayed connect completes after shutdown with different modifiers
-    const upgradedCareer: PlayerCareer = {
-      ...createDefaultCareer(platformUserId),
-      startingGarrisonLevel: 5,
+  it('Finding 3: an older match settlement response cannot mutate a newer running match', async () => {
+    const platform = new BrowserPlatformAdapter();
+    const platformUserId = platform.getUser().id;
+
+    // Match 1's settlement response is held in flight so it can be released
+    // only after match 2 is already running: the real production vehicle for
+    // a late career response (recordMatchResultRemote -> applyRemoteState ->
+    // listener notification).
+    let resolveSettlement!: (settlement: MatchSettlement) => void;
+    const settlementInFlight = new Promise<MatchSettlement>((res) => {
+      resolveSettlement = res;
+    });
+
+    let matchCount = 0;
+    const fakeApi: CareerApi = {
+      login: async () => createDefaultCareer(platformUserId),
+      getCareer: async () => createDefaultCareer(platformUserId),
+      getLedger: async () => [],
+      startBotMatch: async () => {
+        matchCount++;
+        return { matchId: `bot_real_ticket_${matchCount}`, battlefieldId: 'crown_cross' };
+      },
+      settleMatch: async () => settlementInFlight,
+      purchaseUpgrade: async () => { throw new Error('not_used'); },
+      selectCommander: async () => { throw new Error('not_used'); },
+      getDailyState: async () => { throw new Error('not_used'); },
+      claimDailyReward: async () => { throw new Error('not_used'); },
+      getLeagueState: async () => { throw new Error('not_used'); },
+      claimLeagueReward: async () => { throw new Error('not_used'); },
+      trackEvents: async () => undefined,
+      openLiveMatch: () => { throw new Error('not_used'); },
+      isAuthenticated: () => false,
     };
-    resolveConnect(upgradedCareer);
-    await new Promise((r) => setTimeout(r, 20));
 
-    // Must not throw, and departed scene's territories must not be mutated
-    expect((scene as any).gameState.territories['p_base'].units).toBe(initialUnits);
+    const manager = CareerManager.getInstance(platformUserId);
+    await manager.connect(platform, fakeApi);
+
+    // Match 1 via the real startup path.
+    const ticket1 = await manager.startBotMatch(platform);
+    expect(ticket1.matchId).toBe('bot_real_ticket_1');
+
+    const scene1 = new GameScene();
+    scene1.registry.set('platform', platform);
+    scene1.scene.settings.data = {
+      mode: 'bot',
+      botMatch: ticket1,
+    };
+    scene1.create();
+
+    // Scene 1 advances simulation
+    for (let i = 0; i < 25; i++) {
+      scene1.update(i * 20, 20);
+    }
+    const scene1Units = (scene1 as any).gameState.territories['p_base'].units;
+
+    // Match 1 settles server-side; the response is still in flight.
+    const settlementDone = manager.recordMatchResultRemote([], ticket1.matchId, platform, 'defeat');
+
+    // Scene 1 shuts down while its settlement response is pending.
+    scene1.events.emit('shutdown');
+
+    // Newer match (scene 2) via the real startup path.
+    const ticket2 = await manager.startBotMatch(platform);
+    expect(ticket2.matchId).toBe('bot_real_ticket_2');
+
+    const scene2 = new GameScene();
+    scene2.registry.set('platform', platform);
+    scene2.scene.settings.data = {
+      mode: 'bot',
+      botMatch: ticket2,
+    };
+    scene2.create();
+
+    // Scene 2 advances simulation by 50 ticks (1s)
+    for (let i = 0; i < 50; i++) {
+      scene2.update(i * 20, 20);
+    }
+
+    const scene2UnitsBefore = (scene2 as any).gameState.territories['p_base'].units;
+    const scene2ProdRateBefore = (scene2 as any).gameState.territories['p_base'].productionRate;
+    const scene2SpeedBefore = (scene2 as any).playerArmySpeedMultiplier;
+    const scene2ElapsedBefore = (scene2 as any).gameState.elapsedTimeSeconds;
+
+    // The OLDER settlement response now arrives, carrying career progression
+    // that differs from match 2's initialization.
+    const staleCareer: PlayerCareer = {
+      ...createDefaultCareer(platformUserId),
+      startingGarrisonLevel: 8,
+      productionLevel: 6,
+      armySpeedLevel: 5,
+    };
+    resolveSettlement(
+      settleMatch(staleCareer, 'defeat', {
+        matchDurationSeconds: 42,
+        playerUnitsDispatched: 12,
+        enemyUnitsDispatched: 9,
+        territoriesCapturedByPlayer: 1,
+        territoriesCapturedByEnemy: 2,
+      }, ticket1.matchId)
+    );
+    // Awaiting the real settlement promise guarantees applyRemoteState and the
+    // listener notification completed: any mutation they cause has happened.
+    await settlementDone;
+
+    // Server authority is preserved: the manager applied the older response.
+    expect(manager.getCareer().startingGarrisonLevel).toBe(8);
+
+    // Newer match (scene2) must remain completely unchanged: career responses
+    // may only touch the career manager and HUD, never match simulation.
+    expect((scene2 as any).gameState.territories['p_base'].units).toBe(scene2UnitsBefore);
+    expect((scene2 as any).gameState.territories['p_base'].productionRate).toBe(scene2ProdRateBefore);
+    expect((scene2 as any).playerArmySpeedMultiplier).toBe(scene2SpeedBefore);
+    expect((scene2 as any).gameState.elapsedTimeSeconds).toBe(scene2ElapsedBefore);
+
+    // The already-shut-down scene must also remain unchanged.
+    expect((scene1 as any).gameState.territories['p_base'].units).toBe(scene1Units);
   });
 
   it('Scenario 4: Retaining connected CareerManager initializes complete match from authoritative career before simulation starts', async () => {
