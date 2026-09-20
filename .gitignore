@@ -23,3 +23,8 @@ graphify-out/20??-??-??/
 graphify-out/cache/ast/
 scenarios.json
 qa-artifacts/bot-parity/
+qa-artifacts/art-milestone/
+# Blender generated output: render caches, temp files, and raw masters
+art/blender/renders/
+art/blender/__pycache__/
+tools/blender/tmp/

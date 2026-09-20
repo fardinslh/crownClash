@@ -34,6 +34,16 @@ import {
 import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { CareerManager } from '../career/CareerManager.js';
 import {
+  battlefieldIdFromLaunchData,
+  createProceduralTerritoryFallbackTexture,
+  drawArenaAccents,
+  drawSocketRimLight,
+  getArenaAccentPositions,
+  listRuntimeSpritePaths,
+  resolveTerritoryTextureKey,
+  territoryHitAreaSize,
+} from '../art/BattlefieldArt.js';
+import {
   trackEvent,
   trackTerminalMatchEvent,
   trackUpgradeEvent,
@@ -212,6 +222,10 @@ export class GameScene extends Phaser.Scene {
   private platform!: PlatformAdapter;
   private lifecycleUnsubscribers: Array<() => void> = [];
 
+  // Runtime art integration: keys of texture files that failed to load
+  // (substituted with procedural fallbacks, see BattlefieldArt.ts).
+  private missingTerritoryTextures = new Set<string>();
+
   // Audio Atmosphere Tension
   private lastHeartbeatSecond: number = -1;
 
@@ -220,15 +234,30 @@ export class GameScene extends Phaser.Scene {
   }
 
   preload(): void {
-    // Load 2.5D Rendered Territory Sprites
-    this.load.image('outpost_neutral', 'assets/territories/outpost_neutral.png');
-    this.load.image('outpost_player', 'assets/territories/outpost_player.png');
-    this.load.image('outpost_enemy', 'assets/territories/outpost_enemy.png');
-    this.load.image('crown_keep_neutral', 'assets/territories/crown_keep_neutral.png');
-    this.load.image('crown_keep_player', 'assets/territories/crown_keep_player.png');
-    this.load.image('crown_keep_enemy', 'assets/territories/crown_keep_enemy.png');
-    this.load.image('citadel_player', 'assets/territories/citadel_player.png');
-    this.load.image('citadel_enemy', 'assets/territories/citadel_enemy.png');
+    // Track texture files that fail to load so the scene can substitute
+    // procedural fallbacks instead of rendering broken sprites (the game must
+    // never depend on the Blender source pipeline being present).
+    this.missingTerritoryTextures.clear();
+    this.load.on('loaderror', (file: Phaser.Loader.File) => {
+      if (typeof file?.key === 'string') {
+        this.missingTerritoryTextures.add(file.key);
+      }
+    });
+
+    // Territory sprites load through the canonical runtime asset manifest
+    // (art/asset-manifest.json): the active battlefield's pack preloads every
+    // texture key the resolver can emit, so capture-driven owner swaps always
+    // reference a loaded texture. Battlefields without dedicated art map to
+    // the shared generic pack. Scene settings data is already available here
+    // (preload runs before create()), so the derivation matches create().
+    const launchData = this.scene.settings.data as {
+      botMatch?: BotMatchTicket;
+      liveMatch?: LiveMatchStarted;
+    } | undefined;
+    const battlefieldId = battlefieldIdFromLaunchData(launchData);
+    for (const [textureKey, filePath] of Object.entries(listRuntimeSpritePaths(battlefieldId))) {
+      this.load.image(textureKey, filePath);
+    }
 
     // Load 2.5D Rendered Army Unit Sprites
     this.load.image('unit_leader_player', 'assets/units/unit_leader_player.png');
@@ -472,6 +501,13 @@ export class GameScene extends Phaser.Scene {
     fieldGraphics.fillStyle(arena.field, 0.58);
     fieldGraphics.fillRoundedRect(10, 78, LOGICAL_WIDTH - 20, visibleHeight - 98, 18);
 
+    // Art Bible lighting: a warm champagne key pool from the top-left and a
+    // cool sky-blue ambient pool opposite (two static one-time fills).
+    fieldGraphics.fillStyle(0xfff5e6, 0.05);
+    fieldGraphics.fillEllipse(130, 180, 240, 200);
+    fieldGraphics.fillStyle(0xa8d2ff, 0.045);
+    fieldGraphics.fillEllipse(280, 520, 220, 240);
+
     // Subtle command-grid structure adds scale and keeps the empty arena from
     // looking like a flat color fill.
     fieldGraphics.lineStyle(1, arena.grid, 0.14);
@@ -562,7 +598,16 @@ export class GameScene extends Phaser.Scene {
       lanesGraphics.strokeCircle(t.x, t.y + 3, t.radius + 10);
       lanesGraphics.lineStyle(1, arena.roadInlay, 0.2);
       lanesGraphics.strokeCircle(t.x, t.y + 3, t.radius + 5);
+      // Art Bible key-light rim (single pass, warm champagne) lifts the
+      // sockets' toy-like volume without extra display objects.
+      drawSocketRimLight(lanesGraphics, t.x, t.y + 3, t.radius + 10);
     });
+
+    // Restrained decorative accents (static, one Graphics object, provably
+    // clear of territories, roads, and touch targets — see BattlefieldArt).
+    if (getArenaAccentPositions(this.battlefieldId).length > 0) {
+      drawArenaAccents(lanesGraphics, this.battlefieldId);
+    }
 
     const centerTerr =
       terrs['n_center'] ??
@@ -618,8 +663,8 @@ export class GameScene extends Phaser.Scene {
         .circle(0, 4, territory.radius + 10, teamStyle.glow, 0.12)
         .setStrokeStyle(2.5, teamStyle.primary, 0.92);
 
-      // 2.5D Rendered Fortress Sprite
-      const textureKey = this.getTerritoryTextureKey(territory);
+      // 2.5D Rendered Fortress Sprite (procedural fallback if the file failed)
+      const textureKey = this.ensureTerritoryTexture(this.getTerritoryTextureKey(territory));
       const spriteSize = territory.tier === 3 ? 92 : territory.tier === 2 ? 80 : 66;
       const sprite = this.add.image(0, -8, textureKey).setDisplaySize(spriteSize, spriteSize);
 
@@ -655,8 +700,8 @@ export class GameScene extends Phaser.Scene {
 
       container.add([groundShadow, ring, basePlate, sprite, unitBadge, unitText, typeIcon]);
 
-      // Make interactive for touch / click
-      container.setSize(territory.radius * 2.5, territory.radius * 2.5);
+      // Make interactive for touch / click (hit area unchanged from legacy)
+      container.setSize(territoryHitAreaSize(territory.radius), territoryHitAreaSize(territory.radius));
       container.setInteractive({ useHandCursor: true });
 
       container.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
@@ -1969,16 +2014,22 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getTerritoryTextureKey(territory: Territory): string {
-    if (territory.id === 'p_base') {
-      return territory.owner === 'player' ? 'citadel_player' : 'citadel_enemy';
+    return resolveTerritoryTextureKey(territory);
+  }
+
+  /**
+   * Returns a texture key guaranteed to exist: if the loaded file failed
+   * (missing/corrupt asset), a stylized procedural fallback is generated so
+   * the battlefield never renders broken or invisible territory sprites.
+   */
+  private ensureTerritoryTexture(textureKey: string): string {
+    const textures = this.textures;
+    const texturesApiReady = !!textures && typeof textures.exists === 'function';
+    const fileFailed = this.missingTerritoryTextures?.has(textureKey) ?? false;
+    if (fileFailed || (texturesApiReady && !textures!.exists(textureKey))) {
+      return createProceduralTerritoryFallbackTexture(textures, textureKey);
     }
-    if (territory.id === 'e_base') {
-      return territory.owner === 'enemy' ? 'citadel_enemy' : 'citadel_player';
-    }
-    if (territory.id === 'n_center' || (territory.tier === 2 && territory.type === 'fortress')) {
-      return `crown_keep_${territory.owner}`;
-    }
-    return `outpost_${territory.owner}`;
+    return textureKey;
   }
 
   markTerritoriesDirty(): void {
@@ -2035,7 +2086,7 @@ export class GameScene extends Phaser.Scene {
         vis.ring.setFillStyle(teamStyle.glow, 0.12);
         vis.unitBadge.setStrokeStyle(1.5, teamStyle.primary);
 
-        const targetTexture = this.getTerritoryTextureKey(stateTerritory);
+        const targetTexture = this.ensureTerritoryTexture(this.getTerritoryTextureKey(stateTerritory));
         if (vis.sprite.texture.key !== targetTexture) {
           vis.sprite.setTexture(targetTexture);
         }

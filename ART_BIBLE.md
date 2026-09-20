@@ -1,20 +1,25 @@
 # Crown Clash — Art Bible & Visual Direction
-**Version:** 1.0  
-**Target Platform:** Mobile WebViews (Bale, Eitaa, Telegram, Mobile Web)  
-**Visual Style:** Stylized 2.5D (Rendered from Blender → 2D Texture Atlas at Runtime)  
+**Version:** 1.1
+**Target Platform:** Mobile WebViews (Bale, Eitaa, Telegram, Mobile Web)
+**Visual Style:** Stylized 2.5D (Rendered from Blender → 2D Texture Atlas at Runtime)
 **Primary Goal:** Maximum instant tactical readability, vibrant stylized toy-like charm, and high-end visual polish on compact mobile screens.
+
+**v1.1 additions:** terrain proportions, road appearance, decorative-object scale, line
+weight & edge treatment, canonical resolution standards, mobile readability rules, and
+the Blender source pipeline (see `docs/art/README.md`). The authoritative scene-builder
+script is `art/blender/build_battlefield_scene.py`.
 
 ---
 
 ## 1. Visual Pillars
 
-1. **Instant Readability at Arm’s Length:**  
+1. **Instant Readability at Arm’s Length:**
    Players on 5-inch to 6.7-inch mobile screens must immediately recognize territory ownership, tier, and unit strength in under 100 milliseconds.
-2. **Chunky & Stylized (Toy-Like Miniature Realm):**  
+2. **Chunky & Stylized (Toy-Like Miniature Realm):**
    Thick silhouettes, exaggerated bevels, soft contact shadows, and tactile materials (stonework, polished wood, royal metals, bold cloth banners). Avoid photo-realism or thin, fragile geometry.
-3. **High Color Contrast:**  
+3. **High Color Contrast:**
    Bright, saturated team accents against a rich, dark tactical arena background.
-4. **Strict Asset Cohesion:**  
+4. **Strict Asset Cohesion:**
    Every visual asset—whether handcrafted or assisted by AI—must share identical camera projection, lighting direction, material roughness, and line weight. Assets must never appear as if they were assembled from random asset stores.
 
 ---
@@ -96,7 +101,7 @@ Every territory must have a distinctive silhouette so players instantly recogniz
 
 ```
        [ Tier 1: Outpost ]          [ Tier 2: Crown Keep ]          [ Tier 3: Citadel ]
-       
+
                /\                             👑                             🏰
               |  |                        /--------\                    |~|      |~|
              /____\                      |   ||||   |                   | |======| |
@@ -239,3 +244,68 @@ def setup_crown_clash_scene():
 if __name__ == "__main__":
     setup_crown_clash_scene()
 ```
+
+The canonical, full-featured scene builder is `art/blender/build_battlefield_scene.py`
+(deterministic camera, lighting rig, material palette, named collections, and headless
+render CLI). Its render kit is driven by the canonical runtime asset manifest,
+`art/asset-manifest.json`, which also drives GameScene preload and the optimizer.
+The snippet above is illustrative only.
+
+---
+
+## 10. Terrain Proportions (2.5D Arena)
+
+* **Arena floor:** a single stylized slate field per battlefield, occupying the full
+  tactical area (400 × ~580 logical px). Territory platforms sit *on* the floor; the
+  floor never scrolls.
+* **Territory platforms:** circular, diameter = `2 × territory radius` (+7px plinth,
+  +10px ownership ring). Bases (Tier 3, r=36) read ~3× larger than the smallest prop.
+* **Vertical relief:** buildings may rise above their platform (sprite anchored
+  bottom-center), but the playfield itself is strictly top-down except for the fixed
+  55°/45° dimetric sprite projection. No terrain parallaxes.
+
+## 11. Road Appearance
+
+* Roads are *recessed stone processional lanes*: a dark contact shadow pass, a solid
+  stone-surface pass in the battlefield's `visual.road` color, then a dotted center
+  inlay in `visual.roadInlay`.
+* Width: 18px shadow / 12px stone. Roads must never exceed the territory socket
+  diameter, so marching convoys visually travel *between* platforms, not over them.
+* A subtle key-light rim may run along the top-left edge of each lane (single 1px
+  pass, warm champagne, ≤ 0.2 alpha) — the lane must still read as recessed, not raised.
+
+## 12. Decorative-Object Scale & Placement
+
+* Props (crystals, stacked stones, pennants) are **ambiance only**: maximum 24 logical
+  px tall — smaller than the smallest territory ring.
+* Props are forbidden within `territory radius + 16px` of any territory center and
+  within 14px of any road segment; they must never overlap units, badges, or touch
+  targets (all props are non-interactive).
+* Budget: ≤ 8 static props per battlefield, drawn once into a single Graphics object.
+
+## 13. Line Weight & Edge Treatment
+
+* Silhouette outline: 2–2.5px (team-dark color) on every interactive object.
+* Ownership ring: 2.5px at 0.92+ alpha — the strongest consistent line on screen.
+* Grid/motif lines: 1–2px at ≤ 0.16 alpha — structure, never noise.
+* Every bevel/edge highlight is a single pass (no stacked strokes); glow only from
+  the pre-defined `glow` team color at ≤ 0.12 fill alpha.
+
+## 14. Canonical Resolutions
+
+| Stage | Format | Size | Notes |
+| :--- | :--- | :--- | :--- |
+| Blender master render | PNG, RGBA, transparent film | 512 × 512 per asset | fixed ortho rig, AgX/Filmic view transform |
+| Runtime territory sprite | WebP (alpha) or optimized PNG | 128 × 128 (tiers 1–2), 160 × 160 (tier 3) | crisp at 2× DPR; mipmapped |
+| Runtime atlas (optional) | WebP atlas | ≤ 1024 × 1024 | only when it reduces requests without hurting maintainability |
+| Units | WebP/PNG | 64 × 64 | small on-screen footprint |
+
+## 15. Mobile Readability Requirements
+
+* Ownership (team color + ring), type (role icon), and unit count must be readable at
+  360 × 800, the smallest supported viewport, without zooming.
+* Minimum on-screen territory diameter: ~44 physical px at DPR 2 on a 360px viewport.
+* Unit badges: ≥ 38 × 22 logical px with ≥ 14px bold numerals.
+* Contrast: team primaries against the dark slate floor ≥ 4.5:1; prop alpha ≤ 0.35 so
+  ambiance never competes with ownership color.
+* Verify at 360 × 800, 390 × 844, and 430 × 932 before shipping a visual change.
