@@ -11,6 +11,7 @@ RUN npm ci
 COPY packages/ ./packages/
 COPY apps/game/ ./apps/game/
 COPY apps/server-nakama/battlefields.json ./apps/server-nakama/battlefields.json
+COPY art/asset-manifest.json ./art/asset-manifest.json
 
 ARG VITE_NAKAMA_HOST
 ARG VITE_NAKAMA_PORT
