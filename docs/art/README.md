@@ -34,37 +34,94 @@ reference an unloaded texture.
 ### Packs
 
 - **Generic pack** (`assets/territories/`, PNG, 256×256, `active: true`): the legacy
-  shared sprite pack used by *every* battlefield today. It ships only the original 8
-  files, so `barracks_*`/`stable_*` keys deliberately **alias** the matching
-  `outpost_*.png` files (identical visuals). This is explicit in the manifest
-  (`aliasOf`), not accidental.
-- **crown_cross dedicated pack** (`assets/territories/crown_cross/`, WebP, declared,
-  **`active: false` until rendered**): 14 distinct files with per-tier sizes above.
-  Every key gets its own file — no aliases. A test fails if the pack is activated
-  before all of its optimized files exist. Activating it is a one-line change:
-  set `active: true` and point `battlefieldPacks.crown_cross` at `crown_cross`.
+  shared sprite pack used by battlefields without dedicated art. It ships only the
+  original 8 files, so `barracks_*`/`stable_*` keys deliberately **alias** the
+  matching `outpost_*.png` files (identical visuals). This is explicit in the
+  manifest (`aliasOf`), not accidental.
+- **crown_cross dedicated pack** (`assets/territories/crown_cross/`, WebP, active):
+  stone-and-gold battlefield kit.
+- **twin_passes dedicated pack** (`assets/territories/twin_passes/`, WebP, active):
+  fortified mountain-passes kit — stepped crag citadels with round bastions,
+  gatehouse keeps straddling the pass, square crenellated watchtowers on rock
+  plinths, crag-slab barracks roofs, and timber stables leaning on a rock wall.
+  Ownership accents: blue/red/gray banners, beacons, roofs, and awnings.
+- **royal_ring**: stays on the generic fallback for now.
 
-Blender master names (e.g. `tier3_player_hq.png`) live only under
+Every dedicated key gets its own file — no aliases. A test fails if a pack is
+activated before all of its optimized files exist, or if two dedicated packs ship
+byte-identical files for the same key.
+
+Blender master names (e.g. `tier3_player_crag_hq.png`) live only under
 `art/blender/renders/` and are never shipped; runtime names (e.g.
 `citadel_player.webp`) live only under `apps/game/public/assets/` and are the only
 files Phaser loads.
 
+## QA tooling
+
+### Screenshot capture (single-viewport proof)
+
+`scripts/capture-battlefield-qa.mjs` captures the real game per viewport with a
+corrected CDP procedure. It launches a FRESH headless Chrome per viewport (never
+resize a running scene across viewport/DPR changes: mid-scene resizes corrupt the
+Phaser EXPAND layout and produce duplicated/stitched captures), sets device
+metrics with CSS width/height and `deviceScaleFactor: 2` BEFORE navigation,
+asserts at capture time that `window.innerWidth`, `window.innerHeight`, and
+`devicePixelRatio` match the request and the Phaser canvas client rect fits the
+single intended viewport, starts the scene through the `__PHASER_GAME__` QA hook,
+waits until the battlefield's pack is actually fetched with no texture load
+errors, then captures with `Page.captureScreenshot` (no clip, `fromSurface: true`).
+Finally it compares the capture against Phaser's own renderer snapshot of the
+same scene — a stitched or duplicated capture would disagree with the canvas
+render, so a low mean difference proves exactly one viewport was captured.
+
+```bash
+# Requires the vite dev server (npm run dev in apps/game) and headless Chrome.
+node scripts/capture-battlefield-qa.mjs twin_passes qa-artifacts/art-twin-passes
+node scripts/capture-battlefield-qa.mjs crown_cross qa-artifacts/art-twin-passes
+```
+
+### Supplemental pixel analysis (NOT a substitute for visual inspection)
+
+`tools/blender/analyze_masters.py` and `tools/blender/analyze_screenshot.py`
+provide SUPPLEMENTAL, objective checks only: sprite coverage/bounding-box
+clipping, mean colors, cross-pack/owner-variant pixel diffs, and capture-vs-render
+agreement. They cannot replace a human looking at the captured screenshots —
+always eyeball the QA artifacts (composition, readability, clipping, noise) before
+accepting a visual change.
+
+```bash
+# Pixel stats per master/runtime asset; pass two files for a pairwise diff:
+blender --background --factory-startup --python tools/blender/analyze_masters.py -- \
+  art/blender/renders/twin_passes/tier3_player_crag_hq.png \
+  art/blender/renders/twin_passes/tier3_enemy_crag_hq.png
+
+# Screenshot color census (supplemental):
+blender --background --factory-startup --python tools/blender/analyze_screenshot.py -- \
+  qa-artifacts/art-twin-passes/twin_passes-360x800.png
+```
+
+In-browser scene QA: open the game, then
+`window.__PHASER_GAME__.scene.start('GameScene', { source: 'menu', botMatch: { matchId: 'qa_', battlefieldId: 'twin_passes' } })`,
+dispatch armies with `scene.executeQaDispatch(...)`, and check
+`scene.missingTerritoryTextures` is empty.
+
 ## Commands
 
 ```bash
-# 1. Render the full crown_cross master kit (requires Blender 4.x; deterministic).
-#    The kit comes from the manifest's crown_cross pack.
+# 1. Render a pack's master kit (deterministic; verified with Blender 5.2.2 LTS,
+#    works with any recent Blender incl. 4.x). The kit comes from the manifest
+#    pack of the same id.
 tools/blender/render_battlefield.sh crown_cross
+tools/blender/render_battlefield.sh twin_passes
 #    or with an explicit binary:
 BLENDER_BIN=/Applications/Blender.app/Contents/MacOS/Blender \
-  tools/blender/render_battlefield.sh crown_cross
+  tools/blender/render_battlefield.sh twin_passes
 
 # 2. Optimize masters into runtime assets. Reads the manifest; fails hard when a
 #    master is missing, the format cannot be produced (e.g. no cwebp), or the
 #    source directory has no PNGs. Never copies 512x512 masters through.
-tools/blender/optimize_outputs.sh \
-  art/blender/renders/crown_cross \
-  crown_cross
+tools/blender/optimize_outputs.sh art/blender/renders/crown_cross crown_cross
+tools/blender/optimize_outputs.sh art/blender/renders/twin_passes twin_passes
 
 # 3. Rebuild and verify the game
 npm run build && npm test
@@ -75,11 +132,11 @@ Useful single-asset and authoring invocations:
 ```bash
 # One manifest sprite (validation happens before Blender is required):
 blender --background --factory-startup --python art/blender/build_battlefield_scene.py -- \
-  --pack crown_cross --asset tier3_player_hq --output art/blender/renders/single
+  --pack twin_passes --asset tier3_player_crag_hq --output art/blender/renders/single
 
 # Quick quality check with fewer samples; --opaque disables film transparency:
 blender --background --factory-startup --python art/blender/build_battlefield_scene.py -- \
-  --pack crown_cross --samples 16 --opaque --output /tmp/cc-preview
+  --pack twin_passes --samples 16 --opaque --output /tmp/cc-preview
 ```
 
 ## Determinism

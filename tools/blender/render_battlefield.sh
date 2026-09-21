@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Headless Crown Clash battlefield rendering (Art Bible sections 8/14).
 #
-# Locates a Blender 4.x binary and renders the modular asset kit for a
+# Locates a Blender binary (verified with Blender 5.2.2 LTS) and renders the
+# modular asset kit for a
 # battlefield deterministically (fixed camera rig, fixed seed, transparent
 # 512x512 PNG masters under art/blender/renders/<battlefield>/).
 #
@@ -36,7 +37,7 @@ find_blender() {
 }
 
 if ! BLENDER="$(find_blender)"; then
-  echo "Blender not found. Install Blender 4.x or set BLENDER_BIN=/path/to/blender." >&2
+  echo "Blender not found. Install a recent Blender (verified with 5.2.2 LTS) or set BLENDER_BIN=/path/to/blender." >&2
   echo "The pack contents come from the canonical manifest (no Blender needed to inspect it):" >&2
   echo "  node -e 'console.log(Object.keys(require(\"./art/asset-manifest.json\").packs.crown_cross.sprites))'" >&2
   exit 3

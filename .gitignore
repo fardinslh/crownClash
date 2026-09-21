@@ -24,6 +24,7 @@ graphify-out/cache/ast/
 scenarios.json
 qa-artifacts/bot-parity/
 qa-artifacts/art-milestone/
+qa-artifacts/art-twin-passes/
 # Blender generated output: render caches, temp files, and raw masters
 art/blender/renders/
 art/blender/__pycache__/

@@ -146,26 +146,28 @@ describe('canonical runtime asset manifest', () => {
   });
 
   it('refuses to activate a dedicated pack whose optimized files are absent', () => {
-    // The crown_cross dedicated pack is declared but not rendered yet. This
-    // test flips to a hard file-existence guard the moment its `active` flag
-    // is turned on, so the pack can never go live half-rendered.
-    const pack = ASSET_MANIFEST.packs.crown_cross;
-    expect(pack.runtimeFormat).toBe('webp');
-    // Dedicated packs must not use aliases: every key gets its own file.
-    expect(new Set(Object.values(pack.sprites).map((sprite) => sprite.runtimePath)).size).toBe(
-      Object.keys(pack.sprites).length
-    );
-    for (const sprite of Object.values(pack.sprites)) {
-      expect(blenderMasterPath('crown_cross', sprite)).toBe(
-        `art/blender/renders/crown_cross/${sprite.blenderRenderName}.png`
+    // Dedicated packs are declared before their masters are rendered. These
+    // assertions flip to hard file-existence guards the moment an `active`
+    // flag is turned on, so a pack can never go live half-rendered.
+    for (const packId of ['crown_cross', 'twin_passes'] as const) {
+      const pack = ASSET_MANIFEST.packs[packId];
+      expect(pack.runtimeFormat).toBe('webp');
+      // Dedicated packs must not use aliases: every key gets its own file.
+      expect(new Set(Object.values(pack.sprites).map((sprite) => sprite.runtimePath)).size).toBe(
+        Object.keys(pack.sprites).length
       );
-    }
-    if (!pack.active) return;
-    for (const sprite of Object.values(pack.sprites)) {
-      expect(
-        fs.existsSync(path.join(REPO_ROOT, sprite.runtimePath)),
-        `activated dedicated pack is missing ${sprite.runtimePath}`
-      ).toBe(true);
+      for (const sprite of Object.values(pack.sprites)) {
+        expect(blenderMasterPath(packId, sprite)).toBe(
+          `art/blender/renders/${packId}/${sprite.blenderRenderName}.png`
+        );
+      }
+      if (!pack.active) continue;
+      for (const sprite of Object.values(pack.sprites)) {
+        expect(
+          fs.existsSync(path.join(REPO_ROOT, sprite.runtimePath)),
+          `activated dedicated pack is missing ${sprite.runtimePath}`
+        ).toBe(true);
+      }
     }
   });
 
@@ -270,8 +272,72 @@ describe('battlefield preload through the manifest', () => {
 
   it('ships dedicated packs only for battlefields that have them', () => {
     expect(usesDedicatedSpritePack('crown_cross')).toBe(true);
-    expect(usesDedicatedSpritePack('twin_passes')).toBe(false);
+    expect(usesDedicatedSpritePack('twin_passes')).toBe(true);
     expect(usesDedicatedSpritePack('royal_ring')).toBe(false);
+  });
+
+  it('selects the active twin_passes dedicated pack for the twin_passes battlefield', () => {
+    expect(ASSET_MANIFEST.battlefieldPacks.twin_passes).toBe('twin_passes');
+    const pack = ASSET_MANIFEST.packs.twin_passes;
+    expect(pack.active).toBe(true);
+
+    const sprites = listRuntimeSpritePaths('twin_passes');
+    expect(Object.keys(sprites)).toEqual([...TERRITORY_TEXTURE_KEYS]);
+    // The whole pack lives in the dedicated directory.
+    for (const filePath of Object.values(sprites)) {
+      expect(filePath.startsWith('assets/territories/twin_passes/')).toBe(true);
+    }
+  });
+
+  it('resolves twin_passes territory roles to distinct dedicated assets with full owner variants', () => {
+    const battlefield = getBattlefield('twin_passes');
+    const byId = Object.fromEntries(battlefield.territories.map((t) => [t.id, t]));
+    const sprites = listRuntimeSpritePaths('twin_passes');
+
+    // Roles on the real layout: tier-2 pass keeps, tier-1 stable gates.
+    expect(resolveTerritoryTextureKey({ ...byId.p_base, owner: 'player' })).toBe('citadel_player');
+    expect(resolveTerritoryTextureKey({ ...byId.e_base, owner: 'enemy' })).toBe('citadel_enemy');
+    expect(resolveTerritoryTextureKey({ ...byId.n_west_pass, owner: 'player' })).toBe('crown_keep_player');
+    expect(resolveTerritoryTextureKey({ ...byId.n_east_pass, owner: 'neutral' })).toBe('crown_keep_neutral');
+    expect(resolveTerritoryTextureKey({ ...byId.n_west_gate_s, owner: 'enemy' })).toBe('stable_enemy');
+    expect(resolveTerritoryTextureKey({ ...byId.n_east_gate_n, owner: 'neutral' })).toBe('stable_neutral');
+
+    // Every key resolves to its own dedicated file (no aliases).
+    const paths = Object.values(sprites);
+    expect(new Set(paths).size).toBe(paths.length);
+
+    // Player, enemy, and neutral variants are distinct dedicated files.
+    for (const prefix of ['citadel', 'crown_keep', 'outpost', 'barracks', 'stable']) {
+      const keys = paths.filter((p) => p.includes(prefix));
+      expect(new Set(keys).size, `${prefix} variants must be distinct files`).toBe(keys.length);
+    }
+
+    // Every resolvable file exists on disk.
+    for (const filePath of paths) {
+      expect(fs.existsSync(path.join(PUBLIC_DIR, filePath)), `missing ${filePath}`).toBe(true);
+    }
+  });
+
+  it('keeps dedicated packs byte-distinct from each other for the same texture keys', () => {
+    for (const key of TERRITORY_TEXTURE_KEYS) {
+      const crownCross = fs.readFileSync(path.join(PUBLIC_DIR, listRuntimeSpritePaths('crown_cross')[key]));
+      const twinPasses = fs.readFileSync(path.join(PUBLIC_DIR, listRuntimeSpritePaths('twin_passes')[key]));
+      expect(
+        crownCross.equals(twinPasses),
+        `${key} is byte-identical between crown_cross and twin_passes`
+      ).toBe(false);
+    }
+  });
+
+  it('falls back safely to the generic pack for battlefields without dedicated art', () => {
+    expect(ASSET_MANIFEST.battlefieldPacks.royal_ring).toBe('generic');
+    const royalRing = getBattlefieldRuntimeAssets('royal_ring');
+    expect(royalRing.packId).toBe('generic');
+    for (const filePath of Object.values(royalRing.sprites)) {
+      expect(fs.existsSync(path.join(PUBLIC_DIR, filePath)), `missing generic sprite ${filePath}`).toBe(true);
+    }
+    // Unknown battlefield ids fall back to the default battlefield's pack.
+    expect(battlefieldIdFromLaunchData({ botMatch: { battlefieldId: 'nope' as BattlefieldId } })).toBe('crown_cross');
   });
 });
 
@@ -334,23 +400,25 @@ except ImportError as error:
     expect(unknownPack.stdout.trim()).toBe('EXIT_2');
   });
 
-  it('renders exactly the manifest pack: builder, owner, and render names agree', () => {
-    const result = runBuilderPython(
-      `${loadBuilderModule('ccbuild_kit')}
+  it('renders exactly each dedicated manifest pack: builder, owner, and render names agree', () => {
+    for (const packId of ['crown_cross', 'twin_passes'] as const) {
+      const result = runBuilderPython(
+        `${loadBuilderModule('ccbuild_kit')}
 manifest = mod.load_asset_manifest(sys.argv[2])
-assets = mod.resolve_assets_to_render(manifest, "crown_cross", None)
+assets = mod.resolve_assets_to_render(manifest, ${JSON.stringify(packId)}, None)
 print(json.dumps([[name, builder, owner] for name, builder, owner in assets]))
 `,
-      MANIFEST_PATH
-    );
-    expect(result.status).toBe(0);
-    const resolved = JSON.parse(result.stdout) as Array<[string, string, string]>;
-    const expected = Object.values(ASSET_MANIFEST.packs.crown_cross.sprites).map((sprite) => [
-      sprite.blenderRenderName,
-      sprite.blenderBuilder,
-      sprite.blenderOwner,
-    ]);
-    expect(resolved).toEqual(expected);
+        MANIFEST_PATH
+      );
+      expect(result.status).toBe(0);
+      const resolved = JSON.parse(result.stdout) as Array<[string, string, string]>;
+      const expected = Object.values(ASSET_MANIFEST.packs[packId].sprites).map((sprite) => [
+        sprite.blenderRenderName,
+        sprite.blenderBuilder,
+        sprite.blenderOwner,
+      ]);
+      expect(resolved).toEqual(expected);
+    }
   });
 });
 

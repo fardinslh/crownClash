@@ -24,7 +24,7 @@ rendered exactly once. Asset/kit combinations are validated (and the manifest
 loaded) *before* the `bpy` module is required, so bad invocations fail fast on
 machines without Blender.
 
-Run headless (Blender 4.x):
+Run headless (verified with Blender 5.2.2 LTS; works with any recent Blender):
 
   blender --background --factory-startup --python art/blender/build_battlefield_scene.py -- \\
       --pack crown_cross --output art/blender/renders/crown_cross
@@ -87,6 +87,7 @@ PALETTE = {
     "roof_player": (0x25 / 255, 0x63 / 255, 0xEB / 255),
     "roof_enemy": (0xDC / 255, 0x26 / 255, 0x26 / 255),
     "roof_neutral": (0x47 / 255, 0x55 / 255, 0x69 / 255),
+    "crag": (0x8B / 255, 0x95 / 255, 0xA7 / 255),          # light weathered rock #8B95A7
     "crystal": (0x93 / 255, 0xC5 / 255, 0xFD / 255),       # #93C5FD
 }
 
@@ -273,6 +274,7 @@ def material_palette():
     return {
         "stone": make_material("CC_Stone", PALETTE["stone"], 0.72),
         "stone_dark": make_material("CC_StoneDark", PALETTE["stone_dark"], 0.78),
+        "crag": make_material("CC_Crag", PALETTE["crag"], 0.82),
         "wood": make_material("CC_Wood", PALETTE["wood"], 0.58),
         "gold": make_material("CC_Gold", PALETTE["gold"], 0.30, metallic=0.95),
         "gold_light": make_material("CC_GoldLight", PALETTE["gold_light"], 0.28, metallic=0.9),
@@ -534,6 +536,203 @@ def build_stable(palette, owner):
     bevel_object(banner)
 
 
+# ---------------------------------------------------------------------------
+# twin_passes builders: fortified mountain-passes theme (chunky crag forms,
+# crenellated square towers, gatehouse across the pass, owner-colored accents)
+# ---------------------------------------------------------------------------
+
+def build_crag_citadel(palette, owner):
+    """twin_passes tier 3 HQ: keep carved into a stepped crag with bastions."""
+    import bpy
+
+    def new_cube(name, size, location, material):
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        obj.scale = size
+        bpy.ops.object.transform_apply(scale=True)
+        obj.data.materials.append(material)
+        bevel_object(obj)
+        return obj
+
+    # Stepped mountain base: broad lower crag, smaller upper crag.
+    new_cube("crag_citadel_base", (2.3, 2.3, 0.7), (0.0, 0.0, 0.35), palette["crag"])
+    new_cube("crag_citadel_upper", (1.8, 1.8, 0.6), (0.0, 0.0, 0.95), palette["crag"])
+
+    # Central stone keep with crenellated parapet.
+    new_cube("crag_citadel_keep", (1.3, 1.3, 1.3), (0.0, 0.0, 1.85), palette["stone"])
+    for index, (x, y) in enumerate(((-0.5, -0.5), (0.5, -0.5), (-0.5, 0.5), (0.5, 0.5))):
+        new_cube(f"crag_citadel_crenel_{index}", (0.3, 0.3, 0.3), (x, y, 2.62), palette["stone_dark"])
+
+    # Flanking round bastions with team-roofed caps and gold beacons.
+    for index, x in enumerate((-0.95, 0.95)):
+        bpy.ops.mesh.primitive_cylinder_add(radius=0.42, depth=1.7, location=(x, 0.0, 1.35))
+        bastion = bpy.context.active_object
+        bastion.name = f"crag_citadel_bastion_{index}"
+        bastion.data.materials.append(palette["stone"])
+        bevel_object(bastion)
+
+        bpy.ops.mesh.primitive_cylinder_add(radius=0.5, depth=0.22, location=(x, 0.0, 2.28))
+        cap = bpy.context.active_object
+        cap.name = f"crag_citadel_bastion_cap_{index}"
+        cap.data.materials.append(palette["stone_dark"])
+        bevel_object(cap)
+
+        bpy.ops.mesh.primitive_cone_add(radius1=0.34, depth=0.55, location=(x, 0.0, 2.62))
+        beacon = bpy.context.active_object
+        beacon.name = f"crag_citadel_beacon_{index}"
+        beacon.data.materials.append(roof_material(palette, owner))
+        bevel_object(beacon)
+
+    # Iron gate facing the camera side and a team banner on the keep.
+    new_cube("crag_citadel_gate", (0.62, 0.24, 0.95), (0.0, -1.02, 1.0), palette["iron"])
+    new_cube("crag_citadel_banner", (0.7, 0.08, 0.62), (0.0, 0.0, 2.95), banner_material(palette, owner))
+    bpy.ops.mesh.primitive_cylinder_add(radius=0.14, depth=0.34, location=(0.0, 0.0, 3.3))
+    spire = bpy.context.active_object
+    spire.name = "crag_citadel_spire"
+    spire.data.materials.append(palette["gold"])
+    bevel_object(spire)
+
+
+def build_pass_gate(palette, owner):
+    """twin_passes tier 2 keep: fortified gatehouse straddling the pass."""
+    import bpy
+
+    def new_cube(name, size, location, material):
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        obj.scale = size
+        bpy.ops.object.transform_apply(scale=True)
+        obj.data.materials.append(material)
+        bevel_object(obj)
+        return obj
+
+    # Two chunky crag towers flanking the pass.
+    for index, x in enumerate((-0.95, 0.95)):
+        new_cube(f"pass_gate_tower_{index}", (0.85, 0.85, 2.1), (x, 0.0, 1.05), palette["crag"])
+        # Crenel pair on each tower top.
+        new_cube(f"pass_gate_crenel_a_{index}", (0.24, 0.24, 0.3), (x - 0.24, 0.0, 2.24), palette["stone_dark"])
+        new_cube(f"pass_gate_crenel_b_{index}", (0.24, 0.24, 0.3), (x + 0.24, 0.0, 2.24), palette["stone_dark"])
+        # Team banner draped on each tower's camera-facing face (readable at 128px).
+        new_cube(f"pass_gate_banner_{index}", (0.5, 0.09, 0.85), (x, -0.45, 1.35), banner_material(palette, owner))
+
+    # Connecting wall over the pass with an iron gate.
+    new_cube("pass_gate_wall", (1.15, 0.5, 1.25), (0.0, 0.0, 0.83), palette["stone"])
+    new_cube("pass_gate_arch", (0.72, 0.55, 0.9), (0.0, -0.08, 0.48), palette["iron"])
+
+    # Gilded crown points along the wall top (keeps the crown-keep language).
+    for index, x in enumerate((-0.3, 0.0, 0.3)):
+        bpy.ops.mesh.primitive_cone_add(radius1=0.11, depth=0.3, location=(x, 0.0, 1.6))
+        point = bpy.context.active_object
+        point.name = f"pass_gate_crown_point_{index}"
+        point.data.materials.append(palette["gold_light"])
+        bevel_object(point)
+
+    bpy.ops.mesh.primitive_cylinder_add(radius=0.15, depth=0.42, location=(0.0, 0.0, 1.85))
+    spire = bpy.context.active_object
+    spire.name = "pass_gate_spire"
+    spire.data.materials.append(palette["gold"])
+    bevel_object(spire)
+
+
+def build_crag_watchtower(palette, owner):
+    """twin_passes tier 1 fortress: square crag watchtower with crenels + flag."""
+    import bpy
+
+    def new_cube(name, size, location, material):
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        obj.scale = size
+        bpy.ops.object.transform_apply(scale=True)
+        obj.data.materials.append(material)
+        bevel_object(obj)
+        return obj
+
+    # Rock plinth the tower rises from.
+    new_cube("crag_watchtower_plinth", (1.5, 1.5, 0.5), (0.0, 0.0, 0.25), palette["stone_dark"])
+
+    # Square stone tower body.
+    new_cube("crag_watchtower_shaft", (0.95, 0.95, 1.9), (0.0, 0.0, 1.45), palette["stone"])
+
+    # Corner crenels on the parapet.
+    for index, (x, y) in enumerate(((-0.38, -0.38), (0.38, -0.38), (-0.38, 0.38), (0.38, 0.38))):
+        new_cube(f"crag_watchtower_crenel_{index}", (0.26, 0.26, 0.32), (x, y, 2.56), palette["stone_dark"])
+
+    # Team banner draped on the tower's camera-facing face (readable at 128px).
+    new_cube("crag_watchtower_banner", (0.62, 0.08, 0.85), (0.0, -0.5, 1.55), banner_material(palette, owner))
+
+    # Owner flag on an iron pole.
+    bpy.ops.mesh.primitive_cylinder_add(radius=0.05, depth=0.9, location=(0.0, 0.0, 3.1))
+    pole = bpy.context.active_object
+    pole.name = "crag_watchtower_pole"
+    pole.data.materials.append(palette["iron"])
+    bevel_object(pole)
+
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.26, 0.0, 3.28))
+    flag = bpy.context.active_object
+    flag.name = "crag_watchtower_flag"
+    flag.scale = (0.42, 0.05, 0.28)
+    bpy.ops.object.transform_apply(scale=True)
+    flag.data.materials.append(banner_material(palette, owner))
+    bevel_object(flag)
+
+
+def build_pass_barracks(palette, owner):
+    """twin_passes tier 1 barracks: stone hall under a heavy crag-slab roof."""
+    import bpy
+
+    def new_cube(name, size, location, material, rotation=None):
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        obj.scale = size
+        if rotation is not None:
+            obj.rotation_euler = rotation
+        bpy.ops.object.transform_apply(scale=True, rotation=rotation is not None)
+        obj.data.materials.append(material)
+        bevel_object(obj)
+        return obj
+
+    new_cube("pass_barracks_hall", (1.9, 1.3, 1.1), (0.0, 0.0, 0.55), palette["stone"])
+    # Team-colored pitched roof (the barracks' readable ownership accent).
+    new_cube("pass_barracks_roof", (2.1, 1.5, 0.42), (0.0, 0.0, 1.3), roof_material(palette, owner), rotation=(0.0, 0.12, 0.0))
+    # Crag ridge cap keeps the mountain material language.
+    new_cube("pass_barracks_ridge", (2.15, 0.5, 0.2), (0.0, 0.0, 1.62), palette["crag"])
+    new_cube("pass_barracks_door", (0.4, 0.08, 0.75), (0.55, -0.66, 0.42), palette["wood"])
+    new_cube("pass_barracks_banner", (0.06, 0.4, 0.58), (-0.85, -0.5, 1.35), banner_material(palette, owner))
+
+
+def build_pass_stable(palette, owner):
+    """twin_passes tier 1 stable: long timber shelter built against a crag wall."""
+    import bpy
+
+    def new_cube(name, size, location, material, rotation=None):
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        obj.scale = size
+        if rotation is not None:
+            obj.rotation_euler = rotation
+        bpy.ops.object.transform_apply(scale=True, rotation=rotation is not None)
+        obj.data.materials.append(material)
+        bevel_object(obj)
+        return obj
+
+    # Rock back wall the shelter leans on.
+    new_cube("pass_stable_backwall", (2.2, 0.34, 1.5), (0.0, 0.52, 0.75), palette["stone_dark"])
+    # Long low timber shelter.
+    new_cube("pass_stable_hall", (2.1, 1.0, 0.85), (0.0, -0.1, 0.43), palette["wood"])
+    # Shed crag roof sloping off the back wall.
+    new_cube("pass_stable_roof", (2.2, 1.35, 0.28), (0.0, 0.12, 1.02), palette["crag"], rotation=(0.18, 0.0, 0.0))
+    # Team awning over the open front (the stable's readable ownership accent).
+    new_cube("pass_stable_awning", (1.5, 0.3, 0.14), (0.1, -0.62, 0.98), banner_material(palette, owner), rotation=(0.22, 0.0, 0.0))
+    # Hay store in gold tones at the open front.
+    new_cube("pass_stable_hay", (0.55, 0.45, 0.4), (-0.65, -0.28, 0.2), palette["gold_light"])
+    new_cube("pass_stable_banner", (0.06, 0.34, 0.46), (0.85, -0.4, 1.15), banner_material(palette, owner))
+
+
 def build_road_segment(palette, _owner):
     """Recessed stone lane slab (Art Bible section 11). Authoring-only asset."""
     import bpy
@@ -627,6 +826,11 @@ BUILDERS = {
     "build_watchtower": build_watchtower,
     "build_barracks": build_barracks,
     "build_stable": build_stable,
+    "build_crag_citadel": build_crag_citadel,
+    "build_pass_gate": build_pass_gate,
+    "build_crag_watchtower": build_crag_watchtower,
+    "build_pass_barracks": build_pass_barracks,
+    "build_pass_stable": build_pass_stable,
     "build_road_segment": build_road_segment,
     "build_platform_tile": build_platform_tile,
     "build_crystal_cluster": build_crystal_cluster,
@@ -640,6 +844,11 @@ ASSET_COLLECTION = {
     "build_watchtower": "CC_Structures",
     "build_barracks": "CC_Structures",
     "build_stable": "CC_Structures",
+    "build_crag_citadel": "CC_Structures",
+    "build_pass_gate": "CC_Structures",
+    "build_crag_watchtower": "CC_Structures",
+    "build_pass_barracks": "CC_Structures",
+    "build_pass_stable": "CC_Structures",
     "build_road_segment": "CC_Roads",
     "build_platform_tile": "CC_Terrain",
     "build_crystal_cluster": "CC_Props",
