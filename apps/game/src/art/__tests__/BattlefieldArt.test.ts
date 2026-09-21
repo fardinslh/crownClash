@@ -38,16 +38,27 @@ function distancePointToSegment(px: number, py: number, ax: number, ay: number, 
   return Math.hypot(px - closestX, py - closestY);
 }
 
-function readPngDimensions(absolute: string): { width: number; height: number; colorType: number; bytes: number } {
-  // PNG header: 8-byte signature + IHDR with width/height at bytes 16-23 and
-  // bit depth / color type at bytes 24-25.
+function readRuntimeImageDimensions(absolute: string): { width: number; height: number; bytes: number } {
   const buffer = fs.readFileSync(absolute);
-  return {
-    width: buffer.readUInt32BE(16),
-    height: buffer.readUInt32BE(20),
-    colorType: buffer.readUInt8(25),
-    bytes: buffer.length,
-  };
+  if (buffer.subarray(0, 8).toString('hex') === '89504e470d0a1a0a') {
+    return {
+      width: buffer.readUInt32BE(16),
+      height: buffer.readUInt32BE(20),
+      bytes: buffer.length,
+    };
+  }
+  if (buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP') {
+    const chunk = buffer.subarray(12, 16).toString('ascii');
+    if (chunk !== 'VP8X') throw new Error(`${absolute} uses unsupported WebP chunk ${chunk}`);
+    const readUint24LE = (offset: number) =>
+      buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16);
+    return {
+      width: readUint24LE(24) + 1,
+      height: readUint24LE(27) + 1,
+      bytes: buffer.length,
+    };
+  }
+  throw new Error(`${absolute} is neither PNG nor extended WebP`);
 }
 
 /** Runs a python3 snippet against the Blender builder module (no bpy needed). */
@@ -124,12 +135,12 @@ describe('canonical runtime asset manifest', () => {
           continue;
         }
         expect(fs.existsSync(absolute), `active pack ${packId} is missing runtime file ${runtimePath}`).toBe(true);
-        const png = readPngDimensions(absolute);
+        const image = readRuntimeImageDimensions(absolute);
         const entry = Object.values(pack.sprites).find((sprite) => sprite.runtimePath === runtimePath)!;
-        expect(png.width, `${runtimePath} width`).toBe(entry.targetSize);
-        expect(png.height, `${runtimePath} height`).toBe(entry.targetSize);
+        expect(image.width, `${runtimePath} width`).toBe(entry.targetSize);
+        expect(image.height, `${runtimePath} height`).toBe(entry.targetSize);
         // Art Bible section 14: keep each territory sprite under 80 KB.
-        expect(png.bytes, `${runtimePath} exceeds the 80KB budget`).toBeLessThan(80 * 1024);
+        expect(image.bytes, `${runtimePath} exceeds the 80KB budget`).toBeLessThan(80 * 1024);
       }
     }
   });
@@ -223,10 +234,10 @@ describe('battlefield preload through the manifest', () => {
     // packs; aliased to the outpost files in the generic pack).
     expect(resolveTerritoryTextureKey({ ...byId.n_top_left, owner: 'enemy' })).toBe('stable_enemy');
     expect(resolveTerritoryTextureKey({ ...byId.n_mid_left, owner: 'neutral' })).toBe('barracks_neutral');
-    // Generic pack still serves them (aliased) so nothing regresses today.
+    // The active dedicated pack serves distinct role silhouettes.
     const sprites = listRuntimeSpritePaths('crown_cross');
-    expect(sprites.stable_enemy).toBe(sprites.outpost_enemy);
-    expect(sprites.barracks_neutral).toBe(sprites.outpost_neutral);
+    expect(sprites.stable_enemy).not.toBe(sprites.outpost_enemy);
+    expect(sprites.barracks_neutral).not.toBe(sprites.outpost_neutral);
   });
 
   it('keeps citadel keys tied to the fortress ids and tier-2 keys to ownership across battlefields', () => {
@@ -258,7 +269,7 @@ describe('battlefield preload through the manifest', () => {
   });
 
   it('ships dedicated packs only for battlefields that have them', () => {
-    expect(usesDedicatedSpritePack('crown_cross')).toBe(false);
+    expect(usesDedicatedSpritePack('crown_cross')).toBe(true);
     expect(usesDedicatedSpritePack('twin_passes')).toBe(false);
     expect(usesDedicatedSpritePack('royal_ring')).toBe(false);
   });

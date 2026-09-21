@@ -130,10 +130,10 @@
       }
     },
     "crown_cross": {
-      "label": "Dedicated crown_cross 2.5D render pack (inactive until its Blender masters are rendered and optimized)",
+      "label": "Dedicated crown_cross 2.5D render pack",
       "packDirectory": "apps/game/public/assets/territories/crown_cross",
       "runtimeFormat": "webp",
-      "active": false,
+      "active": true,
       "sprites": {
         "citadel_player": {
           "blenderRenderName": "tier3_player_hq",
@@ -251,7 +251,7 @@
     }
   },
   "battlefieldPacks": {
-    "crown_cross": "generic",
+    "crown_cross": "crown_cross",
     "twin_passes": "generic",
     "royal_ring": "generic"
   }
