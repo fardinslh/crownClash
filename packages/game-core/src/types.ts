@@ -4,6 +4,14 @@
  */
 
 export type Team = 'player' | 'enemy' | 'neutral';
+export type MatchMode = '1v1' | '2v2';
+export type Slot = 0 | 1 | 2 | 3;
+export type TeamId = 'a' | 'b';
+
+export const MATCH_SCHEMA_VERSION_1 = 1 as const;
+export const MATCH_SCHEMA_VERSION_2 = 2 as const;
+export const CURRENT_MATCH_SCHEMA_VERSION = MATCH_SCHEMA_VERSION_1;
+
 export type TerritoryType = 'fortress' | 'barracks' | 'stable';
 
 export interface Territory {

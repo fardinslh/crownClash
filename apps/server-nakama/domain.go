@@ -36,6 +36,7 @@ type battlefieldTerritoryJSON struct {
 
 type battlefieldDefinitionJSON struct {
 	ID          string                     `json:"id"`
+	Mode        MatchMode                  `json:"mode,omitempty"`
 	Name        string                     `json:"name"`
 	Subtitle    string                     `json:"subtitle"`
 	Accent      int                        `json:"accent"`
@@ -56,6 +57,11 @@ func init() {
 		panic(fmt.Sprintf("failed to unmarshal embedded battlefields.json: %v", err))
 	}
 	for _, b := range list {
+		mode, err := normalizeBattlefieldMode(b.Mode)
+		if err != nil {
+			panic(fmt.Sprintf("invalid embedded battlefield %q: %v", b.ID, err))
+		}
+		b.Mode = mode
 		authoritativeBattlefields[b.ID] = b
 		authoritativeBattlefieldRoads[b.ID] = b.Roads
 		order := make([]string, len(b.Territories))
@@ -65,6 +71,16 @@ func init() {
 		authoritativeBattlefieldOrders[b.ID] = order
 	}
 	battlefieldRoads = authoritativeBattlefieldRoads
+}
+
+func normalizeBattlefieldMode(mode MatchMode) (MatchMode, error) {
+	if mode == "" {
+		return MatchMode1v1, nil
+	}
+	if mode != MatchMode1v1 && mode != MatchMode2v2 {
+		return "", fmt.Errorf("invalid battlefield mode %q", mode)
+	}
+	return mode, nil
 }
 
 func territoryOrderForBattlefield(battlefieldID string) []string {

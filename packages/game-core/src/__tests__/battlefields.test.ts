@@ -4,6 +4,7 @@ import {
   createDefaultTerritories,
   createInitialGameState,
   getBattlefield,
+  normalizeBattlefieldMode,
   normalizeBattlefieldId,
   simulatePvpBattle,
   validateAllBattlefields,
@@ -14,6 +15,18 @@ import {
 describe('data-driven battlefield architecture', () => {
   it('validates all production battlefields without error', () => {
     expect(() => validateAllBattlefields(BATTLEFIELDS)).not.toThrow();
+  });
+
+  it('declares every existing battlefield as 1v1', () => {
+    expect(BATTLEFIELDS.map((battlefield) => battlefield.mode)).toEqual(['1v1', '1v1', '1v1']);
+  });
+
+  it('defaults legacy battlefield JSON without a mode to 1v1', () => {
+    expect(normalizeBattlefieldMode(undefined)).toBe('1v1');
+  });
+
+  it('rejects unknown battlefield modes', () => {
+    expect(() => normalizeBattlefieldMode('3v3')).toThrow(/Invalid battlefield mode/);
   });
 
   it('defines a unique, valid visual identity for every battlefield', () => {

@@ -1,4 +1,4 @@
-import type { Team, TerritoryType } from './types.js';
+import type { MatchMode, Team, TerritoryType } from './types.js';
 
 export type BattlefieldId = 'crown_cross' | 'twin_passes' | 'royal_ring';
 
@@ -32,6 +32,7 @@ export interface BattlefieldTerritoryTemplate {
 
 export interface BattlefieldDefinition {
   readonly id: BattlefieldId;
+  readonly mode: MatchMode;
   readonly name: string;
   readonly subtitle: string;
   readonly accent: number;
@@ -48,11 +49,19 @@ export interface BotMatchTicket {
 import rawBattlefields from '../../../apps/server-nakama/battlefields.json' with { type: 'json' };
 
 export const DEFAULT_BATTLEFIELD_ID: BattlefieldId = 'crown_cross';
+export const DEFAULT_MATCH_MODE: MatchMode = '1v1';
+
+export function normalizeBattlefieldMode(value: unknown): MatchMode {
+  if (value === undefined) return DEFAULT_MATCH_MODE;
+  if (value === '1v1' || value === '2v2') return value;
+  throw new Error(`Invalid battlefield mode: ${String(value)}`);
+}
 
 export const BATTLEFIELDS: readonly BattlefieldDefinition[] = Object.freeze(
-  (rawBattlefields as unknown as readonly BattlefieldDefinition[]).map((b) =>
+  (rawBattlefields as unknown as readonly (Omit<BattlefieldDefinition, 'mode'> & { readonly mode?: unknown })[]).map((b) =>
     Object.freeze({
       ...b,
+      mode: normalizeBattlefieldMode(b.mode),
       visual: Object.freeze({ ...b.visual }),
       territories: Object.freeze(b.territories.map((t) => Object.freeze({ ...t }))),
       roads: Object.freeze(b.roads.map((r) => Object.freeze([r[0], r[1]]) as unknown as RoadConnection)),
@@ -84,6 +93,7 @@ export function createLocalBotMatchTicket(now = Date.now()): BotMatchTicket {
  * Throws a descriptive Error if any invariant fails.
  */
 export function validateBattlefieldDefinition(definition: BattlefieldDefinition): void {
+  normalizeBattlefieldMode(definition.mode);
   if (definition.visual.motif !== definition.id) {
     throw new Error(`Battlefield "${definition.id}" must use matching visual motif`);
   }

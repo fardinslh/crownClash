@@ -1,5 +1,34 @@
 package main
 
+type MatchMode string
+
+const (
+	MatchMode1v1 MatchMode = "1v1"
+	MatchMode2v2 MatchMode = "2v2"
+)
+
+type Slot uint8
+
+const (
+	Slot0 Slot = iota
+	Slot1
+	Slot2
+	Slot3
+)
+
+type TeamID string
+
+const (
+	TeamIDA TeamID = "a"
+	TeamIDB TeamID = "b"
+)
+
+const (
+	MatchSchemaVersion1       = 1
+	MatchSchemaVersion2       = 2
+	CurrentMatchSchemaVersion = MatchSchemaVersion1
+)
+
 type PlayerCareer struct {
 	PlayerID              string `json:"playerId"`
 	Coins                 int    `json:"coins"`

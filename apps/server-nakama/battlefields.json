@@ -1,6 +1,7 @@
 [
   {
     "id": "crown_cross",
+    "mode": "1v1",
     "name": "Crown Cross",
     "subtitle": "Control the central keep",
     "accent": 16096779,
@@ -37,6 +38,7 @@
   },
   {
     "id": "twin_passes",
+    "mode": "1v1",
     "name": "Twin Passes",
     "subtitle": "Fast towers rule the flanks",
     "accent": 3718648,
@@ -65,6 +67,7 @@
   },
   {
     "id": "royal_ring",
+    "mode": "1v1",
     "name": "Royal Ring",
     "subtitle": "Choose your attack lane",
     "accent": 10980346,

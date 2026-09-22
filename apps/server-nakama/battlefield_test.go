@@ -87,6 +87,22 @@ func TestBattlefieldLayoutsStaySymmetricAndDistinct(t *testing.T) {
 	}
 }
 
+func TestBattlefieldModes(t *testing.T) {
+	for id, definition := range authoritativeBattlefields {
+		if definition.Mode != MatchMode1v1 {
+			t.Fatalf("%s: expected mode %q, got %q", id, MatchMode1v1, definition.Mode)
+		}
+	}
+
+	mode, err := normalizeBattlefieldMode("")
+	if err != nil || mode != MatchMode1v1 {
+		t.Fatalf("legacy mode should default to %q: mode=%q err=%v", MatchMode1v1, mode, err)
+	}
+	if _, err := normalizeBattlefieldMode("3v3"); err == nil {
+		t.Fatal("unknown battlefield mode should be rejected")
+	}
+}
+
 func TestBattlefieldAuthoritativeFieldParity(t *testing.T) {
 	for id, def := range authoritativeBattlefields {
 		territories := CreateTerritoriesForBattlefield(DefaultModifiers(), DefaultModifiers(), id)
