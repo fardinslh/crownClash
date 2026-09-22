@@ -21,14 +21,18 @@ import { fileURLToPath } from 'node:url';
  * 4. Teammate dispatch from a shared team base is accepted with per-slot
  *    sequence 0 and reaches both teammates' authoritative state.
  * 5. Cross-team dispatch (from an enemy-owned base) is rejected with
- *    invalid_source; stale and gap sequences rejected with invalid_sequence.
- * 6. Both team-B players surrender; the whole team forfeits; all four
- *    receive one OP_MATCH_RESULT with per-participant settlements
+ *    invalid_dispatch; stale and gap sequences rejected with invalid_sequence.
+ * 6. Slot-preserving reconnect: an unexpected socket drop, a fresh
+ *    socket/session rejoining within the 30 s grace, the same slot/team
+ *    restored, nextSequence restored, a full authoritative resync snapshot,
+ *    a stale sequence rejected, and the next correct sequence accepted.
+ * 7. Both team-B players surrender; the whole team forfeits; the connected
+ *    players receive one OP_MATCH_RESULT with per-participant settlements
  *    (winnerTeamId 'a').
- * 7. PostgreSQL inspection: exactly 4 match_settlements_multi rows,
+ * 8. PostgreSQL inspection: exactly 4 match_settlements_multi rows,
  *    exactly 1 match_replays row (mode 2v2, JSONB payload present), and
  *    exactly one coins ledger entry per participant (no trophy entries).
- * 8. Self-cleaning account/record removal in `finally`.
+ * 9. Self-cleaning account/record removal in `finally`.
  */
 
 const NAKAMA_HOST = process.env.NAKAMA_HOST || '127.0.0.1';
@@ -259,7 +263,10 @@ async function runSmokeTest() {
     }
     console.log('  Four lying tickets submitted; waiting for the pool to complete...');
 
-    for (let i = 0; i < 100; i++) {
+    // Nakama's matchmaker cadence can exceed 10s on a cold or contended CI
+    // runner. Keep this above the client's 15s queue boundary so the smoke
+    // test measures correctness rather than scheduler timing.
+    for (let i = 0; i < 300; i++) {
       if (matchedIds.filter(Boolean).length === PLAYER_COUNT) break;
       await sleep(100);
     }
@@ -297,6 +304,7 @@ async function runSmokeTest() {
     // Slot assignment is draft-based (trophies, then user id), not join
     // order: index the collectors by their authoritative slot.
     const bySlot = [];
+    const slotsByClient = [];
     const seenSlots = new Set();
     for (let i = 0; i < PLAYER_COUNT; i++) {
       assert(collectors[i].started, `Player ${i + 1} did not receive OP_MATCH_STARTED`);
@@ -310,6 +318,7 @@ async function runSmokeTest() {
       assert(!seenSlots.has(started.slot) && started.slot >= 0 && started.slot < 4, `Player ${i + 1} invalid slot ${started.slot}`);
       seenSlots.add(started.slot);
       bySlot[started.slot] = i;
+      slotsByClient[i] = started.slot;
       const teamIds = started.players.map((p) => p.teamId).sort();
       assert(JSON.stringify(teamIds) === JSON.stringify(['a', 'a', 'b', 'b']), `Team distribution wrong: ${teamIds}`);
       assert(started.teamId === (started.slot < 2 ? 'a' : 'b'), `Player ${i + 1} teamId = ${started.teamId} for slot ${started.slot}`);
@@ -382,12 +391,73 @@ async function runSmokeTest() {
     assert(crossTeam, 'Cross-team dispatch was not rejected with invalid_dispatch');
     assert(stale, 'Stale sequence (0) was not rejected with invalid_sequence');
     assert(gap, 'Sequence gap (99) was not rejected with invalid_sequence');
-    console.log('  invalid_source and invalid_sequence rejections verified.\n');
+    console.log('  invalid_dispatch and invalid_sequence rejections verified.\n');
+
+    // ------------------------------------------------------------------
+    // Scenario 5: slot-preserving reconnect within the 30 s grace window
+    // ------------------------------------------------------------------
+    console.log('[SCENARIO 5] Unexpected drop + reconnect restores the slot...');
+    const reconnectClientIndex = bySlot[0];
+    const reconnectSession = sessions[reconnectClientIndex];
+    const reconnectStarted = collectors[reconnectClientIndex].started;
+    const oldSocket = sockets[reconnectClientIndex];
+
+    // Slot 0 has consumed exactly sequence 0 (accepted in scenario 3).
+    console.log(`  Disconnecting slot 0 (player ${reconnectClientIndex + 1}) unexpectedly...`);
+    oldSocket.disconnect(false);
+
+    // Fresh socket on the SAME authenticated session, inside the grace.
+    const reconnectedSocket = clients[reconnectClientIndex].createSocket(NAKAMA_SSL, false);
+    openedSockets.add(reconnectedSocket);
+    await reconnectedSocket.connect(reconnectSession, false);
+    const reconnectCollector = createCollector(reconnectedSocket);
+    collectors[reconnectClientIndex] = reconnectCollector;
+    sockets[reconnectClientIndex] = reconnectedSocket;
+
+    await reconnectedSocket.joinMatch(rawMatchId);
+    console.log('  Rejoined the same match on a brand-new socket.');
+
+    for (let i = 0; i < 60; i++) {
+      if (reconnectCollector.started) break;
+      await sleep(100);
+    }
+    assert(reconnectCollector.started, 'Reconnected slot did not receive the v2 resync (OP_MATCH_STARTED)');
+    const resync = reconnectCollector.started;
+    assert(resync.schemaVersion === 2, `Resync schemaVersion = ${resync.schemaVersion}, want 2`);
+    assert(resync.matchId === matchId, `Resync matchId mismatch: ${resync.matchId}`);
+    assert(resync.slot === reconnectStarted.slot, `Resync slot = ${resync.slot}, want ${reconnectStarted.slot}`);
+    assert(resync.teamId === reconnectStarted.teamId, `Resync teamId = ${resync.teamId}, want ${reconnectStarted.teamId}`);
+    assert(resync.nextSequence === 1, `Resync nextSequence = ${resync.nextSequence}, want 1 (sequence 0 accepted pre-drop)`);
+    assert(
+      resync.players.length === 4 &&
+      JSON.stringify(resync.players.map((p) => p.slot).sort()) === JSON.stringify([0, 1, 2, 3]),
+      'Resync roster must contain all four slots'
+    );
+    assert(resync.state && resync.state.territories && Object.keys(resync.state.territories).length >= 13, 'Resync state must be a full authoritative snapshot');
+    console.log(`  Same slot/team restored; nextSequence=${resync.nextSequence}; full snapshot received.`);
+
+    // A stale pre-disconnect sequence is rejected on the new session.
+    await reconnectedSocket.sendMatchState(rawMatchId, 1, JSON.stringify({
+      schemaVersion: 2, type: 'dispatch', sequence: 0, sourceId, targetId,
+    }));
+    // The next correct sequence is accepted.
+    await reconnectedSocket.sendMatchState(rawMatchId, 1, JSON.stringify({
+      schemaVersion: 2, type: 'dispatch', sequence: 1, sourceId, targetId,
+    }));
+    for (let i = 0; i < 50; i++) {
+      if (reconnectCollector.rejected.length > 0 && reconnectCollector.accepted.length > 0) break;
+      await sleep(100);
+    }
+    const staleReconnect = reconnectCollector.rejected.find((r) => r.code === 'invalid_sequence' && r.sequence === 0);
+    const acceptedReconnect = reconnectCollector.accepted.find((r) => r.sequence === 1);
+    assert(staleReconnect, 'Stale post-reconnect sequence 0 was not rejected');
+    assert(acceptedReconnect, 'Post-reconnect sequence 1 was not accepted');
+    console.log('  Stale sequence rejected; next correct sequence accepted.\n');
 
     // ------------------------------------------------------------------
     // Scenario 6: team-B double surrender forfeits the team
     // ------------------------------------------------------------------
-    console.log('[SCENARIO 5] Both team-B players surrender (team forfeit)...');
+    console.log('[SCENARIO 6] Both team-B players surrender (team forfeit)...');
     for (const slot of [2, 3]) {
       await sockets[bySlot[slot]].sendMatchState(rawMatchId, 1, JSON.stringify({
         schemaVersion: 2, type: 'surrender', sequence: 0,
@@ -422,7 +492,7 @@ async function runSmokeTest() {
     // ------------------------------------------------------------------
     // Scenario 7: PostgreSQL verification (4 settlements + replay + ledger)
     // ------------------------------------------------------------------
-    console.log('[SCENARIO 6] PostgreSQL verification of atomic multi-settlement...');
+    console.log('[SCENARIO 7] PostgreSQL verification of atomic multi-settlement...');
     const settleCount = parseInt(
       queryPostgres(`SELECT COUNT(*) FROM match_settlements_multi WHERE match_id = '${matchId}';`).trim(),
       10

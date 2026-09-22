@@ -284,6 +284,112 @@ describe('Adverse Network & Lifecycle Verification with Real Modules', () => {
     });
   });
 
+  describe('LiveMatchClient 2v2 protocol immunity (Phase 4)', () => {
+    const encoder = new TextEncoder();
+
+    function createMock2v2Socket() {
+      const socket: any = {
+        onmatchdata: null,
+        onmatchmakermatched: null,
+        ondisconnect: null,
+        sendMatchState: vi.fn().mockResolvedValue(undefined),
+        joinMatch: vi.fn().mockResolvedValue(undefined),
+        leaveMatch: vi.fn().mockResolvedValue(undefined),
+        removeMatchmaker: vi.fn().mockResolvedValue(undefined),
+        addMatchmaker: vi.fn().mockResolvedValue({ ticket: 'ticket-2v2' }),
+        disconnect: vi.fn(),
+      };
+      return socket;
+    }
+
+    function create2v2Fixture() {
+      const mockSocket = createMock2v2Socket();
+      const client = new LiveMatchClient(mockSocket, { flags: { enable2v2: true } });
+      return { client, mockSocket };
+    }
+
+    function start2v2Match(
+      client: LiveMatchClient,
+      mockSocket: ReturnType<typeof createMock2v2Socket>
+    ): void {
+      void client.connect('queue_2v2');
+      mockSocket.onmatchmakermatched?.({ match_id: 'raw-2v2.crownclash', token: 'tok' });
+      mockSocket.onmatchdata?.({
+        op_code: 2,
+        data: encoder.encode(JSON.stringify({
+          schemaVersion: 2, type: 'match_started', matchId: 'live2v2_aabb_1', mode: '2v2',
+          slot: 0, teamId: 'a', nextSequence: 3,
+          players: [
+            { slot: 0, teamId: 'a', userId: 'me', displayName: 'Me' },
+            { slot: 1, teamId: 'a', userId: 'u1', displayName: 'P1' },
+            { slot: 2, teamId: 'b', userId: 'u2', displayName: 'P2' },
+            { slot: 3, teamId: 'b', userId: 'u3', displayName: 'P3' },
+          ],
+          state: { status: 'playing', territories: {}, armies: [], elapsedTimeSeconds: 0 },
+        })),
+      });
+    }
+
+    it('malformed and wrong-schema v2 messages fail closed without mutating an active match', () => {
+      const { client, mockSocket } = create2v2Fixture();
+      start2v2Match(client, mockSocket);
+
+      const events: unknown[] = [];
+      client.on('state_2v2', (payload) => events.push(payload));
+      client.on('match_started_2v2', (payload) => events.push(payload));
+      client.on('match_result_2v2', (payload) => events.push(payload));
+      client.on('state', (payload) => events.push(payload));
+      client.on('match_started', (payload) => events.push(payload));
+
+      // Malformed JSON frames on the v2 opcodes.
+      mockSocket.onmatchdata({ op_code: 3, data: encoder.encode('{{{') });
+      mockSocket.onmatchdata({ op_code: 2, data: encoder.encode('null') });
+      // Wrong schema version (legacy 1v1 shape) on a 2v2 session.
+      mockSocket.onmatchdata({
+        op_code: 3,
+        data: encoder.encode(JSON.stringify({ state: { status: 'playing', territories: {}, armies: [] } })),
+      });
+      // Wrong-schema result with an impossible participant set.
+      mockSocket.onmatchdata({
+        op_code: 7,
+        data: encoder.encode(JSON.stringify({
+          schemaVersion: 2, type: 'match_result',
+          result: { matchId: 'live2v2_aabb_1', mode: '2v2', participants: [] },
+        })),
+      });
+
+      expect(events).toEqual([]);
+      client.close();
+    });
+
+    it('a disconnected 2v2 socket surfaces reconnecting, and terminal failure without a transport', async () => {
+      vi.useFakeTimers();
+      try {
+        const { client, mockSocket } = create2v2Fixture();
+        start2v2Match(client, mockSocket);
+
+        const failures: Array<{ matchId: string; code: string }> = [];
+        const closed: boolean[] = [];
+        client.on('reconnect_failed', (payload) => failures.push(payload));
+        client.on('closed', () => closed.push(true));
+
+        mockSocket.ondisconnect(new Event('close'));
+        await vi.advanceTimersByTimeAsync(30_000);
+
+        // No reconnect transport configured: terminal immediately, and the
+        // legacy 'closed' event is not emitted for an active 2v2 session.
+        expect(failures.length).toBe(1);
+        expect(failures[0].code).toBe('reconnect_unavailable');
+        expect(closed).toEqual([]);
+        // Post-abandon dispatch fails closed.
+        expect(() => client.sendDispatch('a_base_w', 'a_gate_w')).toThrow('two_v2_not_active');
+        client.close();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   describe('Real Adverse Network Tracking in PerformanceMonitor', () => {
     it('measures drops, reconnects, and backgrounding durations accurately', () => {
       let mockTime = 2000;

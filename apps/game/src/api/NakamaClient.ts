@@ -233,7 +233,19 @@ export class NakamaClient implements CareerApi {
     if (!this.socket) {
       throw new StaleSocketError('live_socket_not_connected');
     }
-    return new LiveMatchClient(this.socket);
+    return new LiveMatchClient(this.socket, {
+      // Opens a brand-new connected socket for the same authenticated
+      // session so an active 2v2 match can rejoin within the server's
+      // grace window after unexpected socket loss.
+      reconnectTransport: async () => {
+        if (!this.session) {
+          throw new StaleSocketError('live_socket_not_connected');
+        }
+        const socket = this.client.createSocket(this.useSSL, false);
+        await socket.connect(this.session, false);
+        return socket;
+      },
+    });
   }
 
   public isAuthenticated(): boolean {

@@ -3,6 +3,7 @@ import {
   createInitial2v2GameState,
   simulationOwnerForSlot,
   TWO_V_TWO_SLOTS,
+  teamIdForSlot,
   type CreateTwoVTwoInitialStateOptions,
 } from './init2v2.js';
 import { MAX_PVP_ACTIONS, PVP_SIMULATION_TICK_SECONDS } from './pvp.js';
@@ -10,8 +11,11 @@ import { stepSimulation } from './simulation.js';
 import {
   MATCH_SCHEMA_VERSION_2,
   type GameState,
+  type MatchStats,
   type Slot,
+  type TeamId,
 } from './types.js';
+import type { MatchSettlement } from './progression.js';
 
 export interface CanonicalTwoVTwoAction {
   readonly schemaVersion: typeof MATCH_SCHEMA_VERSION_2;
@@ -214,4 +218,278 @@ function compareCanonicalActions(
     left.slot - right.slot ||
     left.clientSeq - right.clientSeq
   );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Version-2 wire protocol (docs/2v2-architecture.md §3.3, Phase 4).
+//
+// Envelope-layer types shared by the client networking code. The simulation's
+// two-sided team model is intentionally untouched: slots and teams live only
+// here. Every inbound payload must pass the validators below before a client
+// mutates match state (fail closed).
+// ───────────────────────────────────────────────────────────────────────────
+
+export const TWO_V_TWO_MATCH_MODE = '2v2' as const;
+
+export interface TwoVTwoRosterEntry {
+  readonly slot: Slot;
+  readonly teamId: TeamId;
+  readonly userId: string;
+  readonly displayName: string;
+}
+
+/** Opcode 2 — authoritative match start and reconnect resync snapshot. */
+export interface TwoVTwoMatchStartedPayload {
+  readonly matchId: string;
+  readonly mode: typeof TWO_V_TWO_MATCH_MODE;
+  readonly slot: Slot;
+  readonly teamId: TeamId;
+  readonly nextSequence: number;
+  readonly players: readonly TwoVTwoRosterEntry[];
+  readonly state: GameState;
+}
+
+/** Opcode 3 — per-tick authoritative state (per-perspective projection). */
+export interface TwoVTwoStatePayload {
+  readonly tick: number;
+  readonly state: GameState;
+}
+
+/** Opcode 5 — the slot's command was accepted into the canonical log. */
+export interface TwoVTwoCommandAcceptedPayload {
+  readonly sequence: number;
+  readonly slot: Slot;
+}
+
+/** Opcode 6 — the slot's command was rejected without side effects. */
+export interface TwoVTwoCommandRejectedPayload {
+  readonly sequence: number;
+  readonly code: string;
+}
+
+export type TwoVTwoParticipantStatus = 'victory' | 'defeat' | 'draw';
+
+export interface TwoVTwoParticipantResult {
+  readonly slot: Slot;
+  readonly teamId: TeamId;
+  readonly userId: string;
+  readonly status: TwoVTwoParticipantStatus;
+  readonly stats?: MatchStats;
+  readonly abandoned?: boolean;
+  readonly settlement?: MatchSettlement;
+}
+
+/** Opcode 7 — atomic per-participant result, or a cancelled match. */
+export interface TwoVTwoMatchResultPayload {
+  readonly matchId: string;
+  readonly mode: typeof TWO_V_TWO_MATCH_MODE;
+  readonly winnerTeamId?: TeamId;
+  readonly outcome?: 'cancelled';
+  readonly participants?: readonly TwoVTwoParticipantResult[];
+}
+
+/** Opcode 2 — all four voted rematch; the id joins the fresh match. */
+export interface TwoVTwoRematchStartedPayload {
+  readonly matchId: string;
+}
+
+/** Opcode 8 — terminal server error (e.g. settlement_failed). */
+export interface TwoVTwoErrorPayload {
+  readonly code: string;
+}
+
+export type TwoVTwoServerMessage =
+  | { readonly kind: 'match_started'; readonly payload: TwoVTwoMatchStartedPayload }
+  | { readonly kind: 'state'; readonly payload: TwoVTwoStatePayload }
+  | { readonly kind: 'command_accepted'; readonly payload: TwoVTwoCommandAcceptedPayload }
+  | { readonly kind: 'command_rejected'; readonly payload: TwoVTwoCommandRejectedPayload }
+  | { readonly kind: 'match_result'; readonly payload: TwoVTwoMatchResultPayload }
+  | { readonly kind: 'rematch_started'; readonly payload: TwoVTwoRematchStartedPayload }
+  | { readonly kind: 'error'; readonly payload: TwoVTwoErrorPayload };
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const isGameState = (value: unknown): value is GameState =>
+  isPlainObject(value) &&
+  typeof value.status === 'string' &&
+  isPlainObject(value.territories) &&
+  Array.isArray(value.armies);
+
+const isFiniteInt = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+
+const parseMatchStats = (value: unknown): MatchStats | undefined =>
+  isPlainObject(value) && typeof value.matchDurationSeconds === 'number'
+    ? (value as unknown as MatchStats)
+    : undefined;
+
+const parseSettlement = (value: unknown): MatchSettlement | undefined =>
+  isPlainObject(value) && typeof value.matchId === 'string'
+    ? (value as unknown as MatchSettlement)
+    : undefined;
+
+const parseSlot = (value: unknown): Slot | null =>
+  isFiniteInt(value) && TWO_V_TWO_SLOTS.includes(value as Slot) ? (value as Slot) : null;
+
+const parseRoster = (value: unknown): readonly TwoVTwoRosterEntry[] | null => {
+  if (!Array.isArray(value) || value.length !== TWO_V_TWO_SLOTS.length) return null;
+  const seen = new Set<number>();
+  const roster: TwoVTwoRosterEntry[] = [];
+  for (const entry of value) {
+    if (!isPlainObject(entry)) return null;
+    const slot = parseSlot(entry.slot);
+    if (slot === null || seen.has(slot)) return null;
+    seen.add(slot);
+    const userId = entry.userId;
+    if (typeof userId !== 'string' || !userId) return null;
+    const displayName = entry.displayName;
+    if (typeof displayName !== 'string') return null;
+    if (entry.teamId !== teamIdForSlot(slot)) return null;
+    roster.push({ slot, teamId: teamIdForSlot(slot), userId, displayName });
+  }
+  return roster;
+};
+
+/**
+ * Validates an inbound version-2 server payload. Returns null for any
+ * malformed, wrong-schema, or impossible message: callers must fail closed
+ * without touching match state.
+ */
+export function parseTwoVTwoServerMessage(raw: unknown): TwoVTwoServerMessage | null {
+  if (!isPlainObject(raw)) return null;
+  if (raw.schemaVersion !== MATCH_SCHEMA_VERSION_2) return null;
+  if (typeof raw.type !== 'string') return null;
+
+  switch (raw.type) {
+    case 'match_started': {
+      if (typeof raw.matchId !== 'string' || !raw.matchId) return null;
+      if (raw.mode !== TWO_V_TWO_MATCH_MODE) return null;
+      const slot = parseSlot(raw.slot);
+      if (slot === null || raw.teamId !== teamIdForSlot(slot)) return null;
+      if (!isFiniteInt(raw.nextSequence)) return null;
+      const players = parseRoster(raw.players);
+      if (!players) return null;
+      if (!isGameState(raw.state)) return null;
+      return {
+        kind: 'match_started',
+        payload: {
+          matchId: raw.matchId,
+          mode: TWO_V_TWO_MATCH_MODE,
+          slot,
+          teamId: teamIdForSlot(slot),
+          nextSequence: raw.nextSequence,
+          players,
+          state: raw.state,
+        },
+      };
+    }
+    case 'state': {
+      if (!isFiniteInt(raw.tick)) return null;
+      if (!isGameState(raw.state)) return null;
+      return { kind: 'state', payload: { tick: raw.tick, state: raw.state } };
+    }
+    case 'command_accepted': {
+      if (!isFiniteInt(raw.sequence)) return null;
+      const slot = parseSlot(raw.slot);
+      if (slot === null) return null;
+      return { kind: 'command_accepted', payload: { sequence: raw.sequence, slot } };
+    }
+    case 'command_rejected': {
+      if (!isFiniteInt(raw.sequence)) return null;
+      if (typeof raw.code !== 'string' || !raw.code) return null;
+      // The server rejects on behalf of the sender (slot is advisory and can
+      // be -1); only the sequence and code are contractual.
+      return { kind: 'command_rejected', payload: { sequence: raw.sequence, code: raw.code } };
+    }
+    case 'match_result': {
+      if (!isPlainObject(raw.result)) return null;
+      const result = raw.result;
+      if (typeof result.matchId !== 'string' || !result.matchId) return null;
+      if (result.mode !== TWO_V_TWO_MATCH_MODE) return null;
+      if (result.outcome === 'cancelled') {
+        return {
+          kind: 'match_result',
+          payload: { matchId: result.matchId, mode: TWO_V_TWO_MATCH_MODE, outcome: 'cancelled' },
+        };
+      }
+      if (!Array.isArray(result.participants) || result.participants.length !== TWO_V_TWO_SLOTS.length) {
+        return null;
+      }
+      const participants: TwoVTwoParticipantResult[] = [];
+      const seenParticipantSlots = new Set<Slot>();
+      const seenParticipantUsers = new Set<string>();
+      for (const entry of result.participants) {
+        if (!isPlainObject(entry)) return null;
+        const slot = parseSlot(entry.slot);
+        if (slot === null || entry.teamId !== teamIdForSlot(slot)) return null;
+        if (typeof entry.userId !== 'string' || !entry.userId) return null;
+        if (seenParticipantSlots.has(slot) || seenParticipantUsers.has(entry.userId)) return null;
+        seenParticipantSlots.add(slot);
+        seenParticipantUsers.add(entry.userId);
+        if (
+          entry.status !== 'victory' &&
+          entry.status !== 'defeat' &&
+          entry.status !== 'draw'
+        ) {
+          return null;
+        }
+        participants.push({
+          slot,
+          teamId: teamIdForSlot(slot),
+          userId: entry.userId,
+          status: entry.status,
+          stats: parseMatchStats(entry.stats),
+          abandoned: typeof entry.abandoned === 'boolean' ? entry.abandoned : undefined,
+          settlement: parseSettlement(entry.settlement),
+        });
+      }
+      let winnerTeamId: TeamId | undefined;
+      if (result.winnerTeamId !== undefined) {
+        if (result.winnerTeamId !== 'a' && result.winnerTeamId !== 'b') return null;
+        winnerTeamId = result.winnerTeamId;
+      }
+      return {
+        kind: 'match_result',
+        payload: {
+          matchId: result.matchId,
+          mode: TWO_V_TWO_MATCH_MODE,
+          winnerTeamId,
+          participants,
+        },
+      };
+    }
+    case 'rematch_started': {
+      if (typeof raw.matchId !== 'string' || !raw.matchId) return null;
+      return { kind: 'rematch_started', payload: { matchId: raw.matchId } };
+    }
+    case 'error': {
+      if (typeof raw.code !== 'string' || !raw.code) return null;
+      return { kind: 'error', payload: { code: raw.code } };
+    }
+    default:
+      return null;
+  }
+}
+
+// Client → server (opcode 1). Every payload carries schemaVersion 2.
+
+export function createTwoVTwoDispatchMessage(
+  sequence: number,
+  sourceId: string,
+  targetId: string
+): string {
+  return JSON.stringify({ schemaVersion: MATCH_SCHEMA_VERSION_2, type: 'dispatch', sequence, sourceId, targetId });
+}
+
+export function createTwoVTwoReadyMessage(): string {
+  return JSON.stringify({ schemaVersion: MATCH_SCHEMA_VERSION_2, type: 'ready' });
+}
+
+export function createTwoVTwoSurrenderMessage(): string {
+  return JSON.stringify({ schemaVersion: MATCH_SCHEMA_VERSION_2, type: 'surrender' });
+}
+
+export function createTwoVTwoRematchVoteMessage(): string {
+  return JSON.stringify({ schemaVersion: MATCH_SCHEMA_VERSION_2, type: 'rematch_vote' });
 }

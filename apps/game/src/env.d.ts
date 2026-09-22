@@ -9,6 +9,7 @@ interface ImportMetaEnv {
   readonly VITE_NAKAMA_SSL?: string;
   readonly VITE_NAKAMA_SERVER_KEY?: string;
   readonly VITE_ALLOW_LOCAL_FALLBACK?: string;
+  readonly VITE_ENABLE_2V2?: string;
 }
 
 interface ImportMeta {
