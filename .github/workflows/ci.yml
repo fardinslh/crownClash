@@ -63,8 +63,17 @@ jobs:
         run: go test ./...
         working-directory: apps/server-nakama
 
+      - name: Build production Nakama plugin
+        run: go build -trimpath -buildmode=plugin -o /tmp/crownclash.so .
+        working-directory: apps/server-nakama
+
       - name: Cross-engine bot parity (TypeScript vs real Go replay)
         run: npm run test:parity
+        env:
+          CROSS_ENGINE_GO_MODE: host
+
+      - name: Cross-engine 2v2 parity (TypeScript vs real Go replay)
+        run: npm run test:parity:2v2
         env:
           CROSS_ENGINE_GO_MODE: host
 

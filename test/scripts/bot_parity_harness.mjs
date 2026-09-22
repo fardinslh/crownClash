@@ -178,6 +178,10 @@ function snapshotState(state, accumulators) {
   return { territories, armies, accumulators: { ...accumulators } };
 }
 
+// Exported for the 2v2 cross-engine harness (bot_parity_2v2_crosscheck.mjs),
+// whose checkpoints use the identical snapshot structure.
+export { snapshotState };
+
 /**
  * Mirrors core.simulatePvpBattle exactly, adding state checkpoints after each
  * AI tick, each player action, and at the end. Its final summary is asserted

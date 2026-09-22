@@ -295,6 +295,10 @@ const FLOAT_TOLERANCE = 1e-9;
 // (units, owners, army identity), which are always compared exactly.
 const FLOAT_ABSOLUTE_FLOOR = 1e-12;
 
+// Exported for the 2v2 cross-engine harness (bot_parity_2v2_crosscheck.mjs),
+// which compares checkpoints with the identical structure and tolerances.
+export { FLOAT_TOLERANCE, FLOAT_ABSOLUTE_FLOOR, compareFloat, compareCheckpoint };
+
 function compareFloat(field, a, b, drifts, scenarioId, location) {
   if (a === b) return;
   const absolute = Math.abs(a - b);
