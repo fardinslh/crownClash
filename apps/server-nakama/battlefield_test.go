@@ -89,8 +89,12 @@ func TestBattlefieldLayoutsStaySymmetricAndDistinct(t *testing.T) {
 
 func TestBattlefieldModes(t *testing.T) {
 	for id, definition := range authoritativeBattlefields {
-		if definition.Mode != MatchMode1v1 {
-			t.Fatalf("%s: expected mode %q, got %q", id, MatchMode1v1, definition.Mode)
+		want := MatchMode1v1
+		if id == "quad_citadel" {
+			want = MatchMode2v2
+		}
+		if definition.Mode != want {
+			t.Fatalf("%s: expected mode %q, got %q", id, want, definition.Mode)
 		}
 	}
 

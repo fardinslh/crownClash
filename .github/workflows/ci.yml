@@ -8,8 +8,9 @@
 #   shared simulation decision boundaries).
 # Job 2 (real-stack): boots the repository Docker Compose Nakama/PostgreSQL
 #   stack from the checked-out source, waits deterministically for health, and
-#   runs the real-stack regression suites (live PvP smoke + bot settlement
-#   parity). Prints compose logs on failure and always tears the stack down.
+#   runs the real-stack regression suites (live 1v1 + 2v2 smoke and bot
+#   settlement parity). Prints compose logs on failure and always tears the
+#   stack down.
 #
 # The pinned versions mirror the development toolchain: Node 26 (current
 # release line, verified with 26.8.x) and Go 1.26.5 (must match the Nakama
@@ -91,6 +92,7 @@ jobs:
       # regression suites authenticate browser test players, and compose
       # requires an explicit console password.
       ALLOW_GUEST_AUTH: 'true'
+      ENABLE_2V2: 'true'
       NAKAMA_CONSOLE_PASSWORD: ci-stack-console-password
     steps:
       - name: Check out repository
@@ -129,6 +131,9 @@ jobs:
 
       - name: Live PvP smoke suite (real stack)
         run: npm run test:smoke
+
+      - name: Live 2v2 smoke suite (real stack)
+        run: npm run test:smoke:2v2
 
       - name: Bot settlement parity suite (real stack)
         run: npm run test:bot

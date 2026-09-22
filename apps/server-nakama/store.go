@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/heroiclabs/nakama-common/runtime"
@@ -28,6 +30,7 @@ var (
 	ErrCommanderLocked          = errors.New("commander_locked")
 	ErrBotMatchNotFound         = errors.New("bot_match_not_found")
 	ErrBotMatchOwnership        = errors.New("bot_match_owned_by_another_player")
+	ErrPartial2v2Settlement     = errors.New("partial_2v2_settlement")
 )
 
 type Store struct {
@@ -369,6 +372,273 @@ func (s *Store) SettleMatchVerified(ctx context.Context, userID, matchID string,
 		Modifiers:        modifiers,
 		ActionsProcessed: summary.ActionsProcessed,
 	}, nil
+}
+
+// TwoVTwoParticipantOutcome carries the authoritative per-slot settlement
+// inputs derived by the 2v2 match handler. The client never supplies any of
+// these values (docs/2v2-architecture.md §9.3).
+type TwoVTwoParticipantOutcome struct {
+	Slot      int
+	UserID    string
+	TeamID    TeamID
+	Status    string // team result from the canonical (team A) perspective, already role-swapped
+	Stats     MatchStats
+	Abandoned bool // grace-expired or explicitly surrendered at settlement time
+}
+
+// Settle2v2Request is the complete atomic settlement input for one 2v2
+// match: four participant outcomes plus the authoritative replay payload.
+type Settle2v2Request struct {
+	MatchID       string
+	BattlefieldID string
+	ReplayPayload json.RawMessage
+	Participants  [live2v2MaxPlayers]TwoVTwoParticipantOutcome
+}
+
+// SettleMatch2v2 settles all four participants and inserts exactly one
+// replay row in ONE SQL transaction (docs/2v2-architecture.md §9.3):
+//
+//   - the complete participant set is validated before any mutation;
+//   - all four careers are locked in one statement, in stable user-ID order,
+//     so concurrent matches sharing participants can never deadlock;
+//   - the stored-settlement check runs again inside the lock;
+//   - every participant settles through SettleMatchWithPolicy with the
+//     casual policy; abandoned/surrendered slots receive the reduced
+//     consolation (defeat-tier coins, zero trophies) first;
+//   - ledger entry ids are per-participant (matchID_userID_currency_ts) —
+//     the 1v1 id format would collide across four participants settled in
+//     the same millisecond and silently drop rows on ON CONFLICT DO NOTHING;
+//   - the replay row commits with the settlements or not at all;
+//   - duplicate settlement calls return the stored results; a partial
+//     stored set (1-3 rows) fails closed.
+func (s *Store) SettleMatch2v2(ctx context.Context, request Settle2v2Request) ([]MatchSettlement, error) {
+	if err := validateSettle2v2Request(request); err != nil {
+		return nil, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	// 1. Idempotent fast path: a fully stored settlement returns its rows.
+	stored, err := findStored2v2Settlements(ctx, tx, request.MatchID)
+	if err != nil {
+		return nil, err
+	}
+	if stored != nil {
+		return stored, nil
+	}
+
+	// 2. Lock all four careers in ONE statement in stable user-ID order.
+	userIDs := make([]string, 0, live2v2MaxPlayers)
+	for _, participant := range request.Participants {
+		userIDs = append(userIDs, participant.UserID)
+	}
+	sort.Strings(userIDs)
+	careers, err := getCareersForUpdate(ctx, tx, userIDs)
+	if err != nil {
+		return nil, err
+	}
+	// 3. Re-check inside the lock (check-then-act under lock, as in 1v1).
+	stored, err = findStored2v2Settlements(ctx, tx, request.MatchID)
+	if err != nil {
+		return nil, err
+	}
+	if stored != nil {
+		return stored, nil
+	}
+
+	// 4-6. Settle each participant, persist career + settlements + ledger.
+	settlements := make([]MatchSettlement, 0, live2v2MaxPlayers)
+	for _, participant := range request.Participants {
+		status := participant.Status
+		stats := participant.Stats
+		if participant.Abandoned {
+			// Reduced consolation (§5.3): defeat-tier outcome with zeroed
+			// capture stats, regardless of the team result.
+			status = "defeat"
+			stats = MatchStats{MatchDurationSeconds: stats.MatchDurationSeconds}
+		}
+		career := careers[participant.UserID]
+		settlement := SettleMatchWithPolicy(career, status, stats, request.MatchID, nowMillis(), CasualPolicy)
+		// Per-participant ledger ids: the 1v1 format (matchID_currency_ts)
+		// would be identical for all four participants and silently drop
+		// colliding rows.
+		for index := range settlement.LedgerEntries {
+			settlement.LedgerEntries[index].ID = settlement.LedgerEntries[index].ID[:0] +
+				request.MatchID + "_" + participant.UserID + "_" + settlement.LedgerEntries[index].Currency + "_" + itoa(settlement.LedgerEntries[index].Timestamp)
+		}
+		if err := persistCareer(ctx, tx, settlement.NewCareer); err != nil {
+			return nil, err
+		}
+		if err := insertLedgerEntries(ctx, tx, settlement.LedgerEntries); err != nil {
+			return nil, err
+		}
+		payload, err := json.Marshal(settlement)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO match_settlements_multi (match_id, user_id, slot, team_id, status, settlement)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			ON CONFLICT (match_id, user_id) DO NOTHING
+		`, request.MatchID, participant.UserID, participant.Slot, string(participant.TeamID), status, payload); err != nil {
+			return nil, err
+		}
+		// 8. Daily missions advance in casual mode (mode-agnostic v1).
+		if err := s.advanceDailyProgress(ctx, tx, participant.UserID, status, stats, s.nowFn()); err != nil {
+			return nil, err
+		}
+		settlements = append(settlements, settlement)
+	}
+
+	// 7. The authoritative replay row commits with the settlements.
+	if len(request.ReplayPayload) == 0 {
+		return nil, errors.New("replay_payload_required")
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO match_replays (match_id, mode, battlefield_id, payload)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (match_id) DO NOTHING
+	`, request.MatchID, string(MatchMode2v2), request.BattlefieldID, []byte(request.ReplayPayload)); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return settlements, nil
+}
+
+// findStored2v2Settlements returns the four stored settlements for a match,
+// or nil when none exist. A PARTIAL stored set (1-3 rows) fails closed: it
+// can only result from manual tampering, since the transaction commits all
+// four rows or none.
+func findStored2v2Settlements(ctx context.Context, tx *sql.Tx, matchID string) ([]MatchSettlement, error) {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT slot, user_id, settlement
+		FROM match_settlements_multi
+		WHERE match_id = $1
+		ORDER BY slot
+	`, matchID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	settlements := make([]MatchSettlement, 0, live2v2MaxPlayers)
+	for rows.Next() {
+		var slot int
+		var userID string
+		var stored []byte
+		if err := rows.Scan(&slot, &userID, &stored); err != nil {
+			return nil, err
+		}
+		var settlement MatchSettlement
+		if err := json.Unmarshal(stored, &settlement); err != nil {
+			return nil, errors.New("invalid_stored_settlement")
+		}
+		settlements = append(settlements, settlement)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(settlements) == 0 {
+		return nil, nil
+	}
+	if len(settlements) != live2v2MaxPlayers {
+		return nil, fmt.Errorf("%w: %d stored settlement rows for match %s", ErrPartial2v2Settlement, len(settlements), matchID)
+	}
+	return settlements, nil
+}
+
+// getCareersForUpdate locks the given users' career rows in one statement,
+// ordered by user ID, and returns them by ID. Ordered locking prevents
+// deadlocks between concurrent matches sharing participants.
+func getCareersForUpdate(ctx context.Context, tx *sql.Tx, userIDs []string) (map[string]PlayerCareer, error) {
+	if len(userIDs) == 0 {
+		return nil, ErrPlayerNotFound
+	}
+	placeholders := make([]string, 0, len(userIDs))
+	args := make([]interface{}, 0, len(userIDs))
+	for index, userID := range userIDs {
+		placeholders = append(placeholders, fmt.Sprintf("$%d", index+1))
+		args = append(args, userID)
+	}
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id, coins, gems, trophies,
+		       starting_garrison_level, production_level, army_speed_level, treasury_level, selected_commander,
+		       matches_played, matches_won, current_streak, best_streak,
+		       last_match_timestamp
+		FROM players
+		WHERE id IN (`+strings.Join(placeholders, ",")+`)
+		ORDER BY id
+		FOR UPDATE
+	`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	careers := make(map[string]PlayerCareer, len(userIDs))
+	for rows.Next() {
+		var value playerRow
+		if err := rows.Scan(
+			&value.ID, &value.Coins, &value.Gems, &value.Trophies,
+			&value.StartingGarrisonLevel, &value.ProductionLevel, &value.ArmySpeedLevel, &value.TreasuryLevel, &value.SelectedCommanderID,
+			&value.MatchesPlayed, &value.MatchesWon, &value.CurrentStreak, &value.BestStreak,
+			&value.LastMatchTimestamp,
+		); err != nil {
+			return nil, err
+		}
+		careers[value.ID] = careerFromRow(value)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for _, userID := range userIDs {
+		if _, exists := careers[userID]; !exists {
+			return nil, fmt.Errorf("%w:%s", ErrPlayerNotFound, userID)
+		}
+	}
+	return careers, nil
+}
+
+// validateSettle2v2Request fails closed on incomplete or malformed
+// participant sets before any database access happens.
+func validateSettle2v2Request(request Settle2v2Request) error {
+	if request.MatchID == "" || len(request.MatchID) > 128 {
+		return errors.New("invalid_match_id")
+	}
+	if request.BattlefieldID == "" {
+		return errors.New("invalid_battlefield_id")
+	}
+	if len(request.ReplayPayload) == 0 {
+		return errors.New("replay_payload_required")
+	}
+	seenUsers := make(map[string]bool, live2v2MaxPlayers)
+	seenSlots := make(map[int]bool, live2v2MaxPlayers)
+	for _, participant := range request.Participants {
+		if participant.UserID == "" || seenUsers[participant.UserID] {
+			return errors.New("invalid_participants")
+		}
+		if participant.Slot < 0 || participant.Slot >= live2v2MaxPlayers || seenSlots[participant.Slot] {
+			return errors.New("invalid_participants")
+		}
+		if participant.TeamID != TeamIDForSlot(participant.Slot) {
+			return errors.New("invalid_participants")
+		}
+		switch participant.Status {
+		case "victory", "defeat", "draw":
+		default:
+			return errors.New("invalid_status")
+		}
+		seenUsers[participant.UserID] = true
+		seenSlots[participant.Slot] = true
+	}
+	if len(seenSlots) != live2v2MaxPlayers {
+		return errors.New("invalid_participants")
+	}
+	return nil
 }
 
 func (s *Store) PurchaseUpgrade(ctx context.Context, userID string, upgrade UpgradeType, purchaseID string) (UpgradePurchaseResult, error) {

@@ -265,6 +265,31 @@ CREATE INDEX IF NOT EXISTS idx_bot_matches_player_created
   ON bot_matches (player_id, created_at DESC);
 `,
 	},
+	{
+		name: "011_multi_settlements_and_replays",
+		sql: `
+CREATE TABLE IF NOT EXISTS match_settlements_multi (
+  match_id TEXT NOT NULL,
+  user_id TEXT NOT NULL REFERENCES players(id),
+  slot INTEGER NOT NULL CHECK (slot BETWEEN 0 AND 3),
+  team_id TEXT NOT NULL CHECK (team_id IN ('a', 'b')),
+  status TEXT NOT NULL CHECK (status IN ('victory', 'defeat', 'draw')),
+  settlement JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (match_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_match_settlements_multi_user
+  ON match_settlements_multi (user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS match_replays (
+  match_id TEXT PRIMARY KEY,
+  mode TEXT NOT NULL CHECK (mode IN ('1v1', '2v2')),
+  battlefield_id TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  payload JSONB NOT NULL
+);
+`,
+	},
 }
 
 func RunMigrations(ctx context.Context, db *sql.DB) error {

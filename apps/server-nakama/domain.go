@@ -201,10 +201,33 @@ func CalculateMatchRewards(status string, stats MatchStats, currentStreak int, t
 	}
 }
 
-func SettleMatch(career PlayerCareer, status string, stats MatchStats, matchID string, timestamp int64) MatchSettlement {
+// RewardPolicy selects the reward behavior of SettleMatchWithPolicy
+// (docs/2v2-architecture.md §2.6, §9.3). The ranked policy preserves the
+// historical 1v1 trophy economy (+30 victory / −12 defeat / +5 draw). The
+// casual policy keeps the coin calculation identical but forces the trophy
+// delta to zero: no trophy ledger entry is emitted (the shared settlement
+// code only writes a trophy entry when the delta is non-zero), league
+// progress never moves because it derives from trophies, and only coin
+// rewards and daily-mission progress advance.
+type RewardPolicy struct {
+	Name           string // "ranked" | "casual"
+	RankedTrophies bool   // true: keep the calculated trophy delta; false: force 0
+	AdvanceLeague  bool   // documentation of intent; league state derives from trophies
+}
+
+var RankedPolicy = RewardPolicy{Name: "ranked", RankedTrophies: true, AdvanceLeague: true}
+var CasualPolicy = RewardPolicy{Name: "casual", RankedTrophies: false, AdvanceLeague: false}
+
+// SettleMatchWithPolicy is the generalized pure match-settlement calculation.
+// Coin rewards are policy-independent (CalculateMatchRewards); the policy
+// governs only the trophy channel.
+func SettleMatchWithPolicy(career PlayerCareer, status string, stats MatchStats, matchID string, timestamp int64, policy RewardPolicy) MatchSettlement {
 	previous := career
 	previousRank := GetRankTier(previous.Trophies)
 	breakdown := CalculateMatchRewards(status, stats, previous.CurrentStreak, previous.TreasuryLevel)
+	if !policy.RankedTrophies {
+		breakdown.TrophyDelta = 0
+	}
 	isWin := status == "victory"
 	currentStreak := 0
 	if isWin {
@@ -254,6 +277,13 @@ func SettleMatch(career PlayerCareer, status string, stats MatchStats, matchID s
 		RankPromoted:  newRank.MinTrophies > previousRank.MinTrophies,
 		LedgerEntries: entries,
 	}
+}
+
+// SettleMatch settles a ranked match with the historical 1v1 reward policy.
+// It delegates to SettleMatchWithPolicy and is behaviorally identical to the
+// pre-policy implementation (regression-pinned by golden-output tests).
+func SettleMatch(career PlayerCareer, status string, stats MatchStats, matchID string, timestamp int64) MatchSettlement {
+	return SettleMatchWithPolicy(career, status, stats, matchID, timestamp, RankedPolicy)
 }
 
 var upgradeCosts = []int{

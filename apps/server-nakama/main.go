@@ -32,6 +32,7 @@ var serverConfig struct {
 	BaleBotToken     string
 	AllowGuestAuth   bool
 	InitDataMaxAge   int64
+	Enable2v2        bool
 }
 
 type platformIdentity struct {
@@ -65,7 +66,15 @@ func InitModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runti
 	if err := initializer.RegisterMatchmakerMatched(matchmakerMatched(nk)); err != nil {
 		return err
 	}
+	// The one and only MatchmakerAdd before-hook: pins every ticket to an
+	// authoritative mode/schema/query shape (docs/2v2-architecture.md §3.2.2).
+	if err := initializer.RegisterBeforeRt("MatchmakerAdd", beforeMatchmakerAdd(store)); err != nil {
+		return err
+	}
 	if err := initializer.RegisterMatch("live_match", newLiveMatchHandler(store)); err != nil {
+		return err
+	}
+	if err := initializer.RegisterMatch("live_match_2v2", newLive2v2MatchHandler(store)); err != nil {
 		return err
 	}
 
@@ -152,6 +161,7 @@ func loadServerConfig(initializer runtime.Initializer) {
 		serverConfig.TelegramBotToken = env["TELEGRAM_BOT_TOKEN"]
 		serverConfig.BaleBotToken = env["BALE_BOT_TOKEN"]
 		serverConfig.AllowGuestAuth = env["ALLOW_GUEST_AUTH"] == "true"
+		serverConfig.Enable2v2 = env["ENABLE_2V2"] == "true"
 		if parsed, err := strconv.ParseInt(env["INIT_DATA_MAX_AGE_SECONDS"], 10, 64); err == nil && parsed > 0 {
 			serverConfig.InitDataMaxAge = parsed
 		}
@@ -283,28 +293,113 @@ func afterAuthenticateCustom(store *Store) func(ctx context.Context, logger runt
 	}
 }
 
-// matchmakerMatched spins up a live match for a matched pair from the
-// Nakama matchmaker queue. The matched user IDs are passed as an
-// allowlist so only the two intended players can join the match.
+// matchmakerMatched is the single matchmaker-matched callback for the whole
+// process (Nakama allows exactly one per server). It validates the matched
+// group and routes it to the correct authoritative match module:
+// two homogeneous 1v1 entries -> "live_match", four homogeneous 2v2 entries
+// -> "live_match_2v2" (docs/2v2-architecture.md §3.2.3). Invalid groups
+// (missing, mixed, or unknown mode/schema properties, wrong entry counts)
+// fail closed with NO match created.
 func matchmakerMatched(nk runtime.NakamaModule) func(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, entries []runtime.MatchmakerEntry) (string, error) {
 	return func(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, entries []runtime.MatchmakerEntry) (string, error) {
-		if len(entries) != 2 {
+		return routeMatchmakerGroup(ctx, logger, entries, nk.MatchCreate)
+	}
+}
+
+// matchCreateFunc is the MatchCreate seam used by routeMatchmakerGroup so
+// routing decisions are unit-testable without a Nakama runtime.
+type matchCreateFunc = func(ctx context.Context, moduleName string, params map[string]interface{}) (string, error)
+
+func routeMatchmakerGroup(ctx context.Context, logger runtime.Logger, entries []runtime.MatchmakerEntry, create matchCreateFunc) (string, error) {
+	mode, schema, ok := homogeneousMatchmakerProperties(entries)
+	if !ok {
+		logger.WithFields(map[string]interface{}{
+			"reason":     "mixed_or_missing_properties",
+			"entryCount": len(entries),
+		}).Warn("matchmaker_group_rejected")
+		return "", errors.New("matchmaker_mixed_or_missing_properties")
+	}
+	switch mode {
+	case string(MatchMode1v1):
+		if schema != matchmaker1v1Schema {
+			logger.WithFields(map[string]interface{}{"reason": "schema_mismatch", "entryCount": len(entries)}).Warn("matchmaker_group_rejected")
+			return "", errors.New("matchmaker_schema_mismatch")
+		}
+		if len(entries) != matchmaker1v1Count {
 			return "", errors.New("matchmaker_expects_two_players")
 		}
-		allowedUsers := make([]interface{}, 0, 2)
-		for _, entry := range entries {
-			allowedUsers = append(allowedUsers, entry.GetPresence().GetUserId())
-		}
-		matchID, err := nk.MatchCreate(ctx, "live_match", map[string]interface{}{
+		matchID, err := create(ctx, "live_match", map[string]interface{}{
 			"invited":       false,
-			"allowed_users": allowedUsers,
+			"allowed_users": allowlistFromEntries(entries),
 		})
 		if err != nil {
 			logger.WithField("error", err).Error("match create failed")
 			return "", err
 		}
 		return matchID, nil
+	case string(MatchMode2v2):
+		if !serverConfig.Enable2v2 {
+			logger.WithFields(map[string]interface{}{"reason": "mode_disabled", "entryCount": len(entries)}).Warn("matchmaker_group_rejected")
+			return "", errors.New("matchmaker_mode_disabled")
+		}
+		if schema != matchmaker2v2Schema {
+			logger.WithFields(map[string]interface{}{"reason": "schema_mismatch", "entryCount": len(entries)}).Warn("matchmaker_group_rejected")
+			return "", errors.New("matchmaker_schema_mismatch")
+		}
+		if len(entries) != matchmaker2v2Count {
+			return "", errors.New("matchmaker_expects_four_players")
+		}
+		matchID, err := create(ctx, "live_match_2v2", map[string]interface{}{
+			"allowed_users": allowlistFromEntries(entries),
+			"mode":          string(MatchMode2v2),
+		})
+		if err != nil {
+			logger.WithField("error", err).Error("match create failed")
+			return "", err
+		}
+		return matchID, nil
+	default:
+		logger.WithFields(map[string]interface{}{"reason": "unknown_mode", "entryCount": len(entries)}).Warn("matchmaker_group_rejected")
+		return "", errors.New("matchmaker_unknown_mode")
 	}
+}
+
+// homogeneousMatchmakerProperties requires every entry to carry identical,
+// non-empty mode and schema string properties. Missing, mixed, or unknown
+// property sets return ok=false.
+func homogeneousMatchmakerProperties(entries []runtime.MatchmakerEntry) (string, string, bool) {
+	if len(entries) == 0 {
+		return "", "", false
+	}
+	mode := ""
+	schema := ""
+	for _, entry := range entries {
+		properties := entry.GetProperties()
+		entryMode, modeOK := properties[matchmakerModeKey].(string)
+		entrySchema, schemaOK := properties[matchmakerSchemaKey].(string)
+		if !modeOK || !schemaOK || entryMode == "" || entrySchema == "" {
+			return "", "", false
+		}
+		if entryMode != string(MatchMode1v1) && entryMode != string(MatchMode2v2) {
+			return "", "", false
+		}
+		if mode == "" {
+			mode, schema = entryMode, entrySchema
+			continue
+		}
+		if entryMode != mode || entrySchema != schema {
+			return "", "", false
+		}
+	}
+	return mode, schema, mode != ""
+}
+
+func allowlistFromEntries(entries []runtime.MatchmakerEntry) []interface{} {
+	allowedUsers := make([]interface{}, 0, len(entries))
+	for _, entry := range entries {
+		allowedUsers = append(allowedUsers, entry.GetPresence().GetUserId())
+	}
+	return allowedUsers
 }
 
 // rpcCreateInvite creates an invite match and returns the invite code plus

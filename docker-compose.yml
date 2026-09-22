@@ -41,6 +41,7 @@ services:
       - '--runtime.path=/nakama/data/modules'
       - '--database.address=crownclash:crownclash@db:5432/crownclash'
       - '--runtime.env=ALLOW_GUEST_AUTH=${ALLOW_GUEST_AUTH:-false}'
+      - '--runtime.env=ENABLE_2V2=${ENABLE_2V2:-false}'
       - '--runtime.env=TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}'
       - '--runtime.env=BALE_BOT_TOKEN=${BALE_BOT_TOKEN:-}'
       - '--runtime.env=INIT_DATA_MAX_AGE_SECONDS=${INIT_DATA_MAX_AGE_SECONDS:-86400}'
