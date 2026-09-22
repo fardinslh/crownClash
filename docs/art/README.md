@@ -45,7 +45,11 @@ reference an unloaded texture.
   gatehouse keeps straddling the pass, square crenellated watchtowers on rock
   plinths, crag-slab barracks roofs, and timber stables leaning on a rock wall.
   Ownership accents: blue/red/gray banners, beacons, roofs, and awnings.
-- **royal_ring**: stays on the generic fallback for now.
+- **royal_ring dedicated pack** (`assets/territories/royal_ring/`, WebP, active):
+  prestigious royal-arena kit — circular marble plinths with gold trim, dark
+  polished keeps with team drum bands, gold-crowned sentry towers, marble
+  guardhouses with polished pillars, and round-roofed cavalry pavilions.
+  Ownership accents: blue/red/gray drum bands, banners, stripes, and pavilion rims.
 
 Every dedicated key gets its own file — no aliases. A test fails if a pack is
 activated before all of its optimized files exist, or if two dedicated packs ship
@@ -77,7 +81,7 @@ render, so a low mean difference proves exactly one viewport was captured.
 ```bash
 # Requires the vite dev server (npm run dev in apps/game) and headless Chrome.
 node scripts/capture-battlefield-qa.mjs twin_passes qa-artifacts/art-twin-passes
-node scripts/capture-battlefield-qa.mjs crown_cross qa-artifacts/art-twin-passes
+node scripts/capture-battlefield-qa.mjs royal_ring qa-artifacts/art-royal-ring
 ```
 
 ### Supplemental pixel analysis (NOT a substitute for visual inspection)

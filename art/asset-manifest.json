@@ -368,11 +368,131 @@
           "runtimePath": "apps/game/public/assets/territories/twin_passes/stable_neutral.webp"
         }
       }
+    },
+    "royal_ring": {
+      "label": "Dedicated royal_ring royal-arena render pack",
+      "packDirectory": "apps/game/public/assets/territories/royal_ring",
+      "runtimeFormat": "webp",
+      "active": true,
+      "sprites": {
+        "citadel_player": {
+          "blenderRenderName": "tier3_player_royal_hq",
+          "blenderBuilder": "build_royal_citadel",
+          "blenderOwner": "player",
+          "runtimeFilename": "citadel_player.webp",
+          "targetSize": 160,
+          "runtimePath": "apps/game/public/assets/territories/royal_ring/citadel_player.webp"
+        },
+        "citadel_enemy": {
+          "blenderRenderName": "tier3_enemy_royal_hq",
+          "blenderBuilder": "build_royal_citadel",
+          "blenderOwner": "enemy",
+          "runtimeFilename": "citadel_enemy.webp",
+          "targetSize": 160,
+          "runtimePath": "apps/game/public/assets/territories/royal_ring/citadel_enemy.webp"
+        },
+        "crown_keep_player": {
+          "blenderRenderName": "tier2_royalrotunda_player_idle",
+          "blenderBuilder": "build_royal_keep",
+          "blenderOwner": "player",
+          "runtimeFilename": "crown_keep_player.webp",
+          "targetSize": 128,
+          "runtimePath": "apps/game/public/assets/territories/royal_ring/crown_keep_player.webp"
+        },
+        "crown_keep_enemy": {
+          "blenderRenderName": "tier2_royalrotunda_enemy_idle",
+          "blenderBuilder": "build_royal_keep",
+          "blenderOwner": "enemy",
+          "runtimeFilename": "crown_keep_enemy.webp",
+          "targetSize": 128,
+          "runtimePath": "apps/game/public/assets/territories/royal_ring/crown_keep_enemy.webp"
+        },
+        "crown_keep_neutral": {
+          "blenderRenderName": "tier2_royalrotunda_neutral_idle",
+          "blenderBuilder": "build_royal_keep",
+          "blenderOwner": "neutral",
+          "runtimeFilename": "crown_keep_neutral.webp",
+          "targetSize": 128,
+          "runtimePath": "apps/game/public/assets/territories/royal_ring/crown_keep_neutral.webp"
+        },
+        "outpost_player": {
+          "blenderRenderName": "tier1_royalsentry_player_idle",
+          "blenderBuilder": "build_royal_sentry",
+          "blenderOwner": "player",
+          "runtimeFilename": "outpost_player.webp",
+          "targetSize": 128,
+          "runtimePath": "apps/game/public/assets/territories/royal_ring/outpost_player.webp"
+        },
+        "outpost_enemy": {
+          "blenderRenderName": "tier1_royalsentry_enemy_idle",
+          "blenderBuilder": "build_royal_sentry",
+          "blenderOwner": "enemy",
+          "runtimeFilename": "outpost_enemy.webp",
+          "targetSize": 128,
+          "runtimePath": "apps/game/public/assets/territories/royal_ring/outpost_enemy.webp"
+        },
+        "outpost_neutral": {
+          "blenderRenderName": "tier1_royalsentry_neutral_idle",
+          "blenderBuilder": "build_royal_sentry",
+          "blenderOwner": "neutral",
+          "runtimeFilename": "outpost_neutral.webp",
+          "targetSize": 128,
+          "runtimePath": "apps/game/public/assets/territories/royal_ring/outpost_neutral.webp"
+        },
+        "barracks_player": {
+          "blenderRenderName": "tier1_royalguardhouse_player_idle",
+          "blenderBuilder": "build_royal_guardhouse",
+          "blenderOwner": "player",
+          "runtimeFilename": "barracks_player.webp",
+          "targetSize": 128,
+          "runtimePath": "apps/game/public/assets/territories/royal_ring/barracks_player.webp"
+        },
+        "barracks_enemy": {
+          "blenderRenderName": "tier1_royalguardhouse_enemy_idle",
+          "blenderBuilder": "build_royal_guardhouse",
+          "blenderOwner": "enemy",
+          "runtimeFilename": "barracks_enemy.webp",
+          "targetSize": 128,
+          "runtimePath": "apps/game/public/assets/territories/royal_ring/barracks_enemy.webp"
+        },
+        "barracks_neutral": {
+          "blenderRenderName": "tier1_royalguardhouse_neutral_idle",
+          "blenderBuilder": "build_royal_guardhouse",
+          "blenderOwner": "neutral",
+          "runtimeFilename": "barracks_neutral.webp",
+          "targetSize": 128,
+          "runtimePath": "apps/game/public/assets/territories/royal_ring/barracks_neutral.webp"
+        },
+        "stable_player": {
+          "blenderRenderName": "tier1_royalpavilion_player_idle",
+          "blenderBuilder": "build_royal_pavilion",
+          "blenderOwner": "player",
+          "runtimeFilename": "stable_player.webp",
+          "targetSize": 128,
+          "runtimePath": "apps/game/public/assets/territories/royal_ring/stable_player.webp"
+        },
+        "stable_enemy": {
+          "blenderRenderName": "tier1_royalpavilion_enemy_idle",
+          "blenderBuilder": "build_royal_pavilion",
+          "blenderOwner": "enemy",
+          "runtimeFilename": "stable_enemy.webp",
+          "targetSize": 128,
+          "runtimePath": "apps/game/public/assets/territories/royal_ring/stable_enemy.webp"
+        },
+        "stable_neutral": {
+          "blenderRenderName": "tier1_royalpavilion_neutral_idle",
+          "blenderBuilder": "build_royal_pavilion",
+          "blenderOwner": "neutral",
+          "runtimeFilename": "stable_neutral.webp",
+          "targetSize": 128,
+          "runtimePath": "apps/game/public/assets/territories/royal_ring/stable_neutral.webp"
+        }
+      }
     }
   },
   "battlefieldPacks": {
     "crown_cross": "crown_cross",
     "twin_passes": "twin_passes",
-    "royal_ring": "generic"
+    "royal_ring": "royal_ring"
   }
 }

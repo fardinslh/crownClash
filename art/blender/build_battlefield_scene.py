@@ -88,6 +88,8 @@ PALETTE = {
     "roof_enemy": (0xDC / 255, 0x26 / 255, 0x26 / 255),
     "roof_neutral": (0x47 / 255, 0x55 / 255, 0x69 / 255),
     "crag": (0x8B / 255, 0x95 / 255, 0xA7 / 255),          # light weathered rock #8B95A7
+    "marble": (0xE6 / 255, 0xDF / 255, 0xCE / 255),        # pale royal marble #E6DFCE
+    "polished": (0x1E / 255, 0x24 / 255, 0x30 / 255),      # dark polished stone #1E2430
     "crystal": (0x93 / 255, 0xC5 / 255, 0xFD / 255),       # #93C5FD
 }
 
@@ -275,6 +277,8 @@ def material_palette():
         "stone": make_material("CC_Stone", PALETTE["stone"], 0.72),
         "stone_dark": make_material("CC_StoneDark", PALETTE["stone_dark"], 0.78),
         "crag": make_material("CC_Crag", PALETTE["crag"], 0.82),
+        "marble": make_material("CC_Marble", PALETTE["marble"], 0.35),
+        "polished": make_material("CC_Polished", PALETTE["polished"], 0.18, metallic=0.15),
         "wood": make_material("CC_Wood", PALETTE["wood"], 0.58),
         "gold": make_material("CC_Gold", PALETTE["gold"], 0.30, metallic=0.95),
         "gold_light": make_material("CC_GoldLight", PALETTE["gold_light"], 0.28, metallic=0.9),
@@ -733,6 +737,278 @@ def build_pass_stable(palette, owner):
     new_cube("pass_stable_banner", (0.06, 0.34, 0.46), (0.85, -0.4, 1.15), banner_material(palette, owner))
 
 
+# ---------------------------------------------------------------------------
+# royal_ring builders: prestigious royal-arena theme (pale marble, dark
+# polished stone, gold crowns/trim, circular and radial silhouettes, chunky
+# team-colored bands and banners for ownership)
+# ---------------------------------------------------------------------------
+
+def build_royal_citadel(palette, owner):
+    """royal_ring tier 3 HQ: palace citadel with a dominant gold crown spire."""
+    import bpy
+
+    def new_cyl(name, radius, depth, location, material, vertices=48):
+        bpy.ops.mesh.primitive_cylinder_add(radius=radius, depth=depth, vertices=vertices, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        obj.data.materials.append(material)
+        bevel_object(obj)
+        return obj
+
+    # Circular marble arena plinth with a gold trim ring.
+    new_cyl("royal_citadel_plinth", 1.95, 0.5, (0.0, 0.0, 0.25), palette["marble"])
+    bpy.ops.mesh.primitive_torus_add(major_radius=1.95, minor_radius=0.09, location=(0.0, 0.0, 0.5))
+    trim = bpy.context.active_object
+    trim.name = "royal_citadel_trim"
+    trim.data.materials.append(palette["gold"])
+    bevel_object(trim)
+
+    # Dark polished central keep with a chunky team-colored drum band.
+    new_cyl("royal_citadel_keep", 0.95, 1.7, (0.0, 0.0, 1.35), palette["polished"])
+    new_cyl("royal_citadel_band", 1.0, 0.42, (0.0, 0.0, 1.95), banner_material(palette, owner))
+
+    # Four circular marble bastions with gold roofs on the plinth rim.
+    for index in range(4):
+        angle = math.pi / 4.0 + (index / 4.0) * math.pi * 2.0
+        x, y = 1.35 * math.cos(angle), 1.35 * math.sin(angle)
+        new_cyl(f"royal_citadel_bastion_{index}", 0.4, 1.9, (x, y, 1.2), palette["marble"])
+        bpy.ops.mesh.primitive_cone_add(radius1=0.5, depth=0.7, location=(x, y, 2.5))
+        roof = bpy.context.active_object
+        roof.name = f"royal_citadel_bastion_roof_{index}"
+        roof.data.materials.append(palette["gold"])
+        bevel_object(roof)
+
+    # Gold crown spire: crown ring of points + gilded finial.
+    for index in range(5):
+        angle = (index / 5.0) * math.pi * 2.0
+        bpy.ops.mesh.primitive_cone_add(
+            radius1=0.1, depth=0.32,
+            location=(0.3 * math.cos(angle), 0.3 * math.sin(angle), 2.5),
+        )
+        point = bpy.context.active_object
+        point.name = f"royal_citadel_crown_point_{index}"
+        point.data.materials.append(palette["gold_light"])
+        bevel_object(point)
+
+    bpy.ops.mesh.primitive_cylinder_add(radius=0.16, depth=0.5, location=(0.0, 0.0, 2.55))
+    spire = bpy.context.active_object
+    spire.name = "royal_citadel_spire"
+    spire.data.materials.append(palette["gold"])
+    bevel_object(spire)
+
+
+def build_royal_keep(palette, owner):
+    """royal_ring tier 2 keep: royal rotunda with marble dome and team drum."""
+    import bpy
+
+    def new_cyl(name, radius, depth, location, material, vertices=48):
+        bpy.ops.mesh.primitive_cylinder_add(radius=radius, depth=depth, vertices=vertices, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        obj.data.materials.append(material)
+        bevel_object(obj)
+        return obj
+
+    # Dark polished ring base.
+    new_cyl("royal_keep_base", 1.4, 0.45, (0.0, 0.0, 0.22), palette["polished"])
+
+    # Colonnade of six chunky marble columns.
+    for index in range(6):
+        angle = (index / 6.0) * math.pi * 2.0
+        x, y = 1.05 * math.cos(angle), 1.05 * math.sin(angle)
+        new_cyl(f"royal_keep_column_{index}", 0.16, 1.2, (x, y, 0.85), palette["marble"], vertices=24)
+
+    # Team drum band carrying the roof (readable ownership accent).
+    new_cyl("royal_keep_drum", 0.88, 0.4, (0.0, 0.0, 1.2), banner_material(palette, owner))
+
+    # Marble dome.
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=24, ring_count=16, radius=0.85, location=(0.0, 0.0, 1.4))
+    dome = bpy.context.active_object
+    dome.name = "royal_keep_dome"
+    dome.scale = (1.0, 1.0, 0.72)
+    bpy.ops.object.transform_apply(scale=True)
+    dome.data.materials.append(palette["marble"])
+    bevel_object(dome)
+
+    # Gold crown finial.
+    bpy.ops.mesh.primitive_cone_add(radius1=0.18, depth=0.45, location=(0.0, 0.0, 2.25))
+    finial = bpy.context.active_object
+    finial.name = "royal_keep_finial"
+    finial.data.materials.append(palette["gold"])
+    bevel_object(finial)
+
+
+def build_royal_sentry(palette, owner):
+    """royal_ring tier 1 fortress: crowned marble sentry tower on polished base."""
+    import bpy
+
+    def new_cyl(name, radius, depth, location, material, vertices=48):
+        bpy.ops.mesh.primitive_cylinder_add(radius=radius, depth=depth, vertices=vertices, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        obj.data.materials.append(material)
+        bevel_object(obj)
+        return obj
+
+    new_cyl("royal_sentry_base", 0.78, 0.5, (0.0, 0.0, 0.25), palette["polished"])
+    new_cyl("royal_sentry_shaft", 0.55, 2.0, (0.0, 0.0, 1.5), palette["marble"])
+    # Gold crown band under the parapet.
+    new_cyl("royal_sentry_goldband", 0.62, 0.2, (0.0, 0.0, 2.55), palette["gold"])
+    new_cyl("royal_sentry_parapet", 0.68, 0.22, (0.0, 0.0, 2.68), palette["polished"])
+
+    # Crown of four gold points around the parapet.
+    for index in range(4):
+        angle = math.pi / 4.0 + (index / 4.0) * math.pi * 2.0
+        bpy.ops.mesh.primitive_cone_add(
+            radius1=0.09, depth=0.3,
+            location=(0.5 * math.cos(angle), 0.5 * math.sin(angle), 2.95),
+        )
+        point = bpy.context.active_object
+        point.name = f"royal_sentry_crown_point_{index}"
+        point.data.materials.append(palette["gold_light"])
+        bevel_object(point)
+
+    # Team banner draped on the camera-facing face (readable at 128px).
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, -0.56, 1.75))
+    banner = bpy.context.active_object
+    banner.name = "royal_sentry_banner"
+    banner.scale = (0.6, 0.09, 0.9)
+    bpy.ops.object.transform_apply(scale=True)
+    banner.data.materials.append(banner_material(palette, owner))
+    bevel_object(banner)
+
+
+def build_royal_guardhouse(palette, owner):
+    """royal_ring tier 1 barracks: marble martial hall with polished pillars."""
+    import bpy
+
+    def new_cube(name, size, location, material):
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        obj.scale = size
+        bpy.ops.object.transform_apply(scale=True)
+        obj.data.materials.append(material)
+        bevel_object(obj)
+        return obj
+
+    def new_cyl(name, radius, depth, location, material):
+        bpy.ops.mesh.primitive_cylinder_add(radius=radius, depth=depth, vertices=24, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        obj.data.materials.append(material)
+        bevel_object(obj)
+        return obj
+
+    # Marble hall with dark polished corner pillars.
+    new_cube("royal_guardhouse_hall", (1.9, 1.3, 1.1), (0.0, 0.0, 0.55), palette["marble"])
+    for index, (x, y) in enumerate(((-0.85, -0.55), (0.85, -0.55), (-0.85, 0.55), (0.85, 0.55))):
+        new_cyl(f"royal_guardhouse_pillar_{index}", 0.15, 1.5, (x, y, 0.75), palette["polished"])
+
+    # Dark polished roof with a gold ridge trim.
+    new_cube("royal_guardhouse_roof", (2.1, 1.5, 0.35), (0.0, 0.0, 1.35), palette["polished"])
+    new_cube("royal_guardhouse_ridge", (1.9, 0.22, 0.2), (0.0, 0.0, 1.6), palette["gold"])
+
+    # Team stripe across the facade + banner (readable ownership accent).
+    new_cube("royal_guardhouse_stripe", (1.92, 0.07, 0.2), (0.0, -0.66, 0.95), banner_material(palette, owner))
+    new_cube("royal_guardhouse_banner", (0.45, 0.07, 0.55), (-0.6, -0.68, 1.35), banner_material(palette, owner))
+    new_cube("royal_guardhouse_door", (0.4, 0.08, 0.72), (0.55, -0.66, 0.4), palette["polished"])
+
+
+def build_royal_pavilion(palette, owner):
+    """royal_ring tier 1 stable: open-front carriage pavilion with raised rear canopy.
+
+    The canopy is an elliptical half-disc pushed to the back so the camera
+    (55 deg pitch) sees straight into the open front: carriage, hay, trough,
+    and stall divisions. The canopy top itself carries the team banner
+    material, so ownership reads from the large angled surface, and a gold
+    horseshoe emblem on the back wall marks the stable.
+    """
+    import bpy
+
+    def new_cyl(name, radius, depth, location, material, vertices=48, scale=None):
+        bpy.ops.mesh.primitive_cylinder_add(radius=radius, depth=depth, vertices=vertices, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        if scale is not None:
+            obj.scale = scale
+            bpy.ops.object.transform_apply(scale=True)
+        obj.data.materials.append(material)
+        bevel_object(obj)
+        return obj
+
+    def new_cube(name, size, location, material):
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        obj.scale = size
+        bpy.ops.object.transform_apply(scale=True)
+        obj.data.materials.append(material)
+        bevel_object(obj)
+        return obj
+
+    # Polished floor slab.
+    new_cyl("royal_pavilion_floor", 1.4, 0.25, (0.0, 0.0, 0.12), palette["polished"])
+
+    # Open stall divisions flanking the interior (chunky low walls).
+    new_cube("royal_pavilion_stall_left", (0.18, 1.0, 0.6), (-1.0, 0.15, 0.55), palette["marble"])
+    new_cube("royal_pavilion_stall_right", (0.18, 1.0, 0.6), (1.0, 0.15, 0.55), palette["marble"])
+
+    # Rear marble back wall framing the open front.
+    new_cube("royal_pavilion_backwall", (2.0, 0.22, 1.5), (0.0, 0.85, 0.9), palette["marble"])
+
+    # Gold horseshoe emblem on the back wall (three chunky bars, no text).
+    new_cube("royal_pavilion_horseshoe_left", (0.11, 0.08, 0.3), (-0.3, 0.72, 1.45), palette["gold"])
+    new_cube("royal_pavilion_horseshoe_right", (0.11, 0.08, 0.3), (0.3, 0.72, 1.45), palette["gold"])
+    new_cube("royal_pavilion_horseshoe_base", (0.71, 0.08, 0.11), (0.0, 0.72, 1.28), palette["gold"])
+
+    # Two rear marble columns carrying the raised canopy.
+    for index, x in enumerate((-1.05, 1.05)):
+        new_cyl(f"royal_pavilion_column_{index}", 0.14, 1.15, (x, 0.75, 0.85), palette["marble"], vertices=24)
+
+    # Raised rear canopy: elliptical half-disc over the back of the footprint.
+    # Its top surface is the large, camera-facing ownership accent.
+    new_cyl(
+        "royal_pavilion_canopy",
+        1.2,
+        0.22,
+        (0.0, 0.35, 1.72),
+        banner_material(palette, owner),
+        vertices=48,
+        scale=(1.0, 0.55, 1.0),
+    )
+    new_cyl(
+        "royal_pavilion_canopy_trim",
+        1.21,
+        0.08,
+        (0.0, 0.35, 1.62),
+        palette["gold"],
+        vertices=48,
+        scale=(1.0, 0.55, 1.0),
+    )
+
+    # Team banner draped from the canopy's open front edge.
+    new_cube("royal_pavilion_banner", (0.42, 0.07, 0.5), (-0.55, -0.32, 1.32), banner_material(palette, owner))
+
+    # Gilded carriage with dark torus wheels, in the open front.
+    new_cube("royal_pavilion_carriage", (0.8, 0.5, 0.42), (0.2, -0.35, 0.52), palette["gold_light"])
+    for index, x in enumerate((-0.28, 0.68)):
+        bpy.ops.mesh.primitive_torus_add(major_radius=0.28, minor_radius=0.09, location=(x, -0.35, 0.26))
+        wheel = bpy.context.active_object
+        wheel.name = f"royal_pavilion_wheel_{index}"
+        wheel.rotation_euler = (0.0, math.pi / 2.0, 0.0)
+        bpy.ops.object.transform_apply(rotation=True)
+        wheel.data.materials.append(palette["polished"])
+        bevel_object(wheel)
+
+    # Hay bales beside the carriage.
+    new_cube("royal_pavilion_hay_0", (0.46, 0.4, 0.32), (-0.6, -0.25, 0.41), palette["gold"])
+    new_cube("royal_pavilion_hay_1", (0.36, 0.32, 0.26), (-0.52, 0.28, 0.38), palette["gold_light"])
+
+    # Feeding trough in front of the back wall.
+    new_cube("royal_pavilion_trough", (0.6, 0.32, 0.28), (0.55, 0.5, 0.39), palette["polished"])
+
+
 def build_road_segment(palette, _owner):
     """Recessed stone lane slab (Art Bible section 11). Authoring-only asset."""
     import bpy
@@ -831,6 +1107,11 @@ BUILDERS = {
     "build_crag_watchtower": build_crag_watchtower,
     "build_pass_barracks": build_pass_barracks,
     "build_pass_stable": build_pass_stable,
+    "build_royal_citadel": build_royal_citadel,
+    "build_royal_keep": build_royal_keep,
+    "build_royal_sentry": build_royal_sentry,
+    "build_royal_guardhouse": build_royal_guardhouse,
+    "build_royal_pavilion": build_royal_pavilion,
     "build_road_segment": build_road_segment,
     "build_platform_tile": build_platform_tile,
     "build_crystal_cluster": build_crystal_cluster,
@@ -849,6 +1130,11 @@ ASSET_COLLECTION = {
     "build_crag_watchtower": "CC_Structures",
     "build_pass_barracks": "CC_Structures",
     "build_pass_stable": "CC_Structures",
+    "build_royal_citadel": "CC_Structures",
+    "build_royal_keep": "CC_Structures",
+    "build_royal_sentry": "CC_Structures",
+    "build_royal_guardhouse": "CC_Structures",
+    "build_royal_pavilion": "CC_Structures",
     "build_road_segment": "CC_Roads",
     "build_platform_tile": "CC_Terrain",
     "build_crystal_cluster": "CC_Props",
