@@ -12,5 +12,7 @@ export * from './kingdom.js';
 export * from './commanders.js';
 export * from './battlefields.js';
 export * from './pvp.js';
+export * from './init2v2.js';
+export * from './pvp2v2.js';
 export * from './daily.js';
 export * from './league.js';
