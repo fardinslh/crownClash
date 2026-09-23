@@ -18,6 +18,10 @@ export const THEME = {
   textMuted: '#94a3b8',
   gold: 0xf59e0b,
   goldHex: '#f59e0b',
+  // 2v2 mode accent (quad_citadel accent from the server battlefield def);
+  // identity in 2v2 is never color-only — slot shapes and A/B labels carry it.
+  twoVTwoAccent: 0x818cf8,
+  twoVTwoAccentHex: '#818cf8',
   teams: {
     player: {
       primary: 0x3b82f6,

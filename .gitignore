@@ -30,3 +30,6 @@ qa-artifacts/art-royal-ring/
 art/blender/renders/
 art/blender/__pycache__/
 tools/blender/tmp/
+
+# 2v2 Phase 5 visual QA captures (session-local)
+qa-artifacts/2v2-phase5/

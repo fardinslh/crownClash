@@ -51,7 +51,13 @@ import {
 import { sounds } from '../audio/SoundEffects.js';
 import { THEME } from '../theme.js';
 import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
-import { LiveMatchClient, LiveMatchResult, LiveMatchStarted } from '../api/LiveMatchClient.js';
+import {
+  LiveMatchClient,
+  LiveMatchResult,
+  LiveMatchStarted,
+  LiveMatchStarted2v2,
+  LiveMatchResult2v2,
+} from '../api/LiveMatchClient.js';
 import {
   shouldActivateStressMode,
   canInitiateBotSettlement,
@@ -85,7 +91,24 @@ import {
   getSceneViewport,
   setupSceneCamera,
 } from '../ui/Viewport.js';
-import { computeResultRankPresentation } from '../ui/ResultModalLayout.js';
+import { computeResultRankPresentation, computeTwoVTwoResultGrid } from '../ui/ResultModalLayout.js';
+import {
+  computeTwoVTwoHudLayout,
+  computeTwoVTwoSlotBadges,
+  formatTeammateBanner,
+  formatTwoVTwoSlotBadge,
+  slotFromTwoVTwoArmyId,
+  TWO_V_TWO_SHARED_CUE_GLYPH,
+  TWO_V_TWO_SLOT_SHAPES,
+  type TwoVTwoSlotBadge,
+} from '../ui/TwoVTwoHudLayout.js';
+import {
+  buildTwoVTwoResultViewModel,
+  formatTwoVTwoResultCellLabel,
+  twoVTwoResultHeadline,
+  TWO_V_TWO_CASUAL_NOTICE,
+  twoVTwoRematchButtonLabel,
+} from '../pvp/TwoVTwoResultViewModel.js';
 import { createBattlefieldDecorations } from '../ui/BattlefieldArenaLayout.js';
 import { drawTowerRoleIcon } from '../ui/TowerRoleIcon.js';
 import {
@@ -108,6 +131,8 @@ interface TerritoryVisual {
   unitBadge: Phaser.GameObjects.Rectangle;
   unitText: Phaser.GameObjects.Text;
   typeIcon: Phaser.GameObjects.Graphics;
+  /** 2v2 only: '⧉' cue marking a team-shared fortress (hidden when lost). */
+  sharedCue?: Phaser.GameObjects.Text;
   lastOwner?: Team;
   lastUnits?: number;
 }
@@ -206,6 +231,19 @@ export class GameScene extends Phaser.Scene {
   private livePredictions: PendingLiveDispatch[] = [];
   private lastAuthoritativeState: GameState | null = null;
 
+  // Version-2 (2v2) session UI state. Null outside flagged 2v2 matches.
+  private live2v2: {
+    payload: LiveMatchStarted2v2;
+    badges: readonly TwoVTwoSlotBadge[];
+    ally: TwoVTwoSlotBadge;
+    allyName: string;
+  } | null = null;
+  private twoVTwoAppliedStartId: string | null = null;
+  private twoVTwoRematchVoteSent = false;
+  private twoVTwoSurrenderSent = false;
+  private twoVTwoReconnectOverlay?: Phaser.GameObjects.Container;
+  private twoVTwoHudLayout: ReturnType<typeof computeTwoVTwoHudLayout> | null = null;
+
   private enemyArmySpeedMultiplier = 1;
 
   // Result Modal
@@ -283,6 +321,7 @@ export class GameScene extends Phaser.Scene {
       mode?: 'bot' | 'live';
       liveClient?: LiveMatchClient;
       liveMatch?: LiveMatchStarted;
+      liveMatch2v2?: LiveMatchStarted2v2;
       botMatch?: BotMatchTicket;
       career?: PlayerCareer;
     } | undefined;
@@ -290,6 +329,9 @@ export class GameScene extends Phaser.Scene {
     this.liveClient = launchData?.liveClient;
     this.liveOpponentName =
       launchData?.liveMatch?.opponentName || 'Opponent';
+    if (launchData?.liveMatch2v2) {
+      this.initTwoVTwoSession(launchData.liveMatch2v2);
+    }
     const searchParams =
       typeof window !== 'undefined' && window.location?.search
         ? new URLSearchParams(window.location.search)
@@ -352,7 +394,14 @@ export class GameScene extends Phaser.Scene {
           })
       : Promise.resolve();
     this.createUpgradedMatchState(launchData?.career ?? this.careerManager.getCareer());
-    if (this.liveMode && launchData?.liveMatch) {
+    if (this.liveMode && launchData?.liveMatch2v2) {
+      // 2v2: the server's per-slot projected state is authoritative.
+      this.gameState = launchData.liveMatch2v2.state;
+      this.lastAuthoritativeState = launchData.liveMatch2v2.state;
+      this.activeMatchId = launchData.liveMatch2v2.matchId;
+      this.battlefieldId = launchData.liveMatch2v2.state.battlefieldId ?? 'crown_cross';
+      this.twoVTwoAppliedStartId = launchData.liveMatch2v2.matchId;
+    } else if (this.liveMode && launchData?.liveMatch) {
       this.gameState = launchData.liveMatch.state;
       this.lastAuthoritativeState = launchData.liveMatch.state;
       this.activeMatchId = launchData.liveMatch.matchId;
@@ -362,6 +411,9 @@ export class GameScene extends Phaser.Scene {
     this.matchMenuController = new MatchMenuController({
       liveMode: this.liveMode,
       matchId: this.activeMatchId,
+      confirmationMessage: this.live2v2
+        ? 'Surrendering removes you from this battle.\nYour teammate keeps fighting.'
+        : undefined,
       getDurationSeconds: () => wholeMatchSeconds(this.gameState?.elapsedTimeSeconds ?? 0),
       closeLiveClient: () => {
         if (this.liveClient) {
@@ -395,18 +447,13 @@ export class GameScene extends Phaser.Scene {
       source: launchData?.source ?? 'menu',
       battlefieldId: this.battlefieldId,
     });
-    if (this.liveMode && launchData?.liveMatch) {
+    if (this.liveMode && launchData?.liveMatch2v2) {
+      this.bind2v2LiveMatch(this.liveClient);
+    } else if (this.liveMode && launchData?.liveMatch) {
       this.bindLiveMatch(this.liveClient);
     }
     this.accumulators = {};
-    for (const vis of this.territoryVisuals.values()) {
-      vis.container.destroy();
-    }
-    this.territoryVisuals.clear();
-    for (const vis of this.armyVisuals.values()) {
-      vis.container.destroy();
-    }
-    this.armyVisuals.clear();
+    this.destroyBattlefieldVisuals();
     this.selectedSourceIds = [];
     this.hoveredTargetId = null;
     this.lastHoveredFriendlyId = null;
@@ -698,7 +745,29 @@ export class GameScene extends Phaser.Scene {
       drawTowerRoleIcon(typeIcon, territory.type, -roleIconSize / 2, -roleIconSize / 2, roleIconSize);
       typeIcon.setPosition(0, badgeY + 21);
 
-      container.add([groundShadow, ring, basePlate, sprite, unitBadge, unitText, typeIcon]);
+      // 2v2 shared-territory cue: every tier-3 fortress is a team-shared
+      // base (either teammate may dispatch from it). Glyph + banner copy —
+      // never color alone.
+      let sharedCue: Phaser.GameObjects.Text | undefined;
+      if (this.is2v2 && territory.type === 'fortress' && territory.tier === 3) {
+        sharedCue = this.add
+          .text(0, badgeY + 38, TWO_V_TWO_SHARED_CUE_GLYPH, {
+            fontFamily: FONT_FAMILY,
+            fontSize: '10px',
+            fontStyle: 'bold',
+            color: '#c7d2fe',
+            stroke: '#030712',
+            strokeThickness: 1.5,
+            resolution: 2,
+          })
+          .setOrigin(0.5)
+          .setDepth(1);
+      }
+
+      container.add([
+        groundShadow, ring, basePlate, sprite, unitBadge, unitText, typeIcon,
+        ...(sharedCue ? [sharedCue] : []),
+      ]);
 
       // Make interactive for touch / click (hit area unchanged from legacy)
       container.setSize(territoryHitAreaSize(territory.radius), territoryHitAreaSize(territory.radius));
@@ -706,6 +775,7 @@ export class GameScene extends Phaser.Scene {
 
       container.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
         if (this.isExiting || this.matchMenuController?.isOpen()) return;
+        if (this.is2v2InputBlocked()) return;
         this.startDragFromTerritory(territory.id, pointer);
       });
 
@@ -718,6 +788,7 @@ export class GameScene extends Phaser.Scene {
         unitBadge,
         unitText,
         typeIcon,
+        sharedCue,
         lastOwner: territory.owner,
         lastUnits: territory.units,
       });
@@ -768,6 +839,21 @@ export class GameScene extends Phaser.Scene {
     this.dominanceBarTotalWidth = hudLayout.dominanceBar.trackWidth;
     this.dominanceBarStartX = hudLayout.dominanceBar.bounds.x;
 
+    // 2v2 header: slot badge strip + teammate banner replace the trophy and
+    // coin pills (2v2 awards coins after settlement, but does not need an
+    // in-match balance pill). The clock is re-aligned
+    // by the dedicated layout helper; everything else stays identical.
+    let twoVTwoClock = hudLayout.clockPill;
+    if (this.is2v2 && this.live2v2) {
+      const menuHit = hudLayout.menuButton.hitBounds;
+      const twoVTwoLayout = computeTwoVTwoHudLayout(visibleWidth, menuHit, scrollX);
+      this.twoVTwoHudLayout = twoVTwoLayout;
+      twoVTwoClock = {
+        center: twoVTwoLayout.clockPill.center,
+        visibleBounds: twoVTwoLayout.clockPill.bounds,
+      };
+    }
+
     // 1. Header Glass Panel Bar (y: 0 to 70)
     this.add
       .rectangle(LOGICAL_WIDTH / 2, 39, visibleWidth, 74, 0x000000, 0.36)
@@ -797,110 +883,119 @@ export class GameScene extends Phaser.Scene {
     // 2. Top Row (y: 20): Profile, Trophies, Coins, Clock, and Audio
     const career = this.careerManager.getCareer();
 
-    // Left: Player Profile Pill with dynamic sizing
-    this.add
-      .rectangle(
-        hudLayout.playerPill.center.x,
-        hudLayout.playerPill.center.y,
-        hudLayout.playerPill.visibleBounds.width,
-        hudLayout.playerPill.visibleBounds.height,
-        0x0f172a,
-        0.95
-      )
-      .setStrokeStyle(1.5, 0x3b82f6, 0.9)
-      .setDepth(95);
+    // Left: Player Profile Pill with dynamic sizing. In 2v2 the four-slot
+    // strip owns the entire left side of this row, so no 1v1 profile layer
+    // may be rendered beneath it.
+    if (!this.is2v2) {
+      this.add
+        .rectangle(
+          hudLayout.playerPill.center.x,
+          hudLayout.playerPill.center.y,
+          hudLayout.playerPill.visibleBounds.width,
+          hudLayout.playerPill.visibleBounds.height,
+          0x0f172a,
+          0.95
+        )
+        .setStrokeStyle(1.5, 0x3b82f6, 0.9)
+        .setDepth(95);
 
-    const playerMaxW = getPillMaxContentWidth(hudLayout.playerPill.visibleBounds.width);
-    const playerLabel = this.computePlayerHudLabel(playerMaxW);
+      const playerMaxW = getPillMaxContentWidth(hudLayout.playerPill.visibleBounds.width);
+      const playerLabel = this.computePlayerHudLabel(playerMaxW);
 
-    this.add
-      .text(hudLayout.playerPill.center.x, hudLayout.playerPill.center.y, playerLabel, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '11px',
-        fontStyle: 'bold',
-        color: '#93c5fd',
-        stroke: '#030712',
-        strokeThickness: 2,
-        resolution: 2,
-      })
-      .setOrigin(0.5)
-      .setDepth(96);
-
-    // Trophies Pill
-    this.add
-      .rectangle(
-        hudLayout.trophyPill.center.x,
-        hudLayout.trophyPill.center.y,
-        hudLayout.trophyPill.visibleBounds.width,
-        hudLayout.trophyPill.visibleBounds.height,
-        0x0f172a,
-        0.95
-      )
-      .setStrokeStyle(1.5, 0x818cf8, 0.9)
-      .setDepth(95);
-
-    const trophyMaxW = getPillMaxContentWidth(hudLayout.trophyPill.visibleBounds.width);
-    this.hudTrophiesText = this.add
-      .text(
-        hudLayout.trophyPill.center.x,
-        hudLayout.trophyPill.center.y,
-        formatHudTrophies(career.trophies, trophyMaxW),
-        {
+      this.add
+        .text(hudLayout.playerPill.center.x, hudLayout.playerPill.center.y, playerLabel, {
           fontFamily: FONT_FAMILY,
           fontSize: '11px',
           fontStyle: 'bold',
-          color: '#c7d2fe',
+          color: '#93c5fd',
           stroke: '#030712',
           strokeThickness: 2,
           resolution: 2,
-        }
-      )
-      .setOrigin(0.5)
-      .setDepth(96);
+        })
+        .setOrigin(0.5)
+        .setDepth(96);
+    }
 
-    // Gold Coins Pill (or Live Opponent Pill in Live PvP)
+    // Trophies Pill (skipped in 2v2: casual matches never stake trophies)
+    if (!this.is2v2) {
+      this.add
+        .rectangle(
+          hudLayout.trophyPill.center.x,
+          hudLayout.trophyPill.center.y,
+          hudLayout.trophyPill.visibleBounds.width,
+          hudLayout.trophyPill.visibleBounds.height,
+          0x0f172a,
+          0.95
+        )
+        .setStrokeStyle(1.5, 0x818cf8, 0.9)
+        .setDepth(95);
+
+      const trophyMaxW = getPillMaxContentWidth(hudLayout.trophyPill.visibleBounds.width);
+      this.hudTrophiesText = this.add
+        .text(
+          hudLayout.trophyPill.center.x,
+          hudLayout.trophyPill.center.y,
+          formatHudTrophies(career.trophies, trophyMaxW),
+          {
+            fontFamily: FONT_FAMILY,
+            fontSize: '11px',
+            fontStyle: 'bold',
+            color: '#c7d2fe',
+            stroke: '#030712',
+            strokeThickness: 2,
+            resolution: 2,
+          }
+        )
+        .setOrigin(0.5)
+        .setDepth(96);
+    }
+
+    // Gold Coins Pill (or Live Opponent Pill in Live PvP) — also skipped in
+    // 2v2: the slot badge strip occupies this row instead.
+    if (!this.is2v2) {
+      this.add
+        .rectangle(
+          hudLayout.coinPill.center.x,
+          hudLayout.coinPill.center.y,
+          hudLayout.coinPill.visibleBounds.width,
+          hudLayout.coinPill.visibleBounds.height,
+          this.liveMode ? 0x1e1520 : 0x0f172a,
+          0.95
+        )
+        .setStrokeStyle(1.5, this.liveMode ? 0xf87171 : 0xf59e0b, 0.9)
+        .setDepth(95);
+
+      const coinMaxW = getPillMaxContentWidth(hudLayout.coinPill.visibleBounds.width);
+      const coinOrOpponentLabel = this.liveMode
+        ? formatHudName(this.liveOpponentName, coinMaxW, '🔴 ')
+        : formatHudCoins(career.coins, coinMaxW);
+
+      this.hudCoinsText = this.add
+        .text(
+          hudLayout.coinPill.center.x,
+          hudLayout.coinPill.center.y,
+          coinOrOpponentLabel,
+          {
+            fontFamily: FONT_FAMILY,
+            fontSize: '11px',
+            fontStyle: 'bold',
+            color: this.liveMode ? '#fca5a5' : '#fef08a',
+            stroke: '#030712',
+            strokeThickness: 2,
+            resolution: 2,
+          }
+        )
+        .setOrigin(0.5)
+        .setDepth(96);
+    }
+
+    // Royal Match Clock Pill (2v2 uses the re-aligned 2v2 clock position)
     this.add
       .rectangle(
-        hudLayout.coinPill.center.x,
-        hudLayout.coinPill.center.y,
-        hudLayout.coinPill.visibleBounds.width,
-        hudLayout.coinPill.visibleBounds.height,
-        this.liveMode ? 0x1e1520 : 0x0f172a,
-        0.95
-      )
-      .setStrokeStyle(1.5, this.liveMode ? 0xf87171 : 0xf59e0b, 0.9)
-      .setDepth(95);
-
-    const coinMaxW = getPillMaxContentWidth(hudLayout.coinPill.visibleBounds.width);
-    const coinOrOpponentLabel = this.liveMode
-      ? formatHudName(this.liveOpponentName, coinMaxW, '🔴 ')
-      : formatHudCoins(career.coins, coinMaxW);
-
-    this.hudCoinsText = this.add
-      .text(
-        hudLayout.coinPill.center.x,
-        hudLayout.coinPill.center.y,
-        coinOrOpponentLabel,
-        {
-          fontFamily: FONT_FAMILY,
-          fontSize: '11px',
-          fontStyle: 'bold',
-          color: this.liveMode ? '#fca5a5' : '#fef08a',
-          stroke: '#030712',
-          strokeThickness: 2,
-          resolution: 2,
-        }
-      )
-      .setOrigin(0.5)
-      .setDepth(96);
-
-    // Royal Match Clock Pill
-    this.add
-      .rectangle(
-        hudLayout.clockPill.center.x,
-        hudLayout.clockPill.center.y,
-        hudLayout.clockPill.visibleBounds.width,
-        hudLayout.clockPill.visibleBounds.height,
+        twoVTwoClock.center.x,
+        twoVTwoClock.center.y,
+        twoVTwoClock.visibleBounds.width,
+        twoVTwoClock.visibleBounds.height,
         0x111827,
         0.95
       )
@@ -909,8 +1004,8 @@ export class GameScene extends Phaser.Scene {
 
     this.timerText = this.add
       .text(
-        hudLayout.clockPill.center.x,
-        hudLayout.clockPill.center.y,
+        twoVTwoClock.center.x,
+        twoVTwoClock.center.y,
         '⏱ 01:30',
         {
           fontFamily: MONO_FONT_FAMILY,
@@ -963,6 +1058,66 @@ export class GameScene extends Phaser.Scene {
       this.matchMenuController.openMenu();
     });
     this.bindPressFeedback(menuHit, menuIcon, menuBg);
+
+    // 2v2 slot badge strip + teammate banner (flagged sessions only).
+    // Identity: distinct shape glyph + A/B slot label per slot; the YOU
+    // badge adds a star marker. Color only reinforces, never carries.
+    if (this.is2v2 && this.live2v2 && this.twoVTwoHudLayout) {
+      const twoVTwoLayout = this.twoVTwoHudLayout;
+      const badgeColor = (teamId: 'a' | 'b'): number => (teamId === 'a' ? 0x3b82f6 : 0xef4444);
+      this.live2v2.badges.forEach((badge, index) => {
+        const layout = twoVTwoLayout.badges[index];
+        if (!layout) return;
+        const isAllyBadge = badge.isAlly;
+        this.add
+          .rectangle(layout.center.x, layout.center.y, layout.bounds.width, layout.bounds.height, 0x0f172a, 0.95)
+          .setStrokeStyle(badge.isYou ? 2 : 1.5, badge.isYou ? 0xf59e0b : badgeColor(badge.teamId), 0.95)
+          .setDepth(95);
+        this.add
+          .text(
+            layout.center.x,
+            layout.center.y,
+            formatTwoVTwoSlotBadge(badge),
+            {
+              fontFamily: FONT_FAMILY,
+              fontSize: badge.isYou ? '8px' : '11px',
+              fontStyle: 'bold',
+              align: 'center',
+              lineSpacing: badge.isYou ? -3 : 0,
+              color: badge.isYou ? '#fbbf24' : isAllyBadge ? '#93c5fd' : '#fca5a5',
+              stroke: '#030712',
+              strokeThickness: 1.5,
+              resolution: 2,
+            }
+          )
+          .setOrigin(0.5)
+          .setDepth(96);
+      });
+
+      const allyBadge = this.live2v2.ally;
+      const bannerLayout = twoVTwoLayout.teammateBanner;
+      this.add
+        .text(
+          bannerLayout.center.x,
+          bannerLayout.center.y,
+          formatTeammateBanner(
+            allyBadge,
+            this.live2v2.allyName,
+            this.formatShortName(this.live2v2.allyName, 14)
+          ),
+          {
+            fontFamily: FONT_FAMILY,
+            fontSize: '9px',
+            fontStyle: 'bold',
+            color: '#93c5fd',
+            stroke: '#030712',
+            strokeThickness: 1.5,
+            resolution: 2,
+          }
+        )
+        .setOrigin(0.5)
+        .setDepth(96);
+    }
 
     // Auto-update HUD when career balance changes (bot battles only for coins)
     this.careerSubscription = this.careerManager.subscribe((updatedCareer) => {
@@ -1088,9 +1243,11 @@ export class GameScene extends Phaser.Scene {
       legendCursorX += groupWidths[i] + groupGap;
     });
 
-    const initialHint = this.liveMode
-      ? `⚔ Live battle vs ${this.formatShortName(this.liveOpponentName, 12)}`
-      : '⚔ Drag across towers to attack or reinforce';
+    const initialHint = this.is2v2
+      ? '⚔ Drag across towers — bases are shared with your ally'
+      : this.liveMode
+        ? `⚔ Live battle vs ${this.formatShortName(this.liveOpponentName, 12)}`
+        : '⚔ Drag across towers to attack or reinforce';
     this.bottomHintText = this.add
       .text(LOGICAL_WIDTH / 2, bottomBarY + 10, initialHint, {
         fontFamily: FONT_FAMILY,
@@ -1108,9 +1265,15 @@ export class GameScene extends Phaser.Scene {
   private computePlayerHudLabel(maxContentWidth?: number): string {
     const rawName = this.platform.getUser().username || this.platform.getUser().firstName || 'Commander';
     if (maxContentWidth !== undefined) {
-      return formatHudName(rawName, maxContentWidth, '🔵 ');
+      return formatHudName(rawName, maxContentWidth, this.playerHudPrefix());
     }
-    return `🔵 ${this.formatShortName(rawName, 7)}`;
+    return `${this.playerHudPrefix()}${this.formatShortName(rawName, 7)}`;
+  }
+
+  /** 2v2 uses the slot's shape glyph (non-color identity); 1v1 keeps 🔵. */
+  private playerHudPrefix(): string {
+    const mine = this.live2v2?.badges.find((badge) => badge.isYou);
+    return mine ? `${mine.shape} ` : '🔵 ';
   }
 
   private formatShortName(name: string, maxLen = 8): string {
@@ -1531,6 +1694,7 @@ export class GameScene extends Phaser.Scene {
 
       if (target && sources.length > 0) {
         if (this.liveMode) {
+          if (this.is2v2InputBlocked()) return;
           try {
             const multiDispatch = dispatchMultipleArmies(
               sources,
@@ -2365,9 +2529,14 @@ export class GameScene extends Phaser.Scene {
           .setScale(0.25)
           .setFlipX(isFacingLeft);
 
-        // 4. High-contrast Troop Count Pill Badge
+        // 4. High-contrast Troop Count Pill Badge. In 2v2 the marching
+        // army is attributed to its dispatching slot via the shape glyph
+        // parsed from the server army id (predictions use my own slot).
         const badgeY = -19;
-        const initialUnits = `${roleStyle.label} ${army.units}`;
+        const slotAttribution2v2 = this.twoVTwoArmyShape(army);
+        const initialUnits = slotAttribution2v2
+          ? `${slotAttribution2v2} ${roleStyle.label} ${army.units}`
+          : `${roleStyle.label} ${army.units}`;
         const badgeWidth = Math.max(42, initialUnits.length * 7 + 14);
 
         const badgeKey = this.getOrCreateBadgeTexture(roleStyle.color, badgeWidth);
@@ -2442,7 +2611,10 @@ export class GameScene extends Phaser.Scene {
         }
       } else {
         visual.container.setPosition(currentX, currentY);
-        const unitsStr = `${visual.roleLabel} ${army.units}`;
+        const slotAttribution2v2 = this.twoVTwoArmyShape(army);
+        const unitsStr = slotAttribution2v2
+          ? `${slotAttribution2v2} ${visual.roleLabel} ${army.units}`
+          : `${visual.roleLabel} ${army.units}`;
         if (visual.badgeText.text !== unitsStr) {
           visual.badgeText.setText(unitsStr);
           const newWidth = Math.max(42, unitsStr.length * 7 + 14);
@@ -2573,9 +2745,11 @@ export class GameScene extends Phaser.Scene {
           this.bottomHintText.setText(lastArmyText).setColor('#fbbf24');
         }
       } else if (this.bottomHintText.text === '⚔ LAST ENEMY ARMY REMAINING') {
-        const defaultHint = this.liveMode
-          ? `⚔ Live battle vs ${this.formatShortName(this.liveOpponentName, 12)}`
-          : '⚔ Drag across towers to attack or reinforce';
+        const defaultHint = this.is2v2
+          ? '⚔ Drag across towers — bases are shared with your ally'
+          : this.liveMode
+            ? `⚔ Live battle vs ${this.formatShortName(this.liveOpponentName, 12)}`
+            : '⚔ Drag across towers to attack or reinforce';
         this.bottomHintText.setText(defaultHint).setColor(this.liveMode ? '#93c5fd' : '#94a3b8');
       }
     }
@@ -3502,14 +3676,15 @@ export class GameScene extends Phaser.Scene {
     });
     elements.push(soundBg, soundText);
 
-    // 3. LEAVE MATCH BUTTON (min 44 height)
+    // 3. LEAVE MATCH BUTTON (min 44 height). 2v2 renames it to SURRENDER:
+    // leaving mid-battle is an explicit surrender (§5.0).
     const leaveY = soundY + 52;
     const leaveBg = this.add
       .rectangle(0, leaveY, 234, 44, 0x1e1520, 1)
       .setStrokeStyle(1.5, 0xef4444, 0.9)
       .setInteractive({ useHandCursor: true });
     const leaveText = this.add
-      .text(0, leaveY, 'LEAVE MATCH', {
+      .text(0, leaveY, this.is2v2 ? 'SURRENDER' : 'LEAVE MATCH', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -3633,14 +3808,15 @@ export class GameScene extends Phaser.Scene {
     });
     elements.push(keepBg, keepText);
 
-    // 2. LEAVE MATCH CONFIRM BUTTON (min 44 height)
+    // 2. LEAVE/SURRENDER CONFIRM BUTTON (min 44 height). In 2v2 this sends
+    // the one-shot surrender before exit; repeated taps cannot send twice.
     const confirmLeaveY = keepY + 52;
     const confirmLeaveBg = this.add
       .rectangle(0, confirmLeaveY, 234, 44, 0xdc2626, 1)
       .setStrokeStyle(1.5, 0xf87171, 1)
       .setInteractive({ useHandCursor: true });
     const confirmLeaveText = this.add
-      .text(0, confirmLeaveY, 'LEAVE MATCH', {
+      .text(0, confirmLeaveY, this.is2v2 ? 'SURRENDER' : 'LEAVE MATCH', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -3653,6 +3829,14 @@ export class GameScene extends Phaser.Scene {
     this.bindPressFeedback(confirmLeaveBg, confirmLeaveText);
     confirmLeaveBg.on('pointerdown', () => {
       this.platform.hapticNotification('warning');
+      if (this.is2v2 && !this.twoVTwoSurrenderSent) {
+        this.twoVTwoSurrenderSent = true;
+        try {
+          this.liveClient?.sendSurrender();
+        } catch (error) {
+          console.warn('[GameScene] Surrender send failed:', error);
+        }
+      }
       this.matchMenuController.confirmExit();
     });
     elements.push(confirmLeaveBg, confirmLeaveText);
@@ -3713,6 +3897,19 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  /** Destroys every territory/army visual (scene restart or 2v2 rematch). */
+  private destroyBattlefieldVisuals(): void {
+    for (const vis of this.territoryVisuals.values()) {
+      this.tweens.killTweensOf([vis.container, vis.ring, vis.typeIcon, vis.unitBadge]);
+      vis.container.destroy();
+    }
+    this.territoryVisuals.clear();
+    for (const visual of this.armyVisuals.values()) {
+      this.destroyArmyVisual(visual);
+    }
+    this.armyVisuals.clear();
+  }
+
   private bindLiveMatch(client?: LiveMatchClient): void {
     if (!client) {
       this.showLiveConnectionError();
@@ -3721,62 +3918,10 @@ export class GameScene extends Phaser.Scene {
     this.liveUnsubscribers.push(
       client.on('state', (state) => {
         if (this.resultModalContainer) return;
-        if (
-          this.lastAuthoritativeState &&
-          state.elapsedTimeSeconds <= this.lastAuthoritativeState.elapsedTimeSeconds
-        ) {
-          return;
-        }
-        const arrivals = this.lastAuthoritativeState
-          ? deriveLiveCombatArrivals(this.lastAuthoritativeState, state)
-          : [];
-        this.lastAuthoritativeState = state;
-        const { reconciledArmies, matchedVisualRenames } = reconcileLiveArmies(
-          this.gameState.armies,
-          state.armies
-        );
-        for (const { fromId, toId } of matchedVisualRenames) {
-          const vis = this.armyVisuals.get(fromId);
-          if (vis) {
-            vis.id = toId;
-            this.armyVisuals.delete(fromId);
-            this.armyVisuals.set(toId, vis);
-          }
-        }
-        const retainedPredictionIds = new Set(
-          reconciledArmies
-            .filter((army) => army.id.startsWith('pred_'))
-            .map((army) => army.id)
-        );
-        this.livePredictions = this.livePredictions.filter((prediction) =>
-          retainedPredictionIds.has(prediction.armyId)
-        );
-        this.gameState = {
-          ...state,
-          territories: applyPendingLiveDispatches(state.territories, this.livePredictions),
-          armies: reconciledArmies,
-        };
-        this.markTerritoriesDirty();
-        arrivals.forEach((arrival) => this.onCombatArrival(arrival));
+        this.applyLiveServerState(state);
       }),
       client.on('command_rejected', ({ code, sequence }) => {
-        this.spawnFloatingText(LOGICAL_WIDTH / 2, 96, code.replaceAll('_', ' '), '#f87171');
-        if (sequence === undefined) return;
-        const rejected = rejectLivePrediction(
-          this.gameState.armies,
-          this.livePredictions,
-          sequence
-        );
-        this.livePredictions = rejected.pendingDispatches;
-        this.gameState.armies = rejected.armies;
-        if (this.lastAuthoritativeState) {
-          this.gameState.territories = applyPendingLiveDispatches(
-            this.lastAuthoritativeState.territories,
-            this.livePredictions
-          );
-          this.markTerritoriesDirty();
-          this.updateTerritoryVisuals();
-        }
+        this.rejectLiveCommand(code, sequence);
       }),
       client.on('match_result', (result) => {
         this.handleLiveMatchResult(result, client);
@@ -3803,6 +3948,700 @@ export class GameScene extends Phaser.Scene {
         }
       })
     );
+  }
+
+  /**
+   * Applies one authoritative server state snapshot on top of the local
+   * prediction layer. Shared by the 1v1 `state` and 2v2 `state_2v2` paths —
+   * both projections carry the same GameState shape for the local player.
+   */
+  private applyLiveServerState(state: GameState): void {
+    if (
+      this.lastAuthoritativeState &&
+      state.elapsedTimeSeconds <= this.lastAuthoritativeState.elapsedTimeSeconds
+    ) {
+      return;
+    }
+    const arrivals = this.lastAuthoritativeState
+      ? deriveLiveCombatArrivals(this.lastAuthoritativeState, state)
+      : [];
+    this.lastAuthoritativeState = state;
+    const { reconciledArmies, matchedVisualRenames } = reconcileLiveArmies(
+      this.gameState.armies,
+      state.armies
+    );
+    for (const { fromId, toId } of matchedVisualRenames) {
+      const vis = this.armyVisuals.get(fromId);
+      if (vis) {
+        vis.id = toId;
+        this.armyVisuals.delete(fromId);
+        this.armyVisuals.set(toId, vis);
+      }
+    }
+    const retainedPredictionIds = new Set(
+      reconciledArmies
+        .filter((army) => army.id.startsWith('pred_'))
+        .map((army) => army.id)
+    );
+    this.livePredictions = this.livePredictions.filter((prediction) =>
+      retainedPredictionIds.has(prediction.armyId)
+    );
+    this.gameState = {
+      ...state,
+      territories: applyPendingLiveDispatches(state.territories, this.livePredictions),
+      armies: reconciledArmies,
+    };
+    this.markTerritoriesDirty();
+    arrivals.forEach((arrival) => this.onCombatArrival(arrival));
+  }
+
+  /**
+   * Server rejected a command: roll back that prediction and re-apply the
+   * last authoritative territories. Shared by 1v1 and 2v2 rejections.
+   */
+  private rejectLiveCommand(code: string, sequence: number | undefined): void {
+    this.spawnFloatingText(LOGICAL_WIDTH / 2, 96, code.replaceAll('_', ' '), '#f87171');
+    if (sequence === undefined) return;
+    const rejected = rejectLivePrediction(
+      this.gameState.armies,
+      this.livePredictions,
+      sequence
+    );
+    this.livePredictions = rejected.pendingDispatches;
+    this.gameState.armies = rejected.armies;
+    if (this.lastAuthoritativeState) {
+      this.gameState.territories = applyPendingLiveDispatches(
+        this.lastAuthoritativeState.territories,
+        this.livePredictions
+      );
+      this.markTerritoriesDirty();
+      this.updateTerritoryVisuals();
+    }
+  }
+
+  // ── Version-2 (2v2) session UI ─────────────────────────────────────────
+
+  /** True while this scene is running a flagged 2v2 match. */
+  private get is2v2(): boolean {
+    return this.live2v2 !== null;
+  }
+
+  private initTwoVTwoSession(payload: LiveMatchStarted2v2): void {
+    const badges = computeTwoVTwoSlotBadges(payload.slot);
+    const ally = badges.find((badge) => badge.isAlly);
+    const allyEntry = payload.players.find((entry) => entry.slot === ally?.slot);
+    this.live2v2 = {
+      payload,
+      badges,
+      ally: ally ?? badges[0],
+      allyName: allyEntry?.displayName ?? 'Ally',
+    };
+    this.twoVTwoAppliedStartId = payload.matchId;
+    this.twoVTwoRematchVoteSent = false;
+    this.twoVTwoSurrenderSent = false;
+  }
+
+  private bind2v2LiveMatch(client?: LiveMatchClient): void {
+    if (!client) {
+      this.show2v2AbandonedOverlay('connection_closed');
+      return;
+    }
+    this.liveUnsubscribers.push(
+      client.on('state_2v2', ({ state }) => {
+        if (this.resultModalContainer) return;
+        this.applyLiveServerState(state);
+      }),
+      client.on('command_rejected_2v2', ({ code, sequence }) => {
+        this.rejectLiveCommand(code, sequence);
+      }),
+      client.on('match_started_2v2', (payload) => {
+        this.handle2v2MatchStarted(payload);
+      }),
+      client.on('match_result_2v2', (result) => {
+        this.handle2v2MatchResult(result, client);
+      }),
+      client.on('reconnecting', ({ attempt }) => {
+        if (this.isExiting) return;
+        this.show2v2ReconnectOverlay(attempt);
+      }),
+      client.on('reconnected', () => {
+        this.hide2v2ReconnectOverlay();
+      }),
+      client.on('reconnect_failed', ({ code }) => {
+        if (this.isExiting) return;
+        this.hide2v2ReconnectOverlay();
+        this.show2v2AbandonedOverlay(code);
+      }),
+      client.on('rematch_started', () => {
+        if (this.isExiting) return;
+        this.handle2v2RematchStarted(client);
+      }),
+      client.on('closed', () => {
+        // Fires only when the v2 session is not active (terminal states).
+        if (this.isExiting) return;
+        if (this.resultModalContainer || this.twoVTwoReconnectOverlay) return;
+        if (this.gameState.status === 'playing') {
+          this.show2v2AbandonedOverlay('connection_closed');
+        }
+      }),
+      client.on('error', ({ code }) => {
+        if (this.isExiting) return;
+        if (this.resultModalContainer) return;
+        if (code === 'settlement_failed') {
+          this.show2v2AbandonedOverlay(code);
+        }
+      })
+    );
+  }
+
+  /**
+   * Version-2 match start. Exactly one of:
+   * - initial/resync snapshot for the current match id: applied once;
+   * - the rematch's start: full in-place battlefield reset.
+   */
+  private handle2v2MatchStarted(payload: LiveMatchStarted2v2): void {
+    if (this.isExiting) return;
+    if (payload.matchId === this.twoVTwoAppliedStartId) {
+      // Resync (§5.1): apply the authoritative snapshot exactly once. The
+      // pending predictions are already dropped client-side; local state
+      // becomes the server state with no prediction replay.
+      this.livePredictions = [];
+      this.gameState = payload.state;
+      this.lastAuthoritativeState = payload.state;
+      this.markTerritoriesDirty();
+      this.hide2v2ReconnectOverlay();
+      return;
+    }
+    this.resetFor2v2Rematch(payload);
+  }
+
+  /** Rebuilds the battlefield in place for the identical-slot rematch. */
+  private resetFor2v2Rematch(payload: LiveMatchStarted2v2): void {
+    this.resultModalContainer?.destroy();
+    this.resultModalContainer = undefined;
+    this.syncingModalContainer?.destroy();
+    this.syncingModalContainer = undefined;
+    this.initTwoVTwoSession(payload);
+    this.activeMatchId = payload.matchId;
+    this.gameState = payload.state;
+    this.lastAuthoritativeState = payload.state;
+    this.livePredictions = [];
+    this.settledMatchId = undefined;
+    this.resultPending = false;
+    this.destroyBattlefieldVisuals();
+    this.createTerritoryObjects();
+    this.markTerritoriesDirty();
+    this.sounds2v2RestartMusic();
+    trackEvent({
+      name: 'match_start',
+      matchId: payload.matchId,
+      mode: 'live',
+      source: 'rematch',
+      battlefieldId: this.battlefieldId,
+    });
+  }
+
+  private sounds2v2RestartMusic(): void {
+    if (!sounds.isMuted()) {
+      sounds.startBattleMusic();
+    }
+  }
+
+  private handle2v2MatchResult(result: LiveMatchResult2v2, client?: LiveMatchClient): void {
+    if (this.isExiting || this.resultModalContainer) return;
+    if (this.settledMatchId === result.matchId) return;
+    this.settledMatchId = result.matchId;
+
+    const model = buildTwoVTwoResultViewModel(
+      result,
+      this.live2v2?.payload.slot ?? 0,
+      this.rosterNameMap()
+    );
+    this.hide2v2ReconnectOverlay();
+
+    // Career cache: the server already persisted the per-participant
+    // settlement (casual policy: coin rewards, no trophy changes); refresh the local
+    // snapshot from my own authoritative settlement when present.
+    if (!model.cancelled && this.live2v2) {
+      const mine = result.participants?.find(
+        (participant) => participant.slot === this.live2v2?.payload.slot
+      );
+      if (mine?.settlement) {
+        this.careerManager.applyLiveMatchSettlement(mine.settlement);
+      }
+    }
+
+    if (model.cancelled || model.myStatus === 'victory') {
+      if (!model.cancelled) {
+        sounds.playVictory();
+        this.platform.hapticNotification('success');
+        this.cameras.main.flash(350, 37, 99, 235);
+      }
+    } else {
+      sounds.playDefeat();
+      this.platform.hapticNotification('warning');
+    }
+    sounds.stopBattleMusic();
+    this.render2v2ResultModal(model, client);
+  }
+
+  private rosterNameMap(): Record<number, string> {
+    const map: Record<number, string> = {};
+    for (const entry of this.live2v2?.payload.players ?? []) {
+      map[entry.slot] = entry.displayName;
+    }
+    return map;
+  }
+
+  private handle2v2RematchStarted(client: LiveMatchClient): void {
+    // All four voted: the fresh match keeps identical slots. Ready-signal so
+    // the server's countdown starts immediately, and hold the result modal
+    // in a pending state until the new match_started_2v2 resets the battle.
+    this.twoVTwoRematchVoteSent = false;
+    try {
+      client.sendReady();
+    } catch {
+      // Not fatal: the countdown still starts the match without ready votes.
+    }
+    if (!this.resultModalContainer) return;
+    const pending = this.add
+      .text(0, 60, 'REMATCH FOUND — ENTERING THE ARENA…', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '13px',
+        fontStyle: '900',
+        color: '#c7d2fe',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    this.resultModalContainer.add(pending);
+    // Freeze the modal buttons: the match is already decided.
+    this.resultModalContainer.setAlpha(0.92);
+  }
+
+  private render2v2ResultModal(model: ReturnType<typeof buildTwoVTwoResultViewModel>, client?: LiveMatchClient): void {
+    const { visibleWidth, visibleHeight } = getSceneViewport(this);
+    const headline = twoVTwoResultHeadline(model);
+    const modal = this.add.container(LOGICAL_WIDTH / 2, visibleHeight / 2).setDepth(200);
+    this.resultModalContainer = modal;
+    modal.setScale(0.85);
+    modal.setAlpha(0);
+
+    const backdrop = this.add
+      .rectangle(0, 0, visibleWidth, visibleHeight, 0x000000, 0.78)
+      .setInteractive();
+
+    const card = this.add
+      .rectangle(0, 0, 330, 640, 0x0c1322, 0.98)
+      .setStrokeStyle(2, model.cancelled ? 0x64748b : THEME.twoVTwoAccent, 0.95);
+
+    const title = this.add
+      .text(0, -275, headline.title, {
+        fontFamily: FONT_FAMILY,
+        fontSize: '30px',
+        fontStyle: '900',
+        color: headline.color,
+        stroke: '#000000',
+        strokeThickness: 4,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+
+    const subtitle = this.add
+      .text(0, -238, headline.subtitle, {
+        fontFamily: FONT_FAMILY,
+        fontSize: '11px',
+        fontStyle: 'bold',
+        color: '#cbd5e1',
+        stroke: '#000000',
+        strokeThickness: 2,
+        align: 'center',
+        lineSpacing: 4,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+
+    // Casual notice — honest no-rewards copy replaces the 1v1 reward cards.
+    const casualNotice = this.add
+      .text(0, -202, TWO_V_TWO_CASUAL_NOTICE, {
+        fontFamily: FONT_FAMILY,
+        fontSize: '10px',
+        fontStyle: 'bold',
+        color: '#94a3b8',
+        stroke: '#000000',
+        strokeThickness: 1.5,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+
+    const grid = computeTwoVTwoResultGrid();
+    const elements: Phaser.GameObjects.GameObject[] = [
+      backdrop, card, title, subtitle, casualNotice,
+    ];
+
+    const separator = this.add
+      .rectangle(0, grid.separatorY, 290, 1.5, 0x1e293b, 1);
+    elements.push(separator);
+
+    const rows: ReadonlyArray<{
+      group: (typeof model.teams)[number];
+      cells: typeof grid.myTeamRow;
+      labelY: number;
+    }> = [
+      { group: model.teams[0], cells: grid.myTeamRow, labelY: grid.rowLabels.myTeamY },
+      { group: model.teams[1], cells: grid.otherTeamRow, labelY: grid.rowLabels.otherTeamY },
+    ];
+
+    for (const row of rows) {
+      if (model.cancelled) break;
+      const teamStyle = THEME.teams[row.group.teamId === 'a' ? 'player' : 'enemy'];
+      const teamLabelText = row.group.isMyTeam
+        ? `${row.group.isWinner ? '🏆' : '🛡'} YOUR TEAM ${row.group.teamId.toUpperCase()}${row.group.isWinner ? ' — WINNER' : ''}`
+        : `${row.group.isWinner ? '🏆' : '⚔'} ENEMY TEAM ${row.group.teamId.toUpperCase()}${row.group.isWinner ? ' — WINNER' : ''}`;
+      const teamLabel = this.add
+        .text(0, row.labelY, teamLabelText, {
+          fontFamily: FONT_FAMILY,
+          fontSize: '10px',
+          fontStyle: '900',
+          color: row.group.isWinner ? '#fbbf24' : '#94a3b8',
+          stroke: '#000000',
+          strokeThickness: 1.5,
+          resolution: 2,
+        })
+        .setOrigin(0.5);
+      elements.push(teamLabel);
+
+      row.group.participants.forEach((participant, index) => {
+        const cell = row.cells[index];
+        if (!cell) return;
+        const badge = this.live2v2?.badges.find((b) => b.slot === participant.slot);
+        const shape = badge?.shape ?? '';
+        const bg = this.add
+          .rectangle(cell.center.x, cell.center.y, cell.width, cell.height, 0x111827, 0.95)
+          .setStrokeStyle(
+            1.5,
+            participant.isYou ? 0xf59e0b : teamStyle.primary,
+            participant.isYou ? 0.95 : 0.85
+          );
+        // Identity: shape glyph + slot label + YOU marker; color reinforces.
+        const nameLabel = this.add
+          .text(
+            cell.center.x,
+            cell.center.y - 22,
+            formatTwoVTwoResultCellLabel(shape, participant.label, participant.isYou, participant.displayName),
+            {
+              fontFamily: FONT_FAMILY,
+              fontSize: '11px',
+              fontStyle: 'bold',
+              color: '#f8fafc',
+              stroke: '#000000',
+              strokeThickness: 1.5,
+              resolution: 2,
+            }
+          )
+          .setOrigin(0.5);
+        const statusLabel = this.add
+          .text(cell.center.x, cell.center.y + 2, participant.status.toUpperCase(), {
+            fontFamily: FONT_FAMILY,
+            fontSize: '13px',
+            fontStyle: '900',
+            color:
+              participant.status === 'victory'
+                ? '#fbbf24'
+                : participant.status === 'defeat'
+                  ? '#f87171'
+                  : '#cbd5e1',
+            stroke: '#000000',
+            strokeThickness: 2,
+            resolution: 2,
+          })
+          .setOrigin(0.5);
+        const statsLabel = this.add
+          .text(
+            cell.center.x,
+            cell.center.y + 22,
+            participant.abandoned
+              ? `ABANDONED${participant.coinsAwarded === null ? '' : ` · +${participant.coinsAwarded}g`}`
+              : `${participant.coinsAwarded === null ? '' : `+${participant.coinsAwarded}g · `}⚔${participant.unitsDispatched ?? '—'} · 🏰${participant.territoriesCaptured ?? '—'}`,
+            {
+              fontFamily: FONT_FAMILY,
+              fontSize: '9px',
+              fontStyle: 'bold',
+              color: participant.abandoned ? '#f87171' : '#94a3b8',
+              stroke: '#000000',
+              strokeThickness: 1,
+              resolution: 2,
+            }
+          )
+          .setOrigin(0.5);
+        elements.push(bg, nameLabel, statusLabel, statsLabel);
+      });
+    }
+
+    if (model.cancelled) {
+      const cancelledNote = this.add
+        .text(0, -110, 'No result was recorded for this match.', {
+          fontFamily: FONT_FAMILY,
+          fontSize: '11px',
+          fontStyle: 'bold',
+          color: '#94a3b8',
+          stroke: '#000000',
+          strokeThickness: 1.5,
+          resolution: 2,
+        })
+        .setOrigin(0.5);
+      elements.push(cancelledNote);
+    }
+
+    // One-shot rematch vote (§5.4): all four must vote; the button consumes
+    // into a sent-state and cannot send twice.
+    const rematchY = 135;
+    const rematchBg = this.add
+      .rectangle(0, rematchY, 240, 50, 0x17123a, 1)
+      .setStrokeStyle(2, THEME.twoVTwoAccent, 1)
+      .setInteractive({ useHandCursor: true });
+    const rematchText = this.add
+      .text(0, rematchY, twoVTwoRematchButtonLabel(this.twoVTwoRematchVoteSent), {
+        fontFamily: FONT_FAMILY,
+        fontSize: '12px',
+        fontStyle: '900',
+        color: '#c7d2fe',
+        stroke: '#000000',
+        strokeThickness: 2,
+        align: 'center',
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    this.bindPressFeedback(rematchBg, rematchText);
+    rematchBg.on('pointerdown', () => {
+      if (this.twoVTwoRematchVoteSent || model.cancelled) return;
+      this.twoVTwoRematchVoteSent = true;
+      try {
+        client?.sendRematchVote();
+      } catch (error) {
+        // The vote window may have closed; surface it without crashing.
+        this.spawnFloatingText(LOGICAL_WIDTH / 2, 96, 'rematch unavailable', '#f87171');
+        console.warn('[GameScene] Rematch vote failed:', error);
+        this.twoVTwoRematchVoteSent = false;
+        return;
+      }
+      this.platform.hapticSelection();
+      rematchBg.disableInteractive();
+      rematchText.setText(twoVTwoRematchButtonLabel(true));
+      rematchBg.setFillStyle(0x0f0b24, 1);
+    });
+    elements.push(rematchBg, rematchText);
+
+    const shareY = 190;
+    const shareBg = this.add
+      .rectangle(0, shareY, 240, 46, 0x1e293b, 1)
+      .setStrokeStyle(1.5, 0x475569, 1)
+      .setInteractive({ useHandCursor: true });
+    const shareText = this.add
+      .text(0, shareY, 'SHARE RESULT 📢', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: '#94a3b8',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    this.bindPressFeedback(shareBg, shareText);
+    shareBg.on('pointerdown', async () => {
+      this.platform.hapticSelection();
+      await this.platform.share({
+        text: model.myStatus === 'victory'
+          ? '👑 Our team seized the Quad Citadel in Crown Clash 2v2! ⚔️ Join the battle!'
+          : '⚔ We fought for the Quad Citadel in Crown Clash 2v2! Challenge us!',
+      });
+    });
+    elements.push(shareBg, shareText);
+
+    const menuY = 245;
+    const menuBg = this.add
+      .rectangle(0, menuY, 240, 46, 0x0f172a, 1)
+      .setStrokeStyle(1.5, 0x60a5fa, 1)
+      .setInteractive({ useHandCursor: true });
+    const menuText = this.add
+      .text(0, menuY, 'MAIN MENU', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: '#bfdbfe',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    this.bindPressFeedback(menuBg, menuText);
+    menuBg.on('pointerdown', () => {
+      this.platform.hapticSelection();
+      this.returnToMenu();
+    });
+    elements.push(menuBg, menuText);
+
+    modal.add(elements);
+    this.tweens.add({
+      targets: modal,
+      scale: 1.0,
+      alpha: 1.0,
+      duration: 260,
+      ease: 'Back.easeOut',
+    });
+    this.resultModalContainer = modal;
+  }
+
+  // ── 2v2 reconnect / abandon overlays ────────────────────────────────────
+
+  private show2v2ReconnectOverlay(attempt: number): void {
+    if (this.isExiting || this.resultModalContainer) return;
+    if (this.twoVTwoReconnectOverlay) {
+      this.twoVTwoReconnectOverlay.destroy();
+    }
+    const { visibleWidth, visibleHeight } = getSceneViewport(this);
+    const overlay = this.add.container(LOGICAL_WIDTH / 2, visibleHeight / 2).setDepth(230);
+    const backdrop = this.add
+      .rectangle(0, 0, visibleWidth, visibleHeight, 0x000000, 0.85)
+      .setInteractive();
+    const card = this.add
+      .rectangle(0, 0, 290, 170, 0x0c1322, 0.99)
+      .setStrokeStyle(2, 0xf59e0b, 0.95);
+    const title = this.add
+      .text(0, -50, 'CONNECTION LOST', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '19px',
+        fontStyle: '900',
+        color: '#fbbf24',
+        stroke: '#000000',
+        strokeThickness: 3,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    const subtitle = this.add
+      .text(0, -8, `Reconnecting… (attempt ${attempt + 1})\nYour slot is held for 30s`, {
+        fontFamily: FONT_FAMILY,
+        fontSize: '12px',
+        fontStyle: 'bold',
+        color: '#e2e8f0',
+        align: 'center',
+        lineSpacing: 5,
+        stroke: '#000000',
+        strokeThickness: 1.5,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    const spinner = this.add
+      .text(0, 48, '⏳', { fontSize: '22px', resolution: 2 })
+      .setOrigin(0.5);
+    this.tweens.add({
+      targets: spinner,
+      angle: 360,
+      duration: 1200,
+      repeat: -1,
+    });
+    overlay.add([backdrop, card, title, subtitle, spinner]);
+    this.twoVTwoReconnectOverlay = overlay;
+  }
+
+  private hide2v2ReconnectOverlay(): void {
+    this.twoVTwoReconnectOverlay?.destroy();
+    this.twoVTwoReconnectOverlay = undefined;
+  }
+
+  /** Terminal reconnect failure: the slot is gone; the only way out is menu. */
+  private show2v2AbandonedOverlay(code: string): void {
+    this.hide2v2ReconnectOverlay();
+    if (this.isExiting || this.resultModalContainer) return;
+    const { visibleWidth, visibleHeight } = getSceneViewport(this);
+    const overlay = this.add.container(LOGICAL_WIDTH / 2, visibleHeight / 2).setDepth(230);
+    this.twoVTwoReconnectOverlay = overlay;
+    const backdrop = this.add
+      .rectangle(0, 0, visibleWidth, visibleHeight, 0x000000, 0.88)
+      .setInteractive();
+    const card = this.add
+      .rectangle(0, 0, 300, 220, 0x0c1322, 0.99)
+      .setStrokeStyle(2, 0xef4444, 0.95);
+    const title = this.add
+      .text(0, -75, 'MATCH ABANDONED', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '19px',
+        fontStyle: '900',
+        color: '#f87171',
+        stroke: '#000000',
+        strokeThickness: 3,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    const subtitle = this.add
+      .text(0, -25, 'You could not rejoin in time.\nThe match continues without you.', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '12px',
+        fontStyle: 'bold',
+        color: '#cbd5e1',
+        align: 'center',
+        lineSpacing: 5,
+        stroke: '#000000',
+        strokeThickness: 1.5,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    const codeText = this.add
+      .text(0, 22, code.replaceAll('_', ' '), {
+        fontFamily: FONT_FAMILY,
+        fontSize: '9px',
+        fontStyle: 'bold',
+        color: '#64748b',
+        stroke: '#000000',
+        strokeThickness: 1,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    const menuBg = this.add
+      .rectangle(0, 70, 200, 48, 0x0f172a, 1)
+      .setStrokeStyle(1.5, 0x60a5fa, 1)
+      .setInteractive({ useHandCursor: true });
+    const menuText = this.add
+      .text(0, 70, 'RETURN TO MENU', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '13px',
+        fontStyle: '900',
+        color: '#bfdbfe',
+        stroke: '#000000',
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5);
+    this.bindPressFeedback(menuBg, menuText);
+    menuBg.on('pointerdown', () => {
+      this.platform.hapticSelection();
+      this.returnToMenu();
+    });
+    overlay.add([backdrop, card, title, subtitle, codeText, menuBg, menuText]);
+  }
+
+  /** Dispatch and drag input are inert while reconnecting or surrendered. */
+  private is2v2InputBlocked(): boolean {
+    if (!this.is2v2) return false;
+    return this.twoVTwoSurrenderSent || Boolean(this.twoVTwoReconnectOverlay);
+  }
+
+  /**
+   * Shape glyph for a marching army in 2v2: parsed from the version-2
+   * server army id; local predictions carry my own slot's shape. Null in
+   * 1v1 or for ids that do not encode a slot.
+   */
+  private twoVTwoArmyShape(army: MarchingArmy): string | null {
+    if (!this.live2v2) return null;
+    if (army.id.startsWith('pred_')) {
+      const mine = this.live2v2.badges.find((badge) => badge.isYou);
+      return mine?.shape ?? null;
+    }
+    const slot = slotFromTwoVTwoArmyId(army.id);
+    if (slot === null) return null;
+    return TWO_V_TWO_SLOT_SHAPES[slot] ?? null;
   }
 
   private showLiveConnectionError(): void {
@@ -3871,6 +4710,12 @@ export class GameScene extends Phaser.Scene {
     this.input.removeAllListeners();
     this.livePredictions = [];
     this.lastAuthoritativeState = null;
+    this.hide2v2ReconnectOverlay();
+    this.live2v2 = null;
+    this.twoVTwoAppliedStartId = null;
+    this.twoVTwoHudLayout = null;
+    this.twoVTwoRematchVoteSent = false;
+    this.twoVTwoSurrenderSent = false;
     this.careerSubscription?.();
     this.careerSubscription = undefined;
     for (const unsubscribe of this.liveUnsubscribers) {

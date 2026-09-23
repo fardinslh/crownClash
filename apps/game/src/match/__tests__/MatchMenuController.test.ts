@@ -305,4 +305,21 @@ describe('MatchMenuController', () => {
       expect(onStateChange).toHaveBeenLastCalledWith('closed');
     });
   });
+
+  describe('Confirmation message override (2v2 surrender)', () => {
+    it('uses the override when provided', () => {
+      const { controller } = createController({
+        liveMode: true,
+        confirmationMessage: 'Surrendering removes you from this battle.\nYour teammate keeps fighting.',
+      });
+      expect(controller.getConfirmationMessage()).toBe(
+        'Surrendering removes you from this battle.\nYour teammate keeps fighting.'
+      );
+    });
+
+    it('keeps the default live message without an override', () => {
+      const { controller } = createController({ liveMode: true });
+      expect(controller.getConfirmationMessage()).toBe('Leaving forfeits this match.');
+    });
+  });
 });

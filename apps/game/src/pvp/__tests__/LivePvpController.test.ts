@@ -111,6 +111,24 @@ describe('LivePvpController', () => {
       expect(controller.startQueueing()).toBe(false); // duplicate rejected
     });
 
+    it('handles 2v2 queue flow with honest distinct view', () => {
+      const controller = new LivePvpController();
+      expect(controller.startQueueing2v2()).toBe(true);
+      expect(controller.getState().view).toBe('queueing_2v2');
+      // Duplicate entry from any in-progress view is rejected.
+      expect(controller.startQueueing2v2()).toBe(false);
+      expect(controller.startQueueing()).toBe(false);
+      expect(controller.startCreating()).toBe(false);
+      expect(controller.startJoining('ABCD0123').success).toBe(false);
+      controller.cancel();
+      expect(controller.getState().view).toBe('lobby');
+    });
+
+    it('maps 2v2 errors to honest copy', () => {
+      expect(mapLivePvpError('two_v2_disabled')).toMatch(/not available yet/i);
+      expect(mapLivePvpError('queue_2v2_failed')).toMatch(/2v2/i);
+    });
+
     it('handles error state and cancellation', () => {
       const controller = new LivePvpController();
       controller.startCreating();

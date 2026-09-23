@@ -22,6 +22,8 @@ export type MatchNavigationAnalyticsEvent =
 export interface MatchMenuDependencies {
   readonly liveMode: boolean;
   readonly matchId: string;
+  /** Overrides the default live/bot confirm copy (e.g. 2v2 surrender). */
+  readonly confirmationMessage?: string;
   getDurationSeconds: () => number;
   closeLiveClient?: () => void;
   trackQuit: (event: MatchQuitEvent) => boolean;
@@ -185,6 +187,9 @@ export class MatchMenuController {
   }
 
   public getConfirmationMessage(): string {
+    if (this.deps.confirmationMessage) {
+      return this.deps.confirmationMessage;
+    }
     return this.deps.liveMode
       ? 'Leaving forfeits this match.'
       : 'Current battle progress will be lost.';

@@ -5,6 +5,7 @@ export type LivePvpView =
   | 'entering_code'
   | 'joining'
   | 'queueing'
+  | 'queueing_2v2'
   | 'error';
 
 export interface LivePvpState {
@@ -27,6 +28,10 @@ export function isValidRoomCode(code: string): boolean {
 
 export function mapLivePvpError(code: string): string {
   switch (code) {
+    case 'two_v2_disabled':
+      return '2v2 is not available yet.\nPlease update your game.';
+    case 'queue_2v2_failed':
+      return 'Could not find a 2v2 battle.\nPlease try again.';
     case 'invite_not_found':
       return 'Battle room not found.\nCheck the code or create a new room.';
     case 'live_match_full':
@@ -83,7 +88,7 @@ export class LivePvpController {
   }
 
   public startCreating(): boolean {
-    if (this.view === 'creating' || this.view === 'joining' || this.view === 'queueing') {
+    if (this.view === 'creating' || this.view === 'joining' || this.view === 'queueing' || this.view === 'queueing_2v2') {
       return false;
     }
     this.view = 'creating';
@@ -102,7 +107,7 @@ export class LivePvpController {
   }
 
   public startEnteringCode(): boolean {
-    if (this.view === 'creating' || this.view === 'joining' || this.view === 'queueing') {
+    if (this.view === 'creating' || this.view === 'joining' || this.view === 'queueing' || this.view === 'queueing_2v2') {
       return false;
     }
     this.view = 'entering_code';
@@ -119,7 +124,7 @@ export class LivePvpController {
   }
 
   public startJoining(code?: string): { success: boolean; error?: string } {
-    if (this.view === 'creating' || this.view === 'joining' || this.view === 'queueing') {
+    if (this.view === 'creating' || this.view === 'joining' || this.view === 'queueing' || this.view === 'queueing_2v2') {
       return { success: false, error: 'Request already in progress' };
     }
     const targetCode = code !== undefined ? sanitizeRoomCode(code) : this.roomCode;
@@ -137,10 +142,25 @@ export class LivePvpController {
   }
 
   public startQueueing(): boolean {
-    if (this.view === 'creating' || this.view === 'joining' || this.view === 'queueing') {
+    if (this.view === 'creating' || this.view === 'joining' || this.view === 'queueing' || this.view === 'queueing_2v2') {
       return false;
     }
     this.view = 'queueing';
+    this.errorMessage = '';
+    this.copied = false;
+    this.notify();
+    return true;
+  }
+
+  /**
+   * Enters the 2v2 queueing view. Distinct from the 1v1 queue so the UI can
+   * show honest four-player progress copy and never silently downgrade.
+   */
+  public startQueueing2v2(): boolean {
+    if (this.view === 'creating' || this.view === 'joining' || this.view === 'queueing' || this.view === 'queueing_2v2') {
+      return false;
+    }
+    this.view = 'queueing_2v2';
     this.errorMessage = '';
     this.copied = false;
     this.notify();

@@ -58,9 +58,10 @@ export type AnalyticsEventInput =
   | { name: 'commander_selected'; commanderId: 'crown_guard' | 'quartermaster' | 'vanguard' }
   | { name: 'rank_promoted'; matchId: string }
   | { name: 'live_queue_joined' }
+  | { name: 'live_queue_2v2_joined' }
   | { name: 'live_invite_created' }
   | { name: 'live_invite_joined' }
-  | { name: 'live_match_started'; matchId: string }
+  | { name: 'live_match_started'; matchId: string; mode?: '1v1' | '2v2' }
   | {
       name: 'live_match_ended';
       matchId: string;
@@ -109,6 +110,7 @@ const EVENT_NAMES: ReadonlySet<AnalyticsEvent['name']> = new Set([
   'commander_selected',
   'rank_promoted',
   'live_queue_joined',
+  'live_queue_2v2_joined',
   'live_invite_created',
   'live_invite_joined',
   'live_match_started',

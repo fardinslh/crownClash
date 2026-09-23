@@ -13,6 +13,7 @@ import { THEME } from '../theme.js';
 import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
 import { LiveMatchClient } from '../api/LiveMatchClient.js';
 import { LivePvpController, isValidRoomCode, sanitizeRoomCode } from '../pvp/LivePvpController.js';
+import { featureFlags } from '../config/featureFlags.js';
 import { isTutorialCompleted } from '../tutorial/TutorialController.js';
 import { dismissStartupLoadingShell } from '../ui/StartupLoadingShell.js';
 import {
@@ -581,34 +582,58 @@ export class MenuScene extends Phaser.Scene {
     };
 
     // ---------------------------------------------------------------- LOBBY VIEW
+    // With the 2v2 flag enabled the card grows one button taller; with it
+    // disabled the lobby is byte-for-byte the 1v1 geometry (flag boundary).
+    const show2v2Entry = featureFlags.enable2v2;
+    const lobbyCardHeight = show2v2Entry ? 352 : 300;
     const lobbyCard = this.add
-      .rectangle(0, 0, 320, 300, 0x0c1322, 0.99)
-      .setStrokeStyle(2, 0x60a5fa, 0.95);
+      .rectangle(0, 0, 320, lobbyCardHeight, 0x0c1322, 0.99)
+      .setStrokeStyle(2, show2v2Entry ? THEME.twoVTwoAccent : 0x60a5fa, 0.95);
 
-    TS('LIVE PVP', 0, -120, '22px', '#bfdbfe', { fontStyle: '900', strokeThickness: 3 });
-    TS('Challenge a Commander in real time', 0, -92, '10px', '#94a3b8', { strokeThickness: 1 });
+    const lobbyTitleY = show2v2Entry ? -148 : -120;
+    const lobbyTitle = TS('LIVE PVP', 0, lobbyTitleY, '22px', '#bfdbfe', { fontStyle: '900', strokeThickness: 3 });
+    const lobbySubtitle = TS('Challenge a Commander in real time', 0, lobbyTitleY + 28, '10px', '#94a3b8', { strokeThickness: 1 });
 
+    const quickMatchY = show2v2Entry ? -76 : -42;
     const { bg: queueBg, txt: queueTxt } = makeBtn(
-      0, -42, 260, 52, 0x2563eb, 0x60a5fa, 'QUICK MATCH  ⚔', '#ffffff', '14px'
+      0, quickMatchY, 260, 52, 0x2563eb, 0x60a5fa, 'QUICK MATCH  ⚔', '#ffffff', '14px'
     );
+    // 2v2 CASUAL entry — reachable only when the flag is on (Phase 5).
+    const twoVTwoY = quickMatchY + 58;
+    const twoVTwoEntry = show2v2Entry
+      ? makeBtn(
+          0, twoVTwoY, 260, 48, 0x17123a, THEME.twoVTwoAccent,
+          '2V2 CASUAL  🛡', '#c7d2fe', '13px'
+        )
+      : null;
+    const twoVTwoSub = show2v2Entry
+      ? TS('team up · no trophy changes', 0, twoVTwoY + 31, '9px', '#818cf8', { strokeThickness: 1 })
+      : null;
+    const createY = show2v2Entry ? twoVTwoY + 56 : 20;
     const { bg: createBg, txt: createTxt } = makeBtn(
-      0, 20, 260, 48, 0x0e2a1a, 0x34d399, 'CREATE BATTLE  🔗', '#6ee7b7', '13px'
+      0, createY, 260, 48, 0x0e2a1a, 0x34d399, 'CREATE BATTLE  🔗', '#6ee7b7', '13px'
     );
+    const joinY = createY + 55;
     const { bg: joinBg, txt: joinTxt } = makeBtn(
-      0, 75, 260, 48, 0x11153a, 0x818cf8, 'JOIN BATTLE  ↗', '#c7d2fe', '13px'
+      0, joinY, 260, 48, 0x11153a, 0x818cf8, 'JOIN BATTLE  ↗', '#c7d2fe', '13px'
     );
 
     // Close ✕ in top-right of lobby card
+    const lobbyCloseY = lobbyTitleY - 15;
     const lobbyCloseBg = this.add
-      .rectangle(145, -135, 44, 44, 0x000000, 0)
+      .rectangle(145, lobbyCloseY, 44, 44, 0x000000, 0)
       .setInteractive({ useHandCursor: true });
-    const lobbyCloseBtn = TS('✕', 145, -135, '20px', '#94a3b8');
+    const lobbyCloseBtn = TS('✕', 145, lobbyCloseY, '20px', '#94a3b8');
     this.bindPressFeedback(lobbyCloseBg, lobbyCloseBtn);
     lobbyCloseBg.on('pointerdown', closeLobby);
 
     lobbyView.add([
-      lobbyCard, queueBg, queueTxt, createBg, createTxt, joinBg, joinTxt,
+      lobbyCard, lobbyTitle, lobbySubtitle,
+      queueBg, queueTxt, createBg, createTxt, joinBg, joinTxt,
       lobbyCloseBg, lobbyCloseBtn,
+      ...(twoVTwoEntry && twoVTwoSub
+        ? [twoVTwoEntry.bg, twoVTwoEntry.txt, twoVTwoSub]
+        : []),
     ]);
 
     // -------------------------------------------------------- WAITING VIEW (room host)
@@ -789,7 +814,7 @@ export class MenuScene extends Phaser.Scene {
     errorView.add([errCard, errIcon, errMsg, retryBg, retryTxt, errBackBg, errBackTxt]);
 
     // ------------------------------------------------ VIEW RENDERER
-    let lastRetryMode: 'queue' | 'create' | 'join' = 'queue';
+    let lastRetryMode: 'queue' | 'queue_2v2' | 'create' | 'join' = 'queue';
     let lastRetryCode = '';
 
     const showView = (view: import('../pvp/LivePvpController.js').LivePvpView, opts: {
@@ -803,12 +828,15 @@ export class MenuScene extends Phaser.Scene {
           break;
         case 'creating':
         case 'joining':
-        case 'queueing': {
+        case 'queueing':
+        case 'queueing_2v2': {
           loadingView.setVisible(true);
           loadText.setText(
             view === 'creating' ? 'CREATING ROOM…' :
             view === 'joining'  ? 'JOINING ROOM…' :
-                                   'FINDING OPPONENT…'
+            view === 'queueing_2v2'
+                                ? 'FINDING 2v2 BATTLE…\n4 COMMANDERS NEEDED'
+            :                     'FINDING OPPONENT…'
           );
           const cancelMatchmaking = (): void => {
             this.liveClient?.close();
@@ -867,7 +895,10 @@ export class MenuScene extends Phaser.Scene {
     });
 
     // ------------------------------------------------ LIVE CLIENT FACTORY
-    const startClient = (mode: 'queue' | 'create' | 'join', roomCode?: string): void => {
+    const startClient = (
+      mode: 'queue' | 'queue_2v2' | 'create' | 'join',
+      roomCode?: string
+    ): void => {
       if (this.liveClient) return;
       lastRetryMode = mode;
       lastRetryCode = roomCode ?? '';
@@ -883,6 +914,15 @@ export class MenuScene extends Phaser.Scene {
 
       let matchStarted = false;
 
+      const leaveLobbyForMatch = (): void => {
+        controller.destroy();
+        this.pvpController = undefined;
+        platform.hideBackButton();
+        cleanupJoinInput();
+        overlay.destroy();
+        this.liveClient = undefined;
+      };
+
       client.on('invite_created', ({ roomCode: createdCode }) => {
         controller.onInviteCreated(createdCode);
       });
@@ -892,12 +932,7 @@ export class MenuScene extends Phaser.Scene {
         this.isTransitioning = true;
         matchStarted = true;
         trackEvent({ name: 'live_match_started', matchId: match.matchId });
-        controller.destroy();
-        this.pvpController = undefined;
-        platform.hideBackButton();
-        cleanupJoinInput();
-        overlay.destroy();
-        this.liveClient = undefined;
+        leaveLobbyForMatch();
         this.scene.start('GameScene', {
           source: 'menu',
           mode: 'live',
@@ -906,6 +941,21 @@ export class MenuScene extends Phaser.Scene {
         });
       });
 
+      // Version-2 (2v2) transition: the v2 start payload carries slot, team
+      // and roster; GameScene rebuilds its HUD and projection from it.
+      client.on('match_started_2v2', (payload) => {
+        if (this.isTransitioning) return;
+        this.isTransitioning = true;
+        matchStarted = true;
+        trackEvent({ name: 'live_match_started', matchId: payload.matchId, mode: '2v2' });
+        leaveLobbyForMatch();
+        this.scene.start('GameScene', {
+          source: 'menu',
+          mode: 'live',
+          liveClient: client,
+          liveMatch2v2: payload,
+        });
+      });
       client.on('error', ({ code }) => {
         if (matchStarted) return;
         controller.onError(code);
@@ -923,6 +973,7 @@ export class MenuScene extends Phaser.Scene {
         .connect(mode, roomCode)
         .then(() => {
           if (mode === 'queue') trackEvent({ name: 'live_queue_joined' });
+          if (mode === 'queue_2v2') trackEvent({ name: 'live_queue_2v2_joined' });
           if (mode === 'create') trackEvent({ name: 'live_invite_created' });
           if (mode === 'join') trackEvent({ name: 'live_invite_joined' });
         })
@@ -939,6 +990,13 @@ export class MenuScene extends Phaser.Scene {
     queueBg.on('pointerdown', () => {
       if (!controller.startQueueing()) return;
       startClient('queue');
+    });
+
+    // 2v2 CASUAL — queued through the version-2 path; the button only
+    // exists when the feature flag is on, and the ticket path re-checks it.
+    twoVTwoEntry?.bg.on('pointerdown', () => {
+      if (!controller.startQueueing2v2()) return;
+      startClient('queue_2v2');
     });
 
     createBg.on('pointerdown', () => {
@@ -1063,6 +1121,8 @@ export class MenuScene extends Phaser.Scene {
         if (!controller.startJoining(lastRetryCode).success) return;
       } else if (lastRetryMode === 'create') {
         if (!controller.startCreating()) return;
+      } else if (lastRetryMode === 'queue_2v2') {
+        if (!controller.startQueueing2v2()) return;
       } else {
         if (!controller.startQueueing()) return;
       }
