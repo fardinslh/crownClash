@@ -36,6 +36,12 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v5
 
+      # Machine proof of quad_citadel's 180-degree rotational symmetry
+      # (docs/2v2-architecture.md §7.3): reads the shipped battlefields.json
+      # directly, is deterministic, and finishes in well under a second.
+      - name: Battlefield symmetry proof
+        run: python3 tools/verify_battlefield_symmetry.py
+
       - name: Set up Node
         uses: actions/setup-node@v5
         with:

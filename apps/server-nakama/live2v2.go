@@ -38,79 +38,12 @@ const (
 	live2v2BattlefieldID          = "quad_citadel"
 )
 
-// Interim Phase-3 battlefield: the machine-proven quad_citadel topology from
-// docs/2v2-architecture.md §7.3, registered programmatically because the
-// battlefields.json single source of truth gains its 2v2 entry only in
-// Phase 6 (with the checked-in symmetry proof). Phase 6 must replace this
-// registration with the JSON entry — the topology and territory order are
-// frozen here so replays stay deterministic in the meantime.
-func init() {
-	if _, exists := authoritativeBattlefields[live2v2BattlefieldID]; exists {
-		return
-	}
-	fortress := func(id, name string, x, y float64) battlefieldTerritoryJSON {
-		return battlefieldTerritoryJSON{ID: id, Name: name, X: x, Y: y, Radius: 36, Owner: teamOfTerritoryPrefix(id), Units: 20, MaxUnits: 65, ProductionRate: 1.2, Tier: 3, Type: TerritoryFortress}
-	}
-	// Gates, corners, and the center are neutral at start (§2.3: only the
-	// four bases are team-owned; adjacent nodes are neutral).
-	gate := func(id, name string, x, y float64, territoryType TerritoryType) battlefieldTerritoryJSON {
-		return battlefieldTerritoryJSON{ID: id, Name: name, X: x, Y: y, Radius: 27, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.9, Tier: 1, Type: territoryType}
-	}
-	corner := func(id, name string, x, y float64, territoryType TerritoryType) battlefieldTerritoryJSON {
-		return battlefieldTerritoryJSON{ID: id, Name: name, X: x, Y: y, Radius: 26, Owner: TeamNeutral, Units: 8, MaxUnits: 40, ProductionRate: 0.9, Tier: 1, Type: territoryType}
-	}
-	territories := []battlefieldTerritoryJSON{
-		fortress("a_base_w", "West Bastion", 90, 590),
-		fortress("a_base_e", "East Bastion", 310, 590),
-		fortress("b_base_w", "North Citadel West", 90, 130),
-		fortress("b_base_e", "North Citadel East", 310, 130),
-		gate("a_gate_w", "South Gate West", 115, 470, TerritoryBarracks),
-		gate("a_gate_e", "South Gate East", 285, 470, TerritoryStable),
-		gate("b_gate_w", "North Gate East", 285, 250, TerritoryBarracks),
-		gate("b_gate_e", "North Gate West", 115, 250, TerritoryStable),
-		corner("n_corner_sw", "Southwest Spur", 60, 540, TerritoryStable),
-		corner("n_corner_se", "Southeast Spur", 340, 540, TerritoryBarracks),
-		corner("n_corner_nw", "Northwest Spur", 60, 180, TerritoryBarracks),
-		corner("n_corner_ne", "Northeast Spur", 340, 180, TerritoryStable),
-		{ID: "n_center", Name: "Quad Keep", X: 200, Y: 360, Radius: 34, Owner: TeamNeutral, Units: 16, MaxUnits: 55, ProductionRate: 1.15, Tier: 2, Type: TerritoryFortress},
-	}
-	roads := [][2]string{
-		{"a_base_w", "a_base_e"}, {"a_base_w", "a_gate_w"}, {"a_base_e", "a_gate_e"},
-		{"a_gate_w", "n_center"}, {"a_gate_e", "n_center"},
-		{"a_base_w", "n_corner_sw"}, {"a_base_e", "n_corner_se"},
-		{"n_corner_sw", "a_gate_w"}, {"n_corner_se", "a_gate_e"},
-		{"n_corner_sw", "n_corner_se"},
-		{"b_base_w", "b_base_e"}, {"b_base_e", "b_gate_w"}, {"b_base_w", "b_gate_e"},
-		{"b_gate_w", "n_center"}, {"b_gate_e", "n_center"},
-		{"b_base_e", "n_corner_ne"}, {"b_base_w", "n_corner_nw"},
-		{"n_corner_ne", "b_gate_w"}, {"n_corner_nw", "b_gate_e"},
-		{"n_corner_ne", "n_corner_nw"},
-	}
-	definition := battlefieldDefinitionJSON{
-		ID: live2v2BattlefieldID, Mode: MatchMode2v2, Name: "Quad Citadel",
-		Subtitle: "Four commanders, two banners", Accent: 0x818cf8,
-		Territories: territories, Roads: roads,
-	}
-	authoritativeBattlefields[definition.ID] = definition
-	authoritativeBattlefieldRoads[definition.ID] = definition.Roads
-	order := make([]string, 0, len(definition.Territories))
-	for _, territory := range definition.Territories {
-		order = append(order, territory.ID)
-	}
-	authoritativeBattlefieldOrders[definition.ID] = order
-}
-
-func teamOfTerritoryPrefix(id string) Team {
-	// Only the four spawn bases are team-owned (§2.3); every other territory
-	// starts neutral regardless of its id prefix.
-	if len(id) > 7 && id[:7] == "a_base_" {
-		return TeamPlayer
-	}
-	if len(id) > 7 && id[:7] == "b_base_" {
-		return TeamEnemy
-	}
-	return TeamNeutral
-}
+// The quad_citadel battlefield (docs/2v2-architecture.md §7.3) is registered
+// from the authoritative apps/server-nakama/battlefields.json in domain.go's
+// init (Phase 6): same frozen topology and territory order as the interim
+// programmatic registration this JSON entry replaces, so replays stay
+// deterministic. The symmetry proof in tools/verify_battlefield_symmetry.py
+// reads the shipped JSON and fails closed on any drift.
 
 // live2v2SpawnAssignments pins one distinct starting base per slot
 // (docs/2v2-architecture.md §2.3, §7.3): slot 0 -> A west, slot 1 -> A east,

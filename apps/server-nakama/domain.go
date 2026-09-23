@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 )
 
@@ -62,6 +63,9 @@ func init() {
 			panic(fmt.Sprintf("invalid embedded battlefield %q: %v", b.ID, err))
 		}
 		b.Mode = mode
+		if err := validateBattlefieldDefinition(b); err != nil {
+			panic(fmt.Sprintf("invalid embedded battlefield %q: %v", b.ID, err))
+		}
 		authoritativeBattlefields[b.ID] = b
 		authoritativeBattlefieldRoads[b.ID] = b.Roads
 		order := make([]string, len(b.Territories))
@@ -71,6 +75,194 @@ func init() {
 		authoritativeBattlefieldOrders[b.ID] = order
 	}
 	battlefieldRoads = authoritativeBattlefieldRoads
+}
+
+// validateBattlefieldDefinition mirrors validateBattlefieldDefinition
+// (packages/game-core/src/battlefields.ts) and is mode-aware
+// (docs/2v2-architecture.md §7.2): 1v1 maps mandate exactly one player and
+// one enemy HQ; 2v2 maps mandate exactly two Team A and two Team B starting
+// fortresses. Both modes share the symmetry, road, and bounds invariants.
+// Fail-closed: the server refuses to boot on a malformed embedded definition.
+func validateBattlefieldDefinition(b battlefieldDefinitionJSON) error {
+	if b.ID == "" {
+		return errors.New("battlefield id must not be empty")
+	}
+
+	// 1. unique territory ids
+	territories := make(map[string]battlefieldTerritoryJSON, len(b.Territories))
+	for _, t := range b.Territories {
+		if t.ID == "" {
+			return fmt.Errorf("territory with empty id")
+		}
+		if _, exists := territories[t.ID]; exists {
+			return fmt.Errorf("duplicate territory ID %q", t.ID)
+		}
+		territories[t.ID] = t
+	}
+
+	// 2. mode-aware owned starting territories
+	var playerBases, enemyBases []battlefieldTerritoryJSON
+	for _, t := range b.Territories {
+		switch t.Owner {
+		case TeamPlayer:
+			playerBases = append(playerBases, t)
+		case TeamEnemy:
+			enemyBases = append(enemyBases, t)
+		}
+	}
+	switch b.Mode {
+	case MatchMode1v1:
+		if len(playerBases) != 1 || playerBases[0].ID != "p_base" {
+			return fmt.Errorf("must have exactly one player base (id=\"p_base\")")
+		}
+		if len(enemyBases) != 1 || enemyBases[0].ID != "e_base" {
+			return fmt.Errorf("must have exactly one enemy base (id=\"e_base\")")
+		}
+	case MatchMode2v2:
+		aSpawnIDs := make([]string, 0, len(playerBases))
+		for _, t := range playerBases {
+			aSpawnIDs = append(aSpawnIDs, t.ID)
+		}
+		sortStrings(aSpawnIDs)
+		if len(aSpawnIDs) != 2 || aSpawnIDs[0] != "a_base_e" || aSpawnIDs[1] != "a_base_w" {
+			return fmt.Errorf("must have exactly two Team A starting fortresses (ids \"a_base_w\" and \"a_base_e\")")
+		}
+		bSpawnIDs := make([]string, 0, len(enemyBases))
+		for _, t := range enemyBases {
+			bSpawnIDs = append(bSpawnIDs, t.ID)
+		}
+		sortStrings(bSpawnIDs)
+		if len(bSpawnIDs) != 2 || bSpawnIDs[0] != "b_base_e" || bSpawnIDs[1] != "b_base_w" {
+			return fmt.Errorf("must have exactly two Team B starting fortresses (ids \"b_base_w\" and \"b_base_e\")")
+		}
+		for _, spawn := range append(append([]battlefieldTerritoryJSON{}, playerBases...), enemyBases...) {
+			if spawn.Tier != 3 || spawn.Type != TerritoryFortress {
+				return fmt.Errorf("starting fortress %q must be a tier-3 fortress", spawn.ID)
+			}
+		}
+	default:
+		return fmt.Errorf("invalid battlefield mode %q", b.Mode)
+	}
+
+	// 3. at least one neutral territory
+	neutralCount := 0
+	for _, t := range b.Territories {
+		if t.Owner == TeamNeutral {
+			neutralCount++
+		}
+	}
+	if neutralCount < 1 {
+		return fmt.Errorf("must have at least one neutral territory")
+	}
+
+	// 4-6. road endpoints exist, no self-roads, no duplicate undirected roads
+	seenRoads := make(map[string]bool, len(b.Roads))
+	for _, road := range b.Roads {
+		if _, ok := territories[road[0]]; !ok {
+			return fmt.Errorf("road endpoint %q does not exist", road[0])
+		}
+		if _, ok := territories[road[1]]; !ok {
+			return fmt.Errorf("road endpoint %q does not exist", road[1])
+		}
+		if road[0] == road[1] {
+			return fmt.Errorf("self-road [%s, %s]", road[0], road[1])
+		}
+		key := roadKey(road[0], road[1])
+		if seenRoads[key] {
+			return fmt.Errorf("duplicate road %q", key)
+		}
+		seenRoads[key] = true
+	}
+
+	// 7. territories stay inside safe battlefield bounds (400x720 canvas)
+	for _, t := range b.Territories {
+		if t.X-t.Radius < 15 || t.X+t.Radius > 385 || t.Y-t.Radius < 70 || t.Y+t.Radius > 650 {
+			return fmt.Errorf("territory %q at (%g, %g, r=%g) exceeds safe battlefield bounds", t.ID, t.X, t.Y, t.Radius)
+		}
+	}
+
+	// 8. 180-degree rotational symmetry with mirror-equal attributes and
+	// EXACTLY ONE counterpart per territory (duplicate coordinates fail).
+	uniqueCounterpart := func(t battlefieldTerritoryJSON) (battlefieldTerritoryJSON, int, bool) {
+		rotX, rotY := 400-t.X, 720-t.Y
+		var match battlefieldTerritoryJSON
+		count := 0
+		for _, other := range b.Territories {
+			if math.Abs(other.X-rotX) < 1e-4 && math.Abs(other.Y-rotY) < 1e-4 {
+				count++
+				if count == 1 {
+					match = other
+				}
+			}
+		}
+		return match, count, count > 0
+	}
+	if b.Mode == MatchMode1v1 {
+		pBase, eBase := playerBases[0], enemyBases[0]
+		if pBase.X != eBase.X || pBase.Y+eBase.Y != 720 {
+			return fmt.Errorf("bases are not symmetric")
+		}
+	}
+	for _, t := range b.Territories {
+		other, count, ok := uniqueCounterpart(t)
+		if !ok {
+			return fmt.Errorf("territory %q at (%g, %g) has no symmetric counterpart", t.ID, t.X, t.Y)
+		}
+		if count > 1 {
+			return fmt.Errorf("territory %q at (%g, %g) has %d territories at its counterpart coordinate; exactly one symmetric counterpart is required", t.ID, t.X, t.Y, count)
+		}
+		// Bidirectional ownership mirroring: player<->enemy, neutral<->neutral.
+		if t.Owner == TeamPlayer && other.Owner != TeamEnemy {
+			return fmt.Errorf("symmetric counterpart for player base %q is not enemy owned", t.ID)
+		}
+		if t.Owner == TeamEnemy && other.Owner != TeamPlayer {
+			return fmt.Errorf("symmetric counterpart for enemy base %q is not player owned", t.ID)
+		}
+		if t.Owner == TeamNeutral && other.Owner != TeamNeutral {
+			return fmt.Errorf("symmetric counterpart for neutral %q is not neutral owned", t.ID)
+		}
+		if t.Tier != other.Tier || t.Type != other.Type || t.Units != other.Units ||
+			t.MaxUnits != other.MaxUnits || t.ProductionRate != other.ProductionRate || t.Radius != other.Radius {
+			return fmt.Errorf("territory %q does not have matching attributes with counterpart %q", t.ID, other.ID)
+		}
+	}
+
+	// 9. road mirror closure: every road's mirrored edge must be a real road.
+	// 2v2 additionally rejects mirror-INVARIANT undirected roads (roads whose
+	// rotated endpoint set equals their own, including when rotation swaps
+	// the endpoints) — §7.3 forbids them on quad_citadel. 1v1 maps may
+	// legitimately contain a mirror-symmetric cross-pass road (twin_passes).
+	for _, road := range b.Roads {
+		a, bOK := territories[road[0]]
+		c, dOK := territories[road[1]]
+		if !bOK || !dOK {
+			continue // already reported
+		}
+		rotA, countA, foundA := uniqueCounterpart(a)
+		rotC, countC, foundC := uniqueCounterpart(c)
+		if !foundA || !foundC || countA != 1 || countC != 1 {
+			continue // already reported
+		}
+		if b.Mode == MatchMode2v2 && roadKey(rotA.ID, rotC.ID) == roadKey(road[0], road[1]) {
+			return fmt.Errorf("road [%s, %s] maps to itself under mirroring", road[0], road[1])
+		}
+		if !seenRoads[roadKey(rotA.ID, rotC.ID)] {
+			return fmt.Errorf("road [%s, %s] has no symmetric counterpart [%s, %s]", road[0], road[1], rotA.ID, rotC.ID)
+		}
+	}
+
+	return nil
+}
+
+func roadKey(idA, idB string) string {
+	if idA > idB {
+		idA, idB = idB, idA
+	}
+	return idA + "<->" + idB
+}
+
+func sortStrings(values []string) {
+	sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
 }
 
 func normalizeBattlefieldMode(mode MatchMode) (MatchMode, error) {

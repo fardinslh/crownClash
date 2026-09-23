@@ -1,9 +1,43 @@
 import type { PlayerUpgradeModifiers } from './upgrades.js';
+import { getBattlefield, type BattlefieldId } from './battlefields.js';
 import type { GameState, Slot, Team, TeamId, Territory } from './types.js';
 
 export const TWO_V_TWO_SLOTS = [0, 1, 2, 3] as const satisfies readonly Slot[];
 
 export type SlotModifiers = Readonly<Record<Slot, PlayerUpgradeModifiers>>;
+
+/**
+ * Clones the authoritative battlefield templates verbatim, in deterministic
+ * definition order (docs/2v2-architecture.md §6.3, Phase 6): the resulting
+ * object's insertion order — which the simulation iterates — is exactly the
+ * shipped battlefields.json order, matching the Go engine's
+ * territoryOrderForBattlefield for the same id. Per-slot modifiers are NOT
+ * applied here; createInitial2v2GameState applies them to the spawn
+ * assignments.
+ */
+export function createInitial2v2Territories(battlefieldId: BattlefieldId): Record<string, Territory> {
+  const battlefield = getBattlefield(battlefieldId);
+  if (battlefield.mode !== '2v2') {
+    throw new Error('2v2_initialization_invalid:battlefield_mode');
+  }
+  const territories: Record<string, Territory> = {};
+  for (const template of battlefield.territories) {
+    territories[template.id] = {
+      id: template.id,
+      name: template.name,
+      x: template.x,
+      y: template.y,
+      radius: template.radius,
+      owner: template.owner,
+      units: template.units,
+      maxUnits: template.maxUnits,
+      productionRate: template.productionRate,
+      tier: template.tier,
+      type: template.type,
+    };
+  }
+  return territories;
+}
 
 export interface TwoVTwoSpawnAssignment {
   readonly slot: Slot;

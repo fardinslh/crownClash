@@ -189,7 +189,9 @@ describe('battlefield preload through the manifest', () => {
     for (const battlefield of BATTLEFIELDS) {
       const assetSet = getBattlefieldRuntimeAssets(battlefield.id);
       expect(assetSet.battlefieldId).toBe(battlefield.id);
-      expect(assetSet.packId).toBe(ASSET_MANIFEST.battlefieldPacks[battlefield.id]);
+      // Battlefields without a dedicated pack (e.g. quad_citadel in its
+      // no-art phase) resolve through the generic pack fallback.
+      expect(assetSet.packId).toBe(ASSET_MANIFEST.battlefieldPacks[battlefield.id] ?? 'generic');
       const spriteEntries = Object.entries(assetSet.sprites);
       expect(spriteEntries.length).toBeGreaterThan(0);
 

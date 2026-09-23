@@ -98,5 +98,50 @@
       ["n_ring_nw", "e_base"],
       ["n_ring_ne", "e_base"]
     ]
+  },
+  {
+    "id": "quad_citadel",
+    "mode": "2v2",
+    "name": "Quad Citadel",
+    "subtitle": "Four commanders, two banners",
+    "accent": 8490232,
+    "visual": { "motif": "quad_citadel", "field": 1973067, "grid": 3223169, "road": 4405450, "roadInlay": 10859772, "socket": 2499420, "motifColor": 8490232 },
+    "territories": [
+      { "id": "a_base_w", "name": "West Bastion", "x": 90, "y": 590, "radius": 36, "owner": "player", "units": 20, "maxUnits": 65, "productionRate": 1.2, "tier": 3, "type": "fortress" },
+      { "id": "a_base_e", "name": "East Bastion", "x": 310, "y": 590, "radius": 36, "owner": "player", "units": 20, "maxUnits": 65, "productionRate": 1.2, "tier": 3, "type": "fortress" },
+      { "id": "b_base_w", "name": "North Citadel West", "x": 90, "y": 130, "radius": 36, "owner": "enemy", "units": 20, "maxUnits": 65, "productionRate": 1.2, "tier": 3, "type": "fortress" },
+      { "id": "b_base_e", "name": "North Citadel East", "x": 310, "y": 130, "radius": 36, "owner": "enemy", "units": 20, "maxUnits": 65, "productionRate": 1.2, "tier": 3, "type": "fortress" },
+      { "id": "a_gate_w", "name": "South Gate West", "x": 115, "y": 470, "radius": 27, "owner": "neutral", "units": 8, "maxUnits": 40, "productionRate": 0.9, "tier": 1, "type": "barracks" },
+      { "id": "a_gate_e", "name": "South Gate East", "x": 285, "y": 470, "radius": 27, "owner": "neutral", "units": 8, "maxUnits": 40, "productionRate": 0.9, "tier": 1, "type": "stable" },
+      { "id": "b_gate_w", "name": "North Gate East", "x": 285, "y": 250, "radius": 27, "owner": "neutral", "units": 8, "maxUnits": 40, "productionRate": 0.9, "tier": 1, "type": "barracks" },
+      { "id": "b_gate_e", "name": "North Gate West", "x": 115, "y": 250, "radius": 27, "owner": "neutral", "units": 8, "maxUnits": 40, "productionRate": 0.9, "tier": 1, "type": "stable" },
+      { "id": "n_corner_sw", "name": "Southwest Spur", "x": 60, "y": 540, "radius": 26, "owner": "neutral", "units": 8, "maxUnits": 40, "productionRate": 0.9, "tier": 1, "type": "stable" },
+      { "id": "n_corner_se", "name": "Southeast Spur", "x": 340, "y": 540, "radius": 26, "owner": "neutral", "units": 8, "maxUnits": 40, "productionRate": 0.9, "tier": 1, "type": "barracks" },
+      { "id": "n_corner_nw", "name": "Northwest Spur", "x": 60, "y": 180, "radius": 26, "owner": "neutral", "units": 8, "maxUnits": 40, "productionRate": 0.9, "tier": 1, "type": "barracks" },
+      { "id": "n_corner_ne", "name": "Northeast Spur", "x": 340, "y": 180, "radius": 26, "owner": "neutral", "units": 8, "maxUnits": 40, "productionRate": 0.9, "tier": 1, "type": "stable" },
+      { "id": "n_center", "name": "Quad Keep", "x": 200, "y": 360, "radius": 34, "owner": "neutral", "units": 16, "maxUnits": 55, "productionRate": 1.15, "tier": 2, "type": "fortress" }
+    ],
+    "roads": [
+      ["a_base_w", "a_base_e"],
+      ["a_base_w", "a_gate_w"],
+      ["a_base_e", "a_gate_e"],
+      ["a_gate_w", "n_center"],
+      ["a_gate_e", "n_center"],
+      ["a_base_w", "n_corner_sw"],
+      ["a_base_e", "n_corner_se"],
+      ["n_corner_sw", "a_gate_w"],
+      ["n_corner_se", "a_gate_e"],
+      ["n_corner_sw", "n_corner_se"],
+      ["b_base_w", "b_base_e"],
+      ["b_base_e", "b_gate_w"],
+      ["b_base_w", "b_gate_e"],
+      ["b_gate_w", "n_center"],
+      ["b_gate_e", "n_center"],
+      ["b_base_e", "n_corner_ne"],
+      ["b_base_w", "n_corner_nw"],
+      ["n_corner_ne", "b_gate_w"],
+      ["n_corner_nw", "b_gate_e"],
+      ["n_corner_ne", "n_corner_nw"]
+    ]
   }
 ]

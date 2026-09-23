@@ -228,8 +228,12 @@ describe('BotFreezeHardening', () => {
     });
   });
 
-  describe('Scenario 6: Deterministic simulation and monotonic time across all battlefields', () => {
-    for (const { id: battlefieldId, name } of BATTLEFIELDS) {
+  describe('Scenario 6: Deterministic simulation and monotonic time across all 1v1 battlefields', () => {
+    // The 1v1 bot freeze scenario only covers 1v1 maps; the 2v2 quad_citadel
+    // map has its own deterministic suite in game-core and can never be
+    // selected by the 1v1 bot flow.
+    const oneVOneBattlefields = BATTLEFIELDS.filter((battlefield) => battlefield.mode === '1v1');
+    for (const { id: battlefieldId, name } of oneVOneBattlefields) {
       it(`progresses time monotonically and settles deterministically on battlefield: ${name} (${battlefieldId})`, () => {
         let state = createInitialGameState({
           timeLimit: PVP_TIME_LIMIT_SECONDS,
@@ -263,7 +267,7 @@ describe('BotFreezeHardening', () => {
     }
 
     it('simulates complete deterministic replay without errors on all 3 battlefields', () => {
-      for (const { id } of BATTLEFIELDS) {
+      for (const { id } of oneVOneBattlefields) {
         const result = simulatePvpBattle({
           battlefieldId: id,
           actions: [

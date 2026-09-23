@@ -1,10 +1,10 @@
 import type { MatchMode, Team, TerritoryType } from './types.js';
 
-export type BattlefieldId = 'crown_cross' | 'twin_passes' | 'royal_ring';
+export type BattlefieldId = 'crown_cross' | 'twin_passes' | 'royal_ring' | 'quad_citadel';
 
 export type RoadConnection = readonly [string, string];
 
-export type BattlefieldMotif = 'crown_cross' | 'twin_passes' | 'royal_ring';
+export type BattlefieldMotif = 'crown_cross' | 'twin_passes' | 'royal_ring' | 'quad_citadel';
 
 export interface BattlefieldVisualTheme {
   readonly motif: BattlefieldMotif;
@@ -81,19 +81,25 @@ export function getBattlefield(value: unknown): BattlefieldDefinition {
 }
 
 export function createLocalBotMatchTicket(now = Date.now()): BotMatchTicket {
-  const index = Math.floor(Math.random() * BATTLEFIELDS.length);
+  // 1v1 selection only: 2v2 battlefields (mode "2v2") can never be picked by
+  // the ordinary 1v1 bot-match flow (docs/2v2-architecture.md §3.2.2).
+  const oneVOneBattlefields = BATTLEFIELDS.filter((battlefield) => battlefield.mode === '1v1');
+  const index = Math.floor(Math.random() * oneVOneBattlefields.length);
   return {
     matchId: `local_${now}_${Math.random().toString(36).slice(2, 10)}`,
-    battlefieldId: BATTLEFIELDS[index]?.id ?? DEFAULT_BATTLEFIELD_ID,
+    battlefieldId: oneVOneBattlefields[index]?.id ?? DEFAULT_BATTLEFIELD_ID,
   };
 }
 
 /**
  * Validates the topological and competitive structural correctness of a battlefield definition.
- * Throws a descriptive Error if any invariant fails.
+ * Mode-aware (docs/2v2-architecture.md §7.2): 1v1 maps mandate exactly one
+ * player and one enemy HQ; 2v2 maps mandate exactly two Team A and two Team B
+ * starting fortresses. Both modes share the same symmetry, road, and bounds
+ * invariants. Throws a descriptive Error if any invariant fails.
  */
 export function validateBattlefieldDefinition(definition: BattlefieldDefinition): void {
-  normalizeBattlefieldMode(definition.mode);
+  const mode = normalizeBattlefieldMode(definition.mode);
   if (definition.visual.motif !== definition.id) {
     throw new Error(`Battlefield "${definition.id}" must use matching visual motif`);
   }
@@ -112,16 +118,40 @@ export function validateBattlefieldDefinition(definition: BattlefieldDefinition)
     terrMap.set(t.id, t);
   }
 
-  // 2. exactly one player base
+  // 2. mode-aware owned starting territories
   const playerBases = definition.territories.filter((t) => t.owner === 'player');
-  if (playerBases.length !== 1 || playerBases[0].id !== 'p_base') {
-    throw new Error(`Battlefield "${definition.id}" must have exactly one player base (id="p_base")`);
-  }
-
-  // 3. exactly one enemy base
   const enemyBases = definition.territories.filter((t) => t.owner === 'enemy');
-  if (enemyBases.length !== 1 || enemyBases[0].id !== 'e_base') {
-    throw new Error(`Battlefield "${definition.id}" must have exactly one enemy base (id="e_base")`);
+  if (mode === '1v1') {
+    if (playerBases.length !== 1 || playerBases[0].id !== 'p_base') {
+      throw new Error(`Battlefield "${definition.id}" must have exactly one player base (id="p_base")`);
+    }
+
+    if (enemyBases.length !== 1 || enemyBases[0].id !== 'e_base') {
+      throw new Error(`Battlefield "${definition.id}" must have exactly one enemy base (id="e_base")`);
+    }
+  } else {
+    // 2v2: exactly two Team A spawns ("a_base_w"/"a_base_e", player-owned)
+    // and two Team B spawns ("b_base_w"/"b_base_e", enemy-owned), all
+    // tier-3 fortresses (§7.3).
+    const aSpawnIds = playerBases.map((t) => t.id).sort();
+    const bSpawnIds = enemyBases.map((t) => t.id).sort();
+    if (aSpawnIds.length !== 2 || aSpawnIds[0] !== 'a_base_e' || aSpawnIds[1] !== 'a_base_w') {
+      throw new Error(
+        `Battlefield "${definition.id}" must have exactly two Team A starting fortresses (ids "a_base_w" and "a_base_e")`
+      );
+    }
+    if (bSpawnIds.length !== 2 || bSpawnIds[0] !== 'b_base_e' || bSpawnIds[1] !== 'b_base_w') {
+      throw new Error(
+        `Battlefield "${definition.id}" must have exactly two Team B starting fortresses (ids "b_base_w" and "b_base_e")`
+      );
+    }
+    for (const spawn of [...playerBases, ...enemyBases]) {
+      if (spawn.tier !== 3 || spawn.type !== 'fortress') {
+        throw new Error(
+          `Starting fortress "${spawn.id}" in battlefield "${definition.id}" must be a tier-3 fortress`
+        );
+      }
+    }
   }
 
   // 4. at least one neutral territory
@@ -165,39 +195,74 @@ export function validateBattlefieldDefinition(definition: BattlefieldDefinition)
     }
   }
 
-  // 9. player/enemy layout is competitively symmetric (180-deg rotational symmetry)
-  const pBase = playerBases[0];
-  const eBase = enemyBases[0];
-  if (pBase.x !== eBase.x || pBase.y + eBase.y !== 720) {
-    throw new Error(`Bases are not symmetric in battlefield "${definition.id}"`);
+  // 9. layout is competitively symmetric (180-deg rotational symmetry);
+  // 1v1 additionally pins the single base pair on the rotation axis.
+  if (mode === '1v1') {
+    const pBase = playerBases[0];
+    const eBase = enemyBases[0];
+    if (pBase.x !== eBase.x || pBase.y + eBase.y !== 720) {
+      throw new Error(`Bases are not symmetric in battlefield "${definition.id}"`);
+    }
   }
+  const counterpartOf = (
+    t: BattlefieldTerritoryTemplate
+  ): { match: BattlefieldTerritoryTemplate; count: number } => {
+    const rotX = 400 - t.x;
+    const rotY = 720 - t.y;
+    let match: BattlefieldTerritoryTemplate | undefined;
+    let count = 0;
+    for (const other of definition.territories) {
+      if (Math.abs(other.x - rotX) < 1e-4 && Math.abs(other.y - rotY) < 1e-4) {
+        count++;
+        match ??= other;
+      }
+    }
+    return { match: match!, count };
+  };
   for (const t of definition.territories) {
     const rotX = 400 - t.x;
     const rotY = 720 - t.y;
-    const match = definition.territories.find(
-      (other) =>
-        Math.abs(other.x - rotX) < 1e-4 &&
-        Math.abs(other.y - rotY) < 1e-4
-    );
-    if (!match) {
+    const { match, count } = counterpartOf(t);
+    if (count === 0) {
       throw new Error(
         `Territory "${t.id}" at (${t.x}, ${t.y}) has no symmetric counterpart at (${rotX}, ${rotY}) in "${definition.id}"`
       );
     }
+    if (count > 1) {
+      throw new Error(
+        `Territory "${t.id}" at (${t.x}, ${t.y}) has ${count} territories at its counterpart coordinate (${rotX}, ${rotY}); exactly one symmetric counterpart is required in "${definition.id}"`
+      );
+    }
+    // Bidirectional ownership mirroring: player<->enemy, neutral<->neutral.
     if (t.owner === 'player' && match.owner !== 'enemy') {
       throw new Error(`Symmetric counterpart for player base "${t.id}" is not enemy owned in "${definition.id}"`);
+    }
+    if (t.owner === 'enemy' && match.owner !== 'player') {
+      throw new Error(`Symmetric counterpart for enemy base "${t.id}" is not player owned in "${definition.id}"`);
     }
     if (t.owner === 'neutral' && match.owner !== 'neutral') {
       throw new Error(`Symmetric counterpart for neutral "${t.id}" is not neutral owned in "${definition.id}"`);
     }
-    if (t.tier !== match.tier || t.type !== match.type || t.units !== match.units || t.maxUnits !== match.maxUnits) {
+    if (
+      t.tier !== match.tier ||
+      t.type !== match.type ||
+      t.units !== match.units ||
+      t.maxUnits !== match.maxUnits ||
+      t.productionRate !== match.productionRate ||
+      t.radius !== match.radius
+    ) {
       throw new Error(
         `Territory "${t.id}" does not have matching attributes with counterpart "${match.id}" in "${definition.id}"`
       );
     }
   }
 
-  // 180-deg road symmetry: for every road [A, B], rot(A) and rot(B) must have a connecting road
+  // 180-deg road symmetry: for every road [A, B], rot(A) and rot(B) must have
+  // a connecting road. 2v2 additionally rejects mirror-INVARIANT undirected
+  // roads (roads whose rotated endpoint set equals their own, including when
+  // rotation swaps the endpoints) — §7.3 forbids them on quad_citadel. 1v1
+  // maps may legitimately contain a mirror-symmetric cross-pass road (e.g.
+  // twin_passes [n_west_pass, n_east_pass]).
   for (const [idA, idB] of definition.roads) {
     const tA = terrMap.get(idA)!;
     const tB = terrMap.get(idB)!;
@@ -211,13 +276,23 @@ export function validateBattlefieldDefinition(definition: BattlefieldDefinition)
     const rotB = definition.territories.find(
       (o) => Math.abs(o.x - rotBX) < 1e-4 && Math.abs(o.y - rotBY) < 1e-4
     )!;
-    const rotKey = rotA.id < rotB.id ? `${rotA.id}<->${rotB.id}` : `${rotB.id}<->${rotA.id}`;
+    const originalKey = roadKey(idA, idB);
+    const rotKey = roadKey(rotA.id, rotB.id);
+    if (mode === '2v2' && rotKey === originalKey) {
+      throw new Error(
+        `Road [${idA}, ${idB}] maps to itself under mirroring in "${definition.id}"`
+      );
+    }
     if (!seenRoads.has(rotKey)) {
       throw new Error(
         `Road [${idA}, ${idB}] has no symmetric counterpart [${rotA.id}, ${rotB.id}] in "${definition.id}"`
       );
     }
   }
+}
+
+function roadKey(idA: string, idB: string): string {
+  return idA < idB ? `${idA}<->${idB}` : `${idB}<->${idA}`;
 }
 
 /**

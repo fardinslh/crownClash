@@ -90,6 +90,42 @@ const MODIFIER_SETS = {
 // fixture territory order; it is not a production battlefield.
 const FIXTURE_BATTLEFIELD_ID = '2v2_parity_fixture';
 
+// ---------------------------------------------------------------------------
+// Production 2v2 battlefield scenarios (Phase 6): quad_citadel territories
+// are built from the SHIPPED battlefields.json definition in its frozen
+// deterministic order (core.createInitial2v2Territories), so the TypeScript
+// simulation's iteration order is exactly the Go engine's
+// territoryOrderForBattlefield('quad_citadel') — the JSON registration —
+// with no fixture ordering involved.
+// ---------------------------------------------------------------------------
+
+const QUAD_CITADEL_ID = 'quad_citadel';
+
+function quadCitadelTerritories() {
+  return core.createInitial2v2Territories(QUAD_CITADEL_ID);
+}
+
+// The production per-slot spawn assignment (live2v2.go live2v2SpawnAssignments).
+const QUAD_CITADEL_SPAWN_ASSIGNMENTS = [
+  { slot: 0, territoryId: 'a_base_w' },
+  { slot: 1, territoryId: 'a_base_e' },
+  { slot: 2, territoryId: 'b_base_e' },
+  { slot: 3, territoryId: 'b_base_w' },
+];
+
+function quadScenario({ id, modifiers = MODIFIER_SETS.spread, timeLimitSeconds, actions, expectedErrorCode }) {
+  return {
+    id,
+    territories: quadCitadelTerritories(),
+    spawnAssignments: QUAD_CITADEL_SPAWN_ASSIGNMENTS,
+    modifiersBySlot: modifiers,
+    timeLimitSeconds,
+    battlefieldId: QUAD_CITADEL_ID,
+    actions,
+    ...(expectedErrorCode ? { expectedErrorCode } : {}),
+  };
+}
+
 function action(schemaVersion, tick, serverSeq, slot, clientSeq, sourceId, targetId) {
   return { schemaVersion, tick, serverSeq, slot, clientSeq, sourceId, targetId };
 }
@@ -271,6 +307,136 @@ function buildScenarios() {
       expectedErrorCode: malformedCase.expected,
     }));
   }
+
+  // -----------------------------------------------------------------------
+  // Production 2v2 battlefield scenarios (Phase 6, quad_citadel §7.3):
+  // deterministic ordering comes from the shipped battlefields.json
+  // definition itself (createInitial2v2Territories), not from the
+  // test-only fixture ordering.
+  // -----------------------------------------------------------------------
+
+  // Q1. All four slots dispatching from their own spawns (§7.3 bases), with
+  //     capture races on the center from both teams.
+  n++;
+  scenarios.push(quadScenario({
+    id: `s${n}_quad_citadel_all_four_slots_dispatch`,
+    timeLimitSeconds: 12,
+    actions: [
+      canonicalAction(0, 0, 0, 0, 'a_base_w', 'n_center'),
+      canonicalAction(0, 1, 1, 0, 'a_base_e', 'a_gate_e'),
+      canonicalAction(100, 2, 2, 0, 'b_base_e', 'n_center'),
+      canonicalAction(150, 3, 3, 0, 'b_base_w', 'b_gate_e'),
+      canonicalAction(300, 4, 0, 1, 'a_base_w', 'a_gate_w'),
+      canonicalAction(350, 5, 2, 1, 'b_base_e', 'b_gate_w'),
+    ],
+  }));
+
+  // Q2. Teammate shared-source dispatch: both Team A slots dispatch from
+  //     ONE team-shared territory (a_base_w) — team ownership is shared
+  //     from the first tick (§2.3); mirrored by Team B from b_base_e.
+  n++;
+  scenarios.push(quadScenario({
+    id: `s${n}_quad_citadel_teammate_shared_source`,
+    timeLimitSeconds: 6,
+    actions: [
+      canonicalAction(0, 0, 0, 0, 'a_base_w', 'a_gate_w'),
+      canonicalAction(0, 1, 1, 0, 'a_base_w', 'a_base_e'),
+      canonicalAction(0, 2, 2, 0, 'b_base_e', 'b_gate_w'),
+      canonicalAction(0, 3, 3, 0, 'b_base_e', 'b_base_w'),
+      canonicalAction(120, 4, 1, 1, 'a_base_w', 'n_center'),
+      canonicalAction(140, 5, 3, 1, 'b_base_e', 'n_center'),
+    ],
+  }));
+
+  // Q3. Simultaneous opposing arrivals at the center: a_base_w, a_base_e,
+  //     and b_base_e are all equidistant from n_center, so three armies
+  //     arrive on the same tick and resolution order must match exactly.
+  n++;
+  scenarios.push(quadScenario({
+    id: `s${n}_quad_citadel_center_clash`,
+    timeLimitSeconds: 8,
+    actions: [
+      canonicalAction(0, 0, 0, 0, 'a_base_w', 'n_center'),
+      canonicalAction(0, 1, 1, 0, 'a_base_e', 'n_center'),
+      canonicalAction(0, 2, 2, 0, 'b_base_e', 'n_center'),
+      canonicalAction(0, 3, 3, 0, 'b_base_w', 'n_center'),
+    ],
+  }));
+
+  // Q4. Teammate reinforcement over the trunk road: each team feeds its
+  //     sibling base, then pushes the reinforced garrison onward.
+  n++;
+  scenarios.push(quadScenario({
+    id: `s${n}_quad_citadel_teammate_reinforcement`,
+    timeLimitSeconds: 10,
+    actions: [
+      canonicalAction(0, 0, 0, 0, 'a_base_w', 'a_base_e'),
+      canonicalAction(0, 1, 2, 0, 'b_base_e', 'b_base_w'),
+      canonicalAction(100, 2, 1, 0, 'a_base_e', 'a_gate_e'),
+      canonicalAction(100, 3, 3, 0, 'b_base_w', 'b_gate_w'),
+      canonicalAction(300, 4, 0, 1, 'a_base_w', 'a_gate_w'),
+      canonicalAction(320, 5, 2, 1, 'b_base_e', 'b_gate_e'),
+    ],
+  }));
+
+  // Q5. Stable speed modifiers on the real map: capture the stable-typed
+  //     corner spurs first, then dispatch FROM the stables so the stable
+  //     source multiplier compounds with per-slot speed careers
+  //     (boundary_production includes speeds at the 1.0 s march clamp and
+  //     the 1.525 career razor edge).
+  n++;
+  scenarios.push(quadScenario({
+    id: `s${n}_quad_citadel_stable_speed`,
+    modifiers: MODIFIER_SETS.boundary_production,
+    timeLimitSeconds: 8,
+    actions: [
+      canonicalAction(0, 0, 0, 0, 'a_base_w', 'n_corner_sw'),
+      canonicalAction(0, 1, 2, 0, 'b_base_e', 'n_corner_ne'),
+      canonicalAction(60, 2, 0, 1, 'n_corner_sw', 'n_corner_se'),
+      canonicalAction(60, 3, 2, 1, 'n_corner_ne', 'n_corner_nw'),
+      canonicalAction(200, 4, 1, 0, 'n_corner_sw', 'a_gate_w'),
+      canonicalAction(220, 5, 3, 0, 'n_corner_ne', 'b_gate_w'),
+    ],
+  }));
+
+  // Q6. Production-boundary churn: base rates 1.2/1.2 with the historical
+  //     FMA razor-edge multipliers (1.65, 1.7, 1.1) accumulating across
+  //     integer grant boundaries for 30 seconds on quad_citadel.
+  n++;
+  scenarios.push(quadScenario({
+    id: `s${n}_quad_citadel_production_churn`,
+    modifiers: MODIFIER_SETS.boundary_production,
+    timeLimitSeconds: 30,
+    actions: [
+      canonicalAction(0, 0, 0, 0, 'a_base_w', 'a_base_e'),
+      canonicalAction(100, 1, 2, 0, 'b_base_e', 'b_gate_w'),
+      canonicalAction(500, 2, 1, 0, 'a_base_e', 'n_center'),
+      canonicalAction(900, 3, 3, 0, 'b_base_w', 'n_center'),
+      canonicalAction(1200, 4, 0, 1, 'a_base_w', 'a_gate_w'),
+      canonicalAction(1400, 5, 2, 1, 'b_base_e', 'b_gate_e'),
+    ],
+  }));
+
+  // Q7. Shuffled action-log canonicalization on the real map: the SAME
+  //     canonical log fed in reverse array order must produce the identical
+  //     canonical order, decisions, and final hash.
+  n++;
+  const quadCanonicalLog = [
+    canonicalAction(0, 0, 0, 0, 'a_base_w', 'n_center'),
+    canonicalAction(2, 1, 1, 0, 'a_base_e', 'a_gate_e'),
+    canonicalAction(10, 2, 2, 0, 'b_base_e', 'n_center'),
+    canonicalAction(20, 3, 3, 0, 'b_base_w', 'b_gate_e'),
+    canonicalAction(60, 4, 0, 1, 'a_base_w', 'a_gate_w'),
+  ];
+  scenarios.push(quadScenario({ id: `s${n}_quad_citadel_log_canonical_order`, timeLimitSeconds: 6, actions: quadCanonicalLog }));
+  n++;
+  scenarios.push(quadScenario({ id: `s${n}_quad_citadel_log_shuffled_order`, timeLimitSeconds: 6, actions: [quadCanonicalLog[3], quadCanonicalLog[0], quadCanonicalLog[4], quadCanonicalLog[2], quadCanonicalLog[1]] }));
+
+  // Q8. Idle / time-limit resolution: no actions at all; with symmetric
+  //     modifiers the time-limit tiebreak (territory count, then units)
+  //     must resolve to the same deterministic draw on both engines.
+  n++;
+  scenarios.push(quadScenario({ id: `s${n}_quad_citadel_idle_time_limit`, timeLimitSeconds: 2, actions: [] }));
 
   return scenarios;
 }

@@ -19,6 +19,7 @@
     "test:bot": "node test/smoke/bot_parity.smoke.mjs",
     "test:parity": "node test/scripts/bot_parity_crosscheck.mjs",
     "test:parity:2v2": "node test/scripts/bot_parity_2v2_crosscheck.mjs",
+    "test:symmetry": "python3 tools/verify_battlefield_symmetry.py",
     "test:stress": "node test/scripts/bot_parity_stress.mjs",
     "test:audit": "node test/scripts/numerical_audit.mjs",
     "typecheck": "npm --workspace=packages/game-core run typecheck && npm --workspace=packages/platform run typecheck && npm --workspace=apps/game run typecheck"
