@@ -33,6 +33,7 @@ var serverConfig struct {
 	AllowGuestAuth   bool
 	InitDataMaxAge   int64
 	Enable2v2        bool
+	TwoVTwoRollout   map[string]int
 }
 
 type platformIdentity struct {
@@ -137,6 +138,9 @@ func InitModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runti
 	if err := rpc("analytics/events", rpcTrackEvents(store)); err != nil {
 		return err
 	}
+	if err := rpc("config/features", rpcFeatureFlags); err != nil {
+		return err
+	}
 	if err := rpc("player/register_name", rpcRegisterName(store)); err != nil {
 		return err
 	}
@@ -150,6 +154,7 @@ func loadServerConfig(initializer runtime.Initializer) {
 	serverConfig.BaleBotToken = ""
 	serverConfig.AllowGuestAuth = false
 	serverConfig.InitDataMaxAge = 86400
+	serverConfig.TwoVTwoRollout = map[string]int{}
 
 	if config, err := initializer.GetConfig(); err == nil {
 		env := make(map[string]string)
@@ -162,6 +167,14 @@ func loadServerConfig(initializer runtime.Initializer) {
 		serverConfig.BaleBotToken = env["BALE_BOT_TOKEN"]
 		serverConfig.AllowGuestAuth = env["ALLOW_GUEST_AUTH"] == "true"
 		serverConfig.Enable2v2 = env["ENABLE_2V2"] == "true"
+		for _, platform := range supportedRolloutPlatforms {
+			key := "ENABLE_2V2_ROLLOUT_" + strings.ToUpper(platform)
+			percent, err := strconv.Atoi(env[key])
+			if err != nil || percent < 0 || percent > 100 {
+				percent = 0
+			}
+			serverConfig.TwoVTwoRollout[platform] = percent
+		}
 		if parsed, err := strconv.ParseInt(env["INIT_DATA_MAX_AGE_SECONDS"], 10, 64); err == nil && parsed > 0 {
 			serverConfig.InitDataMaxAge = parsed
 		}

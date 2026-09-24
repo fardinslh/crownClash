@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
  * End-to-End Smoke Test for Authoritative 2v2 Live Matches (ENABLE_2V2).
  *
  * Requires the stack to run with the 2v2 flag enabled:
- *   ENABLE_2V2=true docker compose up -d --build nakama
+ *   ENABLE_2V2=true ENABLE_2V2_ROLLOUT_BROWSER=100 docker compose up -d --build nakama
  *
  * Scenarios tested:
  * 1. Authenticate and connect four independent clients.

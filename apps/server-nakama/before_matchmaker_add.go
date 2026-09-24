@@ -31,15 +31,15 @@ import (
 )
 
 const (
-	matchmaker1v1Query    = "+properties.mode:1v1"
-	matchmaker2v2Query    = "+properties.mode:2v2 +properties.schema:2"
-	matchmakerRatingKey   = "rating"
-	matchmakerModeKey     = "mode"
-	matchmakerSchemaKey   = "schema"
-	matchmaker1v1Schema   = "1"
-	matchmaker2v2Schema   = "2"
-	matchmaker1v1Count    = 2
-	matchmaker2v2Count    = 4
+	matchmaker1v1Query  = "+properties.mode:1v1"
+	matchmaker2v2Query  = "+properties.mode:2v2 +properties.schema:2"
+	matchmakerRatingKey = "rating"
+	matchmakerModeKey   = "mode"
+	matchmakerSchemaKey = "schema"
+	matchmaker1v1Schema = "1"
+	matchmaker2v2Schema = "2"
+	matchmaker1v1Count  = 2
+	matchmaker2v2Count  = 4
 )
 
 // classifyMatchmakerTicket determines the intended mode from the ticket's
@@ -87,6 +87,13 @@ func beforeMatchmakerAdd(store *Store) func(ctx context.Context, logger runtime.
 		if mode == MatchMode2v2 && !serverConfig.Enable2v2 {
 			rejectMatchmakerTicket(logger, add, "mode_disabled")
 			return nil, errors.New("matchmaker_mode_disabled")
+		}
+		if mode == MatchMode2v2 {
+			decision := twoVTwoRolloutDecision(userID, rolloutPlatformFromContext(ctx))
+			if !decision.Enable2v2 {
+				rejectMatchmakerTicket(logger, add, "rollout_ineligible")
+				return nil, errors.New("matchmaker_mode_disabled")
+			}
 		}
 
 		// The rating property is read from authoritative server state only.

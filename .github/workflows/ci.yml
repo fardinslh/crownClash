@@ -99,6 +99,7 @@ jobs:
       # requires an explicit console password.
       ALLOW_GUEST_AUTH: 'true'
       ENABLE_2V2: 'true'
+      ENABLE_2V2_ROLLOUT_BROWSER: '100'
       NAKAMA_CONSOLE_PASSWORD: ci-stack-console-password
     steps:
       - name: Check out repository
@@ -140,6 +141,9 @@ jobs:
 
       - name: Live 2v2 smoke suite (real stack)
         run: npm run test:smoke:2v2
+
+      - name: 25-match 2v2 concurrent load gate
+        run: npm run test:load:2v2
 
       - name: Bot settlement parity suite (real stack)
         run: npm run test:bot

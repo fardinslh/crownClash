@@ -18,13 +18,13 @@ type fakePresence struct {
 	sessionID string
 }
 
-func (p fakePresence) GetUserId() string             { return p.userID }
-func (p fakePresence) GetSessionId() string          { return p.sessionID }
-func (p fakePresence) GetNodeId() string             { return "" }
-func (p fakePresence) GetHidden() bool               { return false }
-func (p fakePresence) GetPersistence() bool          { return false }
-func (p fakePresence) GetUsername() string           { return "" }
-func (p fakePresence) GetStatus() string             { return "" }
+func (p fakePresence) GetUserId() string                 { return p.userID }
+func (p fakePresence) GetSessionId() string              { return p.sessionID }
+func (p fakePresence) GetNodeId() string                 { return "" }
+func (p fakePresence) GetHidden() bool                   { return false }
+func (p fakePresence) GetPersistence() bool              { return false }
+func (p fakePresence) GetUsername() string               { return "" }
+func (p fakePresence) GetStatus() string                 { return "" }
 func (p fakePresence) GetReason() runtime.PresenceReason { return 0 }
 
 // fakeMatchmakerEntry implements runtime.MatchmakerEntry.
@@ -33,11 +33,11 @@ type fakeMatchmakerEntry struct {
 	properties map[string]interface{}
 }
 
-func (e fakeMatchmakerEntry) GetPresence() runtime.Presence     { return e.presence }
-func (e fakeMatchmakerEntry) GetTicket() string                 { return "" }
+func (e fakeMatchmakerEntry) GetPresence() runtime.Presence         { return e.presence }
+func (e fakeMatchmakerEntry) GetTicket() string                     { return "" }
 func (e fakeMatchmakerEntry) GetProperties() map[string]interface{} { return e.properties }
-func (e fakeMatchmakerEntry) GetPartyId() string                { return "" }
-func (e fakeMatchmakerEntry) GetCreateTime() int64              { return 0 }
+func (e fakeMatchmakerEntry) GetPartyId() string                    { return "" }
+func (e fakeMatchmakerEntry) GetCreateTime() int64                  { return 0 }
 
 func testEnvelopeWithTicket(add *rtapi.MatchmakerAdd) *rtapi.Envelope {
 	return &rtapi.Envelope{Message: &rtapi.Envelope_MatchmakerAdd{MatchmakerAdd: add}}
@@ -104,7 +104,8 @@ func TestBeforeMatchmakerAddRewrites1v1TicketWithAuthoritativeProperties(t *test
 
 func TestBeforeMatchmakerAddRewrites2v2TicketWithAuthoritativeProperties(t *testing.T) {
 	serverConfig.Enable2v2 = true
-	defer func() { serverConfig.Enable2v2 = false }()
+	serverConfig.TwoVTwoRollout = map[string]int{"browser": 100}
+	defer func() { serverConfig.Enable2v2 = false; serverConfig.TwoVTwoRollout = nil }()
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
@@ -115,6 +116,7 @@ func TestBeforeMatchmakerAddRewrites2v2TicketWithAuthoritativeProperties(t *test
 
 	add := &rtapi.MatchmakerAdd{MinCount: 4, MaxCount: 4}
 	ctx := context.WithValue(context.Background(), runtime.RUNTIME_CTX_USER_ID, "user_2")
+	ctx = context.WithValue(ctx, runtime.RUNTIME_CTX_VARS, map[string]string{"platform": "browser"})
 
 	envelope, err := beforeMatchmakerAdd(store)(ctx, &stubLogger{}, db, nil, testEnvelopeWithTicket(add))
 	if err != nil {
@@ -132,6 +134,23 @@ func TestBeforeMatchmakerAddRewrites2v2TicketWithAuthoritativeProperties(t *test
 	}
 	if pinned.GetNumericProperties()["rating"] != 42 {
 		t.Fatalf("2v2 ticket rating = %v, want server-read 42", pinned.GetNumericProperties()["rating"])
+	}
+}
+
+func TestBeforeMatchmakerAddRejectsRolloutIneligible2v2Ticket(t *testing.T) {
+	serverConfig.Enable2v2 = true
+	serverConfig.TwoVTwoRollout = map[string]int{"browser": 0, "bale": 100}
+	defer func() { serverConfig.Enable2v2 = false; serverConfig.TwoVTwoRollout = nil }()
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.WithValue(context.Background(), runtime.RUNTIME_CTX_USER_ID, "user_rollout")
+	ctx = context.WithValue(ctx, runtime.RUNTIME_CTX_VARS, map[string]string{"platform": "browser"})
+	add := &rtapi.MatchmakerAdd{MinCount: 4, MaxCount: 4}
+	if _, err := beforeMatchmakerAdd(NewStore(db))(ctx, &stubLogger{}, db, nil, testEnvelopeWithTicket(add)); err == nil {
+		t.Fatal("rollout-ineligible 2v2 ticket was accepted")
 	}
 }
 
@@ -279,13 +298,13 @@ func TestRouteMatchmakerGroupRejectsCrossModeGroups(t *testing.T) {
 // stubLogger satisfies runtime.Logger for unit tests.
 type stubLogger struct{}
 
-func (l *stubLogger) WithField(string, interface{}) runtime.Logger          { return l }
-func (l *stubLogger) WithFields(map[string]interface{}) runtime.Logger      { return l }
-func (l *stubLogger) Fields() map[string]interface{}                        { return nil }
-func (l *stubLogger) Error(format string, v ...interface{})                 {}
-func (l *stubLogger) Warn(format string, v ...interface{})                  {}
-func (l *stubLogger) Info(format string, v ...interface{})                  {}
-func (l *stubLogger) Debug(format string, v ...interface{})                 {}
-func (l *stubLogger) Flush()                                                {}
+func (l *stubLogger) WithField(string, interface{}) runtime.Logger     { return l }
+func (l *stubLogger) WithFields(map[string]interface{}) runtime.Logger { return l }
+func (l *stubLogger) Fields() map[string]interface{}                   { return nil }
+func (l *stubLogger) Error(format string, v ...interface{})            {}
+func (l *stubLogger) Warn(format string, v ...interface{})             {}
+func (l *stubLogger) Info(format string, v ...interface{})             {}
+func (l *stubLogger) Debug(format string, v ...interface{})            {}
+func (l *stubLogger) Flush()                                           {}
 
 var _ runtime.Logger = &stubLogger{}

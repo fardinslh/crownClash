@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { NakamaClient, isNakamaTransportError, normalizeNakamaError } from '../NakamaClient.js';
 import { StaleSocketError } from '../GameApiClient.js';
+import { featureFlags } from '../../config/featureFlags.js';
 
 describe('NakamaClient settle transport payload', () => {
   function clientWithRecordedRpc() {
@@ -37,6 +38,51 @@ describe('NakamaClient settle transport payload', () => {
     expect(rpcCalls).toHaveLength(1);
     const sent = JSON.parse(rpcCalls[0].payload) as Record<string, unknown>;
     expect('clientObservedStatus' in sent).toBe(false);
+  });
+});
+
+describe('NakamaClient feature config', () => {
+  it('passes the authenticated remote rollout decision into live matching', async () => {
+    const client = new NakamaClient('127.0.0.1', '7350', false, 'defaultkey');
+    const socket = {
+      connect: async () => undefined,
+      disconnect: () => undefined,
+      rpc: async (id: string) => {
+        if (id === 'config/features') {
+          return { payload: JSON.stringify({ flags: { enable2v2: true, rolloutPercent: 5, platform: 'bale' } }) };
+        }
+        if (id === 'career/get') {
+          return { payload: JSON.stringify({ career: { playerId: 'p1' } }) };
+        }
+        throw new Error(`unexpected rpc ${id}`);
+      },
+    };
+    (client as any).client.authenticateCustom = async () => ({ token: 'token' });
+    (client as any).client.createSocket = () => socket;
+    const platform = {
+      platform: 'bale',
+      getUser: () => ({ id: '7', firstName: 'P' }),
+      getInitDataRaw: () => 'signed',
+    };
+    await client.login(platform as any);
+    expect(featureFlags.enable2v2).toBe(true);
+    expect((client.openLiveMatch() as any).flags.enable2v2).toBe(true);
+  });
+
+  it('fails closed when remote config is unavailable', async () => {
+    const client = new NakamaClient('127.0.0.1', '7350', false, 'defaultkey');
+    const socket = {
+      connect: async () => undefined,
+      disconnect: () => undefined,
+      rpc: async (id: string) => {
+        if (id === 'config/features') throw new Error('offline');
+        return { payload: JSON.stringify({ career: { playerId: 'p2' } }) };
+      },
+    };
+    (client as any).client.authenticateCustom = async () => ({ token: 'token' });
+    (client as any).client.createSocket = () => socket;
+    await client.login({ platform: 'browser', getUser: () => ({ id: '8' }), getInitDataRaw: () => 'signed' } as any);
+    expect(featureFlags.enable2v2).toBe(false);
   });
 });
 

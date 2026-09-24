@@ -13,6 +13,12 @@ export interface FeatureFlags {
   readonly enable2v2: boolean;
 }
 
+export interface RemoteFeatureFlags {
+  readonly enable2v2: boolean;
+  readonly rolloutPercent: number;
+  readonly platform: string;
+}
+
 export type FeatureFlagEnvironment = {
   readonly VITE_ENABLE_2V2?: string;
 };
@@ -30,5 +36,16 @@ export function resolveFeatureFlags(env: FeatureFlagEnvironment | undefined = un
   };
 }
 
-/** Process-wide snapshot Phase 5 can query before showing a 2v2 entry. */
-export const featureFlags: FeatureFlags = resolveFeatureFlags();
+/**
+ * Process-wide flag snapshot. The build-time value is only a fail-closed
+ * bootstrap; an authenticated server response replaces it after login.
+ */
+export const featureFlags: FeatureFlags = { ...resolveFeatureFlags() };
+
+export function applyRemoteFeatureFlags(remote: RemoteFeatureFlags): void {
+  (featureFlags as { enable2v2: boolean }).enable2v2 = remote.enable2v2 === true;
+}
+
+export function disableRemoteFeatureFlags(): void {
+  (featureFlags as { enable2v2: boolean }).enable2v2 = false;
+}

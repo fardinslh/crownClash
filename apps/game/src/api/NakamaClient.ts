@@ -23,6 +23,12 @@ import {
   type TrackedAnalyticsEvent,
 } from './GameApiClient.js';
 import { LiveMatchClient } from './LiveMatchClient.js';
+import {
+  applyRemoteFeatureFlags,
+  disableRemoteFeatureFlags,
+  featureFlags,
+  type RemoteFeatureFlags,
+} from '../config/featureFlags.js';
 
 export function isNakamaTransportError(error: unknown): boolean {
   if (!error) return false;
@@ -156,6 +162,17 @@ export class NakamaClient implements CareerApi {
     this.socket = this.client.createSocket(this.useSSL, false);
     await this.socket.connect(this.session, false);
 
+    // Rollout is server-authoritative and fail-closed. A stale build-time
+    // flag must never expose 2v2 when config cannot be fetched.
+    disableRemoteFeatureFlags();
+    try {
+      const configResult = await this.rpc('config/features', '');
+      const config = JSON.parse(configResult) as { flags: RemoteFeatureFlags };
+      if (config?.flags) applyRemoteFeatureFlags(config.flags);
+    } catch {
+      disableRemoteFeatureFlags();
+    }
+
     const result = await this.rpc('career/get', '');
     const data = JSON.parse(result) as { career: PlayerCareer };
     return data.career;
@@ -234,6 +251,7 @@ export class NakamaClient implements CareerApi {
       throw new StaleSocketError('live_socket_not_connected');
     }
     return new LiveMatchClient(this.socket, {
+      flags: featureFlags,
       // Opens a brand-new connected socket for the same authenticated
       // session so an active 2v2 match can rejoin within the server's
       // grace window after unexpected socket loss.
