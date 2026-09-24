@@ -15,21 +15,25 @@ export type AnalyticsEventInput =
   | {
       name: 'match_start';
       matchId: string;
-      mode: 'bot' | 'live';
+      mode: 'bot' | 'live' | '2v2';
       source: 'menu' | 'rematch';
       battlefieldId?: BattlefieldId;
+      slot?: number;
+      teamId?: 'a' | 'b';
     }
   | {
       name: 'match_end';
       matchId: string;
-      mode: 'bot' | 'live';
+      mode: 'bot' | 'live' | '2v2';
       result: 'victory' | 'defeat' | 'draw';
       durationSeconds: number;
+      slot?: number;
+      teamId?: 'a' | 'b';
     }
   | {
       name: 'match_quit';
       matchId: string;
-      mode: 'bot' | 'live';
+      mode: 'bot' | 'live' | '2v2';
       durationSeconds: number;
     }
   | { name: 'match_menu_opened'; matchId: string; mode: 'bot' | 'live' }
@@ -42,7 +46,7 @@ export type AnalyticsEventInput =
       mode: 'bot' | 'live';
       durationSeconds: number;
     }
-  | { name: 'match_reward_received'; matchId: string; mode: 'bot' | 'live' }
+  | { name: 'match_reward_received'; matchId: string; mode: 'bot' | 'live' | '2v2' }
   | { name: 'upgrade_panel_viewed'; source: 'menu' | 'result' }
   | { name: 'upgrade_purchase_succeeded'; purchaseId: string }
   | {

@@ -591,3 +591,227 @@ func TestInsertAnalyticsEventsNormalizesRankPromotionFromSettlement(t *testing.T
 		t.Fatal(err)
 	}
 }
+
+func TestAnalyticsPayloadAccepts2v2EventShapes(t *testing.T) {
+	valid := []AnalyticsEventRecord{
+		analyticsTestEvent("match_start", map[string]any{
+			"matchId": "live2v2_deadbeef_1", "mode": "2v2", "source": "menu",
+			"slot": float64(2), "teamId": "b", "battlefieldId": "quad_citadel",
+		}),
+		analyticsTestEvent("match_start", map[string]any{
+			"matchId": "live2v2_deadbeef_1", "mode": "2v2", "source": "rematch",
+		}),
+		analyticsTestEvent("match_end", map[string]any{
+			"matchId": "live2v2_deadbeef_1", "mode": "2v2", "result": "victory",
+			"durationSeconds": float64(42), "slot": float64(2), "teamId": "b",
+		}),
+		analyticsTestEvent("match_end", map[string]any{
+			"matchId": "match_1", "mode": "bot", "result": "victory", "durationSeconds": float64(1),
+		}),
+		analyticsTestEvent("match_reward_received", map[string]any{
+			"matchId": "live2v2_deadbeef_1", "mode": "2v2",
+		}),
+	}
+	if _, err := parseAnalyticsEventsPayload(analyticsPayload(valid), analyticsTestNow); err != nil {
+		t.Fatalf("valid 2v2 analytics shapes rejected: %v", err)
+	}
+}
+
+func TestAnalyticsPayloadRejectsForged2v2ParticipantProps(t *testing.T) {
+	tests := []struct {
+		name  string
+		props map[string]any
+	}{
+		{name: "match_start 2v2 unknown teamId", props: map[string]any{
+			"matchId": "live2v2_deadbeef_1", "mode": "2v2", "source": "menu", "teamId": "c",
+		}},
+		{name: "match_start 2v2 out-of-range slot", props: map[string]any{
+			"matchId": "live2v2_deadbeef_1", "mode": "2v2", "source": "menu", "slot": float64(4),
+		}},
+		{name: "match_start 2v2 fractional slot", props: map[string]any{
+			"matchId": "live2v2_deadbeef_1", "mode": "2v2", "source": "menu", "slot": 1.5,
+		}},
+		{name: "match_start forged battlefield", props: map[string]any{
+			"matchId": "live2v2_deadbeef_1", "mode": "2v2", "source": "menu", "battlefieldId": "quad_citadel_forged",
+		}},
+		{name: "match_end 2v2 out-of-range slot", props: map[string]any{
+			"matchId": "live2v2_deadbeef_1", "mode": "2v2", "result": "victory",
+			"durationSeconds": float64(42), "slot": float64(-1),
+		}},
+	}
+	for _, test := range tests {
+		if _, err := parseAnalyticsEventsPayload(analyticsPayload([]AnalyticsEventRecord{analyticsTestEvent("match_start", test.props)}), analyticsTestNow); err == nil {
+			t.Fatalf("%s: forged props accepted", test.name)
+		}
+	}
+}
+
+func TestInsertAnalyticsEventsNormalizes2v2MatchEndFromMultiSettlement(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// Stored settlement says victory/42s for slot 2 (team b); the client
+	// payload claims defeat/1s. Normalization must overwrite every
+	// reward-relevant field from the stored row.
+	settlement := MatchSettlement{
+		MatchID: "live2v2_deadbeef_1",
+		Status:  "victory",
+		Stats:   MatchStats{MatchDurationSeconds: 42},
+	}
+	settlementJSON, _ := json.Marshal(settlement)
+	expectedProps := map[string]any{
+		"matchId": "live2v2_deadbeef_1", "mode": "2v2", "result": "victory",
+		"durationSeconds": 42, "slot": 2, "teamId": "b", "battlefieldId": "quad_citadel",
+	}
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT slot, team_id, settlement FROM match_settlements_multi")).
+		WithArgs("live2v2_deadbeef_1", "player_1").
+		WillReturnRows(sqlmock.NewRows([]string{"slot", "team_id", "settlement"}).AddRow(2, "b", settlementJSON))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT battlefield_id FROM match_replays")).
+		WithArgs("live2v2_deadbeef_1").
+		WillReturnRows(sqlmock.NewRows([]string{"battlefield_id"}).AddRow("quad_citadel"))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO analytics_events")).
+		WithArgs("player_1", "event_1", "session_test", "match_end", analyticsTestNow, 1, analyticsPropsJSON(t, expectedProps)).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	_, err = NewStore(db).InsertAnalyticsEvents(context.Background(), "player_1", []AnalyticsEventRecord{{
+		EventID: "event_1", Name: "match_end", SessionID: "session_test", OccurredAt: analyticsTestNow, SchemaVersion: 1,
+		Props: map[string]any{
+			"matchId": "live2v2_deadbeef_1", "mode": "2v2", "result": "defeat",
+			"durationSeconds": float64(1), "slot": float64(2), "teamId": "b",
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInsertAnalyticsEventsNormalizes2v2RewardFromSettlement(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	settlement := MatchSettlement{
+		MatchID: "live2v2_deadbeef_1",
+		Breakdown: MatchRewardBreakdown{
+			BaseCoins: 40, SpeedBonus: 10, DominationBonus: 15, StreakBonus: 0,
+			TreasuryBonus: 8, TotalCoins: 73, TrophyDelta: 0,
+		},
+		NewCareer: PlayerCareer{Coins: 173, Trophies: 340},
+	}
+	settlementJSON, _ := json.Marshal(settlement)
+	expectedProps := map[string]any{
+		"matchId": "live2v2_deadbeef_1", "mode": "2v2",
+		"baseCoins": 40, "speedBonus": 10, "dominationBonus": 15, "streakBonus": 0,
+		"treasuryBonus": 8, "totalCoins": 73, "trophyDelta": 0,
+		"resultingCoins": 173, "resultingTrophies": 340,
+	}
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT slot, team_id, settlement FROM match_settlements_multi")).
+		WithArgs("live2v2_deadbeef_1", "player_1").
+		WillReturnRows(sqlmock.NewRows([]string{"slot", "team_id", "settlement"}).AddRow(0, "a", settlementJSON))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT battlefield_id FROM match_replays")).
+		WithArgs("live2v2_deadbeef_1").
+		WillReturnRows(sqlmock.NewRows([]string{"battlefield_id"}).AddRow("quad_citadel"))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO analytics_events")).
+		WithArgs("player_1", "event_1", "session_test", "match_reward_received", analyticsTestNow, 1, analyticsPropsJSON(t, expectedProps)).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	_, err = NewStore(db).InsertAnalyticsEvents(context.Background(), "player_1", []AnalyticsEventRecord{{
+		EventID: "event_1", Name: "match_reward_received", SessionID: "session_test", OccurredAt: analyticsTestNow, SchemaVersion: 1,
+		Props: map[string]any{
+			"matchId": "live2v2_deadbeef_1", "mode": "2v2", "totalCoins": float64(9999),
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInsertAnalyticsEventsRejects2v2ResultWithoutStoredSettlement(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// A client cannot claim 2v2 results that the settlement store does not
+	// hold: the multi-settlement lookup fails closed.
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT slot, team_id, settlement FROM match_settlements_multi")).
+		WithArgs("live2v2_forged_1", "player_1").
+		WillReturnRows(sqlmock.NewRows([]string{"slot", "team_id", "settlement"}))
+	mock.ExpectRollback()
+
+	if _, err := NewStore(db).InsertAnalyticsEvents(context.Background(), "player_1", []AnalyticsEventRecord{{
+		EventID: "event_1", Name: "match_end", SessionID: "session_test", OccurredAt: analyticsTestNow, SchemaVersion: 1,
+		Props: map[string]any{
+			"matchId": "live2v2_forged_1", "mode": "2v2", "result": "victory", "durationSeconds": float64(9),
+		},
+	}}); err == nil {
+		t.Fatal("2v2 match_end without a stored settlement must be rejected")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAnalyticsPayloadAccepts2v2MatchQuit(t *testing.T) {
+	// The exact shape GameScene's 2v2 terminal close handler emits, plus
+	// the 1v1 "live" mode which must keep working unchanged.
+	events, err := parseAnalyticsEventsPayload(analyticsPayload([]AnalyticsEventRecord{
+		analyticsTestEvent("match_quit", map[string]any{
+			"matchId": "live2v2_deadbeef_1725000000000", "mode": "2v2", "durationSeconds": float64(37),
+		}),
+		analyticsTestEvent("match_quit", map[string]any{
+			"matchId": "live_deadbeef_1725000000000", "mode": "live", "durationSeconds": float64(12),
+		}),
+	}), analyticsTestNow)
+	if err != nil {
+		t.Fatalf("valid 2v2/live match_quit rejected: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("accepted events = %d, want 2", len(events))
+	}
+}
+
+func TestAnalyticsPayloadRejectsInvalidMatchQuitShapes(t *testing.T) {
+	matchQuit := func(props map[string]any) map[string]any {
+		return props
+	}
+	cases := []struct {
+		name  string
+		props map[string]any
+	}{
+		{"invalid_mode_bot", matchQuit(map[string]any{"matchId": "m", "mode": "bot", "durationSeconds": float64(1)})},
+		{"invalid_mode_ranked", matchQuit(map[string]any{"matchId": "m", "mode": "ranked", "durationSeconds": float64(1)})},
+		{"invalid_mode_empty", matchQuit(map[string]any{"matchId": "m", "mode": "", "durationSeconds": float64(1)})},
+		{"missing_mode", matchQuit(map[string]any{"matchId": "m", "durationSeconds": float64(1)})},
+		{"missing_duration_2v2", matchQuit(map[string]any{"matchId": "m", "mode": "2v2"})},
+		{"missing_duration_live", matchQuit(map[string]any{"matchId": "m", "mode": "live"})},
+		{"unexpected_slot_prop", matchQuit(map[string]any{"matchId": "m", "mode": "2v2", "durationSeconds": float64(1), "slot": float64(2)})},
+		{"unexpected_team_id_prop", matchQuit(map[string]any{"matchId": "m", "mode": "2v2", "durationSeconds": float64(1), "teamId": "a"})},
+		{"unexpected_user_id_prop", matchQuit(map[string]any{"matchId": "m", "mode": "2v2", "durationSeconds": float64(1), "userId": "intruder"})},
+		{"unexpected_result_prop", matchQuit(map[string]any{"matchId": "m", "mode": "2v2", "durationSeconds": float64(1), "result": "victory"})},
+	}
+	for _, caseItem := range cases {
+		if _, err := parseAnalyticsEventsPayload(analyticsPayload([]AnalyticsEventRecord{
+			analyticsTestEvent("match_quit", caseItem.props),
+		}), analyticsTestNow); err == nil {
+			t.Fatalf("match_quit case %q must be rejected", caseItem.name)
+		}
+	}
+}

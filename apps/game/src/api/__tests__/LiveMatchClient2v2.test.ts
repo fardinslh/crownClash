@@ -711,4 +711,125 @@ describe('LiveMatchClient 2v2 networking (Phase 4)', () => {
       freshSocket.onmatchdata?.(frame({ schemaVersion: 2, type: 'state', tick: 3, state: { status: 'playing', territories: {}, armies: [] } }));
     });
   });
+
+  describe('rematch window expiry (§2.6: idlers drop to the menu)', () => {
+    const RESULT_MATCH_ID = 'live2v2_949eec1e_1790103440400';
+
+    /** Settled (non-cancelled) result for the active match. */
+    const settledResultFrame = (matchId: string) => ({
+      op_code: 7,
+      data: encoder.encode(JSON.stringify({
+        schemaVersion: 2,
+        type: 'match_result',
+        result: {
+          matchId,
+          mode: '2v2',
+          winnerTeamId: 'a',
+          participants: startedPayload().players.map((player) => ({
+            slot: player.slot,
+            teamId: player.teamId,
+            userId: player.userId,
+            status: player.teamId === 'a' ? 'victory' : 'defeat',
+          })),
+        },
+      })),
+    });
+    const matchClosedFrame = (matchId: string) => ({
+      op_code: 9,
+      data: encoder.encode(JSON.stringify({ schemaVersion: 2, type: 'match_closed', matchId })),
+    });
+
+    it('emits expired exactly once, never reconnects, and fails sends closed', async () => {
+      const socket = createMockSocket();
+      const client = new LiveMatchClient(socket, { flags: FLAGS_2V2 });
+      await enterActive2v2Match(socket, client);
+      socket.onmatchdata?.(settledResultFrame(RESULT_MATCH_ID));
+
+      const expired: string[] = [];
+      client.on('expired', ({ matchId }) => expired.push(matchId));
+      const reconnecting: unknown[] = [];
+      client.on('reconnecting', (payload) => reconnecting.push(payload));
+
+      socket.onmatchdata?.(matchClosedFrame(RESULT_MATCH_ID));
+      expect(expired).toEqual([RESULT_MATCH_ID]);
+
+      // Duplicate delivery is absorbed: an expired session never re-emits.
+      socket.onmatchdata?.(matchClosedFrame(RESULT_MATCH_ID));
+      expect(expired).toEqual([RESULT_MATCH_ID]);
+
+      // Terminal: no reconnect on a later socket loss, and every send path
+      // fails closed (no commands into a dead session). The raw socket drop
+      // still surfaces as a plain closed event, which GameScene ignores in
+      // the expired state (it already returned to the menu).
+      expect(() => socket.ondisconnect?.(new Event('close'))).not.toThrow();
+      expect(reconnecting).toEqual([]);
+      await vi.advanceTimersByTimeAsync(TWO_V_TWO_TEST_TOTAL_WINDOW_MS);
+      expect(reconnecting).toEqual([]);
+      expect(() => client.sendDispatch('b_base_w', 'b_gate_w')).toThrow('two_v2_not_active');
+      expect(() => client.sendSurrender()).toThrow('two_v2_not_active');
+      expect(() => client.sendRematchVote()).toThrow('two_v2_not_active');
+      client.close();
+    });
+
+    it('ignores match_closed for another match id', async () => {
+      const socket = createMockSocket();
+      const client = new LiveMatchClient(socket, { flags: FLAGS_2V2 });
+      await enterActive2v2Match(socket, client);
+      socket.onmatchdata?.(settledResultFrame(RESULT_MATCH_ID));
+
+      const expired: string[] = [];
+      client.on('expired', ({ matchId }) => expired.push(matchId));
+      socket.onmatchdata?.(matchClosedFrame('live2v2_other_1790103440400'));
+
+      expect(expired).toEqual([]);
+      // The session is still finished (not expired): rematch voting stays valid.
+      expect(() => client.sendRematchVote()).not.toThrow();
+      client.close();
+    });
+
+    it('ignores match_closed while the match is still active', async () => {
+      const socket = createMockSocket();
+      const client = new LiveMatchClient(socket, { flags: FLAGS_2V2 });
+      await enterActive2v2Match(socket, client);
+
+      const expired: string[] = [];
+      client.on('expired', ({ matchId }) => expired.push(matchId));
+      socket.onmatchdata?.(matchClosedFrame(RESULT_MATCH_ID));
+
+      expect(expired).toEqual([]);
+      // The active session keeps working: a dispatch is still accepted.
+      expect(() => client.sendDispatch('b_base_w', 'b_gate_w')).not.toThrow();
+      client.close();
+    });
+
+    it('a stale result from a previous match never reaches the new rematch session', async () => {
+      const socket = createMockSocket();
+      const client = new LiveMatchClient(socket, { flags: FLAGS_2V2 });
+      await enterActive2v2Match(socket, client);
+      socket.onmatchdata?.(settledResultFrame(RESULT_MATCH_ID));
+
+      const results: LiveMatchResult2v2[] = [];
+      client.on('match_result_2v2', (payload) => results.push(payload));
+
+      // All four voted: the fresh rematch session joins a new raw match and
+      // adopts the new canonical id from its match_started.
+      socket.onmatchdata?.({
+        op_code: OP_MATCH_STARTED,
+        data: encoder.encode(JSON.stringify({ schemaVersion: 2, type: 'rematch_started', matchId: 'raw-match-2.crownclash' })),
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(socket.joinMatch).toHaveBeenCalledWith('raw-match-2.crownclash');
+      const rematchStarted = startedPayload({ matchId: 'live2v2_fresh_1790103500000' });
+      socket.onmatchdata?.({ op_code: OP_MATCH_STARTED, data: encoder.encode(JSON.stringify(rematchStarted)) });
+      await vi.advanceTimersByTimeAsync(0);
+
+      // The delayed OLD result arrives after the rematch started, alongside
+      // the fresh match's own result: only the fresh one may pass.
+      socket.onmatchdata?.(settledResultFrame(RESULT_MATCH_ID));
+      socket.onmatchdata?.(settledResultFrame('live2v2_fresh_1790103500000'));
+
+      expect(results.map((result) => result.matchId)).toEqual(['live2v2_fresh_1790103500000']);
+      client.close();
+    });
+  });
 });

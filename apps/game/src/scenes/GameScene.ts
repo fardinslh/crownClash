@@ -24,6 +24,7 @@ import {
   PVP_SIMULATION_TICK_SECONDS,
   PlayerCareer,
   PvpAction,
+  Slot,
   stepSimulation,
   TERRITORY_TYPE_PRESENTATION,
   Territory,
@@ -63,6 +64,9 @@ import {
   canInitiateBotSettlement,
   canFinalizeBotSettlement,
   processLiveMatchResult,
+  isCurrent2v2MatchResult,
+  selectLocal2v2Participant,
+  track2v2ResultAnalytics,
 } from './gameSceneGuards.js';
 import { purchaseUpgradeThroughCareer } from '../upgrades/UpgradePurchaseController.js';
 import { playUpgradeMilestoneCelebration } from '../upgrades/UpgradeMilestoneCelebration.js';
@@ -443,9 +447,12 @@ export class GameScene extends Phaser.Scene {
     trackEvent({
       name: 'match_start',
       matchId: this.activeMatchId,
-      mode: this.liveMode ? 'live' : 'bot',
+      mode: this.is2v2 ? '2v2' : this.liveMode ? 'live' : 'bot',
       source: launchData?.source ?? 'menu',
       battlefieldId: this.battlefieldId,
+      ...(this.live2v2
+        ? { slot: this.live2v2.payload.slot, teamId: this.live2v2.payload.teamId }
+        : {}),
     });
     if (this.liveMode && launchData?.liveMatch2v2) {
       this.bind2v2LiveMatch(this.liveClient);
@@ -4076,11 +4083,23 @@ export class GameScene extends Phaser.Scene {
         if (this.isExiting) return;
         this.handle2v2RematchStarted(client);
       }),
+      client.on('expired', ({ matchId }) => {
+        if (this.isExiting) return;
+        this.handle2v2MatchExpired(matchId);
+      }),
       client.on('closed', () => {
         // Fires only when the v2 session is not active (terminal states).
         if (this.isExiting) return;
         if (this.resultModalContainer || this.twoVTwoReconnectOverlay) return;
         if (this.gameState.status === 'playing') {
+          // Terminal dedup: a later match_result for the same match will not
+          // re-emit match_end after this quit (shared terminalMatchIds set).
+          trackTerminalMatchEvent({
+            name: 'match_quit',
+            matchId: this.activeMatchId,
+            mode: '2v2',
+            durationSeconds: this.gameState.elapsedTimeSeconds,
+          });
           this.show2v2AbandonedOverlay('connection_closed');
         }
       }),
@@ -4135,9 +4154,11 @@ export class GameScene extends Phaser.Scene {
     trackEvent({
       name: 'match_start',
       matchId: payload.matchId,
-      mode: 'live',
+      mode: '2v2',
       source: 'rematch',
       battlefieldId: this.battlefieldId,
+      slot: payload.slot,
+      teamId: payload.teamId,
     });
   }
 
@@ -4149,12 +4170,22 @@ export class GameScene extends Phaser.Scene {
 
   private handle2v2MatchResult(result: LiveMatchResult2v2, client?: LiveMatchClient): void {
     if (this.isExiting || this.resultModalContainer) return;
+    // Current-match guard: only a result for the ACTIVE 2v2 match with a
+    // well-formed participant set may touch the session. A delayed result
+    // from a previous match (after a rematch started) is dropped before any
+    // state, career, analytics, music, or modal mutation.
+    const mySlot = this.live2v2?.payload.slot ?? -1;
+    const myTeamId = this.live2v2?.payload.teamId ?? null;
+    if (!isCurrent2v2MatchResult({ result, activeMatchId: this.activeMatchId, mySlot, myTeamId })) return;
     if (this.settledMatchId === result.matchId) return;
     this.settledMatchId = result.matchId;
 
+    // Session-less results can only be cancelled (no per-slot view); the
+    // view-model slot is cosmetic there.
+    const viewSlot: Slot = mySlot === -1 ? 0 : mySlot;
     const model = buildTwoVTwoResultViewModel(
       result,
-      this.live2v2?.payload.slot ?? 0,
+      viewSlot,
       this.rosterNameMap()
     );
     this.hide2v2ReconnectOverlay();
@@ -4163,12 +4194,21 @@ export class GameScene extends Phaser.Scene {
     // settlement (casual policy: coin rewards, no trophy changes); refresh the local
     // snapshot from my own authoritative settlement when present.
     if (!model.cancelled && this.live2v2) {
-      const mine = result.participants?.find(
-        (participant) => participant.slot === this.live2v2?.payload.slot
-      );
+      const mine = selectLocal2v2Participant(result, mySlot);
       if (mine?.settlement) {
         this.careerManager.applyLiveMatchSettlement(mine.settlement);
       }
+      track2v2ResultAnalytics({
+        matchId: result.matchId,
+        cancelled: model.cancelled,
+        myStatus: model.myStatus,
+        durationSeconds:
+          mine?.settlement && mine.settlement.stats.matchDurationSeconds > 0
+            ? mine.settlement.stats.matchDurationSeconds
+            : this.gameState.elapsedTimeSeconds,
+        slot: this.live2v2.payload.slot,
+        teamId: this.live2v2.payload.teamId,
+      });
     }
 
     if (model.cancelled || model.myStatus === 'victory') {
@@ -4193,8 +4233,18 @@ export class GameScene extends Phaser.Scene {
     return map;
   }
 
-  private handle2v2RematchStarted(client: LiveMatchClient): void {
-    // All four voted: the fresh match keeps identical slots. Ready-signal so
+  /**
+   * Rematch-window expiry (§2.6: idlers drop to the menu). The session is
+   * terminal on the client side too; no reconnect can follow. The terminal
+   * match_end analytics were already recorded with the settlement, so this
+   * path deliberately emits nothing further.
+   */
+  private handle2v2MatchExpired(matchId: string): void {
+    if (matchId !== this.activeMatchId) return;
+    this.returnToMenu();
+  }
+
+  private handle2v2RematchStarted(client: LiveMatchClient): void {    // All four voted: the fresh match keeps identical slots. Ready-signal so
     // the server's countdown starts immediately, and hold the result modal
     // in a pending state until the new match_started_2v2 resets the battle.
     this.twoVTwoRematchVoteSent = false;

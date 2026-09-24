@@ -667,6 +667,41 @@ func Test2v2SurrenderFlowAndTeamForfeit(t *testing.T) {
 	}
 }
 
+func Test2v2SurrenderedAndAbandonedSlotsCannotRejoin(t *testing.T) {
+	state, dispatcher, _ := newTest2v2State(t)
+	handler := &live2v2Match{}
+
+	// A surrendered slot left the match by authenticated choice (§5.3): no
+	// later session of the same user may rejoin it.
+	state.handleSurrender(context.Background(), &stubLogger{}, dispatcher, fakeMatchData{fakePresence: fakePresence{userID: test2v2UserIDs[2], sessionID: "session_2"}, data: controlPayload(2, "surrender")}, 2)
+	if state.slots[2].connected || !state.slots[2].surrendered {
+		t.Fatal("surrender must detach and flag the slot")
+	}
+	_, allowed, reason := handler.MatchJoinAttempt(context.Background(), &stubLogger{}, nil, nil, dispatcher, 45, state, fakePresence{userID: test2v2UserIDs[2], sessionID: "session_rejoin"}, nil)
+	if allowed || reason != "slot_not_reconnectable" {
+		t.Fatalf("surrendered slot rejoin = %v (%q), want rejection with slot_not_reconnectable", allowed, reason)
+	}
+
+	// A grace-expired (abandoned) slot is likewise closed (§5.0).
+	handler.MatchLeave(context.Background(), &stubLogger{}, nil, nil, dispatcher, 50, state, []runtime.Presence{fakePresence{userID: test2v2UserIDs[0], sessionID: "session_0"}})
+	state.slots[0].disconnectedAt = time.Now().Add(-31 * time.Second)
+	state.enforceReconnectGrace(context.Background(), &stubLogger{}, dispatcher)
+	if !state.slots[0].abandoned {
+		t.Fatal("grace expiry must abandon the slot")
+	}
+	_, allowed, reason = handler.MatchJoinAttempt(context.Background(), &stubLogger{}, nil, nil, dispatcher, 55, state, fakePresence{userID: test2v2UserIDs[0], sessionID: "session_rejoin_abandoned"}, nil)
+	if allowed || reason != "slot_not_reconnectable" {
+		t.Fatalf("abandoned slot rejoin = %v (%q), want rejection with slot_not_reconnectable", allowed, reason)
+	}
+
+	// An active slot's duplicate second session must still reach the
+	// eviction path: only surrendered/abandoned slots are closed.
+	_, allowed, reason = handler.MatchJoinAttempt(context.Background(), &stubLogger{}, nil, nil, dispatcher, 56, state, fakePresence{userID: test2v2UserIDs[1], sessionID: "session_duplicate"}, nil)
+	if !allowed {
+		t.Fatalf("active duplicate session rejected (reason = %q), want allowed for eviction", reason)
+	}
+}
+
 func Test2v2CountdownCancelsWhenSlotMissing(t *testing.T) {
 	state, dispatcher, settlementRequests := newTest2v2State(t)
 	state.phase = live2v2PhaseCountdown
@@ -699,6 +734,49 @@ func Test2v2CountdownCancelsWhenSlotMissing(t *testing.T) {
 	}
 	if payload.Result.Outcome != "cancelled" {
 		t.Fatalf("cancel outcome = %q, want cancelled", payload.Result.Outcome)
+	}
+}
+
+func Test2v2CountdownSurrenderCancelsWithoutSettlements(t *testing.T) {
+	state, dispatcher, settlementRequests := newTest2v2State(t)
+	state.phase = live2v2PhaseCountdown
+	state.countdownEnds = 200
+
+	// All four slots are connected (not ready); an explicit surrender while
+	// the countdown is still running must cancel the match without any
+	// settlement attempt (§5.0).
+	drain2v2Messages(state, dispatcher, 100, []runtime.MatchData{
+		fakeMatchData{fakePresence: fakePresence{userID: test2v2UserIDs[2]}, data: controlPayload(MatchSchemaVersion2, "surrender")},
+	})
+
+	if state.phase != live2v2PhaseCancelled {
+		t.Fatalf("countdown surrender: phase = %q, want cancelled (rejections: %v)", state.phase, rejected2v2Codes(dispatcher))
+	}
+	if len(*settlementRequests) != 0 {
+		t.Fatal("cancelled matches must not settle")
+	}
+	results := broadcastPayloads(dispatcher, liveOpCodeMatchResult)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 match_result broadcast, got %d", len(results))
+	}
+	var payload struct {
+		Result struct {
+			MatchId      string         `json:"matchId"`
+			Outcome      string         `json:"outcome"`
+			Participants map[string]any `json:"participants"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(results[0], &payload); err != nil {
+		t.Fatalf("cancel result payload invalid: %v", err)
+	}
+	if payload.Result.Outcome != "cancelled" {
+		t.Fatalf("countdown surrender outcome = %q, want cancelled", payload.Result.Outcome)
+	}
+	if payload.Result.MatchId != state.matchID {
+		t.Fatalf("countdown surrender matchId = %q, want %q", payload.Result.MatchId, state.matchID)
+	}
+	if payload.Result.Participants != nil {
+		t.Fatal("cancelled results must not carry per-participant settlements")
 	}
 }
 
@@ -837,5 +915,79 @@ func Test2v2RematchVoteRequiresAllFour(t *testing.T) {
 	})
 	if len(broadcastPayloads(dispatcher, liveOpCodeCommandRejected)) != 1 {
 		t.Fatal("post-rematch vote must be rejected")
+	}
+}
+
+func Test2v2RematchWindowExpiryBroadcastsMatchClosed(t *testing.T) {
+	state, dispatcher, _ := newTest2v2State(t)
+	state.phase = live2v2PhaseFinished
+	state.settled = true
+	state.rematchEnds = 1_000
+
+	created := ""
+	state.matchCreate = func(ctx context.Context, moduleName string, params map[string]interface{}) (string, error) {
+		created = moduleName
+		return "live2v2_rematch", nil
+	}
+
+	// Fewer than four votes: the window expires without a rematch.
+	drain2v2Messages(state, dispatcher, 999, []runtime.MatchData{
+		fakeMatchData{fakePresence: fakePresence{userID: test2v2UserIDs[0]}, data: controlPayload(2, "rematch_vote")},
+		fakeMatchData{fakePresence: fakePresence{userID: test2v2UserIDs[1]}, data: controlPayload(2, "rematch_vote")},
+		fakeMatchData{fakePresence: fakePresence{userID: test2v2UserIDs[2]}, data: controlPayload(2, "rematch_vote")},
+	})
+	if created != "" {
+		t.Fatal("rematch created before all four voted")
+	}
+
+	// The first loop tick past the window must terminate the handler and
+	// broadcast match_closed exactly once so the remaining presences can
+	// drop to the menu (§2.6) instead of hanging on a dead session.
+	handler := &live2v2Match{}
+	if next := handler.MatchLoop(context.Background(), &stubLogger{}, nil, nil, dispatcher, 1_001, state, nil); next != nil {
+		t.Fatal("expired rematch window must terminate the match handler")
+	}
+	if created != "" {
+		t.Fatal("expiry must not create a rematch")
+	}
+	closed := broadcastPayloads(dispatcher, liveOpCodeMatchClosed)
+	if len(closed) != 1 {
+		t.Fatalf("expected exactly 1 match_closed broadcast, got %d", len(closed))
+	}
+	var payload struct {
+		Type    string `json:"type"`
+		MatchID string `json:"matchId"`
+	}
+	if err := json.Unmarshal(closed[0], &payload); err != nil {
+		t.Fatalf("match_closed payload invalid: %v", err)
+	}
+	if payload.Type != "match_closed" {
+		t.Fatalf("expiry payload type = %q, want match_closed", payload.Type)
+	}
+	if payload.MatchID != state.matchID {
+		t.Fatalf("expiry matchId = %q, want %q", payload.MatchID, state.matchID)
+	}
+	// Expiry must never broadcast a match start (no rematch was made).
+	if len(broadcastPayloads(dispatcher, liveOpCodeMatchStarted)) != 0 {
+		t.Fatal("expired window must not broadcast a match start")
+	}
+}
+
+func Test2v2RematchWindowExpirySilentAfterRematchMade(t *testing.T) {
+	state, dispatcher, _ := newTest2v2State(t)
+	state.phase = live2v2PhaseFinished
+	state.settled = true
+	state.rematchEnds = 1_000
+	state.rematchMade = true
+
+	// The old handler keeps looping until the window ends even after the
+	// rematch was created; its expiry must stay silent — the presences
+	// already moved to the fresh match and must not see a terminal close.
+	handler := &live2v2Match{}
+	if next := handler.MatchLoop(context.Background(), &stubLogger{}, nil, nil, dispatcher, 1_001, state, nil); next != nil {
+		t.Fatal("post-rematch expiry must terminate the old handler")
+	}
+	if len(broadcastPayloads(dispatcher, liveOpCodeMatchClosed)) != 0 {
+		t.Fatal("expiry after a rematch must not broadcast match_closed")
 	}
 }

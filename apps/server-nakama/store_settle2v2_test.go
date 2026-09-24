@@ -105,8 +105,64 @@ func TestStoreSettleMatch2v2SettlesAllFourAndReplayAtomically(t *testing.T) {
 	}
 }
 
-func TestStoreSettleMatch2v2NoTrophyLedgerEntryForCasual(t *testing.T) {
+// TestStoreSettleMatch2v2BindsCareerToLocalSlot proves each participant's
+// settlement is computed from THEIR OWN career (matched by user id), never
+// from the sorted user-list position: the ledger balances must reflect each
+// user's own previous balance.
+func TestStoreSettleMatch2v2BindsCareerToLocalSlot(t *testing.T) {
 	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := NewStore(db)
+	request := test2v2SettleRequest()
+	balances := map[string]int{"winner_a": 100, "winner_b": 220, "loser_c": 340, "loser_d": 460}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT slot, user_id, settlement FROM match_settlements_multi").WithArgs(request.MatchID).WillReturnRows(sqlmock.NewRows([]string{"slot", "user_id", "settlement"}))
+	careerRows := sqlmock.NewRows([]string{
+		"id", "coins", "gems", "trophies",
+		"starting_garrison_level", "production_level", "army_speed_level", "treasury_level", "selected_commander",
+		"matches_played", "matches_won", "current_streak", "best_streak", "last_match_timestamp",
+	})
+	for _, userID := range []string{"loser_c", "loser_d", "winner_a", "winner_b"} {
+		careerRows.AddRow(userID, balances[userID], 10, 50, 0, 0, 0, 0, "crown_guard", 0, 0, 0, 0, 0)
+	}
+	mock.ExpectQuery("FROM players").WithArgs("loser_c", "loser_d", "winner_a", "winner_b").WillReturnRows(careerRows)
+	mock.ExpectQuery("SELECT slot, user_id, settlement FROM match_settlements_multi").WithArgs(request.MatchID).WillReturnRows(sqlmock.NewRows([]string{"slot", "user_id", "settlement"}))
+	for range request.Participants {
+		mock.ExpectExec("UPDATE players SET").WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectExec("INSERT INTO economy_ledger").WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectExec("INSERT INTO match_settlements_multi").WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectExec("INSERT INTO player_daily_progress").WillReturnResult(sqlmock.NewResult(1, 1))
+	}
+	mock.ExpectExec("INSERT INTO match_replays").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	settlements, err := store.SettleMatch2v2(context.Background(), request)
+	if err != nil {
+		t.Fatalf("atomic settlement failed: %v", err)
+	}
+	for index, participant := range request.Participants {
+		settlement := settlements[index]
+		if settlement.NewCareer.PlayerID != participant.UserID {
+			t.Fatalf("settlement %d career belongs to %q, want %q (career must bind to the participant's own user id)", index, settlement.NewCareer.PlayerID, participant.UserID)
+		}
+		entry := settlement.LedgerEntries[0]
+		if entry.PreviousBalance != balances[participant.UserID] {
+			t.Fatalf("settlement %d (%s) previous balance = %d, want %d (own career, not another slot's)", index, participant.UserID, entry.PreviousBalance, balances[participant.UserID])
+		}
+		if entry.ResultingBalance != balances[participant.UserID]+entry.Amount {
+			t.Fatalf("settlement %d (%s) resulting balance = %d, want %d", index, participant.UserID, entry.ResultingBalance, balances[participant.UserID]+entry.Amount)
+		}
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("SQL expectations unmet: %v", err)
+	}
+}
+
+func TestStoreSettleMatch2v2NoTrophyLedgerEntryForCasual(t *testing.T) {	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
 	}

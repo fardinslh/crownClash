@@ -19,6 +19,7 @@ const (
 	liveOpCodeCommandRejected = 6
 	liveOpCodeMatchResult     = 7
 	liveOpCodeError           = 8
+	liveOpCodeMatchClosed     = 9
 
 	liveTickRate     = 20 // MatchLoop ticks per second.
 	liveMaxPlayers   = 2

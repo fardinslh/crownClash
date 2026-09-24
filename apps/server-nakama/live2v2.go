@@ -325,8 +325,15 @@ func (m *live2v2Match) MatchJoinAttempt(ctx context.Context, logger runtime.Logg
 		return state, false, "live_match_finished"
 	}
 	// A user id known to the match is a slot-preserving rejoin (including a
-	// duplicate second session, which evicts the older presence).
-	if _, joined := s.presenceByUser[presence.GetUserId()]; joined {
+	// duplicate second session, which evicts the older presence) — unless the
+	// slot can no longer rejoin at all: surrendered (§5.3: the authenticated
+	// surrender already removed the player) and grace-expired (§5.0: the
+	// reconnect window closed) slots fail closed.
+	if slot, joined := s.presenceByUser[presence.GetUserId()]; joined {
+		slotState := s.slots[slot]
+		if slotState != nil && (slotState.surrendered || slotState.abandoned) {
+			return state, false, "slot_not_reconnectable"
+		}
 		return state, true, ""
 	}
 	// Ranked matches restrict participation to the matched four.
@@ -484,6 +491,18 @@ func (m *live2v2Match) MatchLoop(ctx context.Context, logger runtime.Logger, db 
 	s.serverSeq += len(messages)
 	if s.phase == live2v2PhaseFinished {
 		if s.settled && tick >= s.rematchEnds {
+			// Rematch window expired without four yes votes (§2.6: idlers
+			// drop to the menu). Tell the remaining presences so they leave
+			// the dead session cleanly; after a rematch the old handler's
+			// presences already moved to the fresh match.
+			if !s.rematchMade {
+				closedPayload, _ := json.Marshal(map[string]any{
+					"schemaVersion": MatchSchemaVersion2,
+					"type":          "match_closed",
+					"matchId":       s.matchID,
+				})
+				_ = dispatcher.BroadcastMessageDeferred(liveOpCodeMatchClosed, closedPayload, s.connectedPresences(), nil, true)
+			}
 			return nil
 		}
 		return state

@@ -52,6 +52,9 @@ const TERMINAL_REJOIN_CODES = new Set([
   'live_match_full',
   'not_in_match',
   'match_join_failed',
+  // Surrendered (§5.3) and grace-expired (§5.0) slots are closed server-side:
+  // no retry can restore them.
+  'slot_not_reconnectable',
 ]);
 
 export interface LiveMatchResult {
@@ -126,6 +129,9 @@ export type LiveMatchEventMap = {
   reconnecting: { matchId: string; attempt: number };
   reconnected: LiveMatchReconnectState;
   reconnect_failed: { matchId: string; code: string };
+  // The finished match closed after the rematch window expired (§2.6):
+  // the session is terminal and the player drops to the menu.
+  expired: { matchId: string };
 };
 
 type LiveMatchEvent = {
@@ -153,6 +159,7 @@ const OP_COMMAND_ACCEPTED = 5;
 const OP_COMMAND_REJECTED = 6;
 const OP_MATCH_RESULT = 7;
 const OP_ERROR = 8;
+const OP_MATCH_CLOSED = 9;
 const OP_DISPATCH = 1;
 
 function parseLiveErrorCode(err: unknown, fallback: string): string {
@@ -199,7 +206,8 @@ type TwoVTwoSessionPhase =
   | 'reconnecting'
   | 'reconnect_failed'
   | 'finished'
-  | 'cancelled';
+  | 'cancelled'
+  | 'expired';
 
 interface TwoVTwoSession {
   phase: TwoVTwoSessionPhase;
@@ -696,6 +704,7 @@ export class LiveMatchClient {
       command_rejected: OP_COMMAND_REJECTED,
       match_result: OP_MATCH_RESULT,
       rematch_started: OP_MATCH_STARTED,
+      match_closed: OP_MATCH_CLOSED,
       error: OP_ERROR,
     };
     if (opCode !== expectedOpcode[message.kind]) return;
@@ -748,6 +757,17 @@ export class LiveMatchClient {
         if (!session || session.phase !== 'finished') return;
         this.beginTwoVTwoRematch(message.payload.matchId);
         this.emit({ type: 'rematch_started', payload: message.payload });
+        return;
+      case 'match_closed':
+        // Rematch-window expiry (§2.6): the finished match is gone. Only a
+        // finished session for the very match the server names may expire;
+        // the phase becomes terminal so no reconnect can ever start, and
+        // the GameScene drops to the menu. Duplicate deliveries are
+        // absorbed: an expired session never re-emits.
+        if (!session || session.phase !== 'finished') return;
+        if (session.canonicalMatchId !== message.payload.matchId) return;
+        session.phase = 'expired';
+        this.emit({ type: 'expired', payload: { matchId: message.payload.matchId } });
         return;
       case 'error':
         this.emit({ type: 'error', payload: message.payload });

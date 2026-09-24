@@ -914,8 +914,8 @@ const (
 var analyticsEventDefinitions = map[string]analyticsEventDefinition{
 	"session_start":         {properties: map[string]analyticsPropertyKind{}},
 	"menu_viewed":           {properties: analyticsProperties("rankId")},
-	"match_start":           {properties: analyticsProperties("matchId", "mode", "source"), optionalProperties: analyticsProperties("battlefieldId")},
-	"match_end":             {properties: analyticsPropertiesWithDuration("matchId", "mode", "result")},
+	"match_start":           {properties: analyticsProperties("matchId", "mode", "source"), optionalProperties: analytics2v2OptionalProps()},
+	"match_end":             {properties: analyticsPropertiesWithDuration("matchId", "mode", "result"), optionalProperties: analytics2v2OptionalProps()},
 	"match_quit":            {properties: analyticsPropertiesWithDuration("matchId", "mode")},
 	"match_reward_received": {properties: analyticsProperties("matchId", "mode")},
 	// source is optional: schema-version-1 clients shipped before the
@@ -954,6 +954,17 @@ func analyticsPropertiesWithDuration(keys ...string) map[string]analyticsPropert
 	properties := analyticsProperties(keys...)
 	properties["durationSeconds"] = analyticsPropertyNumber
 	return properties
+}
+
+// analytics2v2OptionalProps types the optional 2v2 attribution properties:
+// slot is numeric (0-3, validated in valid2v2ParticipantProps); teamId and
+// battlefieldId are strings.
+func analytics2v2OptionalProps() map[string]analyticsPropertyKind {
+	return map[string]analyticsPropertyKind{
+		"battlefieldId": analyticsPropertyString,
+		"slot":          analyticsPropertyNumber,
+		"teamId":        analyticsPropertyString,
+	}
 }
 
 func parseAnalyticsEventsPayload(payload string, receivedAt int64) ([]AnalyticsEventRecord, error) {
@@ -1033,6 +1044,37 @@ func validateAnalyticsEvent(event AnalyticsEventRecord, receivedAt int64) error 
 	return nil
 }
 
+// valid2v2ParticipantProps validates the optional 2v2 participant
+// attribution properties (slot, teamId) on client-submitted match_end
+// events. They are attribution hints only: server normalization overwrites
+// the reward-relevant fields from the stored settlement row.
+func valid2v2ParticipantProps(props map[string]any) bool {
+	teamID, hasTeamID := props["teamId"]
+	if hasTeamID {
+		team, _ := teamID.(string)
+		if team != "a" && team != "b" {
+			return false
+		}
+	}
+	slot, hasSlot := props["slot"]
+	if hasSlot {
+		slotNumber, ok := slot.(float64)
+		if !ok || slotNumber != math.Trunc(slotNumber) || slotNumber < 0 || slotNumber > 3 {
+			return false
+		}
+	}
+	battlefieldID, hasBattlefieldID := props["battlefieldId"]
+	if hasBattlefieldID {
+		battlefield, _ := battlefieldID.(string)
+		switch battlefield {
+		case "crown_cross", "twin_passes", "royal_ring", "quad_citadel":
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func hasValidAnalyticsPropertyEnums(event AnalyticsEventRecord) bool {
 	value := func(key string) string {
 		value, _ := event.Props[key].(string)
@@ -1049,15 +1091,19 @@ func hasValidAnalyticsPropertyEnums(event AnalyticsEventRecord) bool {
 	switch event.Name {
 	case "match_start":
 		battlefieldID, hasBattlefieldID := event.Props["battlefieldId"]
-		return oneOf(value("mode"), "bot", "live") &&
+		return oneOf(value("mode"), "bot", "live", "2v2") &&
 			oneOf(value("source"), "menu", "rematch") &&
-			(!hasBattlefieldID || oneOf(battlefieldID.(string), "crown_cross", "twin_passes", "royal_ring"))
+			(!hasBattlefieldID || oneOf(battlefieldID.(string), "crown_cross", "twin_passes", "royal_ring", "quad_citadel")) &&
+			valid2v2ParticipantProps(event.Props)
 	case "match_end":
-		return oneOf(value("mode"), "bot", "live") && oneOf(value("result"), "victory", "defeat", "draw")
+		return oneOf(value("mode"), "bot", "live", "2v2") && oneOf(value("result"), "victory", "defeat", "draw") && valid2v2ParticipantProps(event.Props)
 	case "match_quit":
-		return value("mode") == "live"
+		// The 2v2 client emits quit events with mode "2v2" (GameScene's
+		// terminal close handler); 1v1 keeps "live". Quit carries no reward
+		// fields, so both modes pass unchanged.
+		return oneOf(value("mode"), "live", "2v2")
 	case "match_reward_received":
-		return oneOf(value("mode"), "bot", "live")
+		return oneOf(value("mode"), "bot", "live", "2v2")
 	case "upgrade_panel_viewed":
 		// Legacy schema-version-1 clients send no properties; only enforce
 		// the enum when source is present.

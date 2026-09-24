@@ -996,6 +996,14 @@ func normalizeAnalyticsEvent(ctx context.Context, tx *sql.Tx, userID string, eve
 	case "match_end", "match_reward_received":
 		matchID, _ := event.Props["matchId"].(string)
 		mode, _ := event.Props["mode"].(string)
+		if mode == string(MatchMode2v2) {
+			// 2v2 settlements live in match_settlements_multi (per
+			// participant); the battlefield id comes from the authoritative
+			// replay row written in the same transaction. result and
+			// duration are taken from the stored settlement, never from the
+			// client payload.
+			return normalize2v2MatchEndEvent(ctx, tx, userID, event, matchID)
+		}
 		var encoded []byte
 		if err := tx.QueryRowContext(ctx, `
 			SELECT settlement FROM match_settlements
@@ -1116,6 +1124,64 @@ func normalizeAnalyticsEvent(ctx context.Context, tx *sql.Tx, userID string, eve
 			"matchId": matchID, "rankId": settlement.NewRank.ID,
 			"resultingTrophies": settlement.NewCareer.Trophies,
 		}
+	}
+	return event, nil
+}
+
+// normalize2v2MatchEndEvent rebuilds match_end / match_reward_received
+// properties for a 2v2 match from the authoritative match_settlements_multi
+// row (slot, team, status, duration, reward breakdown) plus the
+// match_replays row (battlefield id), both written by the same settlement
+// transaction (§9.3). Client-submitted values are never trusted for these
+// fields.
+func normalize2v2MatchEndEvent(ctx context.Context, tx *sql.Tx, userID string, event AnalyticsEventRecord, matchID string) (AnalyticsEventRecord, error) {
+	var slot int
+	var teamID string
+	var encoded []byte
+	err := tx.QueryRowContext(ctx, `
+		SELECT slot, team_id, settlement
+		FROM match_settlements_multi
+		WHERE match_id = $1 AND user_id = $2
+	`, matchID, userID).Scan(&slot, &teamID, &encoded)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return AnalyticsEventRecord{}, errors.New("analytics_settlement_not_found")
+		}
+		return AnalyticsEventRecord{}, err
+	}
+	var settlement MatchSettlement
+	if err := json.Unmarshal(encoded, &settlement); err != nil {
+		return AnalyticsEventRecord{}, errors.New("invalid_stored_settlement")
+	}
+	var battlefieldID string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT battlefield_id FROM match_replays WHERE match_id = $1
+	`, matchID).Scan(&battlefieldID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return AnalyticsEventRecord{}, errors.New("analytics_settlement_not_found")
+		}
+		return AnalyticsEventRecord{}, err
+	}
+	if event.Name == "match_end" {
+		event.Props = map[string]any{
+			"matchId": matchID, "mode": string(MatchMode2v2),
+			"result": settlement.Status, "durationSeconds": settlement.Stats.MatchDurationSeconds,
+			"slot": slot, "teamId": teamID, "battlefieldId": battlefieldID,
+		}
+		return event, nil
+	}
+	event.Props = map[string]any{
+		"matchId":           matchID,
+		"mode":              string(MatchMode2v2),
+		"baseCoins":         settlement.Breakdown.BaseCoins,
+		"speedBonus":        settlement.Breakdown.SpeedBonus,
+		"dominationBonus":   settlement.Breakdown.DominationBonus,
+		"streakBonus":       settlement.Breakdown.StreakBonus,
+		"treasuryBonus":     settlement.Breakdown.TreasuryBonus,
+		"totalCoins":        settlement.Breakdown.TotalCoins,
+		"trophyDelta":       settlement.Breakdown.TrophyDelta,
+		"resultingCoins":    settlement.NewCareer.Coins,
+		"resultingTrophies": settlement.NewCareer.Trophies,
 	}
 	return event, nil
 }

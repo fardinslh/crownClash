@@ -298,6 +298,11 @@ export interface TwoVTwoErrorPayload {
   readonly code: string;
 }
 
+/** Opcode 9 — the finished match closed after the rematch window expired. */
+export interface TwoVTwoMatchClosedPayload {
+  readonly matchId: string;
+}
+
 export type TwoVTwoServerMessage =
   | { readonly kind: 'match_started'; readonly payload: TwoVTwoMatchStartedPayload }
   | { readonly kind: 'state'; readonly payload: TwoVTwoStatePayload }
@@ -305,6 +310,7 @@ export type TwoVTwoServerMessage =
   | { readonly kind: 'command_rejected'; readonly payload: TwoVTwoCommandRejectedPayload }
   | { readonly kind: 'match_result'; readonly payload: TwoVTwoMatchResultPayload }
   | { readonly kind: 'rematch_started'; readonly payload: TwoVTwoRematchStartedPayload }
+  | { readonly kind: 'match_closed'; readonly payload: TwoVTwoMatchClosedPayload }
   | { readonly kind: 'error'; readonly payload: TwoVTwoErrorPayload };
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
@@ -462,6 +468,13 @@ export function parseTwoVTwoServerMessage(raw: unknown): TwoVTwoServerMessage | 
     case 'rematch_started': {
       if (typeof raw.matchId !== 'string' || !raw.matchId) return null;
       return { kind: 'rematch_started', payload: { matchId: raw.matchId } };
+    }
+    case 'match_closed': {
+      // Terminal window expiry: the finished match is gone; the payload
+      // carries the match id so the client can verify it against its own
+      // session before leaving.
+      if (typeof raw.matchId !== 'string' || !raw.matchId) return null;
+      return { kind: 'match_closed', payload: { matchId: raw.matchId } };
     }
     case 'error': {
       if (typeof raw.code !== 'string' || !raw.code) return null;
