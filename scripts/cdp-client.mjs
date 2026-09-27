@@ -73,3 +73,24 @@ export function waitForWebSocketOpen(ws, timeoutMs = DEFAULT_COMMAND_TIMEOUT_MS)
     ws.addEventListener('error', onError);
   });
 }
+
+/**
+ * Picks a CDP port with nothing currently listening. Repeated QA spawns
+ * can otherwise collide on the same random port: the second Chrome fails
+ * to bind while the harness talks to the first (dying) endpoint, which
+ * surfaces as a page that never boots.
+ */
+export async function pickFreeCdpPort(start = 9300, range = 400, attempts = 25) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const port = start + Math.floor(Math.random() * range);
+    try {
+      await fetch(`http://127.0.0.1:${port}/json/version`, {
+        signal: AbortSignal.timeout(400),
+      });
+      // Something answered: the port is taken. Try another.
+    } catch {
+      return port;
+    }
+  }
+  throw new Error(`no free CDP port found in ${start}-${start + range}`);
+}

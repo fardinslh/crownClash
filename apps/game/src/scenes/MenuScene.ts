@@ -14,7 +14,11 @@ import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
 import { LiveMatchClient } from '../api/LiveMatchClient.js';
 import { LivePvpController, isValidRoomCode, sanitizeRoomCode } from '../pvp/LivePvpController.js';
 import { featureFlags } from '../config/featureFlags.js';
-import { isTutorialCompleted } from '../tutorial/TutorialController.js';
+import {
+  resolveMenuEntryAction,
+  resolvePlayEntryAction,
+  resolvePvpEntryAction,
+} from '../tutorial/TutorialStatus.js';
 import { dismissStartupLoadingShell } from '../ui/StartupLoadingShell.js';
 import {
   bindSceneViewportResize,
@@ -34,6 +38,25 @@ export class MenuScene extends Phaser.Scene {
 
   constructor() {
     super({ key: 'MenuScene' });
+  }
+
+  /**
+   * Launches the guided training battle. The training match is fully
+   * client-local (no server ticket, no settlement); completion is saved
+   * account-wide by GameScene once the four guided actions are performed.
+   */
+  private startTrainingBattle(): void {
+    if (this.isTransitioning) return;
+    this.isTransitioning = true;
+    this.registry.set('trainingLaunchedThisSession', true);
+    sounds.playReinforce();
+    this.platformHapticSelection();
+    this.scene.start('GameScene', { source: 'menu', mode: 'bot', training: true });
+  }
+
+  private platformHapticSelection(): void {
+    const platform = this.registry.get('platform') as PlatformAdapter | undefined;
+    platform?.hapticSelection();
   }
 
   shutdown(): void {
@@ -78,6 +101,20 @@ export class MenuScene extends Phaser.Scene {
     }
 
     const career = careerManager.getCareer();
+
+    // First-launch policy: an incomplete tutorial auto-starts the guided
+    // training battle once per session (a skipped training returns to this
+    // menu instead of bouncing straight back in; the next app launch
+    // resumes the remaining guided actions).
+    if (
+      resolveMenuEntryAction(
+        careerManager.isTutorialCompleted(),
+        this.registry.get('trainingLaunchedThisSession') === true
+      ) === 'auto_training'
+    ) {
+      this.startTrainingBattle();
+      return;
+    }
     const rank = getRankTier(career.trophies);
 
     sounds.stopBattleMusic();
@@ -250,6 +287,14 @@ export class MenuScene extends Phaser.Scene {
     });
     playBg.on('pointerdown', () => {
       if (this.isTransitioning) return;
+      // Ordinary bot entry routes through training first while the
+      // account-wide tutorial flag is incomplete (the server rejects bot
+      // tickets and matchmaker tickets on the same flag; the flag itself
+      // is honest-client reported — see TutorialStatus).
+      if (resolvePlayEntryAction(careerManager.isTutorialCompleted()) === 'training') {
+        this.startTrainingBattle();
+        return;
+      }
       this.isTransitioning = true;
       playBg.disableInteractive();
       playText.setText('SCOUTING...');
@@ -300,22 +345,28 @@ export class MenuScene extends Phaser.Scene {
       liveBg.disableInteractive();
     } else {
       liveBg.on('pointerdown', () => {
+        // PvP entry (the lobby gates the 1v1 queue, invites, and the 2v2
+        // queue button) routes through training first while the flag is
+        // incomplete — same honest-client flag the server gates on.
+        if (resolvePvpEntryAction(careerManager.isTutorialCompleted()) === 'training') {
+          this.startTrainingBattle();
+          return;
+        }
         liveBg.disableInteractive();
         this.openLivePvpLobby(platform, careerManager, liveBg, liveText);
       });
     }
 
-    const trainingComplete = isTutorialCompleted(platform.getUser().id);
-    const trainingBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2, layout.trainingY, 250, 44, 0x1c1830, 1)
-      .setStrokeStyle(1.5, THEME.gold, 0.9)
-      .setInteractive({ useHandCursor: true });
-    const trainingText = this.add
-      .text(
-        LOGICAL_WIDTH / 2,
-        layout.trainingY,
-        trainingComplete ? 'WAR ACADEMY  ✓' : 'NEW  •  WAR ACADEMY',
-        {
+    // The retired optional War Academy entry is gone. While the tutorial
+    // is incomplete the slot becomes the required TRAINING entry; once the
+    // account-wide flag is set, no entry renders at all.
+    if (!careerManager.isTutorialCompleted()) {
+      const trainingBg = this.add
+        .rectangle(LOGICAL_WIDTH / 2, layout.trainingY, 250, 44, 0x1c1830, 1)
+        .setStrokeStyle(1.5, THEME.gold, 0.9)
+        .setInteractive({ useHandCursor: true });
+      const trainingText = this.add
+        .text(LOGICAL_WIDTH / 2, layout.trainingY, 'TRAINING  •  REQUIRED', {
           fontFamily: FONT_FAMILY,
           fontSize: '12px',
           fontStyle: '900',
@@ -323,18 +374,11 @@ export class MenuScene extends Phaser.Scene {
           stroke: '#000000',
           strokeThickness: 2,
           resolution: 2,
-        }
-      )
-      .setOrigin(0.5);
-    this.bindPressFeedback(trainingBg, trainingText);
-    trainingBg.on('pointerdown', () => {
-      if (this.isTransitioning) return;
-      this.isTransitioning = true;
-      trainingBg.disableInteractive();
-      sounds.playReinforce();
-      platform.hapticSelection();
-      this.scene.start('TrainingScene');
-    });
+        })
+        .setOrigin(0.5);
+      this.bindPressFeedback(trainingBg, trainingText);
+      trainingBg.on('pointerdown', () => this.startTrainingBattle());
+    }
 
     const dailyAvailable = careerManager.isRemoteConnected() || isLocalCareerFallbackAllowed();
     const dailyBg = this.add

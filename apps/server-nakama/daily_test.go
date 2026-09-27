@@ -16,8 +16,8 @@ func dailyCareerRows(playerID string, coins int) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "coins", "gems", "trophies",
 		"starting_garrison_level", "production_level", "army_speed_level", "treasury_level", "selected_commander",
-		"matches_played", "matches_won", "current_streak", "best_streak", "last_match_timestamp",
-	}).AddRow(playerID, coins, 10, 0, 0, 0, 0, 0, "crown_guard", 0, 0, 0, 0, 0)
+		"matches_played", "matches_won", "current_streak", "best_streak", "last_match_timestamp", "tutorial_completed",
+	}).AddRow(playerID, coins, 10, 0, 0, 0, 0, 0, "crown_guard", 0, 0, 0, 0, 0, false)
 }
 
 func dailyProgressRows(dayKey string, played, won, captured int, playClaimed, winClaimed, captureClaimed, chestClaimed bool) *sqlmock.Rows {

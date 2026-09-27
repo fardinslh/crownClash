@@ -26,6 +26,14 @@ qa-artifacts/bot-parity/
 qa-artifacts/art-milestone/
 qa-artifacts/art-twin-passes/
 qa-artifacts/art-royal-ring/
+# Session-local composition-pass visual QA captures (review evidence, kept local)
+qa-artifacts/art-composition-pass/
+# Graphify internal learning/memory state (never commit)
+graphify-out/memory/
+graphify-out/reflections/
+graphify-out/.graphify_learning.json
+graphify-out/.graphify_python
+graphify-out/.vocab.txt
 # Blender generated output: render caches, temp files, and raw masters
 art/blender/renders/
 art/blender/__pycache__/

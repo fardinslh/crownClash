@@ -263,6 +263,8 @@ async function runSmokeTest() {
     const socket = client.createSocket(NAKAMA_SSL, false);
     openedSockets.add(socket);
     await socket.connect(session, false);
+    // Fresh smoke-test account: clear the first-play tutorial gate.
+    await socket.rpc('tutorial/complete', '{}');
     clients.push(client);
     sessions.push(session);
     sockets.push(socket);

@@ -52,6 +52,11 @@ export interface CareerApi {
   trackEvents(events: readonly TrackedAnalyticsEvent[]): Promise<void>;
   openLiveMatch(): LiveMatchClient;
   isAuthenticated(): boolean;
+  /**
+   * Marks the account-wide tutorial complete on the server (idempotent)
+   * and resolves with the fresh career (tutorialCompleted: true).
+   */
+  completeTutorial(): Promise<PlayerCareer>;
 }
 
 export class GameApiError extends Error {

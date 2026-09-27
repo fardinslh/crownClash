@@ -42,6 +42,12 @@ export interface PlayerCareer {
   currentStreak: number;
   bestStreak: number;
   lastMatchTimestamp: number;
+  /**
+   * Server-known, account-wide tutorial completion. Absent on locally
+   * created (offline fallback) careers, which must be treated as
+   * incomplete (fail-closed).
+   */
+  tutorialCompleted?: boolean;
 }
 
 export interface EconomyLedgerEntry {

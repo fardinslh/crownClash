@@ -604,8 +604,8 @@ func TestCreateBotMatchPersistsOpaqueServerSelectedTicket(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "coins", "gems", "trophies", "starting_garrison_level", "production_level",
 			"army_speed_level", "treasury_level", "selected_commander", "matches_played", "matches_won",
-			"current_streak", "best_streak", "last_match_timestamp",
-		}).AddRow("player_1", 100, 10, 0, 0, 0, 0, 0, "crown_guard", 0, 0, 0, 0, 0))
+			"current_streak", "best_streak", "last_match_timestamp", "tutorial_completed",
+		}).AddRow("player_1", 100, 10, 0, 0, 0, 0, 0, "crown_guard", 0, 0, 0, 0, 0, false))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO bot_matches (match_id, player_id, battlefield_id)")).
 		WithArgs(sqlmock.AnyArg(), "player_1", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))

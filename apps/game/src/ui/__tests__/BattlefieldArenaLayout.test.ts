@@ -1,59 +1,124 @@
 import { describe, expect, it } from 'vitest';
-import { createBattlefieldDecorations } from '../BattlefieldArenaLayout.js';
+import {
+  createBattlefieldDecorations,
+  createBattlefieldTerrainLayers,
+  trainingOverlayPanelY,
+} from '../BattlefieldArenaLayout.js';
+
+function shapeBounds(shape: ReturnType<typeof createBattlefieldDecorations>[number]) {
+  if (shape.kind === 'line') {
+    return {
+      minX: Math.min(shape.x1, shape.x2),
+      maxX: Math.max(shape.x1, shape.x2),
+      minY: Math.min(shape.y1, shape.y2),
+      maxY: Math.max(shape.y1, shape.y2),
+    };
+  }
+  if (shape.kind === 'ellipse' || shape.kind === 'zone') {
+    return {
+      minX: shape.x - shape.width / 2,
+      maxX: shape.x + shape.width / 2,
+      minY: shape.y - shape.height / 2,
+      maxY: shape.y + shape.height / 2,
+    };
+  }
+  return {
+    minX: Math.min(shape.x1, shape.x2, shape.x3),
+    maxX: Math.max(shape.x1, shape.x2, shape.x3),
+    minY: Math.min(shape.y1, shape.y2, shape.y3),
+    maxY: Math.max(shape.y1, shape.y2, shape.y3),
+  };
+}
+
+function terrainBounds(shape: ReturnType<typeof createBattlefieldTerrainLayers>[number]) {
+  if (shape.kind === 'roundedRect' || shape.kind === 'ellipse') {
+    return {
+      minX: shape.x - shape.width / 2,
+      maxX: shape.x + shape.width / 2,
+      minY: shape.y - shape.height / 2,
+      maxY: shape.y + shape.height / 2,
+    };
+  }
+  return {
+    minX: Math.min(shape.x1, shape.x2, shape.x3),
+    maxX: Math.max(shape.x1, shape.x2, shape.x3),
+    minY: Math.min(shape.y1, shape.y2, shape.y3),
+    maxY: Math.max(shape.y1, shape.y2, shape.y3),
+  };
+}
 
 describe('battlefield arena visual layouts', () => {
+  it('places training instructions below the board on tall phones with retry room above the HUD', () => {
+    for (const visibleHeight of [867, 889]) {
+      const y = trainingOverlayPanelY(visibleHeight);
+      const bottomBarY = Math.max(691, visibleHeight - 28);
+      expect(y - 29).toBeGreaterThan(664);
+      expect(y + 68).toBeLessThan(bottomBarY - 20);
+    }
+    expect(trainingOverlayPanelY(720)).toBeLessThan(150);
+  });
   it('gives every battlefield a distinct static motif', () => {
     const crown = createBattlefieldDecorations('crown_cross', 720);
     const passes = createBattlefieldDecorations('twin_passes', 720);
     const ring = createBattlefieldDecorations('royal_ring', 720);
+    const quad = createBattlefieldDecorations('quad_citadel', 720);
 
     expect(crown).not.toEqual(passes);
     expect(passes).not.toEqual(ring);
     expect(ring).not.toEqual(crown);
+    expect(quad).not.toEqual(crown);
     expect(crown.some((shape) => shape.kind === 'ellipse')).toBe(true);
     expect(passes.some((shape) => shape.kind === 'triangle')).toBe(true);
-    expect(ring.filter((shape) => shape.kind === 'ellipse')).toHaveLength(2);
+    // The ring court and the citadel quadrants are built from layered floor zones.
+    expect(ring.filter((shape) => shape.kind === 'zone')).toHaveLength(3);
+    expect(quad.filter((shape) => shape.kind === 'zone')).toHaveLength(5);
   });
 
-  it.each(['crown_cross', 'twin_passes', 'royal_ring'] as const)(
+  it('gives every battlefield a distinct hand-composed terrain layer', () => {
+    const crown = createBattlefieldTerrainLayers('crown_cross', 720);
+    const passes = createBattlefieldTerrainLayers('twin_passes', 720);
+    const ring = createBattlefieldTerrainLayers('royal_ring', 720);
+    const quad = createBattlefieldTerrainLayers('quad_citadel', 720);
+
+    expect(crown).not.toEqual(passes);
+    expect(passes).not.toEqual(ring);
+    expect(ring).not.toEqual(quad);
+    expect(crown.filter((layer) => layer.kind === 'roundedRect')).toHaveLength(6);
+    expect(passes.some((layer) => layer.kind === 'triangle')).toBe(true);
+    expect(ring.filter((layer) => layer.kind === 'ellipse')).toHaveLength(4);
+    expect(quad.filter((layer) => layer.kind === 'roundedRect')).toHaveLength(5);
+  });
+
+  it.each(['crown_cross', 'twin_passes', 'royal_ring', 'quad_citadel'] as const)(
     'keeps %s decoration geometry inside the 400x720 arena',
     (motif) => {
       for (const shape of createBattlefieldDecorations(motif, 720)) {
-        if (shape.kind === 'line') {
-          expect([shape.x1, shape.x2]).toEqual(
-            expect.arrayContaining([expect.any(Number), expect.any(Number)])
-          );
-          expect(Math.min(shape.x1, shape.x2)).toBeGreaterThanOrEqual(0);
-          expect(Math.max(shape.x1, shape.x2)).toBeLessThanOrEqual(400);
-          expect(Math.min(shape.y1, shape.y2)).toBeGreaterThanOrEqual(78);
-          expect(Math.max(shape.y1, shape.y2)).toBeLessThanOrEqual(690);
-        } else if (shape.kind === 'ellipse') {
-          expect(shape.x - shape.width / 2).toBeGreaterThanOrEqual(0);
-          expect(shape.x + shape.width / 2).toBeLessThanOrEqual(400);
-          expect(shape.y - shape.height / 2).toBeGreaterThanOrEqual(78);
-          expect(shape.y + shape.height / 2).toBeLessThanOrEqual(690);
-        } else {
-          expect(Math.min(shape.x1, shape.x2, shape.x3)).toBeGreaterThanOrEqual(0);
-          expect(Math.max(shape.x1, shape.x2, shape.x3)).toBeLessThanOrEqual(400);
-          expect(Math.min(shape.y1, shape.y2, shape.y3)).toBeGreaterThanOrEqual(78);
-          expect(Math.max(shape.y1, shape.y2, shape.y3)).toBeLessThanOrEqual(690);
-        }
+        const { minX, maxX, minY, maxY } = shapeBounds(shape);
+        expect(minX).toBeGreaterThanOrEqual(0);
+        expect(maxX).toBeLessThanOrEqual(400);
+        expect(minY).toBeGreaterThanOrEqual(78);
+        expect(maxY).toBeLessThanOrEqual(690);
+      }
+    }
+  );
+
+  it.each(['crown_cross', 'twin_passes', 'royal_ring', 'quad_citadel'] as const)(
+    'keeps %s terrain paint inside the 400x720 tactical board',
+    (motif) => {
+      for (const layer of createBattlefieldTerrainLayers(motif, 720)) {
+        const { minX, maxX, minY, maxY } = terrainBounds(layer);
+        expect(minX).toBeGreaterThanOrEqual(0);
+        expect(maxX).toBeLessThanOrEqual(400);
+        expect(minY).toBeGreaterThanOrEqual(78);
+        expect(maxY).toBeLessThanOrEqual(664);
       }
     }
   );
 
   it('does not extend baseline gameplay art when the viewport becomes taller', () => {
-    for (const motif of ['crown_cross', 'twin_passes', 'royal_ring'] as const) {
+    for (const motif of ['crown_cross', 'twin_passes', 'royal_ring', 'quad_citadel'] as const) {
       const tall = createBattlefieldDecorations(motif, 867);
-      const maxY = Math.max(
-        ...tall.flatMap((shape) =>
-          shape.kind === 'ellipse'
-            ? [shape.y + shape.height / 2]
-            : shape.kind === 'line'
-              ? [shape.y1, shape.y2]
-              : [shape.y1, shape.y2, shape.y3]
-        )
-      );
+      const maxY = Math.max(...tall.map((shape) => shapeBounds(shape).maxY));
       expect(maxY).toBeLessThanOrEqual(664);
     }
   });

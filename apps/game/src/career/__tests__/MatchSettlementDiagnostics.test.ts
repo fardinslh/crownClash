@@ -79,6 +79,7 @@ function fakeApiWithRecordedSettle(settlement: MatchSettlement) {
   }> = [];
   const api: CareerApi = {
     login: async () => settlement.previousCareer,
+    completeTutorial: async () => settlement.previousCareer,
     getCareer: async () => settlement.previousCareer,
     getLedger: async () => [],
     startBotMatch: async () => ({ matchId: 'bot_diag', battlefieldId: 'crown_cross' }),

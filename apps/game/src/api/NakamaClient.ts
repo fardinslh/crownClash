@@ -270,6 +270,11 @@ export class NakamaClient implements CareerApi {
     return this.session !== null;
   }
 
+  public async completeTutorial(): Promise<PlayerCareer> {
+    const result = await this.rpc('tutorial/complete', '');
+    return (JSON.parse(result) as { career: PlayerCareer }).career;
+  }
+
   private async rpc(id: string, payload: string): Promise<string> {
     if (!this.socket) {
       throw new StaleSocketError('socket_not_connected');

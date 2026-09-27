@@ -358,7 +358,6 @@ vi.mock('../../audio/SoundEffects.js', () => ({
   },
 }));
 
-import { TrainingScene } from '../TrainingScene.js';
 import { DailyScene } from '../DailyScene.js';
 import { LeagueScene } from '../LeagueScene.js';
 import { KingdomScene } from '../KingdomScene.js';
@@ -376,45 +375,6 @@ describe('Navigation & Mobile Lifecycle Hardening Pass', () => {
   });
 
   describe('Suite 1: Hub Scenes - Back Actions, Touch Targets, Idempotency & Lifecycle', () => {
-    it('TrainingScene: back button has >= 44x44 target, pointerdown starts MenuScene once (idempotent), and platform back works', () => {
-      const platform = new BrowserPlatformAdapter();
-      const showBackSpy = vi.spyOn(platform, 'showBackButton');
-      const hideBackSpy = vi.spyOn(platform, 'hideBackButton');
-
-      const scene = new TrainingScene();
-      scene.registry.set('platform', platform);
-      scene.create();
-
-      expect(showBackSpy).toHaveBeenCalledTimes(1);
-
-      // Verify back button touch target is at least 44x44
-      const backBg = (scene.children.list as any[]).find(
-        (obj) => obj.width === 44 && obj.height === 44 && obj.interactive
-      );
-      expect(backBg).toBeDefined();
-      expect(backBg!.width).toBeGreaterThanOrEqual(44);
-      expect(backBg!.height).toBeGreaterThanOrEqual(44);
-
-      // Trigger pointerdown twice rapidly -> idempotent exit to MenuScene
-      backBg!.emit('pointerdown');
-      backBg!.emit('pointerdown');
-      expect(scene.scene.start).toHaveBeenCalledTimes(1);
-      expect(scene.scene.start).toHaveBeenCalledWith('MenuScene');
-
-      // Test platform back button triggering
-      (scene as any).isExiting = false;
-      vi.mocked(scene.scene.start).mockClear();
-
-      platform.triggerBackButton();
-      platform.triggerBackButton();
-      expect(scene.scene.start).toHaveBeenCalledTimes(1);
-      expect(scene.scene.start).toHaveBeenCalledWith('MenuScene');
-
-      // Shutdown hides back button
-      scene.events.emit('shutdown');
-      expect(hideBackSpy).toHaveBeenCalled();
-    });
-
     it('DailyScene: back button has >= 44x44 target, pointerdown starts MenuScene once (idempotent), and platform back works', () => {
       const platform = new BrowserPlatformAdapter();
       const showBackSpy = vi.spyOn(platform, 'showBackButton');
@@ -765,10 +725,10 @@ describe('Navigation & Mobile Lifecycle Hardening Pass', () => {
       let isTransitioning = false;
       const startSceneMock = vi.fn();
 
-      const launchTraining = () => {
+      const launchPlay = () => {
         if (isTransitioning) return;
         isTransitioning = true;
-        startSceneMock('TrainingScene');
+        startSceneMock('GameScene');
       };
 
       const launchKingdom = () => {
@@ -777,12 +737,12 @@ describe('Navigation & Mobile Lifecycle Hardening Pass', () => {
         startSceneMock('KingdomScene');
       };
 
-      // User rapidly taps Training then Kingdom in same microtask
-      launchTraining();
+      // User rapidly taps Play then Kingdom in same microtask
+      launchPlay();
       launchKingdom();
 
       expect(startSceneMock).toHaveBeenCalledTimes(1);
-      expect(startSceneMock).toHaveBeenCalledWith('TrainingScene');
+      expect(startSceneMock).toHaveBeenCalledWith('GameScene');
     });
   });
 

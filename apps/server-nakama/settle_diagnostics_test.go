@@ -127,8 +127,8 @@ func defaultCareerRow(userID string) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "coins", "gems", "trophies", "starting_garrison_level", "production_level",
 		"army_speed_level", "treasury_level", "selected_commander", "matches_played",
-		"matches_won", "current_streak", "best_streak", "last_match_timestamp",
-	}).AddRow(userID, 100, 10, 0, 0, 0, 0, 0, "crown_guard", 0, 0, 0, 0, 0)
+		"matches_won", "current_streak", "best_streak", "last_match_timestamp", "tutorial_completed",
+	}).AddRow(userID, 100, 10, 0, 0, 0, 0, 0, "crown_guard", 0, 0, 0, 0, 0, false)
 }
 
 // leveledCareerRow carries non-default upgrade levels so the logged modifier
@@ -139,8 +139,8 @@ func leveledCareerRow(userID string) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "coins", "gems", "trophies", "starting_garrison_level", "production_level",
 		"army_speed_level", "treasury_level", "selected_commander", "matches_played",
-		"matches_won", "current_streak", "best_streak", "last_match_timestamp",
-	}).AddRow(userID, 100, 10, 0, 3, 2, 1, 0, "crown_guard", 0, 0, 0, 0, 0)
+		"matches_won", "current_streak", "best_streak", "last_match_timestamp", "tutorial_completed",
+	}).AddRow(userID, 100, 10, 0, 3, 2, 1, 0, "crown_guard", 0, 0, 0, 0, 0, false)
 }
 
 func settlePayloadWithActions(clientStatus string, actions []PvpAction) string {

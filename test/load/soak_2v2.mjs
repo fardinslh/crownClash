@@ -106,6 +106,8 @@ async function run() {
     });
     const socket = client.createSocket(SSL, false);
     await socket.connect(session, false);
+    // Fresh soak account: clear the first-play tutorial gate.
+    await socket.rpc('tutorial/complete', '{}');
     player.client = client;
     player.session = session;
     player.socket = socket;

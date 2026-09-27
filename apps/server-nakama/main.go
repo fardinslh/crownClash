@@ -144,6 +144,9 @@ func InitModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runti
 	if err := rpc("player/register_name", rpcRegisterName(store)); err != nil {
 		return err
 	}
+	if err := rpc("tutorial/complete", rpcTutorialComplete(store)); err != nil {
+		return err
+	}
 
 	logger.Info("crown clash runtime initialized")
 	return nil
@@ -492,11 +495,49 @@ func rpcStartBotMatch(store *Store) rpcFn {
 		if payload != "" && payload != "{}" {
 			return "", errors.New("invalid_payload")
 		}
+		// Ordinary bot entry is gated on the account-wide tutorial flag:
+		// this RPC rejects bot-match tickets while the flag is incomplete.
+		// The guided training battle is client-local and never calls this
+		// endpoint. Honest-client trust boundary: the flag itself is
+		// written by tutorial/complete when the client reports the guided
+		// actions done — the server does not replay them (acceptable: the
+		// tutorial grants no rewards or economy value).
+		career, err := store.GetOrCreateCareer(ctx, userID)
+		if err != nil {
+			return "", err
+		}
+		if !career.TutorialCompleted {
+			return "", errors.New("tutorial_required")
+		}
 		ticket, err := store.CreateBotMatch(ctx, userID)
 		if err != nil {
 			return "", err
 		}
 		response, _ := json.Marshal(map[string]any{"ticket": ticket})
+		return string(response), nil
+	}
+}
+
+// rpcTutorialComplete writes the account-wide tutorial completion flag.
+// Authenticated, payload-free, and idempotent. Honest-client trust
+// boundary: the client reports that the guided training actions were
+// performed and the server records the claim without replaying the
+// actions — acceptable because completion grants no rewards or economy
+// value; it only gates first entry into bot matches and matchmaking.
+func rpcTutorialComplete(store *Store) rpcFn {
+	return func(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, payload string) (string, error) {
+		userID, ok := ctx.Value(runtime.RUNTIME_CTX_USER_ID).(string)
+		if !ok || userID == "" {
+			return "", errors.New("unauthenticated")
+		}
+		if payload != "" && payload != "{}" {
+			return "", errors.New("invalid_payload")
+		}
+		career, err := store.CompleteTutorial(ctx, userID)
+		if err != nil {
+			return "", err
+		}
+		response, _ := json.Marshal(map[string]any{"career": career})
 		return string(response), nil
 	}
 }
@@ -953,6 +994,10 @@ var analyticsEventDefinitions = map[string]analyticsEventDefinition{
 	"tutorial_step_completed":    {properties: analyticsProperties("stepId")},
 	"tutorial_completed":         {properties: map[string]analyticsPropertyKind{}},
 	"tutorial_skipped":           {properties: analyticsProperties("lastStepId")},
+	"tutorial_menu_opened":       {properties: map[string]analyticsPropertyKind{}},
+	"tutorial_menu_closed":       {properties: map[string]analyticsPropertyKind{}},
+	"tutorial_leave_requested":   {properties: map[string]analyticsPropertyKind{}},
+	"tutorial_leave_cancelled":   {properties: map[string]analyticsPropertyKind{}},
 }
 
 func analyticsProperties(keys ...string) map[string]analyticsPropertyKind {

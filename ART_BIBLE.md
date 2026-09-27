@@ -258,6 +258,12 @@ The snippet above is illustrative only.
 * **Arena floor:** a single stylized slate field per battlefield, occupying the full
   tactical area (400 × ~580 logical px). Territory platforms sit *on* the floor; the
   floor never scrolls.
+* **Terrain composition:** the floor must read as a miniature location, not a UI grid.
+  Crown Cross uses warm garden courts and a gold-lit processional plaza; Twin Passes
+  uses weathered mountain shelves around a cold ravine; Royal Ring uses nested marble
+  courts and a royal carpet; Quad Citadel uses four canvas-and-iron parade grounds.
+  These are static, non-interactive painted layers below roads and sockets, so they
+  never compromise tactical readability or change battlefield geometry.
 * **Territory platforms:** circular, diameter = `2 × territory radius` (+7px plinth,
   +10px ownership ring). Bases (Tier 3, r=36) read ~3× larger than the smallest prop.
 * **Vertical relief:** buildings may rise above their platform (sprite anchored
@@ -287,7 +293,9 @@ The snippet above is illustrative only.
 
 * Silhouette outline: 2–2.5px (team-dark color) on every interactive object.
 * Ownership ring: 2.5px at 0.92+ alpha — the strongest consistent line on screen.
-* Grid/motif lines: 1–2px at ≤ 0.16 alpha — structure, never noise.
+* Grid/motif lines: 1–2px at ≤ 0.16 alpha — structure, never noise. Wide-spaced
+  technical grain is capped at 0.05 alpha so it can never turn the terrain into graph
+  paper on a phone-sized board.
 * Every bevel/edge highlight is a single pass (no stacked strokes); glow only from
   the pre-defined `glow` team color at ≤ 0.12 fill alpha.
 

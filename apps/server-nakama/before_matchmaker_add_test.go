@@ -50,8 +50,8 @@ func careerQueryMocks(mock sqlmock.Sqlmock, userID string, trophies int) {
 	rows := sqlmock.NewRows([]string{
 		"id", "coins", "gems", "trophies",
 		"starting_garrison_level", "production_level", "army_speed_level", "treasury_level", "selected_commander",
-		"matches_played", "matches_won", "current_streak", "best_streak", "last_match_timestamp",
-	}).AddRow(userID, 100, 10, trophies, 0, 0, 0, 0, "crown_guard", 0, 0, 0, 0, 0)
+		"matches_played", "matches_won", "current_streak", "best_streak", "last_match_timestamp", "tutorial_completed",
+	}).AddRow(userID, 100, 10, trophies, 0, 0, 0, 0, "crown_guard", 0, 0, 0, 0, 0, true)
 	mock.ExpectQuery("SELECT id, coins, gems, trophies").
 		WithArgs(userID).
 		WillReturnRows(rows)

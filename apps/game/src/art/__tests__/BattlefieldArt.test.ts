@@ -17,8 +17,10 @@ import {
   listRuntimeSpritePaths,
   PROCEDURAL_FALLBACK_KEYS,
   resolveTerritoryTextureKey,
+  runtimeTerritoryTextureKey,
   TERRITORY_TEXTURE_KEYS,
   territoryHitAreaSize,
+  territoryArtFootprint,
   toPhaserAssetPath,
   usesDedicatedSpritePack,
 } from '../BattlefieldArt.js';
@@ -28,7 +30,7 @@ const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 const PY_BUILDER = path.join(REPO_ROOT, 'art/blender/build_battlefield_scene.py');
 const MANIFEST_PATH = path.join(REPO_ROOT, 'art/asset-manifest.json');
 /** Every battlefield with its own dedicated sprite pack. */
-const DEDICATED_PACKS = ['crown_cross', 'twin_passes', 'royal_ring'] as const;
+const DEDICATED_PACKS = ['crown_cross', 'twin_passes', 'royal_ring', 'quad_citadel'] as const;
 
 function distancePointToSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
   const abx = bx - ax;
@@ -258,11 +260,48 @@ describe('battlefield preload through the manifest', () => {
     expect(battlefieldIdFromLaunchData(undefined)).toBe('crown_cross');
     expect(battlefieldIdFromLaunchData({ botMatch: { battlefieldId: 'royal_ring' } })).toBe('royal_ring');
     expect(battlefieldIdFromLaunchData({ liveMatch: { state: { battlefieldId: 'twin_passes' } } })).toBe('twin_passes');
+    expect(battlefieldIdFromLaunchData({ liveMatch2v2: { state: { battlefieldId: 'quad_citadel' } } })).toBe('quad_citadel');
     expect(battlefieldIdFromLaunchData({ botMatch: { battlefieldId: 'royal_ring' }, liveMatch: { state: {} } })).toBe(
       'royal_ring'
     );
     // Unknown ids fall back to the default battlefield.
     expect(battlefieldIdFromLaunchData({ botMatch: { battlefieldId: 'nope' as BattlefieldId } })).toBe('crown_cross');
+  });
+
+  it('keeps territory textures from different packs distinct in Phaser cache', () => {
+    const key = 'citadel_player';
+    const royal = runtimeTerritoryTextureKey('royal_ring', key);
+    const crown = runtimeTerritoryTextureKey('crown_cross', key);
+    const quad = runtimeTerritoryTextureKey('quad_citadel', key);
+    expect(new Set([royal, crown, quad]).size).toBe(3);
+    expect(runtimeTerritoryTextureKey('royal_ring', key)).toBe(royal);
+    expect(runtimeTerritoryTextureKey('royal_ring', 'citadel_enemy')).not.toBe(royal);
+  });
+
+  it('keeps top citadels below the HUD while leaving hit areas unchanged', () => {
+    for (const battlefieldId of DEDICATED_PACKS) {
+      for (const territory of getBattlefield(battlefieldId).territories) {
+        if (territory.tier !== 3 || territory.y > 150) continue;
+        const art = territoryArtFootprint(battlefieldId, territory);
+        expect(territory.y - art.ringRadius).toBeGreaterThanOrEqual(72);
+        expect(territory.y + art.spriteY - 2 - art.spriteSize / 2).toBeGreaterThanOrEqual(70);
+        expect(territoryHitAreaSize(territory.radius)).toBe(territory.radius * 2.5);
+      }
+    }
+  });
+
+  it('leaves air between every Quad Citadel socket without moving gameplay centers', () => {
+    const territories = getBattlefield('quad_citadel').territories;
+    for (let i = 0; i < territories.length; i += 1) {
+      for (let j = i + 1; j < territories.length; j += 1) {
+        const a = territories[i];
+        const b = territories[j];
+        const distance = Math.hypot(a.x - b.x, a.y - b.y);
+        const artA = territoryArtFootprint('quad_citadel', a);
+        const artB = territoryArtFootprint('quad_citadel', b);
+        expect(distance - artA.socketRadius - artB.socketRadius, `${a.id}/${b.id} socket gap`).toBeGreaterThan(2);
+      }
+    }
   });
 
   it('GameScene preload has no hardcoded territory list and consumes the manifest', () => {
@@ -272,6 +311,7 @@ describe('battlefield preload through the manifest', () => {
     // Preload must derive the battlefield and load through the manifest.
     expect(source).toContain('battlefieldIdFromLaunchData(launchData)');
     expect(source).toContain('listRuntimeSpritePaths(battlefieldId)');
+    expect(source).toContain('runtimeTerritoryTextureKey(battlefieldId, textureKey)');
   });
 
   it('ships dedicated packs only for battlefields that have them', () => {

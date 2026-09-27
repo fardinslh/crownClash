@@ -80,6 +80,7 @@ type playerRow struct {
 	CurrentStreak         int
 	BestStreak            int
 	LastMatchTimestamp    int64
+	TutorialCompleted     bool
 }
 
 type rowQuerier interface {
@@ -99,12 +100,28 @@ func (s *Store) GetOrCreateCareer(ctx context.Context, userID string) (PlayerCar
 	return getCareer(ctx, s.db, userID)
 }
 
+// CompleteTutorial marks the account-wide tutorial completion flag. It is
+// idempotent: repeat calls keep the flag set and return the fresh career.
+// Only the server may write this flag; the client payload carries nothing.
+func (s *Store) CompleteTutorial(ctx context.Context, userID string) (PlayerCareer, error) {
+	if _, err := s.GetOrCreateCareer(ctx, userID); err != nil {
+		return PlayerCareer{}, err
+	}
+	if _, err := s.db.ExecContext(ctx, `
+		UPDATE players SET tutorial_completed = TRUE, updated_at = now()
+		WHERE id = $1
+	`, userID); err != nil {
+		return PlayerCareer{}, err
+	}
+	return getCareer(ctx, s.db, userID)
+}
+
 func getCareer(ctx context.Context, queryer rowQuerier, userID string) (PlayerCareer, error) {
 	row := queryer.QueryRowContext(ctx, `
 		SELECT id, coins, gems, trophies,
 		       starting_garrison_level, production_level, army_speed_level, treasury_level, selected_commander,
 		       matches_played, matches_won, current_streak, best_streak,
-		       last_match_timestamp
+		       last_match_timestamp, tutorial_completed
 		FROM players WHERE id = $1
 	`, userID)
 	var value playerRow
@@ -112,7 +129,7 @@ func getCareer(ctx context.Context, queryer rowQuerier, userID string) (PlayerCa
 		&value.ID, &value.Coins, &value.Gems, &value.Trophies,
 		&value.StartingGarrisonLevel, &value.ProductionLevel, &value.ArmySpeedLevel, &value.TreasuryLevel, &value.SelectedCommanderID,
 		&value.MatchesPlayed, &value.MatchesWon, &value.CurrentStreak, &value.BestStreak,
-		&value.LastMatchTimestamp,
+		&value.LastMatchTimestamp, &value.TutorialCompleted,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return PlayerCareer{}, fmt.Errorf("%w:%s", ErrPlayerNotFound, userID)
@@ -131,6 +148,7 @@ func careerFromRow(row playerRow) PlayerCareer {
 		MatchesPlayed:       row.MatchesPlayed, MatchesWon: row.MatchesWon,
 		CurrentStreak: row.CurrentStreak, BestStreak: row.BestStreak,
 		LastMatchTimestamp: row.LastMatchTimestamp,
+		TutorialCompleted:  row.TutorialCompleted,
 	}
 }
 
@@ -569,7 +587,7 @@ func getCareersForUpdate(ctx context.Context, tx *sql.Tx, userIDs []string) (map
 		SELECT id, coins, gems, trophies,
 		       starting_garrison_level, production_level, army_speed_level, treasury_level, selected_commander,
 		       matches_played, matches_won, current_streak, best_streak,
-		       last_match_timestamp
+		       last_match_timestamp, tutorial_completed
 		FROM players
 		WHERE id IN (`+strings.Join(placeholders, ",")+`)
 		ORDER BY id
@@ -586,7 +604,7 @@ func getCareersForUpdate(ctx context.Context, tx *sql.Tx, userIDs []string) (map
 			&value.ID, &value.Coins, &value.Gems, &value.Trophies,
 			&value.StartingGarrisonLevel, &value.ProductionLevel, &value.ArmySpeedLevel, &value.TreasuryLevel, &value.SelectedCommanderID,
 			&value.MatchesPlayed, &value.MatchesWon, &value.CurrentStreak, &value.BestStreak,
-			&value.LastMatchTimestamp,
+			&value.LastMatchTimestamp, &value.TutorialCompleted,
 		); err != nil {
 			return nil, err
 		}
@@ -1191,7 +1209,7 @@ func getCareerForUpdate(ctx context.Context, tx *sql.Tx, userID string) (PlayerC
 		SELECT id, coins, gems, trophies,
 		       starting_garrison_level, production_level, army_speed_level, treasury_level, selected_commander,
 		       matches_played, matches_won, current_streak, best_streak,
-		       last_match_timestamp
+		       last_match_timestamp, tutorial_completed
 		FROM players WHERE id = $1 FOR UPDATE
 	`, userID)
 	var value playerRow
@@ -1199,7 +1217,7 @@ func getCareerForUpdate(ctx context.Context, tx *sql.Tx, userID string) (PlayerC
 		&value.ID, &value.Coins, &value.Gems, &value.Trophies,
 		&value.StartingGarrisonLevel, &value.ProductionLevel, &value.ArmySpeedLevel, &value.TreasuryLevel, &value.SelectedCommanderID,
 		&value.MatchesPlayed, &value.MatchesWon, &value.CurrentStreak, &value.BestStreak,
-		&value.LastMatchTimestamp,
+		&value.LastMatchTimestamp, &value.TutorialCompleted,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return PlayerCareer{}, fmt.Errorf("%w:%s", ErrPlayerNotFound, userID)

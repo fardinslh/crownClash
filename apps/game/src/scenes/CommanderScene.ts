@@ -63,20 +63,20 @@ export class CommanderScene extends Phaser.Scene {
     glow.fillStyle(0x172554, 0.4).fillCircle(200, 72, 180);
     const back = this.add.rectangle(42, 42, 48, 44, 0x111827).setStrokeStyle(1.5, 0x475569);
     back.setInteractive({ useHandCursor: true }).on('pointerdown', () => this.close());
-    this.add.text(42, 40, '<', { fontFamily: FONT, fontSize: '25px', fontStyle: 'bold', color: '#e2e8f0' }).setOrigin(0.5);
+    this.add.text(42, 40, '<', { fontFamily: FONT, fontSize: '25px', fontStyle: 'bold', color: '#e2e8f0', resolution: 2 }).setOrigin(0.5);
     this.add.text(200, 35, 'WAR COUNCIL', {
-      fontFamily: FONT, fontSize: '25px', fontStyle: '900', color: '#f8fafc', stroke: '#000000', strokeThickness: 4,
+      fontFamily: FONT, fontSize: '25px', fontStyle: '900', color: '#f8fafc', stroke: '#000000', strokeThickness: 4, resolution: 2,
     }).setOrigin(0.5);
     this.add.text(200, 68, 'Choose one battle doctrine', {
-      fontFamily: FONT, fontSize: '12px', fontStyle: 'bold', color: '#93c5fd',
+      fontFamily: FONT, fontSize: '12px', fontStyle: 'bold', color: '#93c5fd', resolution: 2,
     }).setOrigin(0.5);
     const level = getKingdomLevel(this.careerManager.getCareer());
     this.powerBadgeText = this.add.text(200, layout.powerBadgeY, `KINGDOM POWER  ${level}`, {
-      fontFamily: FONT, fontSize: '11px', fontStyle: '900', color: '#fbbf24', backgroundColor: '#1c1917', padding: { x: 12, y: 6 },
+      fontFamily: FONT, fontSize: '11px', fontStyle: '900', color: '#fbbf24', backgroundColor: '#1c1917', padding: { x: 12, y: 6 }, resolution: 2,
     }).setOrigin(0.5);
     COMMANDERS.forEach((commander, index) => this.createCard(commander, layout.cardYs[index]));
     this.helperText = this.add.text(200, layout.helperTextY, 'Sidegrades change strategy, not total power.', {
-      fontFamily: FONT, fontSize: '11px', color: '#64748b', fontStyle: 'bold',
+      fontFamily: FONT, fontSize: '11px', color: '#64748b', fontStyle: 'bold', resolution: 2,
     }).setOrigin(0.5);
     this.applyLayout(viewport);
   }
@@ -109,26 +109,26 @@ export class CommanderScene extends Phaser.Scene {
       .setStrokeStyle(2, unlocked ? commander.accent : 0x475569));
     const initials = commander.name.split(' ').map((word) => word[0]).join('');
     container.add(this.add.text(-132, -20, unlocked ? initials : 'X', {
-      fontFamily: FONT, fontSize: '17px', fontStyle: '900', color: unlocked ? '#f8fafc' : '#64748b',
+      fontFamily: FONT, fontSize: '17px', fontStyle: '900', color: unlocked ? '#f8fafc' : '#64748b', resolution: 2,
     }).setOrigin(0.5));
     container.add(this.add.text(-92, -54, commander.name.toUpperCase(), {
-      fontFamily: FONT, fontSize: '15px', fontStyle: '900', color: unlocked ? '#f8fafc' : '#64748b',
+      fontFamily: FONT, fontSize: '15px', fontStyle: '900', color: unlocked ? '#f8fafc' : '#64748b', resolution: 2,
     }));
     container.add(this.add.text(-92, -32, commander.role, {
-      fontFamily: FONT, fontSize: '10px', fontStyle: 'bold', color: unlocked ? '#94a3b8' : '#475569',
+      fontFamily: FONT, fontSize: '11px', fontStyle: 'bold', color: unlocked ? '#94a3b8' : '#64748b', resolution: 2,
     }));
     container.add(this.add.text(-92, -5, commander.strength, {
-      fontFamily: FONT, fontSize: '11px', fontStyle: 'bold', color: unlocked ? '#86efac' : '#475569',
+      fontFamily: FONT, fontSize: '11px', fontStyle: 'bold', color: unlocked ? '#86efac' : '#64748b', resolution: 2,
     }));
     container.add(this.add.text(-92, 15, commander.tradeoff, {
-      fontFamily: FONT, fontSize: '11px', fontStyle: 'bold', color: unlocked ? '#fca5a5' : '#475569',
+      fontFamily: FONT, fontSize: '11px', fontStyle: 'bold', color: unlocked ? '#fca5a5' : '#64748b', resolution: 2,
     }));
     const buttonLabel = selected ? 'EQUIPPED' : unlocked ? 'EQUIP' : `POWER ${commander.unlockKingdomLevel}`;
     const button = this.add.rectangle(92, 45, 142, 44, selected ? commander.accent : unlocked ? 0x2563eb : 0x1e293b)
       .setStrokeStyle(1.5, selected ? 0xf8fafc : unlocked ? 0x60a5fa : 0x334155);
     container.add(button);
     container.add(this.add.text(92, 45, buttonLabel, {
-      fontFamily: FONT, fontSize: unlocked ? '11px' : '10px', fontStyle: '900', color: selected ? '#07111f' : unlocked ? '#ffffff' : '#64748b',
+      fontFamily: FONT, fontSize: unlocked ? '11px' : '10px', fontStyle: '900', color: selected ? '#07111f' : unlocked ? '#ffffff' : '#64748b', resolution: 2,
     }).setOrigin(0.5));
     if (unlocked && !selected) button.setInteractive({ useHandCursor: true }).on('pointerdown', () => void this.select(commander.id));
     this.cards.push(container);
@@ -163,7 +163,7 @@ export class CommanderScene extends Phaser.Scene {
     const layout = computeCommanderLayout(visibleHeight);
     this.toast?.destroy();
     this.toast = this.add.text(LOGICAL_WIDTH / 2, layout.toastY, message, {
-      fontFamily: FONT, fontSize: '11px', fontStyle: 'bold', color: '#fecaca', backgroundColor: '#450a0a', padding: { x: 12, y: 7 },
+      fontFamily: FONT, fontSize: '11px', fontStyle: 'bold', color: '#fecaca', backgroundColor: '#450a0a', padding: { x: 12, y: 7 }, resolution: 2,
     }).setOrigin(0.5).setDepth(20);
   }
 

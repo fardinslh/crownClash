@@ -48,10 +48,10 @@ func mock2v2HappyPath(mock sqlmock.Sqlmock, request Settle2v2Request) {
 	careerRows := sqlmock.NewRows([]string{
 		"id", "coins", "gems", "trophies",
 		"starting_garrison_level", "production_level", "army_speed_level", "treasury_level", "selected_commander",
-		"matches_played", "matches_won", "current_streak", "best_streak", "last_match_timestamp",
+		"matches_played", "matches_won", "current_streak", "best_streak", "last_match_timestamp", "tutorial_completed",
 	})
 	for _, participant := range request.Participants {
-		careerRows.AddRow(participant.UserID, 100, 10, 50, 0, 0, 0, 0, "crown_guard", 0, 0, 0, 0, 0)
+		careerRows.AddRow(participant.UserID, 100, 10, 50, 0, 0, 0, 0, "crown_guard", 0, 0, 0, 0, 0, false)
 	}
 	mock.ExpectQuery("FROM players").WithArgs("loser_c", "loser_d", "winner_a", "winner_b").WillReturnRows(careerRows)
 	// 3. re-check inside the lock
@@ -124,10 +124,10 @@ func TestStoreSettleMatch2v2BindsCareerToLocalSlot(t *testing.T) {
 	careerRows := sqlmock.NewRows([]string{
 		"id", "coins", "gems", "trophies",
 		"starting_garrison_level", "production_level", "army_speed_level", "treasury_level", "selected_commander",
-		"matches_played", "matches_won", "current_streak", "best_streak", "last_match_timestamp",
+		"matches_played", "matches_won", "current_streak", "best_streak", "last_match_timestamp", "tutorial_completed",
 	})
 	for _, userID := range []string{"loser_c", "loser_d", "winner_a", "winner_b"} {
-		careerRows.AddRow(userID, balances[userID], 10, 50, 0, 0, 0, 0, "crown_guard", 0, 0, 0, 0, 0)
+		careerRows.AddRow(userID, balances[userID], 10, 50, 0, 0, 0, 0, "crown_guard", 0, 0, 0, 0, 0, false)
 	}
 	mock.ExpectQuery("FROM players").WithArgs("loser_c", "loser_d", "winner_a", "winner_b").WillReturnRows(careerRows)
 	mock.ExpectQuery("SELECT slot, user_id, settlement FROM match_settlements_multi").WithArgs(request.MatchID).WillReturnRows(sqlmock.NewRows([]string{"slot", "user_id", "settlement"}))
@@ -269,10 +269,10 @@ func TestStoreSettleMatch2v2RollsBackAtEveryStage(t *testing.T) {
 			careerRows := sqlmock.NewRows([]string{
 				"id", "coins", "gems", "trophies",
 				"starting_garrison_level", "production_level", "army_speed_level", "treasury_level", "selected_commander",
-				"matches_played", "matches_won", "current_streak", "best_streak", "last_match_timestamp",
+				"matches_played", "matches_won", "current_streak", "best_streak", "last_match_timestamp", "tutorial_completed",
 			})
 			for _, participant := range request.Participants {
-				careerRows.AddRow(participant.UserID, 100, 10, 50, 0, 0, 0, 0, "crown_guard", 0, 0, 0, 0, 0)
+				careerRows.AddRow(participant.UserID, 100, 10, 50, 0, 0, 0, 0, "crown_guard", 0, 0, 0, 0, 0, false)
 			}
 			mock.ExpectQuery("FROM players").WillReturnRows(careerRows)
 			mock.ExpectQuery("SELECT slot, user_id, settlement FROM match_settlements_multi").WillReturnRows(sqlmock.NewRows([]string{"slot", "user_id", "settlement"}))

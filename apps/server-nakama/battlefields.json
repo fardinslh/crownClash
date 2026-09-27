@@ -5,7 +5,7 @@
     "name": "Crown Cross",
     "subtitle": "Control the central keep",
     "accent": 16096779,
-    "visual": { "motif": "crown_cross", "field": 1054759, "grid": 3359829, "road": 1121325, "roadInlay": 6585483, "socket": 330258, "motifColor": 16096779 },
+    "visual": { "motif": "crown_cross", "field": 1253169, "grid": 4215658, "road": 4609388, "roadInlay": 8362405, "socket": 1518141, "motifColor": 16096779 },
     "territories": [
       { "id": "p_base", "name": "Player Fortress", "x": 200, "y": 610, "radius": 36, "owner": "player", "units": 20, "maxUnits": 65, "productionRate": 1.2, "tier": 3, "type": "fortress" },
       { "id": "e_base", "name": "Enemy Citadel", "x": 200, "y": 110, "radius": 36, "owner": "enemy", "units": 20, "maxUnits": 65, "productionRate": 1.2, "tier": 3, "type": "fortress" },
@@ -42,7 +42,7 @@
     "name": "Twin Passes",
     "subtitle": "Fast towers rule the flanks",
     "accent": 3718648,
-    "visual": { "motif": "twin_passes", "field": 726816, "grid": 2377818, "road": 1255734, "roadInlay": 6011859, "socket": 463128, "motifColor": 3718648 },
+    "visual": { "motif": "twin_passes", "field": 860713, "grid": 3234151, "road": 2378069, "roadInlay": 7785949, "socket": 1322292, "motifColor": 3718648 },
     "territories": [
       { "id": "p_base", "name": "Player Fortress", "x": 200, "y": 610, "radius": 36, "owner": "player", "units": 20, "maxUnits": 65, "productionRate": 1.2, "tier": 3, "type": "fortress" },
       { "id": "e_base", "name": "Enemy Citadel", "x": 200, "y": 110, "radius": 36, "owner": "enemy", "units": 20, "maxUnits": 65, "productionRate": 1.2, "tier": 3, "type": "fortress" },
@@ -71,7 +71,7 @@
     "name": "Royal Ring",
     "subtitle": "Choose your attack lane",
     "accent": 10980346,
-    "visual": { "motif": "royal_ring", "field": 1511718, "grid": 4799334, "road": 2431800, "roadInlay": 12884699, "socket": 919831, "motifColor": 10980346 },
+    "visual": { "motif": "royal_ring", "field": 1906224, "grid": 6376060, "road": 3614541, "roadInlay": 13875176, "socket": 2826562, "motifColor": 10980346 },
     "territories": [
       { "id": "p_base", "name": "Player Fortress", "x": 200, "y": 610, "radius": 36, "owner": "player", "units": 20, "maxUnits": 65, "productionRate": 1.2, "tier": 3, "type": "fortress" },
       { "id": "e_base", "name": "Enemy Citadel", "x": 200, "y": 110, "radius": 36, "owner": "enemy", "units": 20, "maxUnits": 65, "productionRate": 1.2, "tier": 3, "type": "fortress" },
@@ -105,7 +105,7 @@
     "name": "Quad Citadel",
     "subtitle": "Four commanders, two banners",
     "accent": 8490232,
-    "visual": { "motif": "quad_citadel", "field": 1973067, "grid": 3223169, "road": 4405450, "roadInlay": 10859772, "socket": 2499420, "motifColor": 8490232 },
+    "visual": { "motif": "quad_citadel", "field": 1579066, "grid": 3423100, "road": 3886512, "roadInlay": 11977983, "socket": 2697047, "motifColor": 8490232 },
     "territories": [
       { "id": "a_base_w", "name": "West Bastion", "x": 90, "y": 590, "radius": 36, "owner": "player", "units": 20, "maxUnits": 65, "productionRate": 1.2, "tier": 3, "type": "fortress" },
       { "id": "a_base_e", "name": "East Bastion", "x": 310, "y": 590, "radius": 36, "owner": "player", "units": 20, "maxUnits": 65, "productionRate": 1.2, "tier": 3, "type": "fortress" },

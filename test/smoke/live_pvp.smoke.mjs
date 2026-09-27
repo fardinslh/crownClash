@@ -295,6 +295,9 @@ async function runSmokeTest() {
 
     await socketA.connect(sessionA, false);
     await socketB.connect(sessionB, false);
+    // Fresh smoke-test accounts: clear the first-play tutorial gate.
+    await socketA.rpc('tutorial/complete', '{}');
+    await socketB.rpc('tutorial/complete', '{}');
     console.log('  Both real WebSockets connected successfully.\n');
 
     // Message collectors

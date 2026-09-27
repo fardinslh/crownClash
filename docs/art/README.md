@@ -50,10 +50,21 @@ reference an unloaded texture.
   polished keeps with team drum bands, gold-crowned sentry towers, marble
   guardhouses with polished pillars, and round-roofed cavalry pavilions.
   Ownership accents: blue/red/gray drum bands, banners, stripes, and pavilion rims.
+- **quad_citadel dedicated pack** (`assets/territories/quad_citadel/`, WebP, active):
+  border-war camp kit — iron-banded timber keeps with canvas turrets and
+  gold-capped posts, octagonal palisade muster rings with team-dyed command
+  tents, square palisade watchtowers under canvas canopies, long war-tent
+  barracks, and covered war-wagon stables. Ownership accents: blue/red/gray
+  canvas roofs, awnings, tents, and banners.
 
 Every dedicated key gets its own file — no aliases. A test fails if a pack is
 activated before all of its optimized files exist, or if two dedicated packs ship
 byte-identical files for the same key.
+
+All packs render through the same Art Bible rig, including the section-6
+vertical gradient: every beveled structure part carries a per-vertex
+`VerticalShade` color attribute (darker at ground contact, brighter at upper
+peaks) that its material multiplies into the base color.
 
 Blender master names (e.g. `tier3_player_crag_hq.png`) live only under
 `art/blender/renders/` and are never shipped; runtime names (e.g.

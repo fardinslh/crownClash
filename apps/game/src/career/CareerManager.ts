@@ -39,6 +39,7 @@ import { StaleSocketError, type CareerApi, type ClientObservedStatus } from '../
 import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { getSharedGameApiClient } from '../api/sharedClient.js';
 import { LiveMatchClient } from '../api/LiveMatchClient.js';
+import { migrateLegacyTutorialMarker } from '../tutorial/TutorialStatus.js';
 
 export function isStaleSocketError(error: unknown): boolean {
   return (
@@ -120,6 +121,19 @@ export class CareerManager {
     this.remoteConnected = true;
     this.career = career;
 
+    // One-shot legacy migration: a War Academy completion marker stored by
+    // the retired local-only flow is promoted to the server exactly once.
+    // Every failure mode resolves to incomplete (fail-closed); a failed
+    // migration keeps the marker so the next launch retries.
+    try {
+      const hydration = await migrateLegacyTutorialMarker(api, this.platformUserId, career.tutorialCompleted === true);
+      if (hydration.migrated) {
+        this.career = { ...this.career, tutorialCompleted: true };
+      }
+    } catch (error) {
+      console.warn('[CareerManager] Tutorial status hydration failed (fail-closed):', error);
+    }
+
     try {
       this.ledger = await api.getLedger();
     } catch (error) {
@@ -145,6 +159,38 @@ export class CareerManager {
 
   public isRemoteConnected(): boolean {
     return this.remoteConnected;
+  }
+
+  /**
+   * Account-wide tutorial completion, as known by the server. Fail-closed:
+   * locally created (offline fallback) careers and any career payload
+   * without the flag are treated as incomplete.
+   */
+  public isTutorialCompleted(): boolean {
+    return this.career.tutorialCompleted === true;
+  }
+
+  /**
+   * Marks the tutorial complete on the server and applies the fresh
+   * career. A failure leaves the local state incomplete (fail-closed);
+   * the caller may retry.
+   */
+  public async completeTutorialRemote(platform?: PlatformAdapter): Promise<PlayerCareer> {
+    const api = this.requireRemoteApi();
+    try {
+      const career = await api.completeTutorial();
+      this.applyRemoteState(career, []);
+      return career;
+    } catch (error) {
+      if (!platform || !isStaleSocketError(error)) throw error;
+      // A dropped WebView socket must not lose a finished tutorial:
+      // re-authenticate once and retry the completion write.
+      this.remoteConnected = false;
+      await this.connect(platform, api);
+      const career = await this.requireRemoteApi().completeTutorial();
+      this.applyRemoteState(career, []);
+      return career;
+    }
   }
 
   public async recordMatchResultRemote(

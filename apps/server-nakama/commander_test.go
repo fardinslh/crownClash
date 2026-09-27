@@ -28,8 +28,8 @@ func TestSelectCommanderRejectsLockedWithoutMutation(t *testing.T) {
 	defer db.Close()
 	rows := sqlmock.NewRows([]string{
 		"id", "coins", "gems", "trophies", "starting_garrison_level", "production_level", "army_speed_level", "treasury_level", "selected_commander",
-		"matches_played", "matches_won", "current_streak", "best_streak", "last_match_timestamp",
-	}).AddRow("p1", 100, 10, 0, 2, 2, 2, 2, "crown_guard", 0, 0, 0, 0, 0)
+		"matches_played", "matches_won", "current_streak", "best_streak", "last_match_timestamp", "tutorial_completed",
+	}).AddRow("p1", 100, 10, 0, 2, 2, 2, 2, "crown_guard", 0, 0, 0, 0, 0, false)
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("FROM players WHERE id = $1 FOR UPDATE")).WithArgs("p1").WillReturnRows(rows)
 	mock.ExpectRollback()
@@ -50,8 +50,8 @@ func TestSelectCommanderPersistsUnlockedChoice(t *testing.T) {
 	defer db.Close()
 	rows := sqlmock.NewRows([]string{
 		"id", "coins", "gems", "trophies", "starting_garrison_level", "production_level", "army_speed_level", "treasury_level", "selected_commander",
-		"matches_played", "matches_won", "current_streak", "best_streak", "last_match_timestamp",
-	}).AddRow("p1", 100, 10, 0, 3, 3, 2, 2, "crown_guard", 0, 0, 0, 0, 0)
+		"matches_played", "matches_won", "current_streak", "best_streak", "last_match_timestamp", "tutorial_completed",
+	}).AddRow("p1", 100, 10, 0, 3, 3, 2, 2, "crown_guard", 0, 0, 0, 0, 0, false)
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("FROM players WHERE id = $1 FOR UPDATE")).WithArgs("p1").WillReturnRows(rows)
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE players SET selected_commander = $2")).WithArgs("p1", "quartermaster").WillReturnResult(sqlmock.NewResult(0, 1))

@@ -1,27 +1,5 @@
 import { LOGICAL_HEIGHT, LOGICAL_WIDTH } from '@crown-clash/game-core';
 
-// --- TRAINING SCENE LAYOUT ---
-export interface TrainingLayout {
-  cardY: number;
-  cardOffset: number;
-  dotsY: number;
-  navigationButtonsY: number;
-  menuButtonY: number;
-}
-
-export function computeTrainingLayout(visibleHeight: number): TrainingLayout {
-  const surplus = Math.max(0, visibleHeight - LOGICAL_HEIGHT);
-  const cardY = 88 + Math.round(surplus * 0.16);
-
-  return {
-    cardY,
-    cardOffset: cardY - 88,
-    dotsY: 554 + Math.round(surplus * 0.54),
-    navigationButtonsY: 598 + Math.round(surplus * 0.76),
-    menuButtonY: 666 + surplus,
-  };
-}
-
 // --- DAILY SCENE LAYOUT ---
 export interface DailyLayout {
   resetTextY: number;

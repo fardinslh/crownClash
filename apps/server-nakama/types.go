@@ -44,6 +44,9 @@ type PlayerCareer struct {
 	CurrentStreak         int    `json:"currentStreak"`
 	BestStreak            int    `json:"bestStreak"`
 	LastMatchTimestamp    int64  `json:"lastMatchTimestamp"`
+	// Account-wide tutorial completion. The client must treat a missing
+	// value as incomplete (fail-closed); only the server writes it.
+	TutorialCompleted bool `json:"tutorialCompleted"`
 }
 
 type CommanderSelectionResult struct {

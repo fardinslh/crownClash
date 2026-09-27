@@ -4,51 +4,9 @@ import {
   computeDailyLayout,
   computeKingdomLayout,
   computeLeagueLayout,
-  computeTrainingLayout,
 } from '../HubLayouts.js';
 
 describe('HubLayouts', () => {
-  describe('TrainingLayout', () => {
-    it('preserves exact baseline coordinates at 720 logical height', () => {
-      const layout = computeTrainingLayout(720);
-      expect(layout.cardY).toBe(88);
-      expect(layout.cardOffset).toBe(0);
-      expect(layout.dotsY).toBe(554);
-      expect(layout.navigationButtonsY).toBe(598);
-      expect(layout.menuButtonY).toBe(666);
-    });
-
-    it('does not compress below 720 logical height', () => {
-      expect(computeTrainingLayout(667)).toEqual(computeTrainingLayout(720));
-    });
-
-    it('distributes surplus height intentionally and anchors menu button at 867', () => {
-      const layout = computeTrainingLayout(867);
-
-      // Card shifts down moderately
-      expect(layout.cardY).toBeGreaterThan(88);
-      expect(layout.cardOffset).toBe(layout.cardY - 88);
-
-      // Card bottom = cardY + 438
-      const cardBottom = layout.cardY + 438;
-      expect(layout.dotsY).toBeGreaterThan(cardBottom);
-
-      // Navigation buttons (height 46, center layout.navigationButtonsY)
-      const navTop = layout.navigationButtonsY - 23;
-      expect(navTop).toBeGreaterThan(layout.dotsY);
-
-      // Menu button (height 44, center layout.menuButtonY)
-      const menuTop = layout.menuButtonY - 22;
-      const navBottom = layout.navigationButtonsY + 23;
-      expect(menuTop).toBeGreaterThan(navBottom);
-
-      // Anchored to bottom: 867 - (menuButtonY + 22) === 32px (matching 720 - 688)
-      const menuBottom = layout.menuButtonY + 22;
-      expect(867 - menuBottom).toBe(32);
-      expect(menuBottom).toBeLessThan(867);
-    });
-  });
-
   describe('DailyLayout', () => {
     it('preserves exact baseline coordinates at 720 logical height', () => {
       const layout = computeDailyLayout(720);

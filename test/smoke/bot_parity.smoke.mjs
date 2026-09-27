@@ -324,6 +324,9 @@ async function runBotParitySuite() {
 
     socket = client.createSocket(NAKAMA_SSL, false);
     await socket.connect(session, false);
+    // Fresh smoke-test account: clear the first-play tutorial gate so
+    // match/start and matchmaker tickets are accepted.
+    await socket.rpc('tutorial/complete', '{}');
     console.log('  WebSocket connected.\n');
 
     // --------------------------------------------------------------------------

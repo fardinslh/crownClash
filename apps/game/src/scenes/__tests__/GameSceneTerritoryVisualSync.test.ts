@@ -573,7 +573,7 @@ describe('GameScene Territory Visual Synchronization', () => {
     expect(centerVisual.unitText.text).toBe('14');
     expect(centerVisual.lastUnits).toBe(14);
     expect(centerVisual.lastOwner).toBe('player');
-    expect(centerVisual.sprite.texture.key).toBe('crown_keep_player');
+    expect(centerVisual.sprite.texture.key).toBe('cc_crown_cross_crown_keep_player');
   });
 
   it('Scenario 3: Player dispatch immediately deducts source units from visual', () => {
@@ -610,7 +610,7 @@ describe('GameScene Territory Visual Synchronization', () => {
     expect(centerVisual.unitText.text).toBe('18');
     expect(centerVisual.lastUnits).toBe(18);
     expect(centerVisual.lastOwner).toBe('enemy');
-    expect(centerVisual.sprite.texture.key).toBe('crown_keep_enemy');
+    expect(centerVisual.sprite.texture.key).toBe('cc_crown_cross_crown_keep_enemy');
   });
 
   it('Scenario 5: Signature mismatch catches missed dirty marks and forces synchronization', () => {

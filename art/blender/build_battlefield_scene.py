@@ -62,39 +62,46 @@ CAMERA_CLIP_START = 0.1
 CAMERA_CLIP_END = 100.0
 
 KEY_LIGHT_COLOR = (1.0, 0.96, 0.90)       # warm champagne #FFF5E6
-KEY_LIGHT_ENERGY = 4.0
+KEY_LIGHT_ENERGY = 2.2
 KEY_LIGHT_ANGLE_RAD = 0.15
 FILL_LIGHT_COLOR = (0.66, 0.82, 1.0)      # cool sky blue #A8D2FF
-FILL_LIGHT_ENERGY = 1.5
+FILL_LIGHT_ENERGY = 0.8
 RIM_LIGHT_COLOR = (1.0, 1.0, 1.0)
-RIM_LIGHT_ENERGY = 2.8
+RIM_LIGHT_ENERGY = 1.35
 WORLD_AMBIENT_COLOR = (0x16 / 255, 0x1B / 255, 0x26 / 255)  # slate #161B26
-WORLD_AMBIENT_STRENGTH = 0.4
+WORLD_AMBIENT_STRENGTH = 0.28
 
 MASTER_RESOLUTION = 512
 
 # Art Bible palette (linear-ish sRGB hex -> normalized RGB)
 PALETTE = {
-    "team_player": (0x25 / 255, 0x63 / 255, 0xEB / 255),   # #2563EB
-    "team_enemy": (0xDC / 255, 0x26 / 255, 0x26 / 255),    # #DC2626
-    "team_neutral": (0x64 / 255, 0x74 / 255, 0x8B / 255),  # #64748B
-    "stone": (0x47 / 255, 0x55 / 255, 0x69 / 255),         # #475569
-    "stone_dark": (0x33 / 255, 0x41 / 255, 0x55 / 255),    # #334155
-    "iron": (0x33 / 255, 0x41 / 255, 0x55 / 255),          # #334155
-    "gold": (0xF5 / 255, 0x9E / 255, 0x0B / 255),          # #F59E0B
-    "gold_light": (0xFD / 255, 0xE0 / 255, 0x47 / 255),    # #FDE047
-    "wood": (0x8B / 255, 0x5E / 255, 0x3C / 255),          # treated timber
-    "roof_player": (0x25 / 255, 0x63 / 255, 0xEB / 255),
-    "roof_enemy": (0xDC / 255, 0x26 / 255, 0x26 / 255),
-    "roof_neutral": (0x47 / 255, 0x55 / 255, 0x69 / 255),
-    "crag": (0x8B / 255, 0x95 / 255, 0xA7 / 255),          # light weathered rock #8B95A7
-    "marble": (0xE6 / 255, 0xDF / 255, 0xCE / 255),        # pale royal marble #E6DFCE
-    "polished": (0x1E / 255, 0x24 / 255, 0x30 / 255),      # dark polished stone #1E2430
+    "team_player": (0x1D / 255, 0x5E / 255, 0xEA / 255),   # #1D5EEA
+    "team_enemy": (0xE2 / 255, 0x3B / 255, 0x3B / 255),    # #E23B3B
+    "team_neutral": (0x52 / 255, 0x62 / 255, 0x76 / 255),  # #526276
+    "stone": (0x2F / 255, 0x3E / 255, 0x54 / 255),         # #2F3E54
+    "stone_dark": (0x17 / 255, 0x22 / 255, 0x33 / 255),    # #172233
+    "iron": (0x20 / 255, 0x2C / 255, 0x3D / 255),          # #202C3D
+    "gold": (0xD9 / 255, 0x98 / 255, 0x16 / 255),          # #D99816
+    "gold_light": (0xFF / 255, 0xE0 / 255, 0x6A / 255),    # #FFE06A
+    "wood": (0x6B / 255, 0x45 / 255, 0x2B / 255),          # dark treated timber
+    "roof_player": (0x1D / 255, 0x5E / 255, 0xEA / 255),
+    "roof_enemy": (0xE2 / 255, 0x3B / 255, 0x3B / 255),
+    "roof_neutral": (0x43 / 255, 0x52 / 255, 0x67 / 255),
+    "crag": (0x58 / 255, 0x67 / 255, 0x7C / 255),          # weathered blue-gray rock #58677C
+    "marble": (0xC8 / 255, 0xBD / 255, 0xA9 / 255),        # warm royal stone #C8BDA9
+    "polished": (0x18 / 255, 0x22 / 255, 0x34 / 255),      # dark polished stone #182234
     "crystal": (0x93 / 255, 0xC5 / 255, 0xFD / 255),       # #93C5FD
 }
 
 BEVEL_WIDTH = 0.04
 BEVEL_SEGMENTS = 2
+
+# Per-vertex color attribute carrying the Art Bible section-6 vertical
+# gradient (darker at ground contact, brighter at upper peaks). Materials
+# created by make_material(use_gradient=True) multiply this into Base Color.
+VERTICAL_SHADE_ATTRIBUTE = "VerticalShade"
+VERTICAL_SHADE_BASE = 0.80
+VERTICAL_SHADE_TOP = 1.12
 
 COLLECTIONS = ("CC_Terrain", "CC_Roads", "CC_Structures", "CC_Props", "CC_Shadows", "CC_Foreground")
 
@@ -249,7 +256,17 @@ def move_to_collection(obj, collection_name):
     link_to_collection(collection_name).objects.link(obj)
 
 
-def make_material(name, color, roughness, metallic=0.0):
+def make_material(name, color, roughness, metallic=0.0, use_gradient=True):
+    """Principled BSDF material from the Art Bible palette.
+
+    With use_gradient (the default) the material multiplies its base color by
+    the mesh's `VerticalShade` vertex-color attribute (see
+    shade_vertical_gradient): darker at ground contact, brighter at upper
+    peaks, per Art Bible section 6 "Color Gradients". Meshes that never pass
+    through bevel_object/shade_vertical_gradient (e.g. the contact shadow)
+    must pass use_gradient=False because a missing color attribute would
+    render black through the multiply.
+    """
     import bpy
     if name in bpy.data.materials:
         material = bpy.data.materials[name]
@@ -260,10 +277,29 @@ def make_material(name, color, roughness, metallic=0.0):
         return material
     material = bpy.data.materials.new(name)
     material.use_nodes = True
-    bsdf = material.node_tree.nodes.get("Principled BSDF")
-    bsdf.inputs["Base Color"].default_value = (color[0], color[1], color[2], 1.0)
+    tree = material.node_tree
+    bsdf = tree.nodes.get("Principled BSDF")
     bsdf.inputs["Roughness"].default_value = roughness
     bsdf.inputs["Metallic"].default_value = metallic
+    if use_gradient:
+        rgb = tree.nodes.new("ShaderNodeRGB")
+        # Blender 5.x names the RGB node's output "Color" (older builds: "RGB").
+        rgb_output = rgb.outputs["Color"] if "Color" in rgb.outputs else rgb.outputs["RGB"]
+        rgb_output.default_value = (color[0], color[1], color[2], 1.0)
+        attribute = tree.nodes.new("ShaderNodeAttribute")
+        attribute.attribute_type = "GEOMETRY"
+        attribute.attribute_name = VERTICAL_SHADE_ATTRIBUTE
+        mix = tree.nodes.new("ShaderNodeMix")
+        mix.data_type = "RGBA"
+        mix.blend_type = "MULTIPLY"
+        # No clamping: the gradient intentionally exceeds 1.0 at upper peaks
+        # (Art Bible section 6 atmospheric brightening).
+        mix.inputs["Factor"].default_value = 1.0
+        tree.links.new(rgb_output, mix.inputs["A"])
+        tree.links.new(attribute.outputs["Color"], mix.inputs["B"])
+        tree.links.new(mix.outputs["Result"], bsdf.inputs["Base Color"])
+    else:
+        bsdf.inputs["Base Color"].default_value = (color[0], color[1], color[2], 1.0)
     return material
 
 
@@ -309,8 +345,34 @@ def roof_material(palette, owner):
     }[owner]
 
 
+def shade_vertical_gradient(obj, base=VERTICAL_SHADE_BASE, top=VERTICAL_SHADE_TOP):
+    """Art Bible section 6: vertical color gradient on every model.
+
+    Writes a per-vertex `VerticalShade` color attribute: darker at ground
+    contact, brighter at upper peaks (atmospheric bounce). Pure geometry
+    math on vertex z, so it is fully deterministic. The material side of the
+    gradient is a multiply node added by make_material(use_gradient=True).
+    """
+    mesh = obj.data
+    if mesh.color_attributes.get(VERTICAL_SHADE_ATTRIBUTE) is not None:
+        attribute = mesh.color_attributes[VERTICAL_SHADE_ATTRIBUTE]
+    else:
+        attribute = mesh.color_attributes.new(VERTICAL_SHADE_ATTRIBUTE, "FLOAT_COLOR", "POINT")
+    vertices = list(mesh.vertices)
+    zs = [vertex.co.z for vertex in vertices]
+    z_min = min(zs)
+    z_span = max(max(zs) - z_min, 1e-6)
+    for vertex in vertices:
+        factor = base + (top - base) * ((vertex.co.z - z_min) / z_span)
+        attribute.data[vertex.index].color = (factor, factor, factor, 1.0)
+    return attribute
+
+
 def bevel_object(obj, width=BEVEL_WIDTH):
-    """Art Bible section 6: no razor edges — 2-segment bevel on every asset."""
+    """Art Bible section 6: no razor edges — 2-segment bevel on every asset.
+
+    Also applies the section-6 vertical gradient: every beveled structure
+    part carries the VerticalShade attribute its material multiplies in."""
     import bmesh
     mesh = obj.data
     bmesh_ops = bmesh.ops
@@ -327,6 +389,7 @@ def bevel_object(obj, width=BEVEL_WIDTH):
     )
     bmesh_inst.to_mesh(mesh)
     bmesh_inst.free()
+    shade_vertical_gradient(obj)
     return bevel_result
 
 
@@ -344,7 +407,7 @@ def add_primitive(builder, name, collection):
 # ---------------------------------------------------------------------------
 
 def build_citadel(palette, owner):
-    """Tier 3 HQ: grand keep + twin turrets + archway + gilded corners."""
+    """Tier 3 HQ: a compact crowned keep with faceted bastions and banner."""
     import bpy
 
     def new_cube(name, size, location):
@@ -361,33 +424,56 @@ def build_citadel(palette, owner):
 
     turret_specs = ((-0.95, -0.95, 0.0), (0.95, -0.95, 0.0), (-0.95, 0.95, 0.0), (0.95, 0.95, 0.0))
     for index, (x, y, z) in enumerate(turret_specs):
-        bpy.ops.mesh.primitive_cylinder_add(radius=0.42, depth=2.5, location=(x, y, 1.25 + z * 0))
+        # Eight-sided bastions and pyramidal roofs read as a fortress at
+        # 160px; the old smooth cylinders and round caps read like tanks.
+        bpy.ops.mesh.primitive_cylinder_add(radius=0.46, depth=2.25, vertices=8, location=(x, y, 1.125 + z * 0))
         turret = bpy.context.active_object
         turret.name = f"citadel_turret_{index}"
         turret.data.materials.append(palette["stone"])
         bevel_object(turret)
 
-        bpy.ops.mesh.primitive_cone_add(radius1=0.55, depth=0.85, location=(x, y, 2.8))
+        bpy.ops.mesh.primitive_cone_add(radius1=0.64, radius2=0.0, depth=1.05, vertices=4, location=(x, y, 2.78))
         roof = bpy.context.active_object
         roof.name = f"citadel_roof_{index}"
         roof.data.materials.append(roof_material(palette, owner))
         bevel_object(roof)
 
-    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, -0.86, 0.55))
+    # Art Bible section 5 tier-3: gilded masonry corners on the keep.
+    for index, (x, y) in enumerate(((-0.72, -0.72), (0.72, -0.72), (-0.72, 0.72), (0.72, 0.72))):
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=(x, y, 1.0))
+        corner = bpy.context.active_object
+        corner.name = f"citadel_gold_corner_{index}"
+        corner.scale = (0.22, 0.22, 1.85)
+        bpy.ops.object.transform_apply(scale=True)
+        corner.data.materials.append(palette["gold"])
+        bevel_object(corner)
+
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, -0.94, 0.55))
     gate = bpy.context.active_object
     gate.name = "citadel_gate"
-    gate.scale = (0.6, 0.25, 1.1)
+    gate.scale = (0.58, 0.2, 0.92)
     bpy.ops.object.transform_apply(scale=True)
     gate.data.materials.append(palette["iron"])
     bevel_object(gate)
 
-    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, 0.98, 2.3))
+    # Put the ownership banner on the camera-facing facade. It is broad enough
+    # to remain legible beside the gameplay ownership ring, but leaves the
+    # gate and gold lintel exposed underneath.
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, -1.01, 1.8))
     banner = bpy.context.active_object
     banner.name = "citadel_banner"
-    banner.scale = (0.85, 0.08, 0.9)
+    banner.scale = (0.78, 0.08, 0.7)
     bpy.ops.object.transform_apply(scale=True)
     banner.data.materials.append(banner_material(palette, owner))
     bevel_object(banner)
+
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, -1.12, 1.18))
+    lintel = bpy.context.active_object
+    lintel.name = "citadel_gold_lintel"
+    lintel.scale = (0.7, 0.1, 0.1)
+    bpy.ops.object.transform_apply(scale=True)
+    lintel.data.materials.append(palette["gold"])
+    bevel_object(lintel)
 
     bpy.ops.mesh.primitive_cylinder_add(radius=0.18, depth=0.34, location=(0.0, 0.0, 2.15))
     spire = bpy.context.active_object
@@ -396,9 +482,25 @@ def build_citadel(palette, owner):
     bevel_object(spire)
 
 
-def build_crown_keep(palette, _owner):
-    """Tier 2 center stronghold: octagonal ramparts + gilded crown spire."""
+def build_crown_keep(palette, owner):
+    """Tier 2 center stronghold: octagonal ramparts + gilded crown spire.
+
+    Art Bible section 5 tier-2: two team banners draped over the stone walls
+    so ownership reads instantly on the center stronghold (the previous
+    build ignored `owner`, making player/enemy/neutral keeps identical)."""
     import bpy
+
+    def new_cube(name, size, location, material, rotation=None):
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        obj.scale = size
+        if rotation is not None:
+            obj.rotation_euler = rotation
+        bpy.ops.object.transform_apply(scale=True, rotation=rotation is not None)
+        obj.data.materials.append(material)
+        bevel_object(obj)
+        return obj
 
     bpy.ops.mesh.primitive_cylinder_add(radius=1.45, depth=1.15, vertices=8, location=(0.0, 0.0, 0.575))
     rampart = bpy.context.active_object
@@ -417,6 +519,28 @@ def build_crown_keep(palette, _owner):
     tower.name = "keep_tower"
     tower.data.materials.append(palette["stone"])
     bevel_object(tower)
+
+    # Two draped banners hanging from the parapet on the camera-facing wall
+    # face, angled with the octagon chamfers. They must sit OUTSIDE the
+    # rampart radius (1.45) and rise past the parapet top (z 1.36) or the
+    # wall would fully occlude them. Sized to stay readable at the 128px
+    # runtime sprite (Art Bible section 15 ownership readability).
+    new_cube(
+        "keep_banner_left", (0.95, 0.12, 1.3), (-0.75, -1.6, 0.85),
+        banner_material(palette, owner), rotation=(0.0, 0.0, -0.29),
+    )
+    new_cube(
+        "keep_banner_right", (0.95, 0.12, 1.3), (0.75, -1.6, 0.85),
+        banner_material(palette, owner), rotation=(0.0, 0.0, 0.29),
+    )
+
+    # Team drum band under the tower parapet: a second large ownership accent
+    # high on the silhouette (mirrors the royal_ring keep's drum language).
+    bpy.ops.mesh.primitive_cylinder_add(radius=0.68, depth=0.34, vertices=8, location=(0.0, 0.0, 2.5))
+    drum = bpy.context.active_object
+    drum.name = "keep_team_drum"
+    drum.data.materials.append(banner_material(palette, owner))
+    bevel_object(drum)
 
     for index in range(5):
         angle = (index / 5.0) * math.pi * 2.0
@@ -1009,6 +1133,269 @@ def build_royal_pavilion(palette, owner):
     new_cube("royal_pavilion_trough", (0.6, 0.32, 0.28), (0.55, 0.5, 0.39), palette["polished"])
 
 
+# ---------------------------------------------------------------------------
+# quad_citadel builders: border-war camp theme (Art Bible sections 4-6). The
+# material language is banded ironwood + dyed canvas + iron hardware + gold
+# standards: distinct from crown_cross stone-and-gold, twin_passes crag, and
+# royal_ring marble, so every pack ships visibly different silhouettes while
+# obeying the same palette, bevel, gradient, and ownership-accent rules.
+# ---------------------------------------------------------------------------
+
+def build_ironwood_citadel(palette, owner):
+    """quad_citadel tier 3 HQ: iron-banded timber keep with canvas turrets."""
+    import bpy
+
+    def new_cube(name, size, location, material):
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        obj.scale = size
+        bpy.ops.object.transform_apply(scale=True)
+        obj.data.materials.append(material)
+        bevel_object(obj)
+        return obj
+
+    def new_cyl(name, radius, depth, location, material, vertices=24):
+        bpy.ops.mesh.primitive_cylinder_add(radius=radius, depth=depth, vertices=vertices, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        obj.data.materials.append(material)
+        bevel_object(obj)
+        return obj
+
+    # Octagonal timber platform (the war-camp footing).
+    new_cyl("ironwood_platform", 2.05, 0.4, (0.0, 0.0, 0.2), palette["wood"], vertices=8)
+
+    # Central timber keep with two iron banding straps.
+    new_cube("ironwood_keep", (1.55, 1.55, 1.8), (0.0, 0.0, 1.3), palette["wood"])
+    new_cube("ironwood_band_low", (1.62, 1.62, 0.16), (0.0, 0.0, 0.85), palette["iron"])
+    new_cube("ironwood_band_high", (1.62, 1.62, 0.16), (0.0, 0.0, 1.75), palette["iron"])
+
+    # Corner posts with gold caps (the camp's gilded corners).
+    for index, (x, y) in enumerate(((-0.78, -0.78), (0.78, -0.78), (-0.78, 0.78), (0.78, 0.78))):
+        new_cyl(f"ironwood_post_{index}", 0.12, 2.1, (x, y, 1.45), palette["stone_dark"], vertices=12)
+        bpy.ops.mesh.primitive_cone_add(radius1=0.16, depth=0.22, location=(x, y, 2.6))
+        cap = bpy.context.active_object
+        cap.name = f"ironwood_post_cap_{index}"
+        cap.data.materials.append(palette["gold"])
+        bevel_object(cap)
+
+    # Twin watch turrets with team-dyed canvas roofs.
+    for index, x in enumerate((-1.0, 1.0)):
+        new_cyl(f"ironwood_turret_{index}", 0.38, 2.4, (x, -0.85, 1.4), palette["wood"], vertices=16)
+        bpy.ops.mesh.primitive_cone_add(radius1=0.52, depth=0.8, location=(x, -0.85, 2.95))
+        roof = bpy.context.active_object
+        roof.name = f"ironwood_turret_roof_{index}"
+        roof.data.materials.append(roof_material(palette, owner))
+        bevel_object(roof)
+
+    # Iron gate facing the camera, massive team banner, gold spire.
+    new_cube("ironwood_gate", (0.62, 0.22, 1.0), (0.0, -0.82, 0.9), palette["iron"])
+    new_cube("ironwood_banner", (0.9, 0.09, 0.85), (0.0, 0.0, 2.7), banner_material(palette, owner))
+    bpy.ops.mesh.primitive_cylinder_add(radius=0.15, depth=0.4, location=(0.0, 0.0, 3.3))
+    spire = bpy.context.active_object
+    spire.name = "ironwood_spire"
+    spire.data.materials.append(palette["gold"])
+    bevel_object(spire)
+
+
+def build_muster_ring(palette, owner):
+    """quad_citadel tier 2 stronghold: palisade muster ring + command tent.
+
+    Art Bible section 5 tier-2: two team banners on the walls plus a gilded
+    standard on the central tent, so ownership reads at a glance."""
+    import bpy
+
+    def new_cube(name, size, location, material, rotation=None):
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        obj.scale = size
+        if rotation is not None:
+            obj.rotation_euler = rotation
+        bpy.ops.object.transform_apply(scale=True, rotation=rotation is not None)
+        obj.data.materials.append(material)
+        bevel_object(obj)
+        return obj
+
+    def new_cyl(name, radius, depth, location, material, vertices=24):
+        bpy.ops.mesh.primitive_cylinder_add(radius=radius, depth=depth, vertices=vertices, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        obj.data.materials.append(material)
+        bevel_object(obj)
+        return obj
+
+    # Octagonal palisade ring in banded timber.
+    new_cyl("muster_ring_wall", 1.55, 0.95, (0.0, 0.0, 0.48), palette["wood"], vertices=8)
+    new_cyl("muster_ring_band", 1.6, 0.14, (0.0, 0.0, 0.9), palette["iron"], vertices=8)
+
+    # Iron-bound gate on the camera-facing face.
+    new_cube("muster_gate", (0.66, 0.2, 0.8), (0.0, -1.35, 0.5), palette["iron"])
+
+    # Central command pavilion: chunky team-dyed canvas tent.
+    new_cyl("muster_tent_base", 0.95, 0.5, (0.0, 0.0, 1.2), palette["stone_dark"])
+    bpy.ops.mesh.primitive_cone_add(radius1=1.15, depth=1.25, vertices=8, location=(0.0, 0.0, 2.05))
+    tent = bpy.context.active_object
+    tent.name = "muster_tent_canvas"
+    tent.data.materials.append(roof_material(palette, owner))
+    bevel_object(tent)
+
+    # Gold standard: crown ring of points + finial above the tent.
+    for index in range(5):
+        angle = (index / 5.0) * math.pi * 2.0
+        bpy.ops.mesh.primitive_cone_add(
+            radius1=0.1, depth=0.3,
+            location=(0.32 * math.cos(angle), 0.32 * math.sin(angle), 2.8),
+        )
+        point = bpy.context.active_object
+        point.name = f"muster_crown_point_{index}"
+        point.data.materials.append(palette["gold_light"])
+        bevel_object(point)
+    new_cyl("muster_finial", 0.14, 0.42, (0.0, 0.0, 2.95), palette["gold"], vertices=12)
+
+    # Two team banners on poles flanking the gate (section 5 tier-2).
+    for index, x in enumerate((-0.95, 0.95)):
+        new_cyl(f"muster_banner_pole_{index}", 0.05, 1.6, (x, -1.15, 1.3), palette["iron"], vertices=8)
+        new_cube(
+            f"muster_banner_{index}", (0.52, 0.07, 0.6), (x, -1.15, 1.75),
+            banner_material(palette, owner),
+        )
+
+
+def build_palisade_watch(palette, owner):
+    """quad_citadel tier 1 fortress: square palisade watchtower + canvas canopy."""
+    import bpy
+
+    def new_cube(name, size, location, material):
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        obj.scale = size
+        bpy.ops.object.transform_apply(scale=True)
+        obj.data.materials.append(material)
+        bevel_object(obj)
+        return obj
+
+    # Stone-dark footing the palisade rises from.
+    new_cube("palisade_plinth", (1.45, 1.45, 0.45), (0.0, 0.0, 0.22), palette["stone_dark"])
+
+    # Square timber tower body with an iron strap.
+    new_cube("palisade_shaft", (1.0, 1.0, 1.85), (0.0, 0.0, 1.35), palette["wood"])
+    new_cube("palisade_strap", (1.06, 1.06, 0.13), (0.0, 0.0, 1.7), palette["iron"])
+
+    # Gallery deck + team-dyed canvas canopy (flat slab roof, war-camp look).
+    new_cube("palisade_gallery", (1.2, 1.2, 0.24), (0.0, 0.0, 2.4), palette["stone_dark"])
+    new_cube("palisade_canopy", (1.3, 1.3, 0.22), (0.0, 0.0, 2.62), roof_material(palette, owner))
+
+    # Team banner draped on the camera-facing face (readable at 128px).
+    new_cube("palisade_banner", (0.66, 0.09, 0.85), (0.0, -0.53, 1.55), banner_material(palette, owner))
+
+    # Iron pole + owner pennant on the canopy.
+    new_cube("palisade_pole", (0.09, 0.09, 0.95), (0.42, 0.42, 3.2), palette["iron"])
+    new_cube("palisade_flag", (0.5, 0.06, 0.3), (0.7, 0.42, 3.35), banner_material(palette, owner))
+
+
+def build_war_tent_barracks(palette, owner):
+    """quad_citadel tier 1 barracks: long team-canvas field tent."""
+    import bpy
+
+    def new_cube(name, size, location, material, rotation=None):
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        obj.scale = size
+        if rotation is not None:
+            obj.rotation_euler = rotation
+        bpy.ops.object.transform_apply(scale=True, rotation=rotation is not None)
+        obj.data.materials.append(material)
+        bevel_object(obj)
+        return obj
+
+    # Low timber side walls the canvas stretches over.
+    new_cube("war_tent_wall_left", (2.0, 0.18, 0.75), (0.0, -0.62, 0.38), palette["wood"])
+    new_cube("war_tent_wall_right", (2.0, 0.18, 0.75), (0.0, 0.62, 0.38), palette["wood"])
+
+    # Team-dyed canvas roof: two angled slabs meeting at a ridge.
+    new_cube(
+        "war_tent_canvas_front", (2.15, 1.05, 0.16), (0.0, -0.35, 0.98),
+        roof_material(palette, owner), rotation=(0.42, 0.0, 0.0),
+    )
+    new_cube(
+        "war_tent_canvas_back", (2.15, 1.05, 0.16), (0.0, 0.35, 0.98),
+        roof_material(palette, owner), rotation=(-0.42, 0.0, 0.0),
+    )
+    # Timber ridge pole.
+    new_cube("war_tent_ridge", (2.2, 0.12, 0.12), (0.0, 0.0, 1.32), palette["wood"])
+
+    # Iron-banded timber door at the open gable end.
+    new_cube("war_tent_door", (0.45, 0.1, 0.7), (0.85, 0.0, 0.42), palette["stone_dark"])
+    new_cube("war_tent_door_band", (0.5, 0.11, 0.1), (0.85, 0.0, 0.68), palette["iron"])
+
+    # Team banner flying from an iron post at the entrance.
+    new_cube("war_tent_banner_pole", (0.07, 0.07, 1.5), (-1.05, 0.0, 0.75), palette["iron"])
+    new_cube("war_tent_banner", (0.55, 0.06, 0.42), (-0.78, 0.0, 1.35), banner_material(palette, owner))
+
+
+def build_wagon_stable(palette, owner):
+    """quad_citadel tier 1 stable: covered war wagon + lean-to + hay store."""
+    import bpy
+
+    def new_cube(name, size, location, material, rotation=None):
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        obj.scale = size
+        if rotation is not None:
+            obj.rotation_euler = rotation
+        bpy.ops.object.transform_apply(scale=True, rotation=rotation is not None)
+        obj.data.materials.append(material)
+        bevel_object(obj)
+        return obj
+
+    def new_cyl(name, radius, depth, location, material, vertices=24):
+        bpy.ops.mesh.primitive_cylinder_add(radius=radius, depth=depth, vertices=vertices, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        obj.data.materials.append(material)
+        bevel_object(obj)
+        return obj
+
+    # Covered wagon: timber bed + team-dyed canvas roof.
+    new_cube("wagon_bed", (1.25, 0.72, 0.4), (0.25, -0.45, 0.55), palette["wood"])
+    new_cube(
+        "wagon_canvas", (1.35, 0.85, 0.34), (0.25, -0.45, 1.0),
+        roof_material(palette, owner),
+    )
+    new_cube("wagon_canvas_ridge", (1.4, 0.16, 0.1), (0.25, -0.45, 1.2), palette["iron"])
+
+    # Iron-rimmed wheels (torus, side-on like the royal carriage).
+    for index, x in enumerate((-0.15, 0.68)):
+        bpy.ops.mesh.primitive_torus_add(major_radius=0.26, minor_radius=0.08, location=(x, -0.45, 0.26))
+        wheel = bpy.context.active_object
+        wheel.name = f"wagon_wheel_{index}"
+        wheel.rotation_euler = (0.0, math.pi / 2.0, 0.0)
+        bpy.ops.object.transform_apply(rotation=True)
+        wheel.data.materials.append(palette["iron"])
+        bevel_object(wheel)
+
+    # Rear lean-to shelter for the mounts.
+    new_cube("lean_to_post_a", (0.09, 0.09, 0.85), (-0.85, 0.35, 0.43), palette["wood"])
+    new_cube("lean_to_post_b", (0.09, 0.09, 0.85), (0.55, 0.35, 0.43), palette["wood"])
+    new_cube(
+        "lean_to_canopy", (1.75, 0.8, 0.12), (-0.15, 0.35, 1.0),
+        banner_material(palette, owner), rotation=(0.2, 0.0, 0.0),
+    )
+
+    # Hay store + feed trough (war-camp provisions, gold hay tones).
+    new_cube("wagon_hay", (0.5, 0.42, 0.36), (-0.95, -0.35, 0.5), palette["gold_light"])
+    new_cube("wagon_trough", (0.55, 0.3, 0.24), (0.95, 0.35, 0.4), palette["stone_dark"])
+
+    # Team pennant on an iron pole beside the wagon.
+    new_cyl("wagon_pennant_pole", 0.05, 1.2, (1.15, -0.5, 0.9), palette["iron"], vertices=8)
+    new_cube("wagon_pennant", (0.42, 0.06, 0.26), (1.38, -0.5, 1.35), banner_material(palette, owner))
+
+
 def build_road_segment(palette, _owner):
     """Recessed stone lane slab (Art Bible section 11). Authoring-only asset."""
     import bpy
@@ -1112,6 +1499,11 @@ BUILDERS = {
     "build_royal_sentry": build_royal_sentry,
     "build_royal_guardhouse": build_royal_guardhouse,
     "build_royal_pavilion": build_royal_pavilion,
+    "build_ironwood_citadel": build_ironwood_citadel,
+    "build_muster_ring": build_muster_ring,
+    "build_palisade_watch": build_palisade_watch,
+    "build_war_tent_barracks": build_war_tent_barracks,
+    "build_wagon_stable": build_wagon_stable,
     "build_road_segment": build_road_segment,
     "build_platform_tile": build_platform_tile,
     "build_crystal_cluster": build_crystal_cluster,
@@ -1135,6 +1527,11 @@ ASSET_COLLECTION = {
     "build_royal_sentry": "CC_Structures",
     "build_royal_guardhouse": "CC_Structures",
     "build_royal_pavilion": "CC_Structures",
+    "build_ironwood_citadel": "CC_Structures",
+    "build_muster_ring": "CC_Structures",
+    "build_palisade_watch": "CC_Structures",
+    "build_war_tent_barracks": "CC_Structures",
+    "build_wagon_stable": "CC_Structures",
     "build_road_segment": "CC_Roads",
     "build_platform_tile": "CC_Terrain",
     "build_crystal_cluster": "CC_Props",
@@ -1293,12 +1690,17 @@ def build_asset(builder_name, owner):
 
 
 def make_contact_shadow():
-    """A soft flattened dark disc under the asset reads as a contact shadow."""
+    """A soft flattened dark disc under the asset reads as a contact shadow.
+
+    The shadow material opts out of the vertical-gradient multiply
+    (use_gradient=False): the disc never passes through bevel_object, so it
+    carries no VerticalShade attribute, and a missing attribute through the
+    multiply would render solid black instead of the intended soft shadow."""
     import bpy
     bpy.ops.mesh.primitive_cylinder_add(radius=1.75, depth=0.02, vertices=48, location=(0.0, 0.0, 0.01))
     shadow = bpy.context.active_object
     shadow.name = "contact_shadow"
-    shadow_material = make_material("CC_ContactShadow", (0.0, 0.0, 0.0), 1.0)
+    shadow_material = make_material("CC_ContactShadow", (0.0, 0.0, 0.0), 1.0, use_gradient=False)
     shadow_material.use_nodes = True
     bsdf = shadow_material.node_tree.nodes.get("Principled BSDF")
     bsdf.inputs["Alpha"].default_value = 0.35

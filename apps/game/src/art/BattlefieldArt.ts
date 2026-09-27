@@ -245,6 +245,11 @@ export function listRuntimeSpritePaths(battlefieldId: BattlefieldId): Readonly<R
   return getBattlefieldRuntimeAssets(battlefieldId).sprites;
 }
 
+/** Phaser's texture cache survives scene changes, so pack keys must not collide. */
+export function runtimeTerritoryTextureKey(battlefieldId: BattlefieldId, textureKey: string): string {
+  return `cc_${getBattlefieldRuntimeAssets(battlefieldId).packId}_${textureKey}`;
+}
+
 /** True when a battlefield's active pack is a dedicated per-battlefield pack. */
 export function usesDedicatedSpritePack(battlefieldId: BattlefieldId): boolean {
   const packId = ASSET_MANIFEST.battlefieldPacks[battlefieldId] ?? 'generic';
@@ -255,6 +260,7 @@ export function usesDedicatedSpritePack(battlefieldId: BattlefieldId): boolean {
 export interface SceneLaunchData {
   botMatch?: { battlefieldId?: BattlefieldId };
   liveMatch?: { state?: { battlefieldId?: BattlefieldId } };
+  liveMatch2v2?: { state?: { battlefieldId?: BattlefieldId } };
 }
 
 /**
@@ -265,7 +271,9 @@ export interface SceneLaunchData {
  */
 export function battlefieldIdFromLaunchData(launchData: SceneLaunchData | undefined): BattlefieldId {
   return normalizeBattlefieldId(
-    launchData?.botMatch?.battlefieldId ?? launchData?.liveMatch?.state?.battlefieldId
+    launchData?.botMatch?.battlefieldId ??
+      launchData?.liveMatch2v2?.state?.battlefieldId ??
+      launchData?.liveMatch?.state?.battlefieldId
   );
 }
 
@@ -277,6 +285,49 @@ export const PROCEDURAL_FALLBACK_KEYS: ReadonlySet<string> = new Set(RESOLVER_TE
 /** Phaser container interactive size for a territory (unchanged legacy hit area). */
 export function territoryHitAreaSize(radius: number): number {
   return radius * 2.5;
+}
+
+/** Presentation-only dimensions. Territory coordinates, radii and hit areas never change. */
+export function territoryArtFootprint(battlefieldId: BattlefieldId, territory: Territory): {
+  socketRadius: number;
+  plateRadius: number;
+  ringRadius: number;
+  shadowWidth: number;
+  shadowHeight: number;
+  spriteSize: number;
+  spriteY: number;
+  badgeY: number;
+  sharedCueX: number;
+  sharedCueY: number;
+  roleIconX: number;
+  roleIconY: number;
+} {
+  const quad = battlefieldId === 'quad_citadel';
+  const topCitadel = territory.type === 'fortress' && territory.tier === 3 && territory.y <= 150;
+  // Quad Citadel's base/corner centers are only sqrt(3400) px apart. These
+  // radii leave visible air between their sockets without altering geometry.
+  const socketRadius = quad
+    ? territory.tier === 3 ? 29 : territory.tier === 2 ? 36 : 23
+    : topCitadel ? 35 : territory.radius + 10;
+  const badgeY = quad
+    ? territory.tier === 3 ? topCitadel ? 13 : 18 : territory.tier === 2 ? 18 : 14
+    : territory.tier === 3 ? 25 : territory.tier === 2 ? 21 : 17;
+  return {
+    socketRadius,
+    plateRadius: socketRadius - 3,
+    ringRadius: socketRadius,
+    shadowWidth: socketRadius * 2,
+    shadowHeight: socketRadius * 0.75,
+    spriteSize: quad
+      ? territory.tier === 3 ? 64 : territory.tier === 2 ? 76 : 48
+      : topCitadel ? 82 : territory.tier === 3 ? 102 : territory.tier === 2 ? 88 : 72,
+    spriteY: topCitadel ? 6 : quad ? -5 : -8,
+    badgeY,
+    sharedCueX: territory.x < 200 ? -33 : 33,
+    sharedCueY: badgeY,
+    roleIconX: quad && territory.tier === 3 ? territory.x < 200 ? 33 : -33 : 0,
+    roleIconY: quad && territory.tier === 3 ? badgeY : badgeY + 21,
+  };
 }
 
 /**
@@ -414,16 +465,47 @@ export interface ArenaAccent {
 /**
  * Restrained decorative accents per battlefield (Art Bible section 12: max 8,
  * <= 24px tall, never within territory radius + 16px of a territory center or
- * 14px of a road segment). Crown Cross ships four corner accents; other
- * battlefields keep their existing presentation until their kits are rendered.
+ * 14px of a road segment). Every battlefield ships a set: Crown Cross frames
+ * its crossroads, Twin Passes populates the quiet meadow column, Royal Ring
+ * dresses the court interior, Quad Citadel marks the dueling mid-line.
+ * Positions are verified against the authoritative battlefield geometry by
+ * BattlefieldArt.test.ts.
  */
 export function getArenaAccentPositions(battlefieldId: BattlefieldId): readonly ArenaAccent[] {
   if (battlefieldId === 'crown_cross') {
     return Object.freeze([
       { x: 40, y: 150, kind: 'crystal' },
       { x: 360, y: 150, kind: 'stones' },
+      { x: 40, y: 300, kind: 'pennant' },
+      { x: 360, y: 300, kind: 'pennant' },
       { x: 40, y: 570, kind: 'stones' },
       { x: 360, y: 570, kind: 'crystal' },
+    ] as readonly ArenaAccent[]);
+  }
+  if (battlefieldId === 'twin_passes') {
+    return Object.freeze([
+      { x: 200, y: 170, kind: 'crystal' },
+      { x: 200, y: 270, kind: 'stones' },
+      { x: 200, y: 450, kind: 'stones' },
+      { x: 200, y: 550, kind: 'crystal' },
+    ] as readonly ArenaAccent[]);
+  }
+  if (battlefieldId === 'royal_ring') {
+    return Object.freeze([
+      { x: 200, y: 270, kind: 'crystal' },
+      { x: 200, y: 450, kind: 'stones' },
+      { x: 40, y: 130, kind: 'pennant' },
+      { x: 360, y: 590, kind: 'pennant' },
+    ] as readonly ArenaAccent[]);
+  }
+  if (battlefieldId === 'quad_citadel') {
+    return Object.freeze([
+      { x: 40, y: 250, kind: 'crystal' },
+      { x: 360, y: 250, kind: 'stones' },
+      { x: 200, y: 300, kind: 'pennant' },
+      { x: 200, y: 420, kind: 'pennant' },
+      { x: 40, y: 350, kind: 'stones' },
+      { x: 360, y: 350, kind: 'crystal' },
     ] as readonly ArenaAccent[]);
   }
   return [];

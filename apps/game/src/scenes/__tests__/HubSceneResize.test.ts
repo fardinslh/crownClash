@@ -330,13 +330,11 @@ vi.mock('phaser', () => {
   };
 });
 
-import { TrainingScene } from '../TrainingScene.js';
 import { DailyScene } from '../DailyScene.js';
 import { LeagueScene } from '../LeagueScene.js';
 import { KingdomScene } from '../KingdomScene.js';
 import { CommanderScene } from '../CommanderScene.js';
 import {
-  computeTrainingLayout,
   computeDailyLayout,
   computeLeagueLayout,
   computeKingdomLayout,
@@ -393,72 +391,6 @@ describe('HubScene Live Resize Integration', () => {
     storage.clear();
   });
 
-  describe('TrainingScene', () => {
-    it('initializes at 720, resizes live to 867, and returns to 720 without leaks', () => {
-      const scene = new TrainingScene();
-      (scene.scale as any).gameSize = { width: 400, height: 720 };
-      scene.create();
-
-      const baseLayout = computeTrainingLayout(720);
-      const tallLayout = computeTrainingLayout(867);
-
-      // Inspect scene state via private references
-      const bg = (scene as any).background as TestGameObject;
-      const dots = (scene as any).progressDots as TestGameObject[];
-      const prevBtn = (scene as any).previousButton as TestGameObject;
-      const nextBtn = (scene as any).nextButton as TestGameObject;
-      const menuBg = (scene as any).menuBg as TestGameObject;
-      const lessonContainer = (scene as any).lessonContainer as TestContainer;
-
-      expect(bg.height).toBe(720);
-      dots.forEach((dot) => expect(dot.y).toBe(baseLayout.dotsY));
-      expect(prevBtn.y).toBe(baseLayout.navigationButtonsY);
-      expect(nextBtn.y).toBe(baseLayout.navigationButtonsY);
-      expect(menuBg.y).toBe(baseLayout.menuButtonY);
-      expect(lessonContainer.y).toBe(baseLayout.cardOffset);
-
-      // Verify state before resize (advance lesson from 0 to 1)
-      expect((scene as any).lessonIndex).toBe(0);
-      (scene as any).advance();
-      expect((scene as any).lessonIndex).toBe(1);
-
-      const childCountBefore = scene.children.list.length;
-      const resizeListenerCount = scene.scale.listenerCount('resize');
-      expect(resizeListenerCount).toBe(1);
-
-      // 1. Live resize to tall phone (720 -> 867)
-      (scene.scale as any).gameSize = { width: 400, height: 867 };
-      scene.scale.emit('resize');
-
-      expect(bg.height).toBe(867);
-      dots.forEach((dot) => expect(dot.y).toBe(tallLayout.dotsY));
-      expect(prevBtn.y).toBe(tallLayout.navigationButtonsY);
-      expect(nextBtn.y).toBe(tallLayout.navigationButtonsY);
-      expect(menuBg.y).toBe(tallLayout.menuButtonY);
-      expect(lessonContainer.y).toBe(tallLayout.cardOffset);
-
-      // No new objects or duplicate listeners accumulated
-      expect(scene.children.list.length).toBe(childCountBefore);
-      expect(scene.scale.listenerCount('resize')).toBe(1);
-      // State survived
-      expect((scene as any).lessonIndex).toBe(1);
-
-      // 2. Live resize back to baseline phone (867 -> 720)
-      (scene.scale as any).gameSize = { width: 400, height: 720 };
-      scene.scale.emit('resize');
-
-      expect(bg.height).toBe(720);
-      dots.forEach((dot) => expect(dot.y).toBe(baseLayout.dotsY));
-      expect(prevBtn.y).toBe(baseLayout.navigationButtonsY);
-      expect(nextBtn.y).toBe(baseLayout.navigationButtonsY);
-      expect(menuBg.y).toBe(baseLayout.menuButtonY);
-      expect(lessonContainer.y).toBe(baseLayout.cardOffset);
-
-      expect(scene.children.list.length).toBe(childCountBefore);
-      expect(scene.scale.listenerCount('resize')).toBe(1);
-      expect((scene as any).lessonIndex).toBe(1);
-    });
-  });
 
   describe('DailyScene', () => {
     it('initializes at 720, resizes live to 867, and returns to 720 without leaks', async () => {

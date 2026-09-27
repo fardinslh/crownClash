@@ -1,15 +1,20 @@
 /**
- * Crown Clash — First-Session Battle Tutorial Controller
+ * Crown Clash — Guided Training Battle Controller
  *
- * Framework-free state machine governing the guided first-battle tutorial.
- * This module has zero Phaser dependency and is fully unit-testable.
+ * Framework-free state machine governing the first-play tutorial battle.
+ * This module has zero Phaser dependency and is fully unit-testable. The
+ * tutorial is completed by PERFORMING the four core actions with the real
+ * battle controls — never by winning a match:
  *
- * Steps:
- *   drag_to_attack  → Player dispatches from any owned tower
- *   preview_result  → Auto-advances after first dispatch preview (or timed)
- *   tower_roles     → Auto-advances after first player capture
- *   multi_dispatch  → Player dispatches from 2+ sources
+ *   drag_to_attack  → Player dispatches from an owned tower (release)
+ *   preview_result  → Player sees a WIN/TIE/-N drag-badge outcome preview
+ *   tower_roles     → Player captures a territory (roles taught on capture)
+ *   multi_dispatch  → Player dispatches from 2+ sources at once
  *   (complete)
+ *
+ * The controller is intentionally persistence-free: the battle scene owns
+ * progress (resume marker) and the server owns completion (account-wide
+ * flag). See TutorialStatus.ts for both.
  */
 
 // ---------------------------------------------------------------------------
@@ -36,7 +41,7 @@ export interface TutorialStepInfo {
 const STEP_DEFINITIONS: readonly TutorialStepInfo[] = [
   {
     id: 'drag_to_attack',
-    instruction: 'Drag from your tower to attack!',
+    instruction: 'Drag from your blue tower to attack!',
     spotlightTarget: 'p_base',
   },
   {
@@ -45,7 +50,7 @@ const STEP_DEFINITIONS: readonly TutorialStepInfo[] = [
   },
   {
     id: 'tower_roles',
-    instruction: 'DEF shields • PROD trains • SPD marches',
+    instruction: 'Capture a tower! DEF shields • PROD trains • SPD marches',
   },
   {
     id: 'multi_dispatch',
@@ -67,36 +72,20 @@ export interface TutorialEvent {
 
 export type TutorialEventCallback = (event: TutorialEvent) => void;
 
-// ---------------------------------------------------------------------------
-// Persistence helpers (localStorage, no server dependency)
-// ---------------------------------------------------------------------------
-
-const STORAGE_PREFIX = 'crown_clash_tutorial_';
-
-function storageKey(playerId: string): string {
-  return `${STORAGE_PREFIX}${playerId}`;
-}
-
-export function isTutorialCompleted(playerId: string): boolean {
-  try {
-    if (typeof window === 'undefined') return false;
-    const storage = window.localStorage;
-    if (!storage) return false;
-    return storage.getItem(storageKey(playerId)) === '1';
-  } catch {
-    return false;
-  }
-}
-
-export function markTutorialCompleted(playerId: string): void {
-  try {
-    if (typeof window === 'undefined') return;
-    const storage = window.localStorage;
-    if (!storage) return;
-    storage.setItem(storageKey(playerId), '1');
-  } catch {
-    // Storage unavailable in some WebViews — silently ignored.
-  }
+export interface TutorialStartOptions {
+  /**
+   * Step index to resume from (0-3). Actions already performed in a
+   * previous session are not repeated. Out-of-range values clamp to a
+   * fresh start.
+   */
+  readonly startStep?: number;
+  /**
+   * Boot directly into the completed state WITHOUT emitting any events.
+   * Used when the four guided actions were already performed in a previous
+   * session but the server save failed: the battle scene resumes straight
+   * into the save-retry flow instead of repeating the actions.
+   */
+  readonly resumeCompleted?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -109,22 +98,34 @@ export class TutorialController {
   private _isSkipped = false;
   private destroyed = false;
   private firstCaptureOccurred = false;
+  private previewShown = false;
 
-  /** Elapsed time in preview_result step (seconds). */
-  private previewElapsed = 0;
-  /** Elapsed time in tower_roles step (seconds). */
-  private towerRolesElapsed = 0;
+  /** Elapsed time in the current step (seconds). */
+  private stepElapsed = 0;
 
   /** Minimum readable display time for the preview result step. */
   public static readonly PREVIEW_RESULT_MIN_DURATION = 2.5;
-  /** Display duration for explaining tower roles. */
-  public static readonly TOWER_ROLES_DURATION = 4.0;
+  /** Minimum display time for the tower-roles step after a capture. */
+  public static readonly TOWER_ROLES_MIN_DURATION = 1.5;
 
   constructor(
-    private readonly playerId: string,
     private readonly onEvent: TutorialEventCallback,
+    options: TutorialStartOptions = {},
   ) {
-    // Fire the initial started event and enter the first step.
+    if (options.resumeCompleted === true) {
+      // Silent completed state for the save-retry resume path: the four
+      // guided actions were genuinely performed in a previous session, so
+      // no started/step events fire and no action is required again.
+      this.stepIndex = STEP_DEFINITIONS.length - 1;
+      this._isCompleted = true;
+      return;
+    }
+    const requested = Math.trunc(options.startStep ?? 0);
+    this.stepIndex =
+      Number.isFinite(requested) && requested > 0 && requested < STEP_DEFINITIONS.length
+        ? requested
+        : 0;
+    // Fire the initial started event and enter the (possibly resumed) step.
     this.emit({ type: 'started' });
     this.emit({ type: 'step_entered', stepId: this.currentStepId ?? undefined });
   }
@@ -141,6 +142,15 @@ export class TutorialController {
     return this._isCompleted;
   }
 
+  get isSkipped(): boolean {
+    return this._isSkipped;
+  }
+
+  /** Current step index; persists as the resume marker between sessions. */
+  get currentStepIndex(): number {
+    return this.stepIndex;
+  }
+
   get currentStep(): TutorialStepInfo | null {
     if (!this.isActive) return null;
     return STEP_DEFINITIONS[this.stepIndex] ?? null;
@@ -151,16 +161,16 @@ export class TutorialController {
   }
 
   /**
-   * When true, the entire bot match simulation (including elapsed time and bot AI)
-   * is paused so the player can read the first instruction without time pressure.
+   * When true, the entire bot match simulation (including elapsed time and
+   * bot AI) is paused so the player can read the first instruction without
+   * time pressure. Only a fresh first step freezes the battle; a resumed
+   * tutorial keeps running so repeated actions happen in live conditions.
    */
   get shouldPauseSimulation(): boolean {
     return this.isActive && this.stepIndex === 0;
   }
 
-  /**
-   * Backward-compatible alias for shouldPauseSimulation.
-   */
+  /** Backward-compatible alias for shouldPauseSimulation. */
   get shouldSuppressAI(): boolean {
     return this.shouldPauseSimulation;
   }
@@ -187,7 +197,9 @@ export class TutorialController {
       return;
     }
 
-    // Rule 7: A second dispatch must NOT skip preview_result before capture.
+    // Dispatches during the reading/capture steps must not skip ahead: the
+    // preview step requires a seen outcome badge, the roles step a capture,
+    // and the final step a multi-source dispatch.
     if (step === 'preview_result' || step === 'tower_roles') {
       return;
     }
@@ -209,36 +221,38 @@ export class TutorialController {
     if (capturedByPlayer) {
       this.firstCaptureOccurred = true;
 
-      // In preview_result, once minimum display duration is met AND capture occurred, enter tower_roles.
-      if (
-        this.currentStepId === 'preview_result' &&
-        this.previewElapsed >= TutorialController.PREVIEW_RESULT_MIN_DURATION
-      ) {
-        this.advanceStep();
+      // The roles step is completed by the capture itself (after a short
+      // readable display beat handled by onTimerTick).
+      if (this.currentStepId === 'tower_roles') {
+        if (this.stepElapsed >= TutorialController.TOWER_ROLES_MIN_DURATION) {
+          this.advanceStep();
+        }
       }
     }
   }
 
   /**
-   * Called when the drag-badge preview becomes visible to the player.
+   * Called when the drag-badge outcome preview (WIN/TIE/-N) becomes visible
+   * to the player. Counts as the guided "outcome preview" action.
    */
   onPreviewShown(): void {
-    // Retained for interface compatibility.
+    if (!this.isActive) return;
+    this.previewShown = true;
   }
 
   /**
    * Called every frame with the frame delta (seconds).
-   * Used to advance timed steps when requirements are met.
+   * Advances the current step's minimum display duration.
    */
   onTimerTick(deltaSeconds: number): void {
     if (!this.isActive) return;
+    if (!Number.isFinite(deltaSeconds) || deltaSeconds <= 0) return;
+    this.stepElapsed += deltaSeconds;
 
     if (this.currentStepId === 'preview_result') {
-      this.previewElapsed += deltaSeconds;
-      // preview_result remains visible for min duration AND waits for first capture.
       if (
-        this.previewElapsed >= TutorialController.PREVIEW_RESULT_MIN_DURATION &&
-        this.firstCaptureOccurred
+        this.previewShown &&
+        this.stepElapsed >= TutorialController.PREVIEW_RESULT_MIN_DURATION
       ) {
         this.advanceStep();
       }
@@ -246,8 +260,10 @@ export class TutorialController {
     }
 
     if (this.currentStepId === 'tower_roles') {
-      this.towerRolesElapsed += deltaSeconds;
-      if (this.towerRolesElapsed >= TutorialController.TOWER_ROLES_DURATION) {
+      if (
+        this.firstCaptureOccurred &&
+        this.stepElapsed >= TutorialController.TOWER_ROLES_MIN_DURATION
+      ) {
         this.advanceStep();
       }
       return;
@@ -264,7 +280,6 @@ export class TutorialController {
     const lastStepId = this.currentStepId ?? undefined;
     this._isSkipped = true;
     this.emit({ type: 'skipped', stepId: lastStepId });
-    this.persist();
   }
 
   // -----------------------------------------------------------------------
@@ -287,25 +302,21 @@ export class TutorialController {
 
     const finishedStepId = this.currentStepId;
     this.stepIndex++;
-    this.previewElapsed = 0;
-    this.towerRolesElapsed = 0;
+    this.stepElapsed = 0;
+    this.previewShown = false;
+    this.firstCaptureOccurred = false;
 
     if (finishedStepId) {
       this.emit({ type: 'step_completed', stepId: finishedStepId });
     }
 
     if (this.stepIndex >= STEP_DEFINITIONS.length) {
-      // Tutorial complete
+      // All four guided actions performed: the tutorial is complete.
       this._isCompleted = true;
       this.emit({ type: 'completed' });
-      this.persist();
     } else {
       this.emit({ type: 'step_entered', stepId: this.currentStepId! });
     }
-  }
-
-  private persist(): void {
-    markTutorialCompleted(this.playerId);
   }
 
   private emit(event: TutorialEvent): void {

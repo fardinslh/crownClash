@@ -75,7 +75,11 @@ export type AnalyticsEventInput =
   | { name: 'tutorial_started' }
   | { name: 'tutorial_step_completed'; stepId: TutorialStepId }
   | { name: 'tutorial_completed' }
-  | { name: 'tutorial_skipped'; lastStepId: TutorialStepId };
+  | { name: 'tutorial_skipped'; lastStepId: TutorialStepId }
+  | { name: 'tutorial_menu_opened' }
+  | { name: 'tutorial_menu_closed' }
+  | { name: 'tutorial_leave_requested' }
+  | { name: 'tutorial_leave_cancelled' };
 
 export type UpgradeAnalyticsEvent = Extract<
   AnalyticsEventInput,
@@ -124,6 +128,10 @@ const EVENT_NAMES: ReadonlySet<AnalyticsEvent['name']> = new Set([
   'tutorial_step_completed',
   'tutorial_completed',
   'tutorial_skipped',
+  'tutorial_menu_opened',
+  'tutorial_menu_closed',
+  'tutorial_leave_requested',
+  'tutorial_leave_cancelled',
 ]);
 
 const sessionId = createIdentifier('session');

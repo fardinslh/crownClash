@@ -82,6 +82,9 @@ async function connectPlayer(index: number, runId: number): Promise<PlayerHarnes
   );
   const socket = sdk.createSocket(false, false);
   await socket.connect(session, false);
+  // Fresh smoke account: clear the first-play tutorial gate so the 2v2
+  // matchmaker tickets are accepted.
+  await socket.rpc('tutorial/complete', '{}');
 
   const events = {
     started2v2: [] as LiveMatchStarted2v2[],

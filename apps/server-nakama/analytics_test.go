@@ -149,6 +149,26 @@ func TestMatchStartAnalyticsAcceptsLegacyAndBattlefieldPayloads(t *testing.T) {
 	}
 }
 
+func TestTutorialMenuAnalyticsEvents(t *testing.T) {
+	for _, name := range []string{
+		"tutorial_menu_opened", "tutorial_menu_closed",
+		"tutorial_leave_requested", "tutorial_leave_cancelled",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseAnalyticsEventsPayload(analyticsPayload([]AnalyticsEventRecord{
+				analyticsTestEvent(name, map[string]any{}),
+			}), analyticsTestNow); err != nil {
+				t.Fatalf("valid tutorial event rejected: %v", err)
+			}
+			if _, err := parseAnalyticsEventsPayload(analyticsPayload([]AnalyticsEventRecord{
+				analyticsTestEvent(name, map[string]any{"unexpected": true}),
+			}), analyticsTestNow); err == nil || err.Error() != "invalid_event_props" {
+				t.Fatalf("unexpected property accepted: %v", err)
+			}
+		})
+	}
+}
+
 func TestAnalyticsPayloadAcceptsValidEvent(t *testing.T) {
 	events, err := parseAnalyticsEventsPayload(analyticsPayload([]AnalyticsEventRecord{
 		analyticsTestEvent("match_end", map[string]any{

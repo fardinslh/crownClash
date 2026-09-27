@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 const { MockScene, MockGameObject, MockGraphics, MockContainer, storage } = vi.hoisted(() => {
   const storage = new Map<string, string>();
@@ -59,6 +59,7 @@ const { MockScene, MockGameObject, MockGraphics, MockContainer, storage } = vi.h
     setX(x: number) { this.x = x; return this; }
     setY(y: number) { this.y = y; return this; }
     setSize(w: number, h: number) { this.width = w; this.height = h; return this; }
+    setRadius(r: number) { this.width = r * 2; this.height = r * 2; return this; }
     setDisplaySize(_w: number, _h: number) { return this; }
     setText(t: string) { this.text = t; return this; }
     setColor(c: string) { this.color = c; return this; }
@@ -310,10 +311,17 @@ import { BrowserPlatformAdapter } from '@crown-clash/platform';
 import {
   createDefaultCareer,
   settleMatch,
+  type BotMatchTicket,
   type MatchSettlement,
   type PlayerCareer,
 } from '@crown-clash/game-core';
 import type { CareerApi } from '../../api/GameApiClient.js';
+import { trackEvent, trackTerminalMatchEvent } from '../../analytics/Analytics.js';
+import {
+  isStartupLoadingShellDismissed,
+  LOADING_SHELL_ID,
+  resetStartupLoadingShellStateForTesting,
+} from '../../ui/StartupLoadingShell.js';
 
 /**
  * Deterministically drains pending microtasks (promise continuations) without
@@ -344,6 +352,7 @@ describe('GameScene Initialization Parity & Late-Response Guards', () => {
 
     const fakeApi: CareerApi = {
       login: async () => connectPromise,
+      completeTutorial: async () => connectPromise,
       getCareer: async () => createDefaultCareer(platformUserId),
       getLedger: async () => [],
       startBotMatch: async () => ({ matchId: 'bot_delayed_test', battlefieldId: 'crown_cross' }),
@@ -415,6 +424,7 @@ describe('GameScene Initialization Parity & Late-Response Guards', () => {
 
     const fakeApi: CareerApi = {
       login: async () => loginPromise,
+      completeTutorial: async () => loginPromise,
       getCareer: async () => createDefaultCareer(platformUserId),
       getLedger: async () => [],
       startBotMatch: async () => ({ matchId: 'bot_prod_auth_ticket', battlefieldId: 'crown_cross' }),
@@ -499,6 +509,7 @@ describe('GameScene Initialization Parity & Late-Response Guards', () => {
     let matchCount = 0;
     const fakeApi: CareerApi = {
       login: async () => createDefaultCareer(platformUserId),
+      completeTutorial: async () => createDefaultCareer(platformUserId),
       getCareer: async () => createDefaultCareer(platformUserId),
       getLedger: async () => [],
       startBotMatch: async () => {
@@ -615,6 +626,7 @@ describe('GameScene Initialization Parity & Late-Response Guards', () => {
 
     const fakeApi: CareerApi = {
       login: async () => authoritativeCareer,
+      completeTutorial: async () => authoritativeCareer,
       getCareer: async () => authoritativeCareer,
       getLedger: async () => [],
       startBotMatch: async () => ({ matchId: 'bot_auth_test', battlefieldId: 'crown_cross' }),
@@ -657,5 +669,247 @@ describe('GameScene Initialization Parity & Late-Response Guards', () => {
       scene.update(i * 20, 20); // 1 second (50 ticks @ 20ms)
     }
     expect((scene as any).gameState.territories['p_base'].units).toBeGreaterThanOrEqual(30);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// First-launch training integration (review findings 1-3)
+// ---------------------------------------------------------------------------
+
+describe('First-launch training integration', () => {
+  let shellStub: { remove: ReturnType<typeof vi.fn>; style: Record<string, string>; classList: { add: ReturnType<typeof vi.fn> } };
+
+  beforeEach(() => {
+    // The node environment has no window, so BrowserPlatformAdapter falls
+    // back to the stable 'server_guest' id — every test in this describe
+    // must start from clean per-player storage.
+    storage.clear();
+    vi.clearAllMocks();
+    (CareerManager as any).instance = null;
+    resetStartupLoadingShellStateForTesting();
+    shellStub = {
+      remove: vi.fn(),
+      style: {},
+      classList: { add: vi.fn() },
+    };
+    (globalThis as any).document = {
+      getElementById: (id: string) => (id === LOADING_SHELL_ID ? shellStub : null),
+    };
+  });
+
+  afterEach(() => {
+    delete (globalThis as any).document;
+  });
+
+  const makeTrainingApi = (behavior: {
+    completeTutorial: () => Promise<PlayerCareer>;
+    startBotMatch?: () => Promise<BotMatchTicket>;
+  }): CareerApi => ({
+    login: async () => createDefaultCareer('training_player'),
+    completeTutorial: behavior.completeTutorial,
+    getCareer: async () => createDefaultCareer('training_player'),
+    getLedger: async () => [],
+    startBotMatch:
+      behavior.startBotMatch ??
+      (async () => ({ matchId: 'bot_after_training', battlefieldId: 'crown_cross' } satisfies BotMatchTicket)),
+    settleMatch: async () => { throw new Error('settlement_must_not_run_in_training'); },
+    purchaseUpgrade: async () => { throw new Error('not_used'); },
+    selectCommander: async () => { throw new Error('not_used'); },
+    getDailyState: async () => { throw new Error('not_used'); },
+    claimDailyReward: async () => { throw new Error('not_used'); },
+    getLeagueState: async () => { throw new Error('not_used'); },
+    claimLeagueReward: async () => { throw new Error('not_used'); },
+    trackEvents: async () => undefined,
+    openLiveMatch: () => { throw new Error('not_used'); },
+    isAuthenticated: () => true,
+  });
+
+  async function bootTrainingScene(
+    api: CareerApi,
+    platformId = 'training_player'
+  ): Promise<GameScene> {
+    const platform = new BrowserPlatformAdapter();
+    const manager = CareerManager.getInstance(platformId);
+    await manager.connect(platform, api);
+    const scene = new GameScene();
+    scene.registry.set('platform', platform);
+    scene.scene.settings.data = { source: 'menu', mode: 'bot', training: true };
+    scene.create();
+    return scene;
+  }
+
+  /** Performs the four guided actions through the real controller hooks. */
+  function performGuidedActions(scene: GameScene): void {
+    const controller = (scene as any).trainingController;
+    controller.onDispatch(['p_base'], 'n_bot_left');
+    controller.onPreviewShown();
+    controller.onTimerTick(2.6);
+    controller.onCapture('n_bot_left', true);
+    controller.onTimerTick(1.6);
+    controller.onDispatch(['p_base', 'n_bot_left'], 'n_center');
+  }
+
+  const trackedNames = (): string[] =>
+    (trackEvent as unknown as ReturnType<typeof vi.fn>).mock.calls.map(
+      (call) => (call[0] as { name: string }).name
+    );
+
+  it('first launch: the startup shell is dismissed once the training scene is ready, and training is interactive', async () => {
+    const api = makeTrainingApi({ completeTutorial: async () => createDefaultCareer('training_player') });
+    const scene = await bootTrainingScene(api);
+
+    // The DOM shell (z-index 10000, touch-capturing) must be gone once the
+    // training scene finished constructing.
+    expect(isStartupLoadingShellDismissed()).toBe(true);
+    expect(shellStub.remove).toHaveBeenCalledTimes(1);
+
+    // The training scene is ready for input: the guided controller sits on
+    // its first step, the overlay renders it, the spotlight marks the
+    // player's base, and the scene's pointer listeners are attached.
+    expect((scene as any).trainingMode).toBe(true);
+    const controller = (scene as any).trainingController;
+    expect(controller.currentStepId).toBe('drag_to_attack');
+    expect(controller.isActive).toBe(true);
+    const overlay = (scene as any).trainingOverlay;
+    expect(overlay).toBeDefined();
+    expect(overlay.spotlight.visible).toBe(true);
+    expect((scene as any).input.on).toHaveBeenCalled();
+    // No shell element remains in the DOM to swallow the canvas touches.
+    expect((globalThis as any).document.getElementById('loading-shell')).toBe(shellStub);
+    expect(shellStub.style.display).toBe('none');
+    expect(shellStub.style.pointerEvents).toBe('none');
+  });
+
+  it('completion save: failure keeps the actions-complete state, retry succeeds exactly once, and no settlement runs', async () => {
+    let saveAttempts = 0;
+    const api = makeTrainingApi({
+      completeTutorial: () => {
+        saveAttempts += 1;
+        if (saveAttempts === 1) return Promise.reject(new Error('network_down'));
+        return Promise.resolve({
+          ...createDefaultCareer('training_player'),
+          tutorialCompleted: true,
+        });
+      },
+    });
+    const platform = new BrowserPlatformAdapter();
+    const playerId = platform.getUser().id;
+    const scene = await bootTrainingScene(api, playerId);
+
+    performGuidedActions(scene);
+    await flushMicrotasks();
+
+    // Save failed: the four performed actions are persisted as the
+    // actions-complete sentinel so nothing is repeated, and the completion
+    // analytics has NOT fired yet.
+    expect(saveAttempts).toBe(1);
+    expect(storage.get(`crown_clash_training_progress_${playerId}`)).toBe('4');
+    expect(trackedNames()).not.toContain('tutorial_completed');
+    // The fail-closed retry affordance is on screen.
+    expect((scene as any).trainingOverlay.retryButton).toBeDefined();
+
+    // RETRY: the same save flow re-runs without re-performing actions.
+    (scene as any).handleTrainingCompleted();
+    await flushMicrotasks();
+
+    expect(saveAttempts).toBe(2);
+    expect(storage.has(`crown_clash_training_progress_${playerId}`)).toBe(false);
+    // Exactly-once completion analytics across the failed + retry path.
+    expect(trackedNames().filter((name) => name === 'tutorial_completed')).toHaveLength(1);
+    expect(trackedNames().filter((name) => name === 'tutorial_step_completed')).toHaveLength(4);
+    // The first real match starts from the confirmed server write.
+    expect((scene as any).scene.start).toHaveBeenCalledWith('GameScene', {
+      source: 'menu',
+      botMatch: { matchId: 'bot_after_training', battlefieldId: 'crown_cross' },
+    });
+    // Training never settles and never rewards.
+    expect(trackedNames()).not.toContain('match_end');
+    expect(trackedNames()).not.toContain('match_reward_received');
+    expect(trackedNames()).not.toContain('reward_granted');
+  });
+
+  it('reload after a failed save: training resumes straight into the save flow without repeating any action', async () => {
+    const platform = new BrowserPlatformAdapter();
+    const playerId = platform.getUser().id;
+    // A previous session performed all four actions but the save failed.
+    storage.set(`crown_clash_training_progress_${playerId}`, '4');
+
+    // One connected api whose network recovers after the first failed save.
+    let saveAttempts = 0;
+    const api = makeTrainingApi({
+      completeTutorial: () => {
+        saveAttempts += 1;
+        if (saveAttempts === 1) return Promise.reject(new Error('still_offline'));
+        return Promise.resolve({
+          ...createDefaultCareer(playerId),
+          tutorialCompleted: true,
+        });
+      },
+    });
+    const scene = await bootTrainingScene(api, playerId);
+    await flushMicrotasks();
+
+    // The controller boots silently into the completed state: no guided
+    // step is active and no step analytics fires for already-done actions.
+    const controller = (scene as any).trainingController;
+    expect(controller.isCompleted).toBe(true);
+    expect(controller.isActive).toBe(false);
+    expect(controller.currentStep).toBeNull();
+    expect(trackedNames().filter((name) => name === 'tutorial_step_completed')).toHaveLength(0);
+    // The save retry already ran once automatically and failed closed again.
+    expect(saveAttempts).toBe(1);
+    expect(storage.get(`crown_clash_training_progress_${playerId}`)).toBe('4');
+    expect((scene as any).trainingOverlay.retryButton).toBeDefined();
+    expect(trackedNames()).not.toContain('tutorial_completed');
+
+    // The network recovered: the idempotent retry closes the loop with the
+    // same exactly-once completion — no actions are ever repeated.
+    (scene as any).handleTrainingCompleted();
+    await flushMicrotasks();
+    expect(saveAttempts).toBe(2);
+    expect(storage.has(`crown_clash_training_progress_${playerId}`)).toBe(false);
+    expect(trackedNames().filter((name) => name === 'tutorial_step_completed')).toHaveLength(0);
+    expect(trackedNames().filter((name) => name === 'tutorial_completed')).toHaveLength(1);
+  });
+
+  it('training menu: match_* navigation events are remapped or suppressed; confirming exit never emits match events or settles', async () => {
+    const api = makeTrainingApi({
+      completeTutorial: async () => ({ ...createDefaultCareer('training_player'), tutorialCompleted: true }),
+    });
+    const scene = await bootTrainingScene(api);
+    const menu = (scene as any).matchMenuController;
+
+    // Open the pause menu, request leave, cancel, reopen, confirm.
+    menu.openMenu();
+    expect(trackedNames()).toContain('tutorial_menu_opened');
+    menu.openConfirm('menu');
+    expect(trackedNames()).toContain('tutorial_leave_requested');
+    menu.backToMenu();
+    expect(trackedNames()).toContain('tutorial_leave_cancelled');
+    menu.closeMenu();
+    expect(trackedNames()).toContain('tutorial_menu_closed');
+    menu.openConfirm('menu');
+    menu.confirmExit();
+
+    // No ordinary bot-match navigation or quit events ever fire.
+    const names = trackedNames();
+    for (const banned of [
+      'match_menu_opened',
+      'match_resumed',
+      'match_leave_requested',
+      'match_leave_cancelled',
+      'match_quit_confirmed',
+      'match_quit',
+      'match_start',
+      'match_end',
+      'match_reward_received',
+    ]) {
+      expect(names).not.toContain(banned);
+    }
+    // Leaving training is a tutorial skip.
+    expect(names).toContain('tutorial_skipped');
+    // No terminal match tracking and no settlement/reward attempt.
+    expect(trackTerminalMatchEvent).not.toHaveBeenCalled();
+    expect((scene as any).careerManager.getCareer().matchesPlayed).toBe(0);
   });
 });

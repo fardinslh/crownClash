@@ -104,6 +104,16 @@ func beforeMatchmakerAdd(store *Store) func(ctx context.Context, logger runtime.
 			rejectMatchmakerTicket(logger, add, "career_unavailable")
 			return nil, errors.New("matchmaker_ticket_unavailable")
 		}
+		// PvP entry (1v1 and 2v2 alike) is gated on the account-wide
+		// tutorial flag: matchmaker tickets are rejected while the flag is
+		// incomplete. The flag is written by tutorial/complete after
+		// honest-client training — the server does not replay the training
+		// actions (acceptable: the tutorial grants no rewards or economy
+		// value; it only gates first entry into matchmaking).
+		if !career.TutorialCompleted {
+			rejectMatchmakerTicket(logger, add, "tutorial_required")
+			return nil, errors.New("matchmaker_tutorial_required")
+		}
 
 		switch mode {
 		case MatchMode2v2:

@@ -231,6 +231,7 @@ describe('CareerManager', () => {
     };
     const remoteApi: CareerApi = {
       login: async () => remoteCareer,
+      completeTutorial: async () => remoteCareer,
       getCareer: async () => remoteCareer,
       getLedger: async () => [],
       startBotMatch: async () => ({ matchId: 'bot_test', battlefieldId: 'crown_cross' }),
@@ -341,8 +342,9 @@ describe('CareerManager', () => {
     const remoteCareer = createDefaultCareer('dedup_player');
     let logins = 0;
     const remoteApi: CareerApi = {
+      completeTutorial: async () => { throw new Error('not_expected_in_this_test'); },
       login: async () => {
-        logins++;
+              logins++;
         await new Promise((resolve) => setTimeout(resolve, 10));
         return remoteCareer;
       },
@@ -395,8 +397,9 @@ describe('CareerManager', () => {
     let logins = 0;
     let starts = 0;
     const remoteApi: CareerApi = {
+      completeTutorial: async () => { throw new Error('not_expected_in_this_test'); },
       login: async () => {
-        logins++;
+              logins++;
         return remoteCareer;
       },
       getCareer: async () => remoteCareer,
@@ -438,8 +441,9 @@ describe('CareerManager', () => {
     let logins = 0;
     let settles = 0;
     const remoteApi: CareerApi = {
+      completeTutorial: async () => { throw new Error('not_expected_in_this_test'); },
       login: async () => {
-        logins++;
+              logins++;
         return remoteCareer;
       },
       getCareer: async () => remoteCareer,
@@ -520,6 +524,7 @@ describe('CareerManager', () => {
     let careerToServe = remoteCareer;
     const remoteApi: CareerApi = {
       login: async () => remoteCareer,
+      completeTutorial: async () => remoteCareer,
       getCareer: async () => careerToServe,
       getLedger: async () => [],
       startBotMatch: async () => ({ matchId: 'bot_test', battlefieldId: 'crown_cross' }),
@@ -578,8 +583,9 @@ describe('CareerManager', () => {
     let logins = 0;
     let starts = 0;
     const remoteApi: CareerApi = {
+      completeTutorial: async () => { throw new Error('not_expected_in_this_test'); },
       login: async () => {
-        logins++;
+              logins++;
         return remoteCareer;
       },
       getCareer: async () => remoteCareer,
@@ -620,8 +626,9 @@ describe('CareerManager', () => {
     let logins = 0;
     let starts = 0;
     const remoteApi: CareerApi = {
+      completeTutorial: async () => { throw new Error('not_expected_in_this_test'); },
       login: async () => {
-        logins++;
+              logins++;
         return remoteCareer;
       },
       getCareer: async () => remoteCareer,
@@ -662,8 +669,9 @@ describe('CareerManager', () => {
     let logins = 0;
     let settles = 0;
     const remoteApi: CareerApi = {
+      completeTutorial: async () => { throw new Error('not_expected_in_this_test'); },
       login: async () => {
-        logins++;
+              logins++;
         return remoteCareer;
       },
       getCareer: async () => remoteCareer,
@@ -714,8 +722,9 @@ describe('CareerManager', () => {
     let logins = 0;
     let settles = 0;
     const remoteApi: CareerApi = {
+      completeTutorial: async () => { throw new Error('not_expected_in_this_test'); },
       login: async () => {
-        logins++;
+              logins++;
         return remoteCareer;
       },
       getCareer: async () => remoteCareer,
@@ -777,8 +786,9 @@ describe('CareerManager', () => {
       let settles = 0;
       let starts = 0;
       const remoteApi: CareerApi = {
+        completeTutorial: async () => { throw new Error('not_expected_in_this_test'); },
         login: async () => {
-          logins++;
+                  logins++;
           return remoteCareer;
         },
         getCareer: async () => remoteCareer,
@@ -833,6 +843,7 @@ describe('CareerManager', () => {
     };
     const fakeApi: CareerApi = {
       login: async () => serverCareer,
+      completeTutorial: async () => serverCareer,
       getCareer: async () => serverCareer,
       getLedger: async () => [],
       startBotMatch: async () => ({ matchId: 'bot_test', battlefieldId: 'crown_cross' }),
@@ -870,5 +881,138 @@ describe('CareerManager', () => {
     expect(scene2Manager.getCareer().productionLevel).toBe(3);
     expect(scene2Manager.getCareer().armySpeedLevel).toBe(2);
     expect(scene2Manager.getCareer().selectedCommanderId).toBe('quartermaster');
+  });
+
+  describe('tutorial completion (server-owned, fail-closed)', () => {
+    const makeApi = (career: ReturnType<typeof createDefaultCareer>, completeImpl?: () => Promise<unknown>) => {
+      const api: CareerApi = {
+        login: async () => career,
+        completeTutorial: completeImpl
+          ? (completeImpl as CareerApi['completeTutorial'])
+          : async () => { throw new Error('not_expected_in_this_test'); },
+        getCareer: async () => career,
+        getLedger: async () => [],
+        startBotMatch: async () => { throw new Error('not_used_in_test'); },
+        settleMatch: async () => { throw new Error('not_used_in_test'); },
+        purchaseUpgrade: async () => { throw new Error('not_used_in_test'); },
+        selectCommander: async () => { throw new Error('not_used_in_test'); },
+        getDailyState: async () => { throw new Error('not_used_in_test'); },
+        claimDailyReward: async () => { throw new Error('not_used_in_test'); },
+        getLeagueState: async () => { throw new Error('not_used_in_test'); },
+        claimLeagueReward: async () => { throw new Error('not_used_in_test'); },
+        trackEvents: async () => undefined,
+        openLiveMatch: () => { throw new Error('not_used_in_test'); },
+        isAuthenticated: () => true,
+      };
+      return api;
+    };
+    const adapterFor = (id: string) =>
+      ({ platform: 'browser', getInitDataRaw: () => `user=${id}` }) as PlatformAdapter;
+
+    it('treats local-only (offline fallback) careers as tutorial-incomplete', () => {
+      const manager = CareerManager.getInstance('tutorial_local_player');
+      expect(manager.getCareer().tutorialCompleted).toBeUndefined();
+      expect(manager.isTutorialCompleted()).toBe(false);
+    });
+
+    it('reflects the server-known flag after connect', async () => {
+      const done = { ...createDefaultCareer('tutorial_done_player'), tutorialCompleted: true };
+      const manager = CareerManager.getInstance('tutorial_done_player');
+      await manager.connect(adapterFor('tutorial_done_player'), makeApi(done));
+      expect(manager.isTutorialCompleted()).toBe(true);
+
+      const pending = createDefaultCareer('tutorial_pending_player');
+      const pendingManager = CareerManager.getInstance('tutorial_pending_player');
+      await pendingManager.connect(adapterFor('tutorial_pending_player'), makeApi(pending));
+      expect(pendingManager.isTutorialCompleted()).toBe(false);
+    });
+
+    it('migrates a legacy War Academy marker exactly once at login', async () => {
+      const pending = createDefaultCareer('tutorial_migrate_player');
+      window.localStorage.setItem('crown_clash_tutorial_tutorial_migrate_player', '1');
+      const completedCareer = { ...pending, tutorialCompleted: true };
+      let completions = 0;
+      const api = makeApi(pending, async () => {
+        completions++;
+        return completedCareer;
+      });
+
+      const manager = CareerManager.getInstance('tutorial_migrate_player');
+      await manager.connect(adapterFor('tutorial_migrate_player'), api);
+
+      expect(completions).toBe(1);
+      expect(manager.isTutorialCompleted()).toBe(true);
+      expect(window.localStorage.getItem('crown_clash_tutorial_tutorial_migrate_player')).toBeNull();
+    });
+
+    it('a graduate on a second device never re-migrates (server already complete)', async () => {
+      const done = { ...createDefaultCareer('tutorial_second_device_player'), tutorialCompleted: true };
+      window.localStorage.setItem('crown_clash_tutorial_tutorial_second_device_player', '1');
+      const api = makeApi(done, async () => {
+        throw new Error('should_not_migrate_when_server_knows');
+      });
+
+      const manager = CareerManager.getInstance('tutorial_second_device_player');
+      await manager.connect(adapterFor('tutorial_second_device_player'), api);
+
+      expect(manager.isTutorialCompleted()).toBe(true);
+      expect(window.localStorage.getItem('crown_clash_tutorial_tutorial_second_device_player')).toBeNull();
+    });
+
+    it('completeTutorialRemote applies the fresh server career', async () => {
+      const pending = createDefaultCareer('tutorial_complete_player');
+      const completedCareer = { ...pending, tutorialCompleted: true };
+      let completions = 0;
+      const api = makeApi(pending, async () => {
+        completions++;
+        return completedCareer;
+      });
+
+      const manager = CareerManager.getInstance('tutorial_complete_player');
+      await manager.connect(adapterFor('tutorial_complete_player'), api);
+      expect(manager.isTutorialCompleted()).toBe(false);
+
+      await manager.completeTutorialRemote();
+      expect(completions).toBe(1);
+      expect(manager.isTutorialCompleted()).toBe(true);
+    });
+
+    it('completeTutorialRemote failure leaves the player incomplete (fail-closed, retryable)', async () => {
+      const pending = createDefaultCareer('tutorial_fail_player');
+      const api = makeApi(pending, async () => {
+        throw new Error('network_down');
+      });
+
+      const manager = CareerManager.getInstance('tutorial_fail_player');
+      await manager.connect(adapterFor('tutorial_fail_player'), api);
+
+      await expect(manager.completeTutorialRemote()).rejects.toThrow('network_down');
+      expect(manager.isTutorialCompleted()).toBe(false);
+    });
+
+    it('completeTutorialRemote reconnects and retries once on a stale socket', async () => {
+      const pending = createDefaultCareer('tutorial_retry_player');
+      const completedCareer = { ...pending, tutorialCompleted: true };
+      let logins = 0;
+      let completions = 0;
+      const api = makeApi(pending, async () => {
+        completions++;
+        if (completions === 1) throw new StaleSocketError('Socket connection has not been established yet.');
+        return completedCareer;
+      });
+      const originalLogin = api.login;
+      api.login = async (platform) => {
+        logins++;
+        return originalLogin(platform);
+      };
+
+      const manager = CareerManager.getInstance('tutorial_retry_player');
+      await manager.connect(adapterFor('tutorial_retry_player'), api);
+
+      await manager.completeTutorialRemote(adapterFor('tutorial_retry_player'));
+      expect(logins).toBe(2);
+      expect(completions).toBe(2);
+      expect(manager.isTutorialCompleted()).toBe(true);
+    });
   });
 });

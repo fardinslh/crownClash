@@ -290,6 +290,13 @@ CREATE TABLE IF NOT EXISTS match_replays (
 );
 `,
 	},
+	{
+		name: "012_tutorial_completion",
+		sql: `
+ALTER TABLE players
+  ADD COLUMN IF NOT EXISTS tutorial_completed BOOLEAN NOT NULL DEFAULT FALSE;
+`,
+	},
 }
 
 func RunMigrations(ctx context.Context, db *sql.DB) error {

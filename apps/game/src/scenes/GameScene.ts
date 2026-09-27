@@ -34,6 +34,18 @@ import {
 } from '@crown-clash/game-core';
 import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { CareerManager } from '../career/CareerManager.js';
+import { TrainingOverlayUI } from './trainingOverlay.js';
+import { TutorialController } from '../tutorial/TutorialController.js';
+import {
+  clearTrainingProgress,
+  createTrainingTicket,
+  loadTrainingProgress,
+  remapTrainingMenuAnalytics,
+  saveTrainingProgress,
+  TRAINING_ACTIONS_COMPLETE,
+  tutorialQuitEvent,
+} from '../tutorial/TutorialStatus.js';
+import { dismissStartupLoadingShell } from '../ui/StartupLoadingShell.js';
 import {
   battlefieldIdFromLaunchData,
   createProceduralTerritoryFallbackTexture,
@@ -41,6 +53,8 @@ import {
   drawSocketRimLight,
   getArenaAccentPositions,
   listRuntimeSpritePaths,
+  runtimeTerritoryTextureKey,
+  territoryArtFootprint,
   resolveTerritoryTextureKey,
   territoryHitAreaSize,
 } from '../art/BattlefieldArt.js';
@@ -113,7 +127,7 @@ import {
   TWO_V_TWO_CASUAL_NOTICE,
   twoVTwoRematchButtonLabel,
 } from '../pvp/TwoVTwoResultViewModel.js';
-import { createBattlefieldDecorations } from '../ui/BattlefieldArenaLayout.js';
+import { createBattlefieldDecorations, createBattlefieldTerrainLayers } from '../ui/BattlefieldArenaLayout.js';
 import { drawTowerRoleIcon } from '../ui/TowerRoleIcon.js';
 import {
   computeMarchStride,
@@ -260,6 +274,14 @@ export class GameScene extends Phaser.Scene {
   private matchMenuModalContainer?: Phaser.GameObjects.Container;
   private isExiting = false;
 
+  // Guided training battle (first-play tutorial): a client-local bot match
+  // that never settles, never rewards, and completes only through the four
+  // guided actions. See TutorialController/TutorialStatus.
+  private trainingMode = false;
+  private trainingController?: TutorialController;
+  private trainingOverlay?: TrainingOverlayUI;
+  private trainingCompletionPending = false;
+
   // Platform Adapter
   private platform!: PlatformAdapter;
   private lifecycleUnsubscribers: Array<() => void> = [];
@@ -295,10 +317,11 @@ export class GameScene extends Phaser.Scene {
     const launchData = this.scene.settings.data as {
       botMatch?: BotMatchTicket;
       liveMatch?: LiveMatchStarted;
+      liveMatch2v2?: LiveMatchStarted2v2;
     } | undefined;
     const battlefieldId = battlefieldIdFromLaunchData(launchData);
     for (const [textureKey, filePath] of Object.entries(listRuntimeSpritePaths(battlefieldId))) {
-      this.load.image(textureKey, filePath);
+      this.load.image(runtimeTerritoryTextureKey(battlefieldId, textureKey), filePath);
     }
 
     // Load 2.5D Rendered Army Unit Sprites
@@ -323,6 +346,7 @@ export class GameScene extends Phaser.Scene {
     const launchData = this.scene.settings.data as {
       source?: 'menu' | 'rematch';
       mode?: 'bot' | 'live';
+      training?: boolean;
       liveClient?: LiveMatchClient;
       liveMatch?: LiveMatchStarted;
       liveMatch2v2?: LiveMatchStarted2v2;
@@ -330,6 +354,12 @@ export class GameScene extends Phaser.Scene {
       career?: PlayerCareer;
     } | undefined;
     this.liveMode = launchData?.mode === 'live';
+    // A guided training battle is a client-local bot match: no server
+    // ticket, no settlement, no rewards. Completion is reported by this
+    // client after the four guided actions and saved account-wide on the
+    // server (the server does not replay or verify the actions — it only
+    // gates bot matches and matchmaker tickets on the saved flag).
+    this.trainingMode = launchData?.training === true && !this.liveMode;
     this.liveClient = launchData?.liveClient;
     this.liveOpponentName =
       launchData?.liveMatch?.opponentName || 'Opponent';
@@ -354,7 +384,13 @@ export class GameScene extends Phaser.Scene {
     });
 
     if (!this.liveMode && !launchData?.botMatch) {
-      if (this.isStressMode) {
+      if (this.trainingMode) {
+        // Local-only training ticket: never settled, never rewarded, and
+        // invisible to the server's bot-match gating.
+        const trainingTicket = createTrainingTicket();
+        this.activeMatchId = trainingTicket.matchId;
+        this.battlefieldId = trainingTicket.battlefieldId;
+      } else if (this.isStressMode) {
         // Disposable isolated offline QA match ticket: does not consume server bot ticket or leave unsettled DB records
         this.activeMatchId = 'qa_stress_isolated_' + Date.now();
         this.battlefieldId = 'crown_cross';
@@ -417,7 +453,9 @@ export class GameScene extends Phaser.Scene {
       matchId: this.activeMatchId,
       confirmationMessage: this.live2v2
         ? 'Surrendering removes you from this battle.\nYour teammate keeps fighting.'
-        : undefined,
+        : this.trainingMode
+          ? 'Leave training?\nYour guided progress is saved.'
+          : undefined,
       getDurationSeconds: () => wholeMatchSeconds(this.gameState?.elapsedTimeSeconds ?? 0),
       closeLiveClient: () => {
         if (this.liveClient) {
@@ -425,8 +463,23 @@ export class GameScene extends Phaser.Scene {
           this.liveClient = undefined;
         }
       },
-      trackQuit: (event) => trackTerminalMatchEvent(event),
-      trackAnalytics: (event) => trackEvent(event),
+      // Training has no real match to quit: leaving it is a tutorial skip,
+      // never a match_quit terminal event.
+      trackQuit: (event) => {
+        if (this.trainingMode) return false;
+        return trackTerminalMatchEvent(event);
+      },
+      // Training is not a match: ordinary match_* menu navigation events
+      // are remapped to the tutorial equivalents (or suppressed) so
+      // analytics never reports a fake bot match around the tutorial.
+      trackAnalytics: (event) => {
+        if (this.trainingMode) {
+          const tutorialEvent = remapTrainingMenuAnalytics(event);
+          if (tutorialEvent) trackEvent(tutorialEvent);
+          return;
+        }
+        trackEvent(event);
+      },
       onStateChange: (state) => this.handleMatchMenuStateChange(state),
       onExitConfirmed: () => this.handleMatchExitConfirmed(),
       isModalVisible: () =>
@@ -444,16 +497,22 @@ export class GameScene extends Phaser.Scene {
       }
       this.matchMenuController.handleBackButton();
     });
-    trackEvent({
-      name: 'match_start',
-      matchId: this.activeMatchId,
-      mode: this.is2v2 ? '2v2' : this.liveMode ? 'live' : 'bot',
-      source: launchData?.source ?? 'menu',
-      battlefieldId: this.battlefieldId,
-      ...(this.live2v2
-        ? { slot: this.live2v2.payload.slot, teamId: this.live2v2.payload.teamId }
-        : {}),
-    });
+    if (this.trainingMode) {
+      // Training is not a real match: no match_start analytics, no match
+      // settlement, no rewards. Only the stable tutorial_* events fire.
+      trackEvent({ name: 'tutorial_started' });
+    } else {
+      trackEvent({
+        name: 'match_start',
+        matchId: this.activeMatchId,
+        mode: this.is2v2 ? '2v2' : this.liveMode ? 'live' : 'bot',
+        source: launchData?.source ?? 'menu',
+        battlefieldId: this.battlefieldId,
+        ...(this.live2v2
+          ? { slot: this.live2v2.payload.slot, teamId: this.live2v2.payload.teamId }
+          : {}),
+      });
+    }
     if (this.liveMode && launchData?.liveMatch2v2) {
       this.bind2v2LiveMatch(this.liveClient);
     } else if (this.liveMode && launchData?.liveMatch) {
@@ -513,6 +572,166 @@ export class GameScene extends Phaser.Scene {
 
     // 5. Setup Pointer Input Listeners
     this.setupInputs();
+
+    // 6. Guided training battle (first-play tutorial)
+    if (this.trainingMode) {
+      this.initTrainingBattle();
+    }
+
+    // First-launch readiness: the startup loading shell sits above the
+    // canvas (z-index 10000) and captures touches, so it must be gone by
+    // the time any interactive scene is ready for input. MenuScene dismisses
+    // it after building the menu, but the first-launch auto-training path
+    // leaves that build entirely — so the dismissal lives here, at the end
+    // of scene construction, with input listeners attached and the training
+    // overlay up. The call is idempotent for every other entry path.
+    dismissStartupLoadingShell();
+  }
+
+  /**
+   * Boots the guided training battle: the controller resumes from the
+   * player's saved progress marker, the overlay renders the current step,
+   * and every controller event routes to analytics + persistence. The
+   * battle itself uses the real bot-match controls; only settlement and
+   * rewards are suppressed (see update/endMatch guards).
+   */
+  private initTrainingBattle(): void {
+    const playerId = this.platform.getUser().id;
+    const progress = loadTrainingProgress(playerId);
+    if (progress === TRAINING_ACTIONS_COMPLETE) {
+      // Reload/relaunch after a failed save: the four guided actions were
+      // already performed. Boot silently into the completed state and go
+      // straight to the save-retry flow — the actions are never repeated.
+      this.trainingController = new TutorialController(() => undefined, {
+        resumeCompleted: true,
+      });
+      this.trainingOverlay = new TrainingOverlayUI(this);
+      this.handleTrainingCompleted();
+      return;
+    }
+    this.trainingController = new TutorialController(
+      (event) => {
+        // Note: the controller emits its first 'started'/'step_entered'
+        // synchronously during construction, before the field assignment
+        // above completes — the guards below make those construction-time
+        // events harmless (the resumed step index is already persisted).
+        if (event.type === 'step_entered') {
+          if (this.trainingController) {
+            saveTrainingProgress(playerId, this.trainingController.currentStepIndex);
+          }
+          this.renderTrainingStep();
+        } else if (event.type === 'step_completed') {
+          if (event.stepId) {
+            trackEvent({ name: 'tutorial_step_completed', stepId: event.stepId });
+          }
+        } else if (event.type === 'completed') {
+          this.handleTrainingCompleted();
+        } else if (event.type === 'skipped') {
+          trackEvent(tutorialQuitEvent(event.stepId ?? null));
+        }
+      },
+      { startStep: progress }
+    );
+    this.trainingOverlay = new TrainingOverlayUI(this);
+    this.renderTrainingStep();
+  }
+
+  /** Renders the current guided step, including the territory spotlight. */
+  private renderTrainingStep(): void {
+    const controller = this.trainingController;
+    const overlay = this.trainingOverlay;
+    if (!controller || !overlay) return;
+    const step = controller.currentStep;
+    overlay.renderStep(step, controller.currentStepIndex);
+    const targetId = step?.spotlightTarget ?? null;
+    const territory = targetId ? this.gameState?.territories[targetId] : null;
+    if (territory) {
+      overlay.spotlightTarget(territory.x, territory.y, territory.radius);
+    } else {
+      overlay.spotlightTarget(null, null, 0);
+    }
+  }
+
+  /**
+   * All four guided actions performed: save the account-wide completion on
+   * the server (fail-closed), then start the first real bot match. The
+   * progress marker is cleared and the completion analytics emitted only
+   * AFTER the server confirms the write — a failed save keeps the
+   * actions-complete state persisted so retries and reloads resume here
+   * without repeating the four actions.
+   */
+  private handleTrainingCompleted(): void {
+    if (this.trainingCompletionPending || this.isExiting) return;
+    this.trainingCompletionPending = true;
+    const playerId = this.platform.getUser().id;
+    this.trainingOverlay?.showSaving();
+    sounds.playVictory();
+    this.platform.hapticNotification('success');
+    void this.careerManager
+      .completeTutorialRemote(this.platform)
+      .then(() => {
+        // Confirmed server success — only now clear the local progress and
+        // emit the completion analytics. Both are exactly-once across
+        // retries: no failure path ever reaches this branch.
+        clearTrainingProgress(playerId);
+        trackEvent({ name: 'tutorial_completed' });
+        if (this.isExiting) return;
+        this.startFirstRealMatch();
+      })
+      .catch((error: unknown) => {
+        console.warn('[GameScene] Tutorial completion save failed (retryable):', error);
+        this.trainingCompletionPending = false;
+        // The four guided actions are already performed: persist the
+        // actions-complete state so a retry, a relaunch, or a full reload
+        // resumes straight into this save flow instead of forcing the
+        // player to repeat the tutorial actions.
+        saveTrainingProgress(playerId, TRAINING_ACTIONS_COMPLETE);
+        if (this.isExiting) return;
+        // Fail-closed: the tutorial remains incomplete until the server
+        // accepts the write. RETRY re-runs the save; nothing is unlocked
+        // locally.
+        this.trainingOverlay?.showSaveError(() => this.handleTrainingCompleted());
+        this.platform.hapticNotification('error');
+      });
+  }
+
+  /** Launches the first ordinary bot match after a saved tutorial. */
+  private startFirstRealMatch(): void {
+    void this.careerManager
+      .startBotMatch(this.platform)
+      .then((botMatch) => {
+        if (!this.scene.isActive()) return;
+        sounds.playDispatch();
+        this.platform.hapticImpact('medium');
+        this.scene.start('GameScene', { source: 'menu', botMatch });
+      })
+      .catch((error: unknown) => {
+        console.warn('[GameScene] First bot match start failed, returning to menu:', error);
+        if (!this.scene.isActive()) return;
+        // The tutorial IS complete (server-saved); the menu no longer
+        // gates entry, so the player can simply press PLAY.
+        this.returnToMenu();
+      });
+  }
+
+  /**
+   * Rebuilds the training battlefield in place: winning or losing the
+   * training battle never completes (or ends) the tutorial — only the four
+   * guided actions do. A rare early match end just resets the sandbox so
+   * the remaining actions stay performable.
+   */
+  private resetTrainingBattlefield(): void {
+    this.destroyBattlefieldVisuals();
+    this.createUpgradedMatchState();
+    this.createTerritoryObjects();
+    this.markTerritoriesDirty();
+    this.accumulators = {};
+    this.aiNextTick = PVP_AI_TICK_SECONDS;
+    this.botStepRemainder = 0;
+    this.selectedSourceIds = [];
+    this.hoveredTargetId = null;
+    this.lastHoveredFriendlyId = null;
+    this.renderTrainingStep();
   }
 
   private initDustPool(): void {
@@ -552,31 +771,86 @@ export class GameScene extends Phaser.Scene {
       .setDepth(0);
 
     const fieldGraphics = this.add.graphics().setDepth(1);
-    fieldGraphics.fillStyle(arena.field, 0.58);
+    // A denser base lets the location-specific terrain read as a miniature
+    // world, rather than a translucent panel floating over the app chrome.
+    fieldGraphics.fillStyle(arena.field, 0.9);
     fieldGraphics.fillRoundedRect(10, 78, LOGICAL_WIDTH - 20, visibleHeight - 98, 18);
+
+    // Map-specific terrain is deliberately a single static Graphics layer:
+    // richer ground composition at no runtime allocation or draw-object cost.
+    for (const layer of createBattlefieldTerrainLayers(arena.motif, visibleHeight)) {
+      if (layer.kind === 'roundedRect') {
+        fieldGraphics.fillStyle(layer.color, layer.alpha);
+        fieldGraphics.fillRoundedRect(
+          layer.x - layer.width / 2,
+          layer.y - layer.height / 2,
+          layer.width,
+          layer.height,
+          layer.radius
+        );
+        if (layer.strokeColor !== undefined && layer.strokeAlpha !== undefined) {
+          fieldGraphics.lineStyle(1.5, layer.strokeColor, layer.strokeAlpha);
+          fieldGraphics.strokeRoundedRect(
+            layer.x - layer.width / 2,
+            layer.y - layer.height / 2,
+            layer.width,
+            layer.height,
+            layer.radius
+          );
+        }
+      } else if (layer.kind === 'ellipse') {
+        fieldGraphics.fillStyle(layer.color, layer.alpha);
+        fieldGraphics.fillEllipse(layer.x, layer.y, layer.width, layer.height);
+        if (layer.strokeColor !== undefined && layer.strokeAlpha !== undefined) {
+          fieldGraphics.lineStyle(1.5, layer.strokeColor, layer.strokeAlpha);
+          fieldGraphics.strokeEllipse(layer.x, layer.y, layer.width, layer.height);
+        }
+      } else {
+        fieldGraphics.fillStyle(layer.color, layer.alpha);
+        fieldGraphics.fillTriangle(layer.x1, layer.y1, layer.x2, layer.y2, layer.x3, layer.y3);
+      }
+    }
+
+    // Per-motif guide zones are now merely a quiet architectural underlay;
+    // the terrain plates above carry the sense of place. Keeping these soft
+    // avoids the old card-grid look on compact screens.
+    for (const decoration of createBattlefieldDecorations(arena.motif, visibleHeight)) {
+      if (decoration.kind === 'zone') {
+        const left = decoration.x - decoration.width / 2;
+        const top = decoration.y - decoration.height / 2;
+        fieldGraphics.fillStyle(arena.motifColor, 0.025);
+        fieldGraphics.fillRoundedRect(left, top, decoration.width, decoration.height, 22);
+        fieldGraphics.lineStyle(1, arena.motifColor, 0.08);
+        fieldGraphics.strokeRoundedRect(left, top, decoration.width, decoration.height, 22);
+      }
+    }
 
     // Art Bible lighting: a warm champagne key pool from the top-left and a
     // cool sky-blue ambient pool opposite (two static one-time fills).
-    fieldGraphics.fillStyle(0xfff5e6, 0.05);
+    fieldGraphics.fillStyle(0xfff5e6, 0.07);
     fieldGraphics.fillEllipse(130, 180, 240, 200);
-    fieldGraphics.fillStyle(0xa8d2ff, 0.045);
+    fieldGraphics.fillStyle(0xa8d2ff, 0.06);
     fieldGraphics.fillEllipse(280, 520, 220, 240);
 
-    // Subtle command-grid structure adds scale and keeps the empty arena from
-    // looking like a flat color fill.
-    fieldGraphics.lineStyle(1, arena.grid, 0.14);
-    for (let x = 28; x < LOGICAL_WIDTH - 10; x += 36) {
+    // A near-invisible technical grain grounds the paint without turning the
+    // board back into graph paper. Location-specific forms remain dominant.
+    fieldGraphics.lineStyle(1, arena.grid, 0.045);
+    for (let x = 32; x < LOGICAL_WIDTH - 10; x += 56) {
       fieldGraphics.lineBetween(x, 88, x, visibleHeight - 30);
     }
-    for (let y = 94; y < visibleHeight - 28; y += 36) {
+    for (let y = 100; y < visibleHeight - 28; y += 56) {
       fieldGraphics.lineBetween(18, y, LOGICAL_WIDTH - 18, y);
     }
 
     // Every map gets a recognizable silhouette, rendered once into the same
     // static Graphics object to stay cheap on low-end Canvas devices.
-    fieldGraphics.lineStyle(2, arena.motifColor, 0.16);
-    fieldGraphics.fillStyle(arena.motifColor, 0.06);
+    fieldGraphics.lineStyle(1.5, arena.motifColor, 0.13);
+    fieldGraphics.fillStyle(arena.motifColor, 0.035);
     for (const decoration of createBattlefieldDecorations(arena.motif, visibleHeight)) {
+      if (decoration.kind === 'zone') {
+        // Zones were already tinted in the floor pass above.
+        continue;
+      }
       if (decoration.kind === 'line') {
         fieldGraphics.lineBetween(decoration.x1, decoration.y1, decoration.x2, decoration.y2);
       } else if (decoration.kind === 'ellipse') {
@@ -608,8 +882,11 @@ export class GameScene extends Phaser.Scene {
 
     const terrs = this.gameState.territories;
 
-    // Recessed tactical roads: shadow, stone surface, then dotted center inlay.
-    lanesGraphics.lineStyle(18, 0x020617, 0.58);
+    // Recessed tactical roads: a wide shadow cut, a worn stone shoulder, and
+    // a quieter inset surface. The old bright-blue lanes made the board read
+    // like a circuit diagram; this treatment keeps routes legible while the
+    // terrain remains the visual star.
+    lanesGraphics.lineStyle(22, 0x020617, 0.56);
     connections.forEach(([idA, idB]) => {
       const a = terrs[idA];
       const b = terrs[idB];
@@ -618,7 +895,7 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    lanesGraphics.lineStyle(12, arena.road, 0.94);
+    lanesGraphics.lineStyle(17, arena.road, 0.42);
     connections.forEach(([idA, idB]) => {
       const a = terrs[idA];
       const b = terrs[idB];
@@ -627,13 +904,33 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    lanesGraphics.fillStyle(arena.roadInlay, 0.26);
+    lanesGraphics.lineStyle(11, arena.road, 0.82);
+    connections.forEach(([idA, idB]) => {
+      const a = terrs[idA];
+      const b = terrs[idB];
+      if (a && b) {
+        lanesGraphics.lineBetween(a.x, a.y, b.x, b.y);
+      }
+    });
+
+    // Rounded road terminals blend each lane end into its socket.
+    lanesGraphics.fillStyle(arena.road, 0.82);
+    connections.forEach(([idA, idB]) => {
+      const a = terrs[idA];
+      const b = terrs[idB];
+      if (a && b) {
+        lanesGraphics.fillCircle(a.x, a.y, 6);
+        lanesGraphics.fillCircle(b.x, b.y, 6);
+      }
+    });
+
+    lanesGraphics.fillStyle(arena.roadInlay, 0.24);
     connections.forEach(([idA, idB]) => {
       const a = terrs[idA];
       const b = terrs[idB];
       if (!a || !b) return;
       const distance = Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y);
-      const dotCount = Math.max(1, Math.floor(distance / 22));
+      const dotCount = Math.max(1, Math.floor(distance / 30));
       for (let index = 1; index < dotCount; index++) {
         const progress = index / dotCount;
         lanesGraphics.fillCircle(
@@ -644,17 +941,21 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    // Ground sockets visually anchor the rendered 2.5D buildings.
+    // Ground sockets visually anchor the rendered 2.5D buildings: a soft
+    // plinth pool grounds each one, then the socket ring and key-light rim.
     Object.values(terrs).forEach((t) => {
+      const art = territoryArtFootprint(this.battlefieldId, t);
+      lanesGraphics.fillStyle(0x020617, 0.3);
+      lanesGraphics.fillEllipse(t.x, t.y + 6, (art.socketRadius + 4) * 2, (art.socketRadius + 4) * 1.3);
       lanesGraphics.fillStyle(arena.socket, 0.96);
-      lanesGraphics.fillCircle(t.x, t.y + 3, t.radius + 10);
+      lanesGraphics.fillCircle(t.x, t.y + 3, art.socketRadius);
       lanesGraphics.lineStyle(2, arena.grid, 0.76);
-      lanesGraphics.strokeCircle(t.x, t.y + 3, t.radius + 10);
+      lanesGraphics.strokeCircle(t.x, t.y + 3, art.socketRadius);
       lanesGraphics.lineStyle(1, arena.roadInlay, 0.2);
-      lanesGraphics.strokeCircle(t.x, t.y + 3, t.radius + 5);
+      lanesGraphics.strokeCircle(t.x, t.y + 3, art.socketRadius - 5);
       // Art Bible key-light rim (single pass, warm champagne) lifts the
       // sockets' toy-like volume without extra display objects.
-      drawSocketRimLight(lanesGraphics, t.x, t.y + 3, t.radius + 10);
+      drawSocketRimLight(lanesGraphics, t.x, t.y + 3, art.socketRadius);
     });
 
     // Restrained decorative accents (static, one Graphics object, provably
@@ -697,33 +998,39 @@ export class GameScene extends Phaser.Scene {
   private createTerritoryObjects(): void {
     Object.values(this.gameState.territories).forEach((territory, index) => {
       const container = this.add.container(territory.x, territory.y).setDepth(20);
+      const art = territoryArtFootprint(this.battlefieldId, territory);
 
       const teamStyle = THEME.teams[territory.owner];
 
       const groundShadow = this.add.ellipse(
         0,
         territory.radius * 0.5,
-        territory.radius * 2.2,
-        territory.radius * 0.78,
+        art.shadowWidth,
+        art.shadowHeight,
         0x000000,
-        0.5
+        0.55
       );
 
+      // Match the raised base plate to its battlefield's terrain palette.
+      // This retains the high-contrast ownership ring while avoiding the
+      // detached black-node look of the former universal plate.
+      const terrainSocket = getBattlefield(this.battlefieldId).visual.socket;
       const basePlate = this.add
-        .circle(0, 4, territory.radius + 7, 0x09111e, 0.98)
+        .circle(0, 4, art.plateRadius, terrainSocket, 0.98)
         .setStrokeStyle(2, teamStyle.dark, 0.95);
 
       const ring = this.add
-        .circle(0, 4, territory.radius + 10, teamStyle.glow, 0.12)
+        .circle(0, 4, art.ringRadius, teamStyle.glow, 0.12)
         .setStrokeStyle(2.5, teamStyle.primary, 0.92);
 
-      // 2.5D Rendered Fortress Sprite (procedural fallback if the file failed)
+      // 2.5D Rendered Fortress Sprite (procedural fallback if the file failed).
+      // Sized for presence: the rendered silhouettes carry the map's mass.
+      // Visual-only — the hit area stays the authoritative radius*2.5.
       const textureKey = this.ensureTerritoryTexture(this.getTerritoryTextureKey(territory));
-      const spriteSize = territory.tier === 3 ? 92 : territory.tier === 2 ? 80 : 66;
-      const sprite = this.add.image(0, -8, textureKey).setDisplaySize(spriteSize, spriteSize);
+      const sprite = this.add.image(0, art.spriteY, textureKey).setDisplaySize(art.spriteSize, art.spriteSize);
 
       // Unit Count Badge Pill
-      const badgeY = territory.tier === 3 ? 25 : territory.tier === 2 ? 21 : 17;
+      const badgeY = art.badgeY;
       const badgeWidth = territory.tier === 3 ? 46 : territory.tier === 2 ? 42 : 38;
       const unitBadge = this.add
         .rectangle(0, badgeY, badgeWidth, 22, 0x070d1a, 0.96)
@@ -750,7 +1057,7 @@ export class GameScene extends Phaser.Scene {
       const roleIconSize = 16;
       const typeIcon = this.add.graphics();
       drawTowerRoleIcon(typeIcon, territory.type, -roleIconSize / 2, -roleIconSize / 2, roleIconSize);
-      typeIcon.setPosition(0, badgeY + 21);
+      typeIcon.setPosition(art.roleIconX, art.roleIconY);
 
       // 2v2 shared-territory cue: every tier-3 fortress is a team-shared
       // base (either teammate may dispatch from it). Glyph + banner copy —
@@ -758,7 +1065,7 @@ export class GameScene extends Phaser.Scene {
       let sharedCue: Phaser.GameObjects.Text | undefined;
       if (this.is2v2 && territory.type === 'fortress' && territory.tier === 3) {
         sharedCue = this.add
-          .text(0, badgeY + 38, TWO_V_TWO_SHARED_CUE_GLYPH, {
+          .text(art.sharedCueX, art.sharedCueY, TWO_V_TWO_SHARED_CUE_GLYPH, {
             fontFamily: FONT_FAMILY,
             fontSize: '10px',
             fontStyle: 'bold',
@@ -812,7 +1119,7 @@ export class GameScene extends Phaser.Scene {
         });
         this.tweens.add({
           targets: sprite,
-          y: -10,
+          y: art.spriteY - 2,
           duration: 1500 + index * 45,
           delay: 320 + index * 70,
           yoyo: true,
@@ -1604,6 +1911,9 @@ export class GameScene extends Phaser.Scene {
         this.dragBadgeText.setColor('#10b981');
         this.dragBadgeBg.setStrokeStyle(2, 0x10b981, 1);
       } else {
+        // A real WIN/TIE/-N outcome preview is one of the four guided
+        // training actions.
+        this.trainingController?.onPreviewShown();
         if (totalUnitsToSend > target.units) {
           const rem = totalUnitsToSend - target.units;
           this.dragBadgeText.setText(`⚔ ${totalUnitsToSend} (WIN +${rem})${sourceCountLabel}`);
@@ -1766,6 +2076,7 @@ export class GameScene extends Phaser.Scene {
 
             sounds.playDispatch();
             this.platform.hapticImpact(multiDispatch.armies.length > 1 ? 'heavy' : 'medium');
+            this.trainingController?.onDispatch(sourceIds, targetId);
           }
         }
       }
@@ -1776,16 +2087,31 @@ export class GameScene extends Phaser.Scene {
     if (!Number.isFinite(delta) || delta <= 0) return;
     const deltaSeconds = delta / 1000;
 
+    if (this.trainingController?.isActive) {
+      this.trainingController.onTimerTick(deltaSeconds);
+    }
+
     if (this.gameState.status === 'playing' && !this.liveMode) {
-      if (!this.matchMenuController?.isPaused()) {
+      // Training freezes the battle only while the fresh first instruction
+      // is unread (and while the completion save is in flight); a resumed
+      // tutorial plays under live conditions.
+      const trainingPaused =
+        this.trainingController?.shouldPauseSimulation === true || this.trainingCompletionPending;
+      if (!this.matchMenuController?.isPaused() && !trainingPaused) {
         this.stepBotMatch(deltaSeconds);
 
         // Update HUD
         this.updateHud();
 
-        // Check Game Over
+        // Check Game Over. Training never ends the match: winning or
+        // losing completes nothing — an early end just resets the sandbox
+        // so the remaining guided actions stay performable.
         if (this.gameState.status !== 'playing') {
-          this.endMatch();
+          if (this.trainingMode) {
+            this.resetTrainingBattlefield();
+          } else {
+            this.endMatch();
+          }
         }
       }
     }
@@ -1852,7 +2178,9 @@ export class GameScene extends Phaser.Scene {
 
   private showBattlefieldReveal(): void {
     const battlefield = getBattlefield(this.battlefieldId);
-    const reveal = this.add.container(82, 92).setDepth(94);
+    // The two north citadels flank the center on Quad Citadel, so its
+    // transient map label belongs in the gap between them, not over a base.
+    const reveal = this.add.container(this.battlefieldId === 'quad_citadel' ? 200 : 82, 92).setDepth(94);
     const shadow = this.add.rectangle(0, 2, 132, 30, 0x000000, 0.38);
     const panel = this.add
       .rectangle(0, 0, 132, 28, 0x0b1220, 0.96)
@@ -1979,6 +2307,8 @@ export class GameScene extends Phaser.Scene {
 
     if (arrival.captured) {
       const capturedByPlayer = arrival.attackerOwner === 'player';
+      // A player capture is one of the four guided training actions.
+      this.trainingController?.onCapture(arrival.targetId, capturedByPlayer);
       const isCrownKeep =
         arrival.targetId === 'n_center' ||
         (vis.territory.type === 'fortress' && vis.territory.tier === 2);
@@ -2196,11 +2526,12 @@ export class GameScene extends Phaser.Scene {
   private ensureTerritoryTexture(textureKey: string): string {
     const textures = this.textures;
     const texturesApiReady = !!textures && typeof textures.exists === 'function';
-    const fileFailed = this.missingTerritoryTextures?.has(textureKey) ?? false;
-    if (fileFailed || (texturesApiReady && !textures!.exists(textureKey))) {
+    const runtimeKey = runtimeTerritoryTextureKey(this.battlefieldId, textureKey);
+    const fileFailed = this.missingTerritoryTextures?.has(runtimeKey) ?? false;
+    if (fileFailed || (texturesApiReady && !textures!.exists(runtimeKey))) {
       return createProceduralTerritoryFallbackTexture(textures, textureKey);
     }
-    return textureKey;
+    return runtimeKey;
   }
 
   markTerritoriesDirty(): void {
@@ -2769,6 +3100,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private endMatch(): void {
+    // Training battles never settle: no coins, trophies, missions, or
+    // match settlement may ever originate from the guided battle.
+    if (this.trainingMode) return;
     if (!canInitiateBotSettlement({
       isExiting: this.isExiting,
       hasResultModal: Boolean(this.resultModalContainer),
@@ -3548,6 +3882,12 @@ export class GameScene extends Phaser.Scene {
   private handleMatchExitConfirmed(): void {
     this.matchMenuModalContainer?.destroy();
     this.matchMenuModalContainer = undefined;
+    if (this.trainingMode) {
+      // Leaving mid-training is a tutorial skip, not a match quit: the
+      // progress marker survives, so the next launch resumes the remaining
+      // guided actions. The 'skipped' controller event tracks analytics.
+      this.trainingController?.skip();
+    }
     this.returnToMenu();
   }
 
@@ -4783,5 +5123,11 @@ export class GameScene extends Phaser.Scene {
     this.settledMatchId = undefined;
     this.isStressMode = false;
     this.registry?.set('qa_stress_mode', false);
+    this.trainingController?.destroy();
+    this.trainingController = undefined;
+    this.trainingOverlay?.destroy();
+    this.trainingOverlay = undefined;
+    this.trainingMode = false;
+    this.trainingCompletionPending = false;
   }
 }

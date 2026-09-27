@@ -35,7 +35,10 @@ export function dismissStartupLoadingShell(): void {
     }
   }
 
-  if (typeof document !== 'undefined') {
+  // Partial DOM environments (test harness stubs, minimal WebViews) may
+  // define `document` without the full API: fail soft instead of throwing —
+  // the dismissal flag is already set and nothing interactive is blocked.
+  if (typeof document !== 'undefined' && typeof document.getElementById === 'function') {
     const shell = document.getElementById(LOADING_SHELL_ID);
     if (shell) {
       shell.classList.add(LOADING_SHELL_HIDDEN_CLASS);

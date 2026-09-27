@@ -19,6 +19,15 @@
 //
 // Usage:
 //   node scripts/capture-battlefield-qa.mjs <battlefieldId> [outDir]
+//   node scripts/capture-battlefield-qa.mjs training [outDir]
+//
+// The special id "training" captures the guided training battle's first
+// step (clean field, spotlight + instruction visible) instead of an
+// ordinary bot match — the same launch data MenuScene uses on first play.
+//
+// Primary review artifacts are the CLEAN captures (`-clean.png`: no armies,
+// no transient combat labels). The `-armies.png` captures keep the marching
+// armies QA frame.
 //
 // Requires the vite dev server on localhost:3000 (`npm run dev` in apps/game).
 
@@ -26,7 +35,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CdpClient, waitForWebSocketOpen } from './cdp-client.mjs';
+import { CdpClient, pickFreeCdpPort, waitForWebSocketOpen } from './cdp-client.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -76,7 +85,7 @@ async function evaluate(cdp, expression, { awaitPromise = false } = {}) {
 }
 
 async function captureViewport(chromePath, battlefieldId, viewport, outDir) {
-  const cdpPort = 9300 + Math.floor(Math.random() * 400);
+  const cdpPort = await pickFreeCdpPort();
   const profileDir = path.join(REPO_ROOT, `qa-artifacts/chrome-qa-${Date.now()}-${viewport.width}`);
   fs.mkdirSync(profileDir, { recursive: true });
   const chrome = spawn(
@@ -134,7 +143,20 @@ async function captureViewport(chromePath, battlefieldId, viewport, outDir) {
     });
 
     await cdp.send('Page.navigate', { url: APP_URL });
-    await sleep(3500);
+    // Wait for the app to actually boot (a cold headless Chrome under load
+    // can take far longer than a fixed sleep; the canvas is the boot proof).
+    let canvasUp = false;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      await sleep(500);
+      canvasUp = await evaluate(
+        cdp,
+        `(() => document.querySelector('canvas') && window.__PHASER_GAME__ ? true : false)()`
+      );
+      if (canvasUp === true) break;
+    }
+    if (canvasUp !== true) {
+      throw new Error('app never booted (no canvas after 20s)');
+    }
 
     // --- Capture-time assertions -----------------------------------------
     const metrics = await evaluate(
@@ -171,22 +193,38 @@ async function captureViewport(chromePath, battlefieldId, viewport, outDir) {
       throw new Error(`viewport assertion failed: ${failures.join('; ')}`);
     }
 
+    // This is an explicit QA scene launch. Mark the first-play redirect as
+    // handled before MenuScene's asynchronous career check can complete and
+    // replace our requested map with training mid-capture.
+    await evaluate(cdp, `(() => {
+      window.__PHASER_GAME__.registry.set('trainingLaunchedThisSession', true);
+      return true;
+    })()`);
+
     // --- Start the requested battlefield scene ----------------------------
+    const isTraining = battlefieldId === 'training';
     await evaluate(
       cdp,
       `(() => {
-        window.__PHASER_GAME__.scene.start('GameScene', {
+        window.__PHASER_GAME__.scene.start('GameScene', ${
+          isTraining
+            ? "{ source: 'menu', mode: 'bot', training: true }"
+            : `{
           source: 'menu',
           botMatch: { matchId: 'qa_${battlefieldId}_' + Date.now(), battlefieldId: '${battlefieldId}' },
+        }`
         });
         return 'started';
       })()`
     );
 
-    // Wait until the pack is actually fetched and nothing failed to load.
+    // Prove this is the initial, fully rendered state of the requested map.
+    // Resource-history checks alone can accept an old fetch and a battle that
+    // has already been running for 20 seconds. Freeze the scene as soon as
+    // these invariants hold so the screenshot cannot drift after validation.
     let state = null;
-    for (let attempt = 0; attempt < 40; attempt += 1) {
-      await sleep(500);
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      await sleep(100);
       state = JSON.parse(
         await evaluate(
           cdp,
@@ -194,30 +232,110 @@ async function captureViewport(chromePath, battlefieldId, viewport, outDir) {
             const scene = window.__PHASER_GAME__?.scene?.getScene('GameScene');
             if (!scene || !scene.gameState) return JSON.stringify(null);
             const urls = performance.getEntriesByType('resource').map((r) => r.name);
+            const visuals = [...scene.territoryVisuals.values()];
             return JSON.stringify({
               battlefieldId: scene.battlefieldId,
+              trainingMode: scene.trainingMode === true,
+              trainingStep: scene.trainingController ? scene.trainingController.currentStepId : null,
               packFetches: urls.filter((u) => u.includes('territories/' + scene.battlefieldId + '/')).length,
               missing: [...(scene.missingTerritoryTextures || [])],
+              status: scene.gameState.status,
+              elapsed: scene.gameState.elapsedTimeSeconds,
+              armyCount: scene.gameState.armies.length,
+              territoryCount: Object.keys(scene.gameState.territories).length,
+              visualCount: visuals.length,
+              fullyVisibleCount: visuals.filter((v) => v.container.alpha >= 0.99).length,
+              textureKeys: visuals.map((v) => v.sprite.texture.key),
             });
           })()`
         )
       );
-      if (state && state.packFetches > 0 && state.missing.length === 0) break;
+      if (state && state.battlefieldId !== (isTraining ? 'crown_cross' : battlefieldId)) {
+        throw new Error(`requested ${battlefieldId} but active scene is ${state.battlefieldId}`);
+      }
+      if (state && state.packFetches > 0 && state.visualCount === state.territoryCount &&
+          state.fullyVisibleCount === state.territoryCount) break;
     }
     if (!state) throw new Error('GameScene never reached a loaded game state');
-    if (state.battlefieldId !== battlefieldId) {
-      throw new Error(`scene battlefieldId ${state.battlefieldId} != requested ${battlefieldId}`);
+    // Final pre-capture assertion: the auto-training race must not have
+    // silently replaced the scene between the wait loop and the screenshot.
+    const preCapture = JSON.parse(
+      await evaluate(
+        cdp,
+        `(() => {
+          const scene = window.__PHASER_GAME__?.scene?.getScene('GameScene');
+          if (!scene || !scene.gameState) return JSON.stringify(null);
+          return JSON.stringify({
+            battlefieldId: scene.battlefieldId,
+            trainingMode: scene.trainingMode === true,
+          });
+        })()`
+      )
+    );
+    if (!preCapture) throw new Error('GameScene vanished before capture');
+    if (isTraining) {
+      if (!preCapture.trainingMode) throw new Error('training scene replaced before capture');
+    } else if (preCapture.trainingMode || preCapture.battlefieldId !== battlefieldId) {
+      throw new Error(
+        `scene replaced before capture: active ${preCapture.battlefieldId}, training=${preCapture.trainingMode}; requested ${battlefieldId}`
+      );
+    }
+    if (isTraining) {
+      if (!state.trainingMode) throw new Error('training scene did not enter training mode');
+      if (state.trainingStep !== 'drag_to_attack') {
+        throw new Error(`training scene is not on the first guided step (got ${state.trainingStep})`);
+      }
+      if (state.battlefieldId !== 'crown_cross') {
+        throw new Error(`training battlefieldId ${state.battlefieldId} != crown_cross`);
+      }
+    } else {
+      if (state.trainingMode) throw new Error('training scene replaced the requested bot match');
+      if (state.battlefieldId !== battlefieldId) {
+        throw new Error(`scene battlefieldId ${state.battlefieldId} != requested ${battlefieldId}`);
+      }
     }
     if (state.missing.length > 0) {
       throw new Error(`textures failed to load: ${state.missing.join(', ')}`);
     }
+    if (state.packFetches === 0 || state.visualCount !== state.territoryCount ||
+        state.fullyVisibleCount !== state.territoryCount) {
+      throw new Error(`incomplete battlefield render: ${JSON.stringify(state)}`);
+    }
+    if (state.status !== 'playing' || state.armyCount !== 0 || state.elapsed > 1.5) {
+      throw new Error(`not an initial clean battlefield: ${JSON.stringify(state)}`);
+    }
+    const expectedPack = isTraining ? 'crown_cross' : battlefieldId;
+    if (!state.textureKeys.every((key) => key.startsWith(`cc_${expectedPack}_`))) {
+      throw new Error(`wrong or fallback territory pack: ${JSON.stringify(state.textureKeys)}`);
+    }
+    await evaluate(cdp, `(() => { window.__PHASER_GAME__.scene.pause('GameScene'); return true; })()`);
 
-    // Clean-field capture: no armies yet, canvas should match 1:1.
+    // Clean-field capture (the primary review artifact): no armies yet,
+    // canvas should match 1:1.
     const cleanShotBase64 = await captureScreenshot(cdp);
     const canvasSnapshotBase64 = await rendererSnapshot(cdp);
     const cleanComparison = await comparePhysicalToCanvas(cdp, cleanShotBase64, canvasSnapshotBase64, viewport);
+    const cleanFileName = `${battlefieldId}-${viewport.width}x${viewport.height}-clean.png`;
+    fs.writeFileSync(path.join(outDir, cleanFileName), Buffer.from(cleanShotBase64, 'base64'));
+
+    if (isTraining) {
+      // The training capture is the clean first step; no army dispatch
+      // (training is client-local and the guided actions must not advance).
+      const report = {
+        file: cleanFileName,
+        viewport,
+        metrics: m,
+        packFetches: state.packFetches,
+        missingTextures: state.missing,
+        cleanFieldCaptureMatchesCanvasRender: cleanComparison,
+        consoleErrors,
+      };
+      console.log(`[capture] ${cleanFileName}: ${JSON.stringify(report)}`);
+      return report;
+    }
 
     // Marching armies for the final QA artifact.
+    await evaluate(cdp, `(() => { window.__PHASER_GAME__.scene.resume('GameScene'); return true; })()`);
     await evaluate(
       cdp,
       `(() => {
@@ -236,12 +354,13 @@ async function captureViewport(chromePath, battlefieldId, viewport, outDir) {
     await sleep(1200);
 
     const finalShotBase64 = await captureScreenshot(cdp);
-    const fileName = `${battlefieldId}-${viewport.width}x${viewport.height}.png`;
+    const fileName = `${battlefieldId}-${viewport.width}x${viewport.height}-armies.png`;
     const outPath = path.join(outDir, fileName);
     fs.writeFileSync(outPath, Buffer.from(finalShotBase64, 'base64'));
 
     const report = {
       file: fileName,
+      cleanFile: cleanFileName,
       viewport,
       metrics: m,
       packFetches: state.packFetches,
