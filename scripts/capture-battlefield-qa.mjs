@@ -193,16 +193,34 @@ async function captureViewport(chromePath, battlefieldId, viewport, outDir) {
       throw new Error(`viewport assertion failed: ${failures.join('; ')}`);
     }
 
-    // This is an explicit QA scene launch. Mark the first-play redirect as
-    // handled before MenuScene's asynchronous career check can complete and
-    // replace our requested map with training mid-capture.
+    const isTraining = battlefieldId === 'training';
+    if (!isTraining) {
+      // Fresh QA profiles trigger the first-session tutorial. Wait for that
+      // asynchronous navigation to finish before replacing it with the
+      // requested map, otherwise it can win a later scene.start race.
+      let autoTrainingReady = false;
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        autoTrainingReady = await evaluate(cdp, `(() => {
+          const game = window.__PHASER_GAME__;
+          const scene = game?.scene?.getScene('GameScene');
+          return game?.scene?.isActive('GameScene') === true && scene?.trainingMode === true;
+        })()`);
+        if (autoTrainingReady) break;
+        await sleep(200);
+      }
+      if (!autoTrainingReady) throw new Error('first-session training did not settle before QA map launch');
+    }
+    // This is an explicit QA scene launch. The menu's asynchronous career
+    // connection can finish after our scene.start call. Suppress only its
+    // automatic training navigation; the capture still asserts the actual
+    // GameScene battlefield, textures, and renderer output below.
     await evaluate(cdp, `(() => {
       window.__PHASER_GAME__.registry.set('trainingLaunchedThisSession', true);
+      ${isTraining ? '' : "window.__PHASER_GAME__.scene.getScene('MenuScene').startTrainingBattle = () => {};"}
       return true;
     })()`);
 
     // --- Start the requested battlefield scene ----------------------------
-    const isTraining = battlefieldId === 'training';
     await evaluate(
       cdp,
       `(() => {
@@ -351,7 +369,14 @@ async function captureViewport(chromePath, battlefieldId, viewport, outDir) {
         return 'dispatched';
       })()`
     );
-    await sleep(1200);
+    await sleep(550);
+    const marchingTeams = JSON.parse(await evaluate(cdp, `(() => {
+      const scene = window.__PHASER_GAME__?.scene?.getScene('GameScene');
+      return JSON.stringify([...scene.armyVisuals.keys()].map((id) => id.split(':')[0]));
+    })()`));
+    if (!marchingTeams.includes('player') || !marchingTeams.includes('enemy')) {
+      throw new Error(`army capture has no visible march for both teams: ${JSON.stringify(marchingTeams)}`);
+    }
 
     const finalShotBase64 = await captureScreenshot(cdp);
     const fileName = `${battlefieldId}-${viewport.width}x${viewport.height}-armies.png`;

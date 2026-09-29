@@ -26,6 +26,7 @@ qa-artifacts/bot-parity/
 qa-artifacts/art-milestone/
 qa-artifacts/art-twin-passes/
 qa-artifacts/art-royal-ring/
+qa-artifacts/art-crown-cross-*/
 # Session-local composition-pass visual QA captures (review evidence, kept local)
 qa-artifacts/art-composition-pass/
 # Graphify internal learning/memory state (never commit)
