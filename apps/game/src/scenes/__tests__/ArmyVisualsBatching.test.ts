@@ -107,6 +107,7 @@ const { MockScene, MockGameObject, MockGraphics, MockContainer, MockVector2, Moc
     fillCircle() { return this; }
     strokeCircle() { return this; }
     fillEllipse() { return this; }
+    strokeEllipse() { return this; }
     fillTriangle() { return this; }
     fillRect() { return this; }
     clear() { return this; }

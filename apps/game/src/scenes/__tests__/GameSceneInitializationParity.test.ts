@@ -119,6 +119,7 @@ const { MockScene, MockGameObject, MockGraphics, MockContainer, storage } = vi.h
     fillCircle() { return this; }
     strokeCircle() { return this; }
     fillEllipse() { return this; }
+    strokeEllipse() { return this; }
     fillTriangle() { return this; }
     strokeRect() { return this; }
     fillRect() { return this; }

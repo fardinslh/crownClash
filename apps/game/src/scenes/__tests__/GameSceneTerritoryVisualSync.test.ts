@@ -240,6 +240,7 @@ const { MockScene, MockGameObject, MockGraphics, MockContainer, MockVector2 } = 
     }
     strokeCircle() { return this; }
     fillEllipse() { return this; }
+    strokeEllipse() { return this; }
     fillTriangle() { return this; }
     fillRect() { return this; }
   }
