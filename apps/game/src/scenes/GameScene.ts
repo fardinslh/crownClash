@@ -834,14 +834,12 @@ export class GameScene extends Phaser.Scene {
 
     // A near-invisible technical grain grounds the paint without turning the
     // board back into graph paper. Location-specific forms remain dominant.
-    if (arena.motif !== 'crown_cross') {
-      fieldGraphics.lineStyle(1, arena.grid, 0.045);
-      for (let x = 32; x < LOGICAL_WIDTH - 10; x += 56) {
-        fieldGraphics.lineBetween(x, 88, x, visibleHeight - 30);
-      }
-      for (let y = 100; y < visibleHeight - 28; y += 56) {
-        fieldGraphics.lineBetween(18, y, LOGICAL_WIDTH - 18, y);
-      }
+    fieldGraphics.lineStyle(1, arena.grid, 0.045);
+    for (let x = 32; x < LOGICAL_WIDTH - 10; x += 56) {
+      fieldGraphics.lineBetween(x, 88, x, visibleHeight - 30);
+    }
+    for (let y = 100; y < visibleHeight - 28; y += 56) {
+      fieldGraphics.lineBetween(18, y, LOGICAL_WIDTH - 18, y);
     }
 
     // Every map gets a recognizable silhouette, rendered once into the same
@@ -881,8 +879,6 @@ export class GameScene extends Phaser.Scene {
 
     const lanesGraphics = this.add.graphics().setDepth(2);
     const connections = battlefield.roads;
-    const roadColor = arena.motif === 'crown_cross' ? 0x8a7657 : arena.road;
-    const roadInlay = arena.motif === 'crown_cross' ? 0xf2cb85 : arena.roadInlay;
 
     const terrs = this.gameState.territories;
 
@@ -899,7 +895,7 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    lanesGraphics.lineStyle(17, roadColor, 0.42);
+    lanesGraphics.lineStyle(17, arena.road, 0.42);
     connections.forEach(([idA, idB]) => {
       const a = terrs[idA];
       const b = terrs[idB];
@@ -908,7 +904,7 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    lanesGraphics.lineStyle(11, roadColor, 0.82);
+    lanesGraphics.lineStyle(11, arena.road, 0.82);
     connections.forEach(([idA, idB]) => {
       const a = terrs[idA];
       const b = terrs[idB];
@@ -918,7 +914,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Rounded road terminals blend each lane end into its socket.
-    lanesGraphics.fillStyle(roadColor, 0.82);
+    lanesGraphics.fillStyle(arena.road, 0.82);
     connections.forEach(([idA, idB]) => {
       const a = terrs[idA];
       const b = terrs[idB];
@@ -928,7 +924,7 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    lanesGraphics.fillStyle(roadInlay, 0.24);
+    lanesGraphics.fillStyle(arena.roadInlay, 0.24);
     connections.forEach(([idA, idB]) => {
       const a = terrs[idA];
       const b = terrs[idB];
@@ -951,11 +947,11 @@ export class GameScene extends Phaser.Scene {
       const art = territoryArtFootprint(this.battlefieldId, t);
       lanesGraphics.fillStyle(0x020617, 0.3);
       lanesGraphics.fillEllipse(t.x, t.y + 6, (art.socketRadius + 4) * 2, (art.socketRadius + 4) * 1.3);
-      lanesGraphics.fillStyle(arena.motif === 'crown_cross' ? 0x4b463c : arena.socket, 0.96);
+      lanesGraphics.fillStyle(arena.socket, 0.96);
       lanesGraphics.fillCircle(t.x, t.y + 3, art.socketRadius);
       lanesGraphics.lineStyle(2, arena.grid, 0.76);
       lanesGraphics.strokeCircle(t.x, t.y + 3, art.socketRadius);
-      lanesGraphics.lineStyle(1, roadInlay, 0.2);
+      lanesGraphics.lineStyle(1, arena.roadInlay, 0.2);
       lanesGraphics.strokeCircle(t.x, t.y + 3, art.socketRadius - 5);
       // Art Bible key-light rim (single pass, warm champagne) lifts the
       // sockets' toy-like volume without extra display objects.
@@ -1018,8 +1014,7 @@ export class GameScene extends Phaser.Scene {
       // Match the raised base plate to its battlefield's terrain palette.
       // This retains the high-contrast ownership ring while avoiding the
       // detached black-node look of the former universal plate.
-      const terrainSocket = this.battlefieldId === 'crown_cross'
-        ? 0x4b463c : getBattlefield(this.battlefieldId).visual.socket;
+      const terrainSocket = getBattlefield(this.battlefieldId).visual.socket;
       const basePlate = this.add
         .circle(0, 4, art.plateRadius, terrainSocket, 0.98)
         .setStrokeStyle(2, teamStyle.dark, 0.95);
@@ -1038,12 +1033,12 @@ export class GameScene extends Phaser.Scene {
       const badgeY = art.badgeY;
       const badgeWidth = territory.tier === 3 ? 46 : territory.tier === 2 ? 42 : 38;
       const unitBadge = this.add
-        .rectangle(art.badgeX, badgeY, badgeWidth, 22, 0x070d1a, 0.96)
+        .rectangle(0, badgeY, badgeWidth, 22, 0x070d1a, 0.96)
         .setStrokeStyle(1.5, teamStyle.primary, 1);
 
       // Unit Count Text with resolution: 2 and bold stroke for retina sharpness
       const unitText = this.add
-        .text(art.badgeX, badgeY, territory.units.toString(), {
+        .text(0, badgeY, territory.units.toString(), {
           fontFamily: MONO_FONT_FAMILY,
           fontSize: territory.tier === 3 ? '15px' : '14px',
           fontStyle: 'bold',
@@ -2845,7 +2840,7 @@ export class GameScene extends Phaser.Scene {
 
           const sprite = this.add
             .image(f.x, f.y, followerTexture)
-            .setScale(0.24)
+            .setScale(0.19)
             .setFlipX(isFacingLeft);
 
           followers.push({
@@ -2869,7 +2864,7 @@ export class GameScene extends Phaser.Scene {
         const leaderTexture = army.owner === 'player' ? 'unit_leader_player' : 'unit_leader_enemy';
         const leaderSprite = this.add
           .image(0, 0, leaderTexture)
-          .setScale(0.31)
+          .setScale(0.25)
           .setFlipX(isFacingLeft);
 
         // 4. High-contrast Troop Count Pill Badge. In 2v2 the marching

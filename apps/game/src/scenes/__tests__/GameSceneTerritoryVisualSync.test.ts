@@ -668,8 +668,8 @@ describe('GameScene Tower Role Icons', () => {
       expect(vis.typeIcon, `typeIcon defined for ${id}`).toBeDefined();
       expect(vis.typeIcon.parentContainer, `icon in container for ${id}`).toBe(vis.container);
       expect(vis.typeIcon.commands.length, `icon drawn for ${id}`).toBeGreaterThan(0);
-      // The icon follows the badge when Crown Cross moves it clear of the art.
-      expect(vis.typeIcon.x, `icon aligned with badge for ${id}`).toBe(vis.unitBadge.x);
+      // Centered horizontally and positioned beneath the unit badge.
+      expect(vis.typeIcon.x, `icon x centered for ${id}`).toBe(0);
       // Badge is 22px tall, so its bottom edge is unitBadge.y + 11. The 16px
       // icon spans typeIcon.y - 8 .. typeIcon.y + 8 and must clear the badge
       // bottom by at least 2 logical px (no badge overlap).

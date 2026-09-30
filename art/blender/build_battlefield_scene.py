@@ -6,7 +6,7 @@ declared in the canonical runtime asset manifest (`art/asset-manifest.json`),
 per ART_BIBLE.md sections 2-8 and 10-14:
 
   - fixed orthographic dimetric camera (55 deg pitch / 45 deg yaw), aimed at
-    the structure's visual center via a track-to constraint
+    the asset origin via a track-to constraint
   - fixed three-point lighting rig (warm key, cool fill, white rim)
   - fixed world ambient (slate #161B26, strength 0.4)
   - controlled Principled-BSDF material palette (Art Bible palette), rebuilt
@@ -91,10 +91,6 @@ PALETTE = {
     "marble": (0xC8 / 255, 0xBD / 255, 0xA9 / 255),        # warm royal stone #C8BDA9
     "polished": (0x18 / 255, 0x22 / 255, 0x34 / 255),      # dark polished stone #182234
     "crystal": (0x93 / 255, 0xC5 / 255, 0xFD / 255),       # #93C5FD
-    "crown_stone": (0xAC / 255, 0x96 / 255, 0x76 / 255),   # sun-warmed limestone
-    "crown_masonry": (0x62 / 255, 0x54 / 255, 0x46 / 255), # recessed carved stone
-    "crown_wood": (0x91 / 255, 0x62 / 255, 0x3F / 255),    # honey-treated timber
-    "crown_neutral_roof": (0xA6 / 255, 0x8D / 255, 0x68 / 255),
 }
 
 BEVEL_WIDTH = 0.04
@@ -330,10 +326,6 @@ def material_palette():
         "roof_neutral": make_material("CC_RoofNeutral", PALETTE["roof_neutral"], 0.60),
         "crystal": make_material("CC_Crystal", PALETTE["crystal"], 0.22, metallic=0.1),
         "iron": make_material("CC_Iron", PALETTE["iron"], 0.38, metallic=0.85),
-        "crown_stone": make_material("CC_CrownStone", PALETTE["crown_stone"], 0.76),
-        "crown_masonry": make_material("CC_CrownMasonry", PALETTE["crown_masonry"], 0.8),
-        "crown_wood": make_material("CC_CrownWood", PALETTE["crown_wood"], 0.6),
-        "crown_neutral_roof": make_material("CC_CrownNeutralRoof", PALETTE["crown_neutral_roof"], 0.7),
     }
 
 
@@ -351,10 +343,6 @@ def roof_material(palette, owner):
         "enemy": palette["roof_enemy"],
         "neutral": palette["roof_neutral"],
     }[owner]
-
-
-def crown_roof_material(palette, owner):
-    return palette["crown_neutral_roof"] if owner == "neutral" else roof_material(palette, owner)
 
 
 def shade_vertical_gradient(obj, base=VERTICAL_SHADE_BASE, top=VERTICAL_SHADE_TOP):
@@ -431,7 +419,7 @@ def build_citadel(palette, owner):
         return obj
 
     keep = new_cube("citadel_keep", (1.7, 1.7, 1.9), (0.0, 0.0, 0.95))
-    keep.data.materials.append(palette["crown_stone"])
+    keep.data.materials.append(palette["stone"])
     bevel_object(keep)
 
     turret_specs = ((-0.95, -0.95, 0.0), (0.95, -0.95, 0.0), (-0.95, 0.95, 0.0), (0.95, 0.95, 0.0))
@@ -441,13 +429,13 @@ def build_citadel(palette, owner):
         bpy.ops.mesh.primitive_cylinder_add(radius=0.46, depth=2.25, vertices=8, location=(x, y, 1.125 + z * 0))
         turret = bpy.context.active_object
         turret.name = f"citadel_turret_{index}"
-        turret.data.materials.append(palette["crown_stone"])
+        turret.data.materials.append(palette["stone"])
         bevel_object(turret)
 
         bpy.ops.mesh.primitive_cone_add(radius1=0.64, radius2=0.0, depth=1.05, vertices=4, location=(x, y, 2.78))
         roof = bpy.context.active_object
         roof.name = f"citadel_roof_{index}"
-        roof.data.materials.append(crown_roof_material(palette, owner))
+        roof.data.materials.append(roof_material(palette, owner))
         bevel_object(roof)
 
     # Art Bible section 5 tier-3: gilded masonry corners on the keep.
@@ -465,7 +453,7 @@ def build_citadel(palette, owner):
     gate.name = "citadel_gate"
     gate.scale = (0.58, 0.2, 0.92)
     bpy.ops.object.transform_apply(scale=True)
-    gate.data.materials.append(palette["crown_masonry"])
+    gate.data.materials.append(palette["iron"])
     bevel_object(gate)
 
     # Put the ownership banner on the camera-facing facade. It is broad enough
@@ -493,15 +481,6 @@ def build_citadel(palette, owner):
     spire.data.materials.append(palette["gold"])
     bevel_object(spire)
 
-    # Bright, broad trim reads as an ornamental royal fortress at phone size.
-    for x in (-0.55, 0.55):
-        trim = new_cube("citadel_gate_pillar", (0.14, 0.16, 1.06), (x, -1.08, 0.56))
-        trim.data.materials.append(palette["gold_light"])
-        bevel_object(trim)
-    crest = new_cube("citadel_gate_crest", (1.32, 0.18, 0.16), (0, -1.08, 1.17))
-    crest.data.materials.append(palette["gold_light"])
-    bevel_object(crest)
-
 
 def build_crown_keep(palette, owner):
     """Tier 2 center stronghold: octagonal ramparts + gilded crown spire.
@@ -526,19 +505,19 @@ def build_crown_keep(palette, owner):
     bpy.ops.mesh.primitive_cylinder_add(radius=1.45, depth=1.15, vertices=8, location=(0.0, 0.0, 0.575))
     rampart = bpy.context.active_object
     rampart.name = "keep_rampart"
-    rampart.data.materials.append(palette["crown_stone"])
+    rampart.data.materials.append(palette["stone"])
     bevel_object(rampart)
 
     bpy.ops.mesh.primitive_cylinder_add(radius=1.55, depth=0.22, vertices=8, location=(0.0, 0.0, 1.25))
     parapet = bpy.context.active_object
     parapet.name = "keep_parapet"
-    parapet.data.materials.append(palette["crown_masonry"])
+    parapet.data.materials.append(palette["stone_dark"])
     bevel_object(parapet)
 
     bpy.ops.mesh.primitive_cylinder_add(radius=0.62, depth=1.5, vertices=8, location=(0.0, 0.0, 1.9))
     tower = bpy.context.active_object
     tower.name = "keep_tower"
-    tower.data.materials.append(palette["crown_stone"])
+    tower.data.materials.append(palette["stone"])
     bevel_object(tower)
 
     # Two draped banners hanging from the parapet on the camera-facing wall
@@ -580,19 +559,6 @@ def build_crown_keep(palette, owner):
     spire.data.materials.append(palette["gold"])
     bevel_object(spire)
 
-    bpy.ops.mesh.primitive_cone_add(radius1=0.58, depth=0.36, vertices=8, location=(0, 0, 2.78))
-    crown_cap = bpy.context.active_object
-    crown_cap.name = "keep_crown_cap"
-    crown_cap.data.materials.append(palette["gold_light"])
-    bevel_object(crown_cap)
-
-    # The center objective gets a broad gold crown band, not tiny filigree.
-    bpy.ops.mesh.primitive_cylinder_add(radius=1.49, depth=0.16, vertices=8, location=(0, 0, 0.55))
-    band = bpy.context.active_object
-    band.name = "keep_royal_band"
-    band.data.materials.append(palette["gold"])
-    bevel_object(band)
-
 
 def build_watchtower(palette, owner):
     """Tier 1 watchtower: cylindrical stone tower + conical roof + pennant."""
@@ -601,19 +567,19 @@ def build_watchtower(palette, owner):
     bpy.ops.mesh.primitive_cylinder_add(radius=0.72, depth=2.2, location=(0.0, 0.0, 1.1))
     tower = bpy.context.active_object
     tower.name = "watchtower_shaft"
-    tower.data.materials.append(palette["crown_stone"])
+    tower.data.materials.append(palette["stone"])
     bevel_object(tower)
 
     bpy.ops.mesh.primitive_cylinder_add(radius=0.88, depth=0.28, location=(0.0, 0.0, 2.3))
     gallery = bpy.context.active_object
     gallery.name = "watchtower_gallery"
-    gallery.data.materials.append(palette["crown_wood"])
+    gallery.data.materials.append(palette["wood"])
     bevel_object(gallery)
 
     bpy.ops.mesh.primitive_cone_add(radius1=0.8, depth=1.0, location=(0.0, 0.0, 2.9))
     roof = bpy.context.active_object
     roof.name = "watchtower_roof"
-    roof.data.materials.append(crown_roof_material(palette, owner))
+    roof.data.materials.append(roof_material(palette, owner))
     bevel_object(roof)
 
     bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, -0.4, 3.6))
@@ -634,34 +600,23 @@ def build_barracks(palette, owner):
     hall.name = "barracks_hall"
     hall.scale = (1.9, 1.3, 1.4)
     bpy.ops.object.transform_apply(scale=True)
-    hall.data.materials.append(palette["crown_stone"])
+    hall.data.materials.append(palette["stone"])
     bevel_object(hall)
 
-    # Two chunky sloped roof planes give barracks a distinct pitched profile.
-    for index, side in enumerate((-1, 1)):
-        bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, side * 0.37, 1.91))
-        roof = bpy.context.active_object
-        roof.name = f"barracks_roof_slope_{index}"
-        roof.scale = (2.08, 0.98, 0.19)
-        roof.rotation_euler[0] = -side * 0.42
-        bpy.ops.object.transform_apply(scale=True)
-        roof.data.materials.append(crown_roof_material(palette, owner))
-        bevel_object(roof)
-
-    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, 0.0, 2.12))
-    ridge = bpy.context.active_object
-    ridge.name = "barracks_gold_ridge"
-    ridge.scale = (2.18, 0.16, 0.16)
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, 0.0, 1.75))
+    roof = bpy.context.active_object
+    roof.name = "barracks_roof"
+    roof.scale = (2.05, 1.45, 0.55)
     bpy.ops.object.transform_apply(scale=True)
-    ridge.data.materials.append(palette["gold"])
-    bevel_object(ridge)
+    roof.data.materials.append(roof_material(palette, owner))
+    bevel_object(roof)
 
     bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.7, -0.66, 1.1))
     door = bpy.context.active_object
     door.name = "barracks_door"
     door.scale = (0.4, 0.08, 0.8)
     bpy.ops.object.transform_apply(scale=True)
-    door.data.materials.append(palette["crown_wood"])
+    door.data.materials.append(palette["wood"])
     bevel_object(door)
 
     bpy.ops.mesh.primitive_cube_add(size=1.0, location=(-0.85, 0.3, 1.5))
@@ -671,15 +626,6 @@ def build_barracks(palette, owner):
     bpy.ops.object.transform_apply(scale=True)
     banner.data.materials.append(banner_material(palette, owner))
     bevel_object(banner)
-
-    for x in (-0.66, 0.66):
-        bpy.ops.mesh.primitive_cube_add(size=1.0, location=(x, -0.7, 0.77))
-        column = bpy.context.active_object
-        column.name = "barracks_front_column"
-        column.scale = (0.16, 0.13, 1.25)
-        bpy.ops.object.transform_apply(scale=True)
-        column.data.materials.append(palette["gold"])
-        bevel_object(column)
 
 
 def build_stable(palette, owner):
@@ -691,7 +637,7 @@ def build_stable(palette, owner):
     hall.name = "stable_hall"
     hall.scale = (2.0, 1.1, 1.1)
     bpy.ops.object.transform_apply(scale=True)
-    hall.data.materials.append(palette["crown_wood"])
+    hall.data.materials.append(palette["wood"])
     bevel_object(hall)
 
     bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, 0.2, 1.3))
@@ -699,14 +645,14 @@ def build_stable(palette, owner):
     roof.name = "stable_roof"
     roof.scale = (2.15, 0.9, 0.4)
     bpy.ops.object.transform_apply(scale=True)
-    roof.data.materials.append(crown_roof_material(palette, owner))
+    roof.data.materials.append(roof_material(palette, owner))
     bevel_object(roof)
 
     for index, x in enumerate((-0.55, 0.55)):
         bpy.ops.mesh.primitive_cylinder_add(radius=0.09, depth=1.3, location=(x, -0.5, 0.65))
         post = bpy.context.active_object
         post.name = f"stable_post_{index}"
-        post.data.materials.append(palette["gold"])
+        post.data.materials.append(palette["stone_dark"])
         bevel_object(post)
 
     bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.95, 0.3, 1.2))
@@ -716,23 +662,6 @@ def build_stable(palette, owner):
     bpy.ops.object.transform_apply(scale=True)
     banner.data.materials.append(banner_material(palette, owner))
     bevel_object(banner)
-
-    # Broad canopy and feed boxes keep stables visually separate from barracks.
-    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, -0.73, 1.32))
-    canopy = bpy.context.active_object
-    canopy.name = "stable_front_canopy"
-    canopy.scale = (1.9, 0.42, 0.16)
-    bpy.ops.object.transform_apply(scale=True)
-    canopy.data.materials.append(crown_roof_material(palette, owner))
-    bevel_object(canopy)
-    for x in (-0.67, 0.67):
-        bpy.ops.mesh.primitive_cube_add(size=1.0, location=(x, -0.7, 0.24))
-        feed = bpy.context.active_object
-        feed.name = "stable_feed_box"
-        feed.scale = (0.42, 0.36, 0.34)
-        bpy.ops.object.transform_apply(scale=True)
-        feed.data.materials.append(palette["crown_neutral_roof"])
-        bevel_object(feed)
 
 
 # ---------------------------------------------------------------------------
@@ -1616,7 +1545,7 @@ ASSET_COLLECTION = {
 # ---------------------------------------------------------------------------
 
 def build_camera():
-    """Orthographic Art Bible camera aimed at the structure's visual center."""
+    """Orthographic Art Bible camera aimed exactly at the asset origin."""
     import bpy
     from mathutils import Vector
 
@@ -1631,19 +1560,18 @@ def build_camera():
     pitch = math.radians(CAMERA_PITCH_DEG)
     yaw = math.radians(CAMERA_YAW_DEG)
     # Spherical placement on the Art Bible viewing cone (55 deg pitch / 45 deg
-    # yaw). Aim above the ground origin so towers and banners fit in frame;
-    # moving both camera and aim preserves the locked projection angle.
+    # yaw), then a track-to constraint pins the view direction on the asset
+    # origin regardless of future distance or ortho tweaks.
     direction = Vector((
         math.sin(yaw) * math.cos(pitch),
         -math.cos(yaw) * math.cos(pitch),
         math.sin(pitch),
     ))
-    target = Vector((0.0, 0.0, 1.2))
-    cam_obj.location = target + direction * CAMERA_DISTANCE
+    cam_obj.location = direction * CAMERA_DISTANCE
 
     aim = bpy.data.objects.new("CC_CameraAim", None)
     bpy.context.scene.collection.objects.link(aim)
-    aim.location = target
+    aim.location = (0.0, 0.0, 0.0)
     constraint = cam_obj.constraints.new("TRACK_TO")
     constraint.target = aim
     constraint.track_axis = "TRACK_NEGATIVE_Z"

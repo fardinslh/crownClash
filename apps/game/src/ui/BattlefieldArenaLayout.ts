@@ -110,16 +110,17 @@ export function createBattlefieldTerrainLayers(
     ];
   }
 
-  // Crown Cross: four lush garden courts around a warm royal boulevard.
+  // Crown Cross: a processional stone court, four warm garden courts, and a
+  // gold-lit crown plaza at the contested centre.
   return [
-    { kind: 'roundedRect', x: 200, y: 376, width: 356, height: 558, radius: 46, color: 0x173843, alpha: 0.88, strokeColor: 0x688e81, strokeAlpha: 0.24 },
-    { kind: 'roundedRect', x: 200, y: 376, width: 72, height: 506, radius: 22, color: 0x755f47, alpha: 0.65, strokeColor: 0xdab779, strokeAlpha: 0.24 },
-    { kind: 'roundedRect', x: 104, y: 225, width: 154, height: 160, radius: 30, color: 0x2d5b40, alpha: 0.75, strokeColor: 0x95bb70, strokeAlpha: 0.36 },
-    { kind: 'roundedRect', x: 296, y: 225, width: 154, height: 160, radius: 30, color: 0x2d5b40, alpha: 0.75, strokeColor: 0x95bb70, strokeAlpha: 0.36 },
-    { kind: 'roundedRect', x: 104, y: 505, width: 154, height: 160, radius: 30, color: 0x2d5b40, alpha: 0.75, strokeColor: 0x95bb70, strokeAlpha: 0.36 },
-    { kind: 'roundedRect', x: 296, y: 505, width: 154, height: 160, radius: 30, color: 0x2d5b40, alpha: 0.75, strokeColor: 0x95bb70, strokeAlpha: 0.36 },
-    { kind: 'ellipse', x: 200, y: 360, width: 180, height: 180, color: 0x886b36, alpha: 0.42, strokeColor: 0xffd27c, strokeAlpha: 0.4 },
-    { kind: 'ellipse', x: 200, y: 360, width: 112, height: 112, color: 0xd6a44d, alpha: 0.16, strokeColor: 0xffdc90, strokeAlpha: 0.3 },
+    { kind: 'roundedRect', x: 200, y: 376, width: 356, height: 558, radius: 46, color: 0x162336, alpha: 0.78, strokeColor: 0x5b6f88, strokeAlpha: 0.16 },
+    { kind: 'roundedRect', x: 200, y: 376, width: 70, height: 506, radius: 22, color: 0x26354b, alpha: 0.62, strokeColor: 0x8c9aab, strokeAlpha: 0.12 },
+    { kind: 'roundedRect', x: 104, y: 225, width: 154, height: 160, radius: 30, color: 0x59402c, alpha: 0.38, strokeColor: 0xd49c45, strokeAlpha: 0.18 },
+    { kind: 'roundedRect', x: 296, y: 225, width: 154, height: 160, radius: 30, color: 0x59402c, alpha: 0.38, strokeColor: 0xd49c45, strokeAlpha: 0.18 },
+    { kind: 'roundedRect', x: 104, y: 505, width: 154, height: 160, radius: 30, color: 0x59402c, alpha: 0.38, strokeColor: 0xd49c45, strokeAlpha: 0.18 },
+    { kind: 'roundedRect', x: 296, y: 505, width: 154, height: 160, radius: 30, color: 0x59402c, alpha: 0.38, strokeColor: 0xd49c45, strokeAlpha: 0.18 },
+    { kind: 'ellipse', x: 200, y: 360, width: 176, height: 176, color: 0x8c5d12, alpha: 0.26, strokeColor: 0xf5b83b, strokeAlpha: 0.28 },
+    { kind: 'ellipse', x: 200, y: 360, width: 112, height: 112, color: 0xeab84d, alpha: 0.08, strokeColor: 0xffdf85, strokeAlpha: 0.16 },
   ];
 }
 
@@ -189,15 +190,17 @@ export function createBattlefieldDecorations(
     ];
   }
 
-  // Crown Cross keeps the royal axes, but loses the competing full-board
-  // diagonals; the actual roads above this layer carry movement information.
+  // crown_cross: the royal crossroads — processional cross axes, corner
+  // plaza courts, and a crown rondel at the heart of the field.
   return [
     { kind: 'zone', x: 105, y: 225, width: 130, height: 142 },
     { kind: 'zone', x: 295, y: 225, width: 130, height: 142 },
     { kind: 'zone', x: 105, y: 505, width: 130, height: 142 },
     { kind: 'zone', x: 295, y: 505, width: 130, height: 142 },
     { kind: 'line', x1: 200, y1: top, x2: 200, y2: bottom },
-    { kind: 'line', x1: 28, y1: 360, x2: 372, y2: 360 },
+    { kind: 'line', x1: 18, y1: 360, x2: 382, y2: 360 },
+    { kind: 'line', x1: 55, y1: 145, x2: 345, y2: 575 },
+    { kind: 'line', x1: 345, y1: 145, x2: 55, y2: 575 },
     { kind: 'ellipse', x: 200, y: 360, width: 150, height: 150 },
   ];
 }

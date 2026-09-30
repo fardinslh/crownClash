@@ -123,7 +123,7 @@ dispatch armies with `scene.executeQaDispatch(...)`, and check
 ## Commands
 
 ```bash
-# Render the four shared marching-unit sprites with the fixed Blender rig.
+# Render the four shared marching-unit sprites.
 blender --background --factory-startup --python tools/blender/generate_units.py
 
 # 1. Render a pack's master kit (deterministic; verified with Blender 5.2.2 LTS,
@@ -160,9 +160,8 @@ blender --background --factory-startup --python art/blender/build_battlefield_sc
 ## Determinism
 
 The scene builder uses a fixed orthographic camera (55°/45° dimetric, track-to
-constrained onto the structure's visual center 1.2m above ground), a fixed
-three-point lighting rig, a fixed world ambient, and `cycles.seed = 0` with
-`use_animated_seed = False` (`--samples`
+constrained onto the asset origin), a fixed three-point lighting rig, a fixed world
+ambient, and `cycles.seed = 0` with `use_animated_seed = False` (`--samples`
 controls sample count). Re-rendering the same pack on the same Blender build
 produces identical PNGs. Asset generators use no randomness. Each asset renders in
 a freshly cleared scene; the material palette is rebuilt after the clear, so

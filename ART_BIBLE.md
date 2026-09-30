@@ -9,15 +9,6 @@ weight & edge treatment, canonical resolution standards, mobile readability rule
 the Blender source pipeline (see `docs/art/README.md`). The authoritative scene-builder
 script is `art/blender/build_battlefield_scene.py`.
 
-**Crown Cross refresh:** This first-session battlefield uses sun-warmed limestone,
-honey timber, lush green garden courts, a gold central plaza, and light stone roads.
-Its neutral roofs are warm ochre; blue/red roofs and ownership rings remain the
-unambiguous team signal. Unit renders use a tighter boots-to-plume frame and
-stronger team capes and shields, shared across all maps. Crown Cross unit-count
-badges sit to the outer side of flank buildings and the two capitals so their
-silhouettes stay visible. These are presentation changes only: territory centers,
-roads, hit areas, and battle rules are unchanged.
-
 ---
 
 ## 1. Visual Pillars

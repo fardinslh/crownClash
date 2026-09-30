@@ -1,9 +1,12 @@
-"""Render the four shared 2.5D Crown Clash marching-unit sprites."""
+"""
+Crown Clash - 2.5D Army Unit Token Generator
+Generates and renders stylized 2.5D orthographic unit tokens and squad followers
+strictly adhering to the specifications in ART_BIBLE.md.
+"""
 
 import math
 from pathlib import Path
 import bpy
-from mathutils import Vector
 
 OUTPUT_DIR = Path(__file__).resolve().parents[2] / 'apps/game/public/assets/units'
 RESOLUTION = 128  # 128x128 sprite for unit tokens
@@ -22,8 +25,6 @@ def setup_render_engine():
     scene.render.film_transparent = True
     scene.render.image_settings.file_format = 'PNG'
     scene.render.image_settings.color_mode = 'RGBA'
-    scene.view_settings.view_transform = 'Standard'
-    scene.view_settings.look = 'Medium High Contrast'
 
 def setup_camera_and_lights():
     bpy.ops.object.select_all(action='SELECT')
@@ -32,7 +33,7 @@ def setup_camera_and_lights():
     # 1. Orthographic Camera per Art Bible: 55° pitch, 45° yaw
     cam_data = bpy.data.cameras.new(name="CrownClash_OrthoCam")
     cam_data.type = 'ORTHO'
-    cam_data.ortho_scale = 2.05  # Boots-to-plume frame at 128px runtime size
+    cam_data.ortho_scale = 2.6  # Tightly frames the 2.5D miniature
     cam_data.clip_start = 0.1
     cam_data.clip_end = 100.0
 
@@ -40,13 +41,8 @@ def setup_camera_and_lights():
     bpy.context.collection.objects.link(cam_obj)
     bpy.context.scene.camera = cam_obj
 
-    target = Vector((0, 0, 1.05))
-    pitch = math.radians(55)
-    yaw = math.radians(45)
-    direction = Vector((math.sin(yaw) * math.cos(pitch),
-                        -math.cos(yaw) * math.cos(pitch), math.sin(pitch)))
-    cam_obj.location = target + direction * 12
-    cam_obj.rotation_euler = (target - cam_obj.location).to_track_quat('-Z', 'Y').to_euler()
+    cam_obj.location = (8.0, -8.0, 9.5)
+    cam_obj.rotation_euler = (math.radians(55.0), 0.0, math.radians(45.0))
 
     # 2. Key Light (Sun) - Warm Champagne, top-left
     key_light_data = bpy.data.lights.new(name="Key_Sun", type='SUN')
@@ -100,32 +96,23 @@ def clear_mesh_objects():
 def build_toy_knight(team, is_leader=True):
     """
     Builds a stylized 2.5D toy knight warrior figurine:
-    - Separate boots and cape silhouette
+    - Round beveled plinth
     - Armored torso with team tunic
     - Knight Greathelm with glowing visor / team plume
     - Heraldic heater shield with team heraldry
     - Gleaming royal sword/lance
     """
-    team_mat = get_or_create_material(f"Mat_Knight_Team_{team}", TEAM_COLORS[team], roughness=0.55)
+    team_mat = get_or_create_material(f"Mat_Knight_Team_{team}", TEAM_COLORS[team], roughness=0.35)
     steel_mat = get_or_create_material("Mat_Knight_Steel", (0.75, 0.80, 0.88, 1.0), roughness=0.25, metallic=0.9)
     dark_steel = get_or_create_material("Mat_Knight_DarkSteel", (0.20, 0.24, 0.32, 1.0), roughness=0.5, metallic=0.7)
     gold_mat = get_or_create_material("Mat_Knight_Gold", (0.95, 0.74, 0.18, 1.0), roughness=0.25, metallic=0.85)
 
     scale = 1.0 if is_leader else 0.8
-    Z_OFFSET = 0.16
+    Z_OFFSET = 0.35
 
-    # Boots instead of a token plinth: marching troops remain characters.
-    for x in (-0.23, 0.23):
-        bpy.ops.mesh.primitive_uv_sphere_add(segments=12, ring_count=8, radius=0.22 * scale,
-                                             location=(x * scale, -0.06, Z_OFFSET + 0.13 * scale))
-        assign_material(bpy.context.active_object, dark_steel)
-
-    # A broad back cape gives the commander a silhouette distinct from followers.
-    if is_leader:
-        cape_mat = get_or_create_material(f"Mat_Cape_{team}", TEAM_COLORS[team], roughness=0.75)
-        bpy.ops.mesh.primitive_cone_add(vertices=8, radius1=0.56, radius2=0.25, depth=0.9,
-                                        location=(0, 0.27, Z_OFFSET + 0.56))
-        assign_material(bpy.context.active_object, cape_mat)
+    # 1. Round Beveled Plinth
+    bpy.ops.mesh.primitive_cylinder_add(vertices=16, radius=0.75 * scale, depth=0.18, location=(0, 0, Z_OFFSET + 0.09))
+    assign_material(bpy.context.active_object, dark_steel)
 
     # 2. Torso (Armored Breastplate)
     bpy.ops.mesh.primitive_cylinder_add(vertices=12, radius=0.42 * scale, depth=0.55 * scale, location=(0, 0, Z_OFFSET + 0.45 * scale))
