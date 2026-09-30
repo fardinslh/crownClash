@@ -827,19 +827,33 @@ export class GameScene extends Phaser.Scene {
 
     // Art Bible lighting: a warm champagne key pool from the top-left and a
     // cool sky-blue ambient pool opposite (two static one-time fills).
-    fieldGraphics.fillStyle(0xfff5e6, 0.07);
+    fieldGraphics.fillStyle(0xfff5e6, this.battlefieldId === 'crown_cross' ? 0.02 : 0.07);
     fieldGraphics.fillEllipse(130, 180, 240, 200);
-    fieldGraphics.fillStyle(0xa8d2ff, 0.06);
+    fieldGraphics.fillStyle(0xa8d2ff, this.battlefieldId === 'crown_cross' ? 0.02 : 0.06);
     fieldGraphics.fillEllipse(280, 520, 220, 240);
 
-    // A near-invisible technical grain grounds the paint without turning the
-    // board back into graph paper. Location-specific forms remain dominant.
-    fieldGraphics.lineStyle(1, arena.grid, 0.045);
-    for (let x = 32; x < LOGICAL_WIDTH - 10; x += 56) {
-      fieldGraphics.lineBetween(x, 88, x, visibleHeight - 30);
-    }
-    for (let y = 100; y < visibleHeight - 28; y += 56) {
-      fieldGraphics.lineBetween(18, y, LOGICAL_WIDTH - 18, y);
+    if (this.battlefieldId === 'crown_cross') {
+      // Fixed, low-contrast slate facets; all drawn once below playable roads.
+      for (let i = 0; i < 150; i++) {
+        const x = 25 + ((i * 73) % 350);
+        const y = 95 + ((i * 113) % 542);
+        const w = 5 + (i % 7);
+        fieldGraphics.fillStyle(i % 3 === 0 ? 0x46505a : 0x0b1421, 0.10);
+        fieldGraphics.fillTriangle(x - w, y, x + w, y - 3, x + w / 2, y + 6);
+      }
+      fieldGraphics.lineStyle(1, 0x101a27, 0.45);
+      for (let y = 312; y < 414; y += 17) {
+        const halfWidth = Math.sqrt(Math.max(0, 64 * 64 - (y - 360) ** 2));
+        fieldGraphics.lineBetween(200 - halfWidth, y, 200 + halfWidth, y);
+      }
+    } else {
+      fieldGraphics.lineStyle(1, arena.grid, 0.045);
+      for (let x = 32; x < LOGICAL_WIDTH - 10; x += 56) {
+        fieldGraphics.lineBetween(x, 88, x, visibleHeight - 30);
+      }
+      for (let y = 100; y < visibleHeight - 28; y += 56) {
+        fieldGraphics.lineBetween(18, y, LOGICAL_WIDTH - 18, y);
+      }
     }
 
     // Every map gets a recognizable silhouette, rendered once into the same
@@ -941,6 +955,23 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
+    if (this.battlefieldId === 'crown_cross') {
+      // Cobbled lane joints preserve the exact road centerlines and widths.
+      connections.forEach(([idA, idB]) => {
+        const a = terrs[idA]; const b = terrs[idB];
+        if (!a || !b) return;
+        const d = Math.hypot(b.x - a.x, b.y - a.y);
+        const nx = -(b.y - a.y) / d; const ny = (b.x - a.x) / d;
+        lanesGraphics.lineStyle(1, 0x111b29, 0.22);
+        for (let step = 14; step < d; step += 14) {
+          const x = a.x + (b.x - a.x) * step / d;
+          const y = a.y + (b.y - a.y) * step / d;
+          lanesGraphics.lineBetween(x - nx * 5, y - ny * 5, x + nx * 5, y + ny * 5);
+          lanesGraphics.lineBetween(x, y, x + (b.x - a.x) / d * 7, y + (b.y - a.y) / d * 7);
+        }
+      });
+    }
+
     // Ground sockets visually anchor the rendered 2.5D buildings: a soft
     // plinth pool grounds each one, then the socket ring and key-light rim.
     Object.values(terrs).forEach((t) => {
@@ -949,13 +980,13 @@ export class GameScene extends Phaser.Scene {
       lanesGraphics.fillEllipse(t.x, t.y + 6, (art.socketRadius + 4) * 2, (art.socketRadius + 4) * 1.3);
       lanesGraphics.fillStyle(arena.socket, 0.96);
       lanesGraphics.fillCircle(t.x, t.y + 3, art.socketRadius);
-      lanesGraphics.lineStyle(2, arena.grid, 0.76);
+      lanesGraphics.lineStyle(2, arena.grid, this.battlefieldId === 'crown_cross' ? 0.32 : 0.76);
       lanesGraphics.strokeCircle(t.x, t.y + 3, art.socketRadius);
       lanesGraphics.lineStyle(1, arena.roadInlay, 0.2);
       lanesGraphics.strokeCircle(t.x, t.y + 3, art.socketRadius - 5);
       // Art Bible key-light rim (single pass, warm champagne) lifts the
       // sockets' toy-like volume without extra display objects.
-      drawSocketRimLight(lanesGraphics, t.x, t.y + 3, art.socketRadius);
+      if (this.battlefieldId !== 'crown_cross') drawSocketRimLight(lanesGraphics, t.x, t.y + 3, art.socketRadius);
     });
 
     // Restrained decorative accents (static, one Graphics object, provably
@@ -969,7 +1000,7 @@ export class GameScene extends Phaser.Scene {
       Object.values(terrs).find(
         (t) => t.owner === 'neutral' && t.tier >= 2 && t.type === 'fortress'
       );
-    if (centerTerr) {
+    if (centerTerr && this.battlefieldId !== 'crown_cross') {
       lanesGraphics.lineStyle(1.5, THEME.gold, 0.28);
       lanesGraphics.strokeCircle(centerTerr.x, centerTerr.y, 58);
       lanesGraphics.lineStyle(1, THEME.gold, 0.12);
@@ -2870,7 +2901,8 @@ export class GameScene extends Phaser.Scene {
         // 4. High-contrast Troop Count Pill Badge. In 2v2 the marching
         // army is attributed to its dispatching slot via the shape glyph
         // parsed from the server army id (predictions use my own slot).
-        const badgeY = -19;
+        // Put the label ahead of downward marches so it does not cover the rear rank.
+        const badgeY = this.battlefieldId === 'crown_cross' ? sin > 0.15 ? 24 : -23 : -19;
         const slotAttribution2v2 = this.twoVTwoArmyShape(army);
         const initialUnits = slotAttribution2v2
           ? `${slotAttribution2v2} ${roleStyle.label} ${army.units}`

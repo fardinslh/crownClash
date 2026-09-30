@@ -83,7 +83,9 @@ describe('battlefield arena visual layouts', () => {
     expect(crown).not.toEqual(passes);
     expect(passes).not.toEqual(ring);
     expect(ring).not.toEqual(quad);
-    expect(crown.filter((layer) => layer.kind === 'roundedRect')).toHaveLength(6);
+    // Crown keeps a central court and removes the four boxed flank gardens.
+    expect(crown.some((layer) => layer.kind === 'ellipse' && layer.x === 200 && layer.y === 360)).toBe(true);
+    expect(crown.filter((layer) => layer.kind === 'roundedRect' && layer.width < 300)).toEqual([]);
     expect(passes.some((layer) => layer.kind === 'triangle')).toBe(true);
     expect(ring.filter((layer) => layer.kind === 'ellipse')).toHaveLength(4);
     expect(quad.filter((layer) => layer.kind === 'roundedRect')).toHaveLength(5);

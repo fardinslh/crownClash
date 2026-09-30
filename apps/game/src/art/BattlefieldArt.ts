@@ -303,6 +303,7 @@ export function territoryArtFootprint(battlefieldId: BattlefieldId, territory: T
   roleIconY: number;
 } {
   const quad = battlefieldId === 'quad_citadel';
+  const crown = battlefieldId === 'crown_cross';
   const topCitadel = territory.type === 'fortress' && territory.tier === 3 && territory.y <= 150;
   // Quad Citadel's base/corner centers are only sqrt(3400) px apart. These
   // radii leave visible air between their sockets without altering geometry.
@@ -318,10 +319,10 @@ export function territoryArtFootprint(battlefieldId: BattlefieldId, territory: T
     ringRadius: socketRadius,
     shadowWidth: socketRadius * 2,
     shadowHeight: socketRadius * 0.75,
-    spriteSize: quad
+    spriteSize: crown ? topCitadel ? 78 : territory.tier === 3 ? 94 : territory.tier === 2 ? 84 : 72 : quad
       ? territory.tier === 3 ? 64 : territory.tier === 2 ? 76 : 48
       : topCitadel ? 82 : territory.tier === 3 ? 102 : territory.tier === 2 ? 88 : 72,
-    spriteY: topCitadel ? 6 : quad ? -5 : -8,
+    spriteY: crown ? topCitadel ? 2 : -15 : topCitadel ? 6 : quad ? -5 : -8,
     badgeY,
     sharedCueX: territory.x < 200 ? -33 : 33,
     sharedCueY: badgeY,
