@@ -1483,6 +1483,45 @@ def build_pennant(palette, owner):
     bevel_object(cloth)
 
 
+# ---------------------------------------------------------------------------
+# crown_cross builders: thin wrappers over art/blender/crown_cross_kit.py. The
+# kit imports bpy at module level, so it is loaded lazily to keep manifest
+# validation usable on machines without Blender.
+# ---------------------------------------------------------------------------
+
+def load_cross_kit():
+    kit_dir = os.path.dirname(os.path.abspath(__file__))
+    if kit_dir not in sys.path:
+        sys.path.insert(0, kit_dir)
+    import crown_cross_kit
+    return crown_cross_kit
+
+
+def build_cross_citadel(palette, owner):
+    kit = load_cross_kit()
+    kit.citadel(kit.mats(owner, make_material))
+
+
+def build_cross_keep(palette, owner):
+    kit = load_cross_kit()
+    kit.keep(kit.mats(owner, make_material))
+
+
+def build_cross_outpost(palette, owner):
+    kit = load_cross_kit()
+    kit.outpost(kit.mats(owner, make_material))
+
+
+def build_cross_barracks(palette, owner):
+    kit = load_cross_kit()
+    kit.hall(kit.mats(owner, make_material))
+
+
+def build_cross_stable(palette, owner):
+    kit = load_cross_kit()
+    kit.hall(kit.mats(owner, make_material), stable=True)
+
+
 BUILDERS = {
     "build_citadel": build_citadel,
     "build_crown_keep": build_crown_keep,
@@ -1509,6 +1548,11 @@ BUILDERS = {
     "build_crystal_cluster": build_crystal_cluster,
     "build_stacked_stones": build_stacked_stones,
     "build_pennant": build_pennant,
+    "build_cross_citadel": build_cross_citadel,
+    "build_cross_keep": build_cross_keep,
+    "build_cross_outpost": build_cross_outpost,
+    "build_cross_barracks": build_cross_barracks,
+    "build_cross_stable": build_cross_stable,
 }
 
 ASSET_COLLECTION = {
@@ -1537,6 +1581,22 @@ ASSET_COLLECTION = {
     "build_crystal_cluster": "CC_Props",
     "build_stacked_stones": "CC_Props",
     "build_pennant": "CC_Props",
+    "build_cross_citadel": "CC_Structures",
+    "build_cross_keep": "CC_Structures",
+    "build_cross_outpost": "CC_Structures",
+    "build_cross_barracks": "CC_Structures",
+    "build_cross_stable": "CC_Structures",
+}
+
+# Per-builder framing for crown_cross sprites: (ortho_scale, aim_height). The
+# camera and aim move together vertically, so the Art Bible view direction is
+# unchanged; only the crop differs so each silhouette fills its runtime tier.
+CAMERA_FRAMING = {
+    "build_cross_citadel": (5.15, 1.10),
+    "build_cross_keep": (4.35, 0.85),
+    "build_cross_outpost": (4.6, 1.30),
+    "build_cross_barracks": (4.25, 0.70),
+    "build_cross_stable": (4.25, 0.70),
 }
 
 
@@ -1667,6 +1727,22 @@ def clear_default_scene():
             bpy.data.collections.remove(collection)
 
 
+def apply_camera_framing(builder_name):
+    import bpy
+    framing = CAMERA_FRAMING.get(builder_name)
+    if framing is None:
+        return
+    apply_camera_framing_values(*framing)
+
+
+def apply_camera_framing_values(ortho_scale, aim_height):
+    import bpy
+    camera = bpy.context.scene.camera
+    camera.data.ortho_scale = ortho_scale
+    camera.location.z += aim_height
+    bpy.data.objects["CC_CameraAim"].location.z = aim_height
+
+
 def build_asset(builder_name, owner):
     """Builds one asset in a freshly cleared, fully rebuilt scene.
 
@@ -1680,6 +1756,7 @@ def build_asset(builder_name, owner):
     build_camera()
     build_lighting_rig()
     build_world()
+    apply_camera_framing(builder_name)
     for collection_name in COLLECTIONS:
         link_to_collection(collection_name)
     palette = material_palette()

@@ -39,7 +39,10 @@ reference an unloaded texture.
   matching `outpost_*.png` files (identical visuals). This is explicit in the
   manifest (`aliasOf`), not accidental.
 - **crown_cross dedicated pack** (`assets/territories/crown_cross/`, WebP, active):
-  stone-and-gold battlefield kit.
+  slate-stone kit built from `art/blender/crown_cross_kit.py` (four-turret citadels,
+  crenellated crown keep, stone outposts, pitched-roof barracks, open-stall stables).
+  Team color lives on roofs, banners and shields; per-builder crops are in
+  `CAMERA_FRAMING` of `art/blender/build_battlefield_scene.py`.
 - **twin_passes dedicated pack** (`assets/territories/twin_passes/`, WebP, active):
   fortified mountain-passes kit — stepped crag citadels with round bastions,
   gatehouse keeps straddling the pass, square crenellated watchtowers on rock
@@ -123,7 +126,8 @@ dispatch armies with `scene.executeQaDispatch(...)`, and check
 ## Commands
 
 ```bash
-# Render the four shared marching-unit sprites.
+# Render the four shared marching-unit sprites (knight model from
+# art/blender/crown_cross_kit.py, canonical rig, downscaled to 128px PNGs).
 blender --background --factory-startup --python tools/blender/generate_units.py
 
 # 1. Render a pack's master kit (deterministic; verified with Blender 5.2.2 LTS,

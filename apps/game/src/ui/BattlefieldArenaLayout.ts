@@ -110,7 +110,8 @@ export function createBattlefieldTerrainLayers(
     ];
   }
 
-  // Approval study: quiet slate ground and one worn central stone court.
+  // Crown Cross: quiet slate ground and one worn central stone court; bright
+  // courts and wide gold lanes hid the buildings and were rejected in review.
   return [
     { kind: 'roundedRect', x: 200, y: 376, width: 356, height: 558, radius: 46, color: 0x162336, alpha: 0.78, strokeColor: 0x5b6f88, strokeAlpha: 0.12 },
     { kind: 'ellipse', x: 200, y: 360, width: 136, height: 136, color: 0x35404d, alpha: 0.36, strokeColor: 0x768495, strokeAlpha: 0.15 },

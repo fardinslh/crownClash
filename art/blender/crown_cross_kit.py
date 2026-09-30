@@ -1,18 +1,14 @@
-"""Approval-only Crown Cross study. Run in the isolated art/crown-cross-review worktree.
-Uses the canonical camera/light/material pipeline, renders only the initial scene's
-five building variants plus four shared troop studies. Not a production pack.
-"""
-import importlib.util
-import math
-from pathlib import Path
-import bpy
-from mathutils import Vector
+"""Crown Cross structure and troop kit (Blender).
 
-ROOT = Path(__file__).resolve().parents[2]
-spec = importlib.util.spec_from_file_location('rig', ROOT / 'art/blender/build_battlefield_scene.py')
-rig = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(rig)
-OUT = ROOT / 'qa-artifacts/art-crown-cross-study/masters'
+Shared model definitions for the approved Crown Cross direction: slate stone,
+pitched team-colored roofs, crenellated keeps and compact toy knights.
+Consumed by art/blender/build_battlefield_scene.py (structure sprites) and
+tools/blender/generate_units.py (shared troop sprites) so both render through
+the same camera, lighting and world rig. Requires Blender's bpy; import lazily.
+"""
+import math
+
+import bpy
 
 
 def box(name, size, loc, mat, bevel=.055):
@@ -55,11 +51,20 @@ def shield(name, loc, size, mat, trim):
     box(name+' emblem bar',(.25,.055,.08),(x,y-.065,z+.08),trim,.012)
 
 
-def mats(owner):
-    colors={'stone':(.20,.26,.34),'edge':(.32,.39,.46),'dark':(.07,.10,.15),'wood':(.23,.14,.09),'gold':(.58,.35,.10),'steel':(.42,.50,.59),
-            'roof': {'player':(.025,.19,.56),'enemy':(.48,.045,.06),'neutral':(.105,.18,.26)}[owner]}
-    return {k:rig.make_material('study_'+k,v,.72, use_gradient=False) for k,v in colors.items()}
 
+OWNERS = ('player', 'enemy', 'neutral')
+ROOF_COLORS = {'player': (.025, .19, .56), 'enemy': (.48, .045, .06), 'neutral': (.105, .18, .26)}
+BASE_COLORS = {
+    'stone': (.20, .26, .34), 'edge': (.32, .39, .46), 'dark': (.07, .10, .15),
+    'wood': (.23, .14, .09), 'gold': (.58, .35, .10), 'steel': (.42, .50, .59),
+}
+
+
+def mats(owner, make_material):
+    """Material set for one owner. make_material is the rig's factory, so the
+    kit never imports the scene builder (which must stay importable without bpy)."""
+    colors = dict(BASE_COLORS, roof=ROOF_COLORS[owner])
+    return {k: make_material('cross_' + k, v, .72, use_gradient=False) for k, v in colors.items()}
 
 def gate(m,x,y,z,width=.6,height=.8):
     box('gate recess',(width,.10,height),(x,y,z),m['dark'])
@@ -146,25 +151,14 @@ def knight(m,leader):
         box('cape',(.60,.10,.64),(0,.25,.68),m['roof']).rotation_euler.x=-.25
 
 
-def render(name,owner,builder,scale,aimz):
-    rig.clear_default_scene()
-    rig.build_camera(); rig.build_lighting_rig(); rig.build_world()
-    builder(mats(owner))
-    cam=bpy.context.scene.camera
-    cam.data.ortho_scale=scale
-    cam.location.z+=aimz
-    bpy.data.objects['CC_CameraAim'].location.z=aimz
-    rig.configure_render(str(OUT),True,24)
-    bpy.context.scene.render.filepath=str(OUT/(name+'.png'))
-    bpy.ops.render.render(write_still=True)
-
-OUT.mkdir(parents=True,exist_ok=True)
-for name,owner,fn,scale,z in [
-    ('citadel_player','player',citadel,5.15,1.10),('citadel_enemy','enemy',citadel,5.15,1.10),
-    ('crown_keep_neutral','neutral',keep,4.35,.85),
-    ('barracks_neutral','neutral',lambda m:hall(m),4.25,.70),
-    ('stable_neutral','neutral',lambda m:hall(m,True),4.25,.70),
-]: render(name,owner,fn,scale,z)
-for owner in ['player','enemy']:
-    for leader in [True,False]:
-        render('unit_'+('leader' if leader else 'follower')+'_'+owner,owner,lambda m:knight(m,leader),2.30,.77)
+def outpost(m):
+    cylinder('footing',.88,.20,(0,0,.14),m['edge'],8)
+    cylinder('watch body',.66,1.95,(0,0,1.10),m['stone'],8)
+    cylinder('parapet collar',.78,.22,(0,0,2.14),m['edge'],8)
+    gate(m,0,-.66,.64,.40,.64)
+    for x in [-.30,.30]: box('arrow slit',(.09,.05,.34),(x,-.61,1.55),m['dark'],.015)
+    bpy.ops.mesh.primitive_cone_add(vertices=8,radius1=.88,radius2=.05,depth=.80,location=(0,0,2.66))
+    ob = bpy.context.object
+    ob.name = 'team roof'
+    ob.data.materials.append(m['roof'])
+    cylinder('roof finial',.06,.30,(0,0,3.20),m['gold'],8)

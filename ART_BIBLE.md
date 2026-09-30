@@ -123,6 +123,19 @@ Every territory must have a distinctive silhouette so players instantly recogniz
   * Grand fortified keep flanked by twin defensive turrets and reinforced archway gate.
   * Massive team banner, gilded masonry corners, prominent visual weight.
 
+**Crown Cross kit (approved direction):** slate stone with blue-gray neutral roofs;
+only roofs, banners and shields carry team color. Citadels are four-turret keeps with a
+gate and team roofs; the Crown Keep is a crenellated octagon with a gold crown; outposts
+are a stone watch tower with a team cone roof; barracks have a pitched roof, shield and
+chimney; stables have open stalls and a canopy. Models live in
+`art/blender/crown_cross_kit.py`, are rendered through the canonical rig, and use
+per-builder crops (`CAMERA_FRAMING`) that never change the 55°/45° view.
+
+**Shared troops:** four sprites (leader/follower x player/enemy) of a compact toy knight,
+rendered by `tools/blender/generate_units.py` through the same rig, 128px runtime PNGs,
+shared by every battlefield. Sprite scale is driven per frame by `computeMarchStride`, so
+size changes must be made there and respect reduced motion.
+
 ---
 
 ## 6. Materials & Shading Rules
@@ -259,7 +272,8 @@ The snippet above is illustrative only.
   tactical area (400 × ~580 logical px). Territory platforms sit *on* the floor; the
   floor never scrolls.
 * **Terrain composition:** the floor must read as a miniature location, not a UI grid.
-  Crown Cross uses warm garden courts and a gold-lit processional plaza; Twin Passes
+  Crown Cross uses quiet slate ground with one worn stone court at the contested
+  centre (no bright courts or wide gold lanes: they hide the buildings); Twin Passes
   uses weathered mountain shelves around a cold ravine; Royal Ring uses nested marble
   courts and a royal carpet; Quad Citadel uses four canvas-and-iron parade grounds.
   These are static, non-interactive painted layers below roads and sockets, so they

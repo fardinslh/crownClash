@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Approval-only fixed-state review capture; not a live gameplay/performance test.
+// Fixed-state Crown Cross art review capture; not a live gameplay/performance test.
 // Derived from capture-battlefield-qa.mjs. Uses real Phaser visuals with a frozen fixture.
 //
 // Corrected capture procedure (per review):
