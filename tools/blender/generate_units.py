@@ -64,7 +64,13 @@ def render_unit(rig, kit, name, owner, leader):
     rig.build_lighting_rig()
     rig.build_world()
     rig.apply_camera_framing_values(ORTHO_SCALE, AIM_HEIGHT)
-    kit.knight(kit.mats(owner, rig.make_material), leader)
+    kit.knight(kit.kmats(owner, rig.make_material), leader)
+    # The kit's materials multiply in the rig's section-6 vertical gradient,
+    # but the kit builds its own beveled primitives, so the VerticalShade
+    # attribute must be written per mesh or the sprite renders solid black.
+    for obj in bpy.data.objects:
+        if obj.type == 'MESH':
+            rig.shade_vertical_gradient(obj)
     rig.configure_render(str(MASTER_DIR), True, SAMPLES)
     master = MASTER_DIR / f'{name}.png'
     bpy.context.scene.render.filepath = str(master)

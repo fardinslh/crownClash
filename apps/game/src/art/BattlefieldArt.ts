@@ -40,6 +40,26 @@ export type TerritoryTextureKey =
   | 'stable_enemy'
   | 'stable_neutral';
 
+/** Sprite kinds of the shared environment prop pack (all battlefields). */
+export type PropTextureKey =
+  | 'tree_birch'
+  | 'tree_apple'
+  | 'tree_pine'
+  | 'bush'
+  | 'grass_tuft'
+  | 'rock'
+  | 'pennant';
+
+export const PROP_TEXTURE_KEYS: readonly PropTextureKey[] = Object.freeze([
+  'tree_birch',
+  'tree_apple',
+  'tree_pine',
+  'bush',
+  'grass_tuft',
+  'rock',
+  'pennant',
+]);
+
 /** Repo-relative prefix under which Phaser serves static assets. */
 const PUBLIC_ROOT_PREFIX = 'apps/game/public/';
 
@@ -64,6 +84,8 @@ export interface RuntimeSpritePackManifest {
   readonly runtimeFormat: 'png' | 'webp';
   /** False while the pack's runtime files have not been rendered yet. */
   readonly active: boolean;
+  /** 'territory' (default) packs carry building sprites; 'prop' packs carry environment props. */
+  readonly spriteKind: 'territory' | 'prop';
   readonly sprites: Readonly<Record<string, RuntimeSpriteManifestEntry>>;
 }
 
@@ -120,7 +142,7 @@ export function parseAssetManifest(raw: unknown): AssetManifest {
   const parsedPacks: Record<string, RuntimeSpritePackManifest> = {};
   for (const [packId, rawPack] of Object.entries(packs)) {
     if (!isRecord(rawPack)) fail(`pack ${packId} must be an object`);
-    const { label, packDirectory, runtimeFormat, active, sprites } = rawPack;
+    const { label, packDirectory, runtimeFormat, active, spriteKind, sprites } = rawPack;
     if (typeof packDirectory !== 'string' || packDirectory.length === 0) {
       fail(`pack ${packId} packDirectory must be a non-empty string`);
     }
@@ -128,14 +150,19 @@ export function parseAssetManifest(raw: unknown): AssetManifest {
       fail(`pack ${packId} runtimeFormat must be "png" or "webp"`);
     }
     if (typeof active !== 'boolean') fail(`pack ${packId} active must be a boolean`);
+    if (spriteKind !== undefined && spriteKind !== 'territory' && spriteKind !== 'prop') {
+      fail(`pack ${packId} spriteKind must be "territory" or "prop"`);
+    }
+    const kind = spriteKind === 'prop' ? 'prop' : 'territory';
+    const allowedKeys = kind === 'prop' ? PROP_TEXTURE_KEYS : RESOLVER_TEXTURE_KEYS;
     if (!isRecord(sprites) || Object.keys(sprites).length === 0) {
       fail(`pack ${packId} sprites must be a non-empty object`);
     }
 
     const parsedSprites: Record<string, RuntimeSpriteManifestEntry> = {};
     for (const [textureKey, rawSprite] of Object.entries(sprites)) {
-      if (!(RESOLVER_TEXTURE_KEYS as readonly string[]).includes(textureKey)) {
-        fail(`pack ${packId} declares unknown texture key ${textureKey}`);
+      if (!(allowedKeys as readonly string[]).includes(textureKey)) {
+        fail(`pack ${packId} declares unknown ${kind} texture key ${textureKey}`);
       }
       if (!isRecord(rawSprite)) fail(`pack ${packId} sprite ${textureKey} must be an object`);
       const { blenderRenderName, blenderBuilder, blenderOwner, runtimeFilename, targetSize, runtimePath, aliasOf } =
@@ -176,6 +203,7 @@ export function parseAssetManifest(raw: unknown): AssetManifest {
       packDirectory,
       runtimeFormat,
       active,
+      spriteKind: kind,
       sprites: parsedSprites,
     };
   }
@@ -454,62 +482,168 @@ export function createProceduralTerritoryFallbackTexture(
 }
 
 // ---------------------------------------------------------------------------
-// Arena accents (static, non-interactive, provably clear of gameplay)
+// Arena props: rendered flora, stones and pennants (semi-realistic direction)
 // ---------------------------------------------------------------------------
 
-export interface ArenaAccent {
+export type ArenaPropKind = PropTextureKey;
+
+export interface ArenaProp {
   readonly x: number;
   readonly y: number;
-  readonly kind: 'crystal' | 'stones' | 'pennant';
+  readonly kind: ArenaPropKind;
 }
 
+/** Display height (logical px) and blend alpha per prop kind (bottom-anchored). */
+export const ARENA_PROP_DISPLAY: Readonly<
+  Record<ArenaPropKind, { readonly height: number; readonly alpha: number }>
+> = Object.freeze({
+  tree_birch: { height: 104, alpha: 1 },
+  tree_apple: { height: 100, alpha: 1 },
+  tree_pine: { height: 100, alpha: 1 },
+  bush: { height: 44, alpha: 1 },
+  grass_tuft: { height: 34, alpha: 0.9 },
+  rock: { height: 32, alpha: 1 },
+  pennant: { height: 64, alpha: 0.95 },
+});
+
 /**
- * Restrained decorative accents per battlefield (Art Bible section 12: max 8,
- * <= 24px tall, never within territory radius + 16px of a territory center or
- * 14px of a road segment). Every battlefield ships a set: Crown Cross frames
- * its crossroads, Twin Passes populates the quiet meadow column, Royal Ring
- * dresses the court interior, Quad Citadel marks the dueling mid-line.
- * Positions are verified against the authoritative battlefield geometry by
- * BattlefieldArt.test.ts.
+ * Static environment prop placements per battlefield: birch and apple groves
+ * for Crown Cross, pine and rock for Twin Passes, orchard bushes for Royal
+ * Ring, dry scrub for Quad Citadel. Generated by
+ * scripts/generate-arena-props.mjs against the authoritative battlefield
+ * geometry and re-validated by BattlefieldArt.test.ts: every prop stays clear
+ * of territory sockets, roads and the arena frame, and trees are edge-only so
+ * they never crowd the contested middle.
  */
-export function getArenaAccentPositions(battlefieldId: BattlefieldId): readonly ArenaAccent[] {
-  if (battlefieldId === 'crown_cross') {
-    return Object.freeze([
-      { x: 40, y: 150, kind: 'crystal' },
-      { x: 360, y: 150, kind: 'stones' },
-      { x: 40, y: 300, kind: 'pennant' },
-      { x: 360, y: 300, kind: 'pennant' },
-      { x: 40, y: 570, kind: 'stones' },
-      { x: 360, y: 570, kind: 'crystal' },
-    ] as readonly ArenaAccent[]);
-  }
-  if (battlefieldId === 'twin_passes') {
-    return Object.freeze([
-      { x: 200, y: 170, kind: 'crystal' },
-      { x: 200, y: 270, kind: 'stones' },
-      { x: 200, y: 450, kind: 'stones' },
-      { x: 200, y: 550, kind: 'crystal' },
-    ] as readonly ArenaAccent[]);
-  }
-  if (battlefieldId === 'royal_ring') {
-    return Object.freeze([
-      { x: 200, y: 270, kind: 'crystal' },
-      { x: 200, y: 450, kind: 'stones' },
-      { x: 40, y: 130, kind: 'pennant' },
-      { x: 360, y: 590, kind: 'pennant' },
-    ] as readonly ArenaAccent[]);
-  }
-  if (battlefieldId === 'quad_citadel') {
-    return Object.freeze([
-      { x: 40, y: 250, kind: 'crystal' },
-      { x: 360, y: 250, kind: 'stones' },
-      { x: 200, y: 300, kind: 'pennant' },
-      { x: 200, y: 420, kind: 'pennant' },
-      { x: 40, y: 350, kind: 'stones' },
-      { x: 360, y: 350, kind: 'crystal' },
-    ] as readonly ArenaAccent[]);
-  }
+export function getArenaPropPositions(battlefieldId: BattlefieldId): readonly ArenaProp[] {
+    if (battlefieldId === 'crown_cross') {
+      return Object.freeze([
+        { x: 42, y: 158, kind: 'tree_birch' },
+        { x: 283, y: 319, kind: 'bush' },
+        { x: 94, y: 539, kind: 'grass_tuft' },
+        { x: 298, y: 616, kind: 'grass_tuft' },
+        { x: 295, y: 160, kind: 'tree_apple' },
+        { x: 183, y: 445, kind: 'rock' },
+        { x: 219, y: 422, kind: 'grass_tuft' },
+        { x: 147, y: 518, kind: 'pennant' },
+        { x: 149, y: 242, kind: 'bush' },
+        { x: 354, y: 566, kind: 'tree_birch' },
+        { x: 140, y: 133, kind: 'grass_tuft' },
+        { x: 365, y: 610, kind: 'tree_apple' },
+        { x: 65, y: 412, kind: 'grass_tuft' },
+        { x: 232, y: 455, kind: 'rock' },
+        { x: 182, y: 203, kind: 'pennant' },
+        { x: 246, y: 195, kind: 'bush' },
+        { x: 182, y: 473, kind: 'grass_tuft' },
+        { x: 105, y: 628, kind: 'tree_birch' },
+        { x: 122, y: 554, kind: 'grass_tuft' },
+        { x: 58, y: 562, kind: 'tree_apple' },
+        { x: 252, y: 473, kind: 'rock' },
+        { x: 178, y: 274, kind: 'bush' },
+        { x: 106, y: 285, kind: 'grass_tuft' },
+        { x: 126, y: 168, kind: 'grass_tuft' },
+      ] as readonly ArenaProp[]);
+    }
+    if (battlefieldId === 'twin_passes') {
+      return Object.freeze([
+        { x: 79, y: 602, kind: 'tree_pine' },
+        { x: 289, y: 287, kind: 'rock' },
+        { x: 36, y: 285, kind: 'grass_tuft' },
+        { x: 179, y: 386, kind: 'bush' },
+        { x: 273, y: 148, kind: 'tree_pine' },
+        { x: 322, y: 293, kind: 'grass_tuft' },
+        { x: 276, y: 429, kind: 'grass_tuft' },
+        { x: 184, y: 197, kind: 'pennant' },
+        { x: 197, y: 545, kind: 'rock' },
+        { x: 58, y: 157, kind: 'tree_pine' },
+        { x: 207, y: 176, kind: 'bush' },
+        { x: 217, y: 518, kind: 'grass_tuft' },
+        { x: 365, y: 430, kind: 'tree_pine' },
+        { x: 359, y: 242, kind: 'grass_tuft' },
+        { x: 155, y: 430, kind: 'pennant' },
+        { x: 49, y: 458, kind: 'rock' },
+        { x: 43, y: 220, kind: 'bush' },
+        { x: 170, y: 322, kind: 'grass_tuft' },
+        { x: 204, y: 485, kind: 'bush' },
+        { x: 351, y: 555, kind: 'tree_pine' },
+        { x: 147, y: 338, kind: 'grass_tuft' },
+        { x: 247, y: 437, kind: 'grass_tuft' },
+      ] as readonly ArenaProp[]);
+    }
+    if (battlefieldId === 'royal_ring') {
+      return Object.freeze([
+        { x: 128, y: 337, kind: 'tree_apple' },
+        { x: 163, y: 427, kind: 'bush' },
+        { x: 340, y: 151, kind: 'grass_tuft' },
+        { x: 217, y: 518, kind: 'grass_tuft' },
+        { x: 45, y: 214, kind: 'bush' },
+        { x: 44, y: 602, kind: 'pennant' },
+        { x: 227, y: 374, kind: 'grass_tuft' },
+        { x: 364, y: 233, kind: 'tree_apple' },
+        { x: 238, y: 418, kind: 'bush' },
+        { x: 192, y: 194, kind: 'pennant' },
+        { x: 368, y: 346, kind: 'rock' },
+        { x: 260, y: 115, kind: 'grass_tuft' },
+        { x: 150, y: 394, kind: 'bush' },
+        { x: 308, y: 598, kind: 'tree_apple' },
+        { x: 113, y: 265, kind: 'grass_tuft' },
+        { x: 113, y: 400, kind: 'grass_tuft' },
+        { x: 158, y: 301, kind: 'pennant' },
+        { x: 234, y: 269, kind: 'bush' },
+        { x: 200, y: 376, kind: 'grass_tuft' },
+        { x: 184, y: 332, kind: 'rock' },
+        { x: 193, y: 256, kind: 'grass_tuft' },
+        { x: 340, y: 511, kind: 'grass_tuft' },
+      ] as readonly ArenaProp[]);
+    }
+    if (battlefieldId === 'quad_citadel') {
+      return Object.freeze([
+        { x: 282, y: 302, kind: 'grass_tuft' },
+        { x: 46, y: 276, kind: 'bush' },
+        { x: 340, y: 376, kind: 'rock' },
+        { x: 50, y: 340, kind: 'tree_pine' },
+        { x: 65, y: 457, kind: 'grass_tuft' },
+        { x: 352, y: 257, kind: 'grass_tuft' },
+        { x: 155, y: 205, kind: 'rock' },
+        { x: 359, y: 332, kind: 'pennant' },
+        { x: 37, y: 437, kind: 'bush' },
+        { x: 182, y: 293, kind: 'grass_tuft' },
+        { x: 284, y: 386, kind: 'tree_pine' },
+        { x: 184, y: 197, kind: 'rock' },
+        { x: 130, y: 421, kind: 'grass_tuft' },
+        { x: 210, y: 448, kind: 'grass_tuft' },
+        { x: 344, y: 485, kind: 'bush' },
+        { x: 231, y: 528, kind: 'grass_tuft' },
+        { x: 122, y: 329, kind: 'tree_pine' },
+        { x: 184, y: 152, kind: 'grass_tuft' },
+        { x: 65, y: 412, kind: 'rock' },
+        { x: 360, y: 394, kind: 'grass_tuft' },
+        { x: 233, y: 202, kind: 'bush' },
+        { x: 205, y: 277, kind: 'grass_tuft' },
+        { x: 340, y: 286, kind: 'grass_tuft' },
+      ] as readonly ArenaProp[]);
+    }
   return [];
+}
+
+/** Texture key for a prop sprite (pack-shared, so a fixed prefix is safe). */
+export function arenaPropTextureKey(kind: ArenaPropKind): string {
+  return `cc_prop_${kind}`;
+}
+
+/** Preload paths for every environment prop sprite (shared across battlefields). */
+export function listEnvironmentPropSpritePaths(): Readonly<Record<PropTextureKey, string>> {
+  for (const pack of Object.values(ASSET_MANIFEST.packs)) {
+    if (pack.spriteKind === 'prop' && pack.active) {
+      const sprites: Record<string, string> = {};
+      for (const [textureKey, entry] of Object.entries(pack.sprites)) {
+        sprites[textureKey] = toPhaserAssetPath(entry.runtimePath);
+      }
+      return Object.freeze(sprites);
+    }
+  }
+  // No active prop pack: preload nothing (the prop layer renders no images).
+  return Object.freeze({} as Record<PropTextureKey, string>);
 }
 
 /**
@@ -531,44 +665,3 @@ export function drawSocketRimLight(
   graphics.fillStyle(0xfff5e6, 0.16);
   graphics.fillCircle(socketX - socketRadius * 0.55, socketY - socketRadius * 0.55, socketRadius * 0.32);
 }
-
-/**
- * Draws the battlefield's decorative accents into a single static Graphics
- * object. All shapes are static one-time draws (no per-frame allocations).
- */
-export function drawArenaAccents(
-  graphics: {
-    fillStyle(color: number, alpha?: number): unknown;
-    lineStyle(width: number, color: number, alpha?: number): unknown;
-    fillCircle(x: number, y: number, radius: number): unknown;
-    fillEllipse(x: number, y: number, width: number, height: number): unknown;
-    fillTriangle(x1: number, y1: number, x2: number, y2: number, x3: number, y3: number): unknown;
-    lineBetween(x1: number, y1: number, x2: number, y2: number): unknown;
-  },
-  battlefieldId: BattlefieldId
-): void {
-  for (const accent of getArenaAccentPositions(battlefieldId)) {
-    // Contact shadow first (grounding), then the prop in muted ambiance alpha.
-    graphics.fillStyle(0x000000, 0.22);
-    graphics.fillEllipse(accent.x, accent.y + 8, 22, 7);
-
-    if (accent.kind === 'crystal') {
-      graphics.fillStyle(THEME.teams.neutral.light, 0.3);
-      graphics.fillTriangle(accent.x - 8, accent.y + 6, accent.x - 2, accent.y - 14, accent.x + 4, accent.y + 6);
-      graphics.fillTriangle(accent.x + 1, accent.y + 6, accent.x + 6, accent.y - 8, accent.x + 11, accent.y + 6);
-    } else if (accent.kind === 'stones') {
-      graphics.fillStyle(PALETTE_ACCENT_STONE, 0.32);
-      graphics.fillCircle(accent.x - 4, accent.y + 3, 6);
-      graphics.fillCircle(accent.x + 5, accent.y + 4, 5);
-      graphics.fillCircle(accent.x, accent.y - 3, 4);
-    } else {
-      graphics.lineStyle(1.5, PALETTE_ACCENT_IRON, 0.4);
-      graphics.lineBetween(accent.x, accent.y + 7, accent.x, accent.y - 14);
-      graphics.fillStyle(THEME.teams.player.primary, 0.35);
-      graphics.fillTriangle(accent.x, accent.y - 14, accent.x, accent.y - 7, accent.x + 12, accent.y - 10.5);
-    }
-  }
-}
-
-const PALETTE_ACCENT_STONE = 0x64748b;
-const PALETTE_ACCENT_IRON = 0x475569;

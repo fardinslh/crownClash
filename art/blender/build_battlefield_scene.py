@@ -1465,8 +1465,20 @@ def build_stacked_stones(palette, _owner):
 
 
 def build_pennant(palette, owner):
-    """Ambient prop: petite team pennant on an iron staff. Authoring-only."""
+    """Ambient prop: petite team pennant on an iron staff."""
     import bpy
+
+    # Small tight ground shadow (the rig-wide blob is skipped for props).
+    shadow_material = make_material("CC_PennantShadow", (0.0, 0.0, 0.0), 1.0, use_gradient=False)
+    shadow_material.use_nodes = True
+    bsdf = shadow_material.node_tree.nodes.get("Principled BSDF")
+    bsdf.inputs["Alpha"].default_value = 0.3
+    shadow_material.blend_method = "BLEND"
+    bpy.ops.mesh.primitive_cylinder_add(radius=0.18, depth=0.02, vertices=24, location=(0.0, 0.0, 0.01))
+    shadow = bpy.context.active_object
+    shadow.name = "prop_pennant_shadow"
+    shadow.data.materials.append(shadow_material)
+    move_to_collection(shadow, "CC_Shadows")
 
     bpy.ops.mesh.primitive_cylinder_add(radius=0.035, depth=0.9, location=(0.0, 0.0, 0.45))
     staff = bpy.context.active_object
@@ -1499,27 +1511,59 @@ def load_cross_kit():
 
 def build_cross_citadel(palette, owner):
     kit = load_cross_kit()
-    kit.citadel(kit.mats(owner, make_material))
+    kit.citadel(kit.bmats(owner, make_material), make_material)
 
 
 def build_cross_keep(palette, owner):
     kit = load_cross_kit()
-    kit.keep(kit.mats(owner, make_material))
+    kit.keep(kit.bmats(owner, make_material), make_material)
 
 
 def build_cross_outpost(palette, owner):
     kit = load_cross_kit()
-    kit.outpost(kit.mats(owner, make_material))
+    kit.outpost(kit.bmats(owner, make_material), make_material)
 
 
 def build_cross_barracks(palette, owner):
     kit = load_cross_kit()
-    kit.hall(kit.mats(owner, make_material))
+    kit.barracks(kit.bmats(owner, make_material), make_material)
 
 
 def build_cross_stable(palette, owner):
     kit = load_cross_kit()
-    kit.hall(kit.mats(owner, make_material), stable=True)
+    kit.stable(kit.bmats(owner, make_material), make_material)
+
+
+# Shared environment props (grass, trees, rocks) live in the same kit and are
+# rendered through the same rig for every battlefield's prop layer.
+def build_prop_tree_birch(palette, owner):
+    kit = load_cross_kit()
+    kit.tree_birch(kit.tmats(make_material), make_material)
+
+
+def build_prop_tree_apple(palette, owner):
+    kit = load_cross_kit()
+    kit.tree_apple(kit.tmats(make_material), make_material)
+
+
+def build_prop_tree_pine(palette, owner):
+    kit = load_cross_kit()
+    kit.tree_pine(kit.tmats(make_material), make_material)
+
+
+def build_prop_bush(palette, owner):
+    kit = load_cross_kit()
+    kit.bush(kit.tmats(make_material), make_material)
+
+
+def build_prop_grass_tuft(palette, owner):
+    kit = load_cross_kit()
+    kit.grass_tuft(kit.tmats(make_material), make_material)
+
+
+def build_prop_rock(palette, owner):
+    kit = load_cross_kit()
+    kit.rock(kit.tmats(make_material), make_material)
 
 
 BUILDERS = {
@@ -1553,6 +1597,12 @@ BUILDERS = {
     "build_cross_outpost": build_cross_outpost,
     "build_cross_barracks": build_cross_barracks,
     "build_cross_stable": build_cross_stable,
+    "build_prop_tree_birch": build_prop_tree_birch,
+    "build_prop_tree_apple": build_prop_tree_apple,
+    "build_prop_tree_pine": build_prop_tree_pine,
+    "build_prop_bush": build_prop_bush,
+    "build_prop_grass_tuft": build_prop_grass_tuft,
+    "build_prop_rock": build_prop_rock,
 }
 
 ASSET_COLLECTION = {
@@ -1586,17 +1636,31 @@ ASSET_COLLECTION = {
     "build_cross_outpost": "CC_Structures",
     "build_cross_barracks": "CC_Structures",
     "build_cross_stable": "CC_Structures",
+    "build_prop_tree_birch": "CC_Props",
+    "build_prop_tree_apple": "CC_Props",
+    "build_prop_tree_pine": "CC_Props",
+    "build_prop_bush": "CC_Props",
+    "build_prop_grass_tuft": "CC_Props",
+    "build_prop_rock": "CC_Props",
 }
 
-# Per-builder framing for crown_cross sprites: (ortho_scale, aim_height). The
-# camera and aim move together vertically, so the Art Bible view direction is
-# unchanged; only the crop differs so each silhouette fills its runtime tier.
+# Per-builder framing for crown_cross sprites and shared props:
+# (ortho_scale, aim_height). The camera and aim move together vertically, so
+# the Art Bible view direction is unchanged; only the crop differs so each
+# silhouette fills its runtime tier.
 CAMERA_FRAMING = {
     "build_cross_citadel": (5.15, 1.10),
     "build_cross_keep": (4.35, 0.85),
     "build_cross_outpost": (4.6, 1.30),
     "build_cross_barracks": (4.25, 0.70),
     "build_cross_stable": (4.25, 0.70),
+    "build_prop_tree_birch": (4.40, 1.95),
+    "build_prop_tree_apple": (4.00, 1.60),
+    "build_prop_tree_pine": (4.20, 1.80),
+    "build_prop_bush": (2.60, 0.50),
+    "build_prop_grass_tuft": (1.60, 0.34),
+    "build_prop_rock": (2.00, 0.32),
+    "build_pennant": (2.00, 0.46),
 }
 
 
@@ -1761,9 +1825,25 @@ def build_asset(builder_name, owner):
         link_to_collection(collection_name)
     palette = material_palette()
     BUILDERS[builder_name](palette, owner)
-    ground = make_contact_shadow()
-    if ground is not None:
-        move_to_collection(ground, "CC_Shadows")
+    # The kit's materials multiply in the section-6 vertical gradient, but the
+    # kit builds its own beveled primitives (not the rig's bevel_object), so
+    # the VerticalShade attribute must be written here for every mesh — a
+    # missing attribute renders solid black through the gradient multiply.
+    # Idempotent for rig-built meshes (e.g. build_pennant) that already carry it.
+    if builder_name.startswith("build_cross_") or builder_name.startswith("build_prop_"):
+        import bpy
+        for obj in bpy.data.objects:
+            if obj.type == "MESH":
+                shade_vertical_gradient(obj)
+    # The semi-realistic crown_cross kit and the shared prop kit bake their own
+    # tight contact shadows (see crown_cross_kit.contact_disc): the rig's wide
+    # 1.75-radius blob reads as mud under buildings at sprite size. Other
+    # packs keep their approved baked shadow.
+    if not (builder_name.startswith("build_cross_") or builder_name.startswith("build_prop_")
+            or builder_name == "build_pennant"):
+        ground = make_contact_shadow()
+        if ground is not None:
+            move_to_collection(ground, "CC_Shadows")
 
 
 def make_contact_shadow():

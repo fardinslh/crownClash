@@ -608,6 +608,71 @@
           "runtimePath": "apps/game/public/assets/territories/quad_citadel/stable_neutral.webp"
         }
       }
+    },
+    "environment": {
+      "label": "Shared environment prop pack (trees, bushes, grass, rocks, pennants)",
+      "packDirectory": "apps/game/public/assets/environment",
+      "runtimeFormat": "webp",
+      "spriteKind": "prop",
+      "active": true,
+      "sprites": {
+        "tree_birch": {
+          "blenderRenderName": "env_tree_birch",
+          "blenderBuilder": "build_prop_tree_birch",
+          "blenderOwner": "neutral",
+          "runtimeFilename": "tree_birch.webp",
+          "targetSize": 128,
+          "runtimePath": "apps/game/public/assets/environment/tree_birch.webp"
+        },
+        "tree_apple": {
+          "blenderRenderName": "env_tree_apple",
+          "blenderBuilder": "build_prop_tree_apple",
+          "blenderOwner": "neutral",
+          "runtimeFilename": "tree_apple.webp",
+          "targetSize": 128,
+          "runtimePath": "apps/game/public/assets/environment/tree_apple.webp"
+        },
+        "tree_pine": {
+          "blenderRenderName": "env_tree_pine",
+          "blenderBuilder": "build_prop_tree_pine",
+          "blenderOwner": "neutral",
+          "runtimeFilename": "tree_pine.webp",
+          "targetSize": 128,
+          "runtimePath": "apps/game/public/assets/environment/tree_pine.webp"
+        },
+        "bush": {
+          "blenderRenderName": "env_bush",
+          "blenderBuilder": "build_prop_bush",
+          "blenderOwner": "neutral",
+          "runtimeFilename": "bush.webp",
+          "targetSize": 96,
+          "runtimePath": "apps/game/public/assets/environment/bush.webp"
+        },
+        "grass_tuft": {
+          "blenderRenderName": "env_grass_tuft",
+          "blenderBuilder": "build_prop_grass_tuft",
+          "blenderOwner": "neutral",
+          "runtimeFilename": "grass_tuft.webp",
+          "targetSize": 64,
+          "runtimePath": "apps/game/public/assets/environment/grass_tuft.webp"
+        },
+        "rock": {
+          "blenderRenderName": "env_rock",
+          "blenderBuilder": "build_prop_rock",
+          "blenderOwner": "neutral",
+          "runtimeFilename": "rock.webp",
+          "targetSize": 64,
+          "runtimePath": "apps/game/public/assets/environment/rock.webp"
+        },
+        "pennant": {
+          "blenderRenderName": "env_pennant",
+          "blenderBuilder": "build_pennant",
+          "blenderOwner": "player",
+          "runtimeFilename": "pennant.webp",
+          "targetSize": 96,
+          "runtimePath": "apps/game/public/assets/environment/pennant.webp"
+        }
+      }
     }
   },
   "battlefieldPacks": {

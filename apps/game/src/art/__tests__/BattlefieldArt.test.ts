@@ -12,10 +12,12 @@ import {
   blenderMasterPath,
   battlefieldIdFromLaunchData,
   createProceduralTerritoryFallbackTexture,
-  getArenaAccentPositions,
+  getArenaPropPositions,
   getBattlefieldRuntimeAssets,
+  listEnvironmentPropSpritePaths,
   listRuntimeSpritePaths,
   PROCEDURAL_FALLBACK_KEYS,
+  PROP_TEXTURE_KEYS,
   resolveTerritoryTextureKey,
   runtimeTerritoryTextureKey,
   TERRITORY_TEXTURE_KEYS,
@@ -100,7 +102,7 @@ describe('canonical runtime asset manifest', () => {
         expect(sprite.runtimeFilename.endsWith(`.${pack.runtimeFormat}`)).toBe(true);
         expect(sprite.runtimePath).toBe(`${pack.packDirectory}/${sprite.runtimeFilename}`);
         // Target size is a sane power-of-two-ish runtime dimension.
-        expect([128, 160, 256]).toContain(sprite.targetSize);
+        expect([64, 96, 128, 160, 256]).toContain(sprite.targetSize);
         // The Blender builder referenced by the manifest exists in the scene
         // builder script, and render names stay unique per pack (a duplicate
         // would silently overwrite another master).
@@ -120,10 +122,15 @@ describe('canonical runtime asset manifest', () => {
     }
   });
 
-  it('declares every texture key the resolver can emit, in both packs', () => {
-    const expected = new Set(TERRITORY_TEXTURE_KEYS);
+  it('declares every texture key the resolver can emit, in every pack of its kind', () => {
+    const territoryKeys = new Set(TERRITORY_TEXTURE_KEYS);
+    const propKeys = new Set(PROP_TEXTURE_KEYS);
     for (const [packId, pack] of Object.entries(ASSET_MANIFEST.packs)) {
-      expect(Object.keys(pack.sprites), `pack ${packId} must cover all resolver keys`).toEqual([...expected]);
+      const expected = pack.spriteKind === 'prop' ? propKeys : territoryKeys;
+      expect(
+        Object.keys(pack.sprites).sort(),
+        `pack ${packId} must cover exactly its kind's keys`
+      ).toEqual([...expected].sort());
     }
   });
 
@@ -520,32 +527,65 @@ describe('battlefield art invariants', () => {
     expect(territoryHitAreaSize(36)).toBe(90);
   });
 
-  it('places decorative accents clear of territories, roads, and the arena frame', () => {
+  it('places environment props clear of territories, roads, the frame and each other', () => {
+    // Per-kind clearance floor (px) mirrored from scripts/generate-arena-props.mjs.
+    const territoryMargin: Record<string, number> = {
+      tree_birch: 44, tree_apple: 44, tree_pine: 44, pennant: 32, bush: 28, rock: 26, grass_tuft: 24,
+    };
+    const roadMargin: Record<string, number> = {
+      tree_birch: 20, tree_apple: 20, tree_pine: 20, pennant: 14, bush: 13, rock: 13, grass_tuft: 12,
+    };
+    const spacing: Record<string, number> = {
+      tree_birch: 42, tree_apple: 42, tree_pine: 42, pennant: 30, bush: 30, rock: 26, grass_tuft: 22,
+    };
     for (const battlefield of BATTLEFIELDS) {
-      const accents = getArenaAccentPositions(battlefield.id as BattlefieldId);
-      for (const accent of accents) {
-        // Inside the arena frame (8px inset, Art Bible layout).
-        expect(accent.x).toBeGreaterThan(24);
-        expect(accent.x).toBeLessThan(376);
-        expect(accent.y).toBeGreaterThan(100);
-        expect(accent.y).toBeLessThan(640);
+      const props = getArenaPropPositions(battlefield.id as BattlefieldId);
+      expect(props.length, `${battlefield.id} should carry props`).toBeGreaterThan(0);
+      expect(props.length, `${battlefield.id} prop count over budget`).toBeLessThanOrEqual(24);
+      for (const prop of props) {
+        // Inside the arena frame.
+        expect(prop.x).toBeGreaterThan(24);
+        expect(prop.x).toBeLessThan(376);
+        expect(prop.y).toBeGreaterThan(100);
+        expect(prop.y).toBeLessThan(640);
+        // Trees never crowd the contested middle.
+        if (prop.kind.startsWith('tree')) {
+          expect(prop.x < 130 || prop.x > 270, `${prop.kind} at ${prop.x},${prop.y} must stay edge-only`).toBe(true);
+        }
 
         for (const territory of battlefield.territories) {
-          const distance = Math.hypot(accent.x - territory.x, accent.y - territory.y);
-          expect(distance, `${accent.kind} at ${accent.x},${accent.y} too close to ${territory.id}`)
-            .toBeGreaterThanOrEqual(territory.radius + 16);
+          const distance = Math.hypot(prop.x - territory.x, prop.y - territory.y);
+          expect(distance, `${prop.kind} at ${prop.x},${prop.y} too close to ${territory.id}`)
+            .toBeGreaterThanOrEqual(territory.radius + territoryMargin[prop.kind]);
         }
 
         for (const [idA, idB] of battlefield.roads) {
           const a = battlefield.territories.find((t) => t.id === idA)!;
           const b = battlefield.territories.find((t) => t.id === idB)!;
-          const roadDistance = distancePointToSegment(accent.x, accent.y, a.x, a.y, b.x, b.y);
-          expect(roadDistance, `${accent.kind} at ${accent.x},${accent.y} too close to road ${idA}-${idB}`)
-            .toBeGreaterThanOrEqual(14);
+          const roadDistance = distancePointToSegment(prop.x, prop.y, a.x, a.y, b.x, b.y);
+          expect(roadDistance, `${prop.kind} at ${prop.x},${prop.y} too close to road ${idA}-${idB}`)
+            .toBeGreaterThanOrEqual(roadMargin[prop.kind]);
         }
       }
-      // Art Bible section 12: at most 8 accents per battlefield.
-      expect(accents.length).toBeLessThanOrEqual(8);
+      for (let i = 0; i < props.length; i += 1) {
+        for (let j = i + 1; j < props.length; j += 1) {
+          const one = props[i];
+          const other = props[j];
+          const required = Math.max(spacing[one.kind], spacing[other.kind]);
+          const distance = Math.hypot(one.x - other.x, one.y - other.y);
+          expect(distance, `${one.kind} and ${other.kind} overlap at ${one.x},${one.y}`)
+            .toBeGreaterThanOrEqual(required);
+        }
+      }
+    }
+  });
+
+  it('exposes every declared prop as a preloadable runtime sprite', () => {
+    const paths = listEnvironmentPropSpritePaths();
+    expect(Object.keys(paths).sort()).toEqual([...PROP_TEXTURE_KEYS].sort());
+    for (const [key, filePath] of Object.entries(paths)) {
+      expect(filePath.startsWith('assets/environment/'), `prop ${key} path`).toBe(true);
+      expect(fs.existsSync(path.join(REPO_ROOT, 'apps/game/public', filePath)), `prop ${key} file`).toBe(true);
     }
   });
 

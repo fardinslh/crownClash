@@ -47,11 +47,14 @@ import {
 } from '../tutorial/TutorialStatus.js';
 import { dismissStartupLoadingShell } from '../ui/StartupLoadingShell.js';
 import {
+  ARENA_PROP_DISPLAY,
+  arenaPropTextureKey,
+  ArenaPropKind,
   battlefieldIdFromLaunchData,
   createProceduralTerritoryFallbackTexture,
-  drawArenaAccents,
   drawSocketRimLight,
-  getArenaAccentPositions,
+  getArenaPropPositions,
+  listEnvironmentPropSpritePaths,
   listRuntimeSpritePaths,
   runtimeTerritoryTextureKey,
   territoryArtFootprint,
@@ -322,6 +325,11 @@ export class GameScene extends Phaser.Scene {
     const battlefieldId = battlefieldIdFromLaunchData(launchData);
     for (const [textureKey, filePath] of Object.entries(listRuntimeSpritePaths(battlefieldId))) {
       this.load.image(runtimeTerritoryTextureKey(battlefieldId, textureKey), filePath);
+    }
+    // Shared environment props (trees, bushes, grass, rocks, pennants) render
+    // behind territory platforms on every battlefield.
+    for (const [textureKey, filePath] of Object.entries(listEnvironmentPropSpritePaths())) {
+      this.load.image(arenaPropTextureKey(textureKey as ArenaPropKind), filePath);
     }
 
     // Load 2.5D Rendered Army Unit Sprites
@@ -833,15 +841,16 @@ export class GameScene extends Phaser.Scene {
     fieldGraphics.fillEllipse(280, 520, 220, 240);
 
     if (this.battlefieldId === 'crown_cross') {
-      // Fixed, low-contrast slate facets; all drawn once below playable roads.
+      // Fixed, low-contrast grass blades and a mowed ring under the keep; all
+      // drawn once below playable roads.
       for (let i = 0; i < 150; i++) {
         const x = 25 + ((i * 73) % 350);
         const y = 95 + ((i * 113) % 542);
         const w = 5 + (i % 7);
-        fieldGraphics.fillStyle(i % 3 === 0 ? 0x46505a : 0x0b1421, 0.10);
+        fieldGraphics.fillStyle(i % 3 === 0 ? 0x4e8a5c : 0x1f3d28, 0.10);
         fieldGraphics.fillTriangle(x - w, y, x + w, y - 3, x + w / 2, y + 6);
       }
-      fieldGraphics.lineStyle(1, 0x101a27, 0.45);
+      fieldGraphics.lineStyle(1, 0x1b3624, 0.45);
       for (let y = 312; y < 414; y += 17) {
         const halfWidth = Math.sqrt(Math.max(0, 64 * 64 - (y - 360) ** 2));
         fieldGraphics.lineBetween(200 - halfWidth, y, 200 + halfWidth, y);
@@ -989,11 +998,11 @@ export class GameScene extends Phaser.Scene {
       if (this.battlefieldId !== 'crown_cross') drawSocketRimLight(lanesGraphics, t.x, t.y + 3, art.socketRadius);
     });
 
-    // Restrained decorative accents (static, one Graphics object, provably
-    // clear of territories, roads, and touch targets — see BattlefieldArt).
-    if (getArenaAccentPositions(this.battlefieldId).length > 0) {
-      drawArenaAccents(lanesGraphics, this.battlefieldId);
-    }
+    // Rendered environment props (trees, bushes, grass, rocks, pennants):
+    // static images between the roads (depth 2) and territory platforms
+    // (depth 20), so gameplay objects always stay on top. Placements are
+    // provably clear of territories and roads — see BattlefieldArt.
+    this.createArenaProps();
 
     const centerTerr =
       terrs['n_center'] ??
@@ -1024,6 +1033,25 @@ export class GameScene extends Phaser.Scene {
     border.lineBetween(left, bottom, left + cornerLength, bottom);
     border.lineBetween(right - cornerLength, bottom, right, bottom);
     border.lineBetween(right, bottom, right, bottom - cornerLength);
+  }
+
+  /**
+   * Static environment prop layer: one bottom-anchored image per placement,
+   * above the roads/border (depth 2/3) and below every territory platform
+   * (depth 20). No per-frame work: images are created once.
+   */
+  private createArenaProps(): void {
+    const paths = listEnvironmentPropSpritePaths();
+    if (Object.keys(paths).length === 0) return;
+    for (const prop of getArenaPropPositions(this.battlefieldId)) {
+      const display = ARENA_PROP_DISPLAY[prop.kind];
+      const image = this.add
+        .image(prop.x, prop.y, arenaPropTextureKey(prop.kind))
+        .setOrigin(0.5, 1)
+        .setDepth(10)
+        .setAlpha(display.alpha);
+      image.setDisplaySize(display.height, display.height);
+    }
   }
 
   private createTerritoryObjects(): void {
