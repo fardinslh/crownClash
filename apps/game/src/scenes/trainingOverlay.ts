@@ -715,7 +715,15 @@ export class TrainingOverlayUI {
     this.confetti = [];
     this.celebration?.destroy(true);
     this.celebration = undefined;
-    this.clearRetry();
+    // Only neutralize the retry state here — NEVER call clearRetry(): at
+    // scene shutdown Phaser's display list destroys the strip objects
+    // BEFORE this handler runs, and touching the destroyed panel from
+    // clearRetry (e.g. disableInteractive) throws, which unwinds the
+    // scene manager's queued restart AND kills Phaser's frame loop —
+    // the exact "game locks after the tutorial" freeze.
+    this.retryButton = undefined;
+    this.retryLabel?.destroy();
+    this.retryLabel = undefined;
     this.container.destroy(true);
   }
 }
