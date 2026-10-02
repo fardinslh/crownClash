@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   TutorialController,
   TutorialEvent,
+  TUTORIAL_ENEMY_BASE_ID,
   TUTORIAL_STEPS,
 } from '../TutorialController.js';
 
@@ -21,7 +22,7 @@ function createController(startStep?: number) {
   return { controller, events: recorder.events };
 }
 
-/** Drives the four guided actions in the natural play order. */
+/** Drives the five guided actions in the natural play order. */
 function performAllGuidedActions(controller: TutorialController): void {
   // Step 1: first dispatch (release) completes drag_to_attack.
   controller.onDispatch(['p_base'], 'n_bot_left');
@@ -32,8 +33,10 @@ function performAllGuidedActions(controller: TutorialController): void {
   // Step 3: a player capture, then the roles display beat.
   controller.onCapture('n_bot_left', true);
   controller.onTimerTick(TutorialController.TOWER_ROLES_MIN_DURATION + 0.1);
-  // Step 4: a multi-source dispatch completes the tutorial.
+  // Step 4: a multi-source dispatch.
   controller.onDispatch(['p_base', 'n_bot_left'], 'n_center');
+  // Step 5: the climactic enemy-base capture (victory).
+  controller.onCapture(TUTORIAL_ENEMY_BASE_ID, true);
 }
 
 // ---------------------------------------------------------------------------
@@ -43,7 +46,7 @@ function performAllGuidedActions(controller: TutorialController): void {
 describe('TutorialController', () => {
   // 1. Step order & action-driven completion
   describe('guided action sequence', () => {
-    it('follows drag_to_attack → preview_result → tower_roles → multi_dispatch → complete', () => {
+    it('follows drag → preview → roles → combo → destroy_base → complete', () => {
       const { controller, events } = createController();
       expect(controller.currentStepId).toBe('drag_to_attack');
 
@@ -59,6 +62,9 @@ describe('TutorialController', () => {
       expect(controller.currentStepId).toBe('multi_dispatch');
 
       controller.onDispatch(['p_base', 'n_bot_left'], 'n_center');
+      expect(controller.currentStepId).toBe('destroy_base');
+
+      controller.onCapture(TUTORIAL_ENEMY_BASE_ID, true);
       expect(controller.isCompleted).toBe(true);
       expect(controller.isActive).toBe(false);
 
@@ -73,13 +79,15 @@ describe('TutorialController', () => {
         'step_completed',
         'step_entered',
         'step_completed',
+        'step_entered',
+        'step_completed',
         'completed',
       ]);
       expect(events[0].type).toBe('started');
       expect(events.at(-1)).toEqual({ type: 'completed' });
     });
 
-    it('completes only through the four performed actions, never by winning or time alone', () => {
+    it('completes only through the five performed actions, never by winning or time alone', () => {
       const { controller } = createController();
       // Time passing alone can never finish any step or the tutorial.
       controller.onTimerTick(600);
@@ -92,6 +100,20 @@ describe('TutorialController', () => {
       controller.onTimerTick(600);
       expect(controller.currentStepId).toBe('preview_result');
       expect(controller.isCompleted).toBe(false);
+    });
+
+    it('every step ships Clash Royale-style guidance (spotlights + hand-hint path)', () => {
+      for (const step of TUTORIAL_STEPS) {
+        const { controller } = createController(TUTORIAL_STEPS.indexOf(step));
+        const current = controller.currentStep;
+        expect(current).not.toBeNull();
+        expect(current!.spotlightTargets.length).toBeGreaterThan(0);
+        expect(current!.hintPath.length).toBeGreaterThanOrEqual(2);
+        expect(current!.instruction.length).toBeGreaterThan(0);
+        controller.destroy();
+      }
+      expect(TUTORIAL_STEPS).toContain('destroy_base');
+      expect(TUTORIAL_STEPS.length).toBe(5);
     });
   });
 
@@ -140,7 +162,37 @@ describe('TutorialController', () => {
       controller.onDispatch(['p_base'], 'n_center'); // single source: not enough
       expect(controller.currentStepId).toBe('multi_dispatch');
       controller.onDispatch(['p_base', 'n_bot_left'], 'n_center');
+      expect(controller.currentStepId).toBe('destroy_base');
+    });
+
+    it('destroy_base completes only on the enemy-base capture — the tutorial victory', () => {
+      const { controller } = createController();
+      controller.onDispatch(['p_base'], 'n_bot_left');
+      controller.onPreviewShown();
+      controller.onTimerTick(TutorialController.PREVIEW_RESULT_MIN_DURATION + 0.1);
+      controller.onCapture('n_bot_left', true);
+      controller.onTimerTick(TutorialController.TOWER_ROLES_MIN_DURATION + 0.1);
+      controller.onDispatch(['p_base', 'n_bot_left'], 'n_center');
+
+      // Ordinary tower captures during the finale do NOT complete it.
+      controller.onCapture('n_center', true);
+      expect(controller.currentStepId).toBe('destroy_base');
+      expect(controller.isCompleted).toBe(false);
+
+      // Dispatches alone never complete the finale.
+      controller.onDispatch(['p_base', 'n_center'], 'n_top_left');
+      expect(controller.isCompleted).toBe(false);
+
+      // The enemy base falls → victory.
+      controller.onCapture(TUTORIAL_ENEMY_BASE_ID, true);
       expect(controller.isCompleted).toBe(true);
+    });
+
+    it('an early enemy-base capture outside the finale step does not silently complete the tutorial', () => {
+      const { controller } = createController();
+      controller.onCapture(TUTORIAL_ENEMY_BASE_ID, true); // during drag_to_attack
+      expect(controller.isCompleted).toBe(false);
+      expect(controller.currentStepId).toBe('drag_to_attack');
     });
   });
 
@@ -172,11 +224,19 @@ describe('TutorialController', () => {
       controller.onCapture('n_bot_left', true);
       controller.onTimerTick(TutorialController.TOWER_ROLES_MIN_DURATION + 0.1);
       controller.onDispatch(['p_base', 'n_bot_left'], 'n_center');
+      controller.onCapture(TUTORIAL_ENEMY_BASE_ID, true);
+      expect(controller.isCompleted).toBe(true);
+    });
+
+    it('resumes directly into the scripted finale (destroy_base)', () => {
+      const { controller } = createController(4);
+      expect(controller.currentStepId).toBe('destroy_base');
+      controller.onCapture(TUTORIAL_ENEMY_BASE_ID, true);
       expect(controller.isCompleted).toBe(true);
     });
 
     it('clamps invalid resume indices to a fresh start', () => {
-      for (const bad of [-3, 4, 99, Number.NaN]) {
+      for (const bad of [-3, 5, 99, Number.NaN]) {
         const { controller } = createController(bad);
         expect(controller.currentStepId).toBe('drag_to_attack');
         expect(controller.currentStepIndex).toBe(0);
@@ -193,8 +253,8 @@ describe('TutorialController', () => {
     it('resumeCompleted boots silently into the completed state with no events (failed-save resume)', () => {
       const recorder = createRecorder();
       const controller = new TutorialController(recorder.callback, { resumeCompleted: true });
-      // Silent: no started, no step_entered, no completed event — the four
-      // actions were already performed in a previous session.
+      // Silent: no started, no step_entered, no completed event — the
+      // guided actions were already performed in a previous session.
       expect(recorder.events).toEqual([]);
       expect(controller.isCompleted).toBe(true);
       expect(controller.isActive).toBe(false);
@@ -203,7 +263,7 @@ describe('TutorialController', () => {
       // All gameplay hooks are inert: nothing can repeat or re-fire.
       controller.onDispatch(['p_base'], 'n_bot_left');
       controller.onPreviewShown();
-      controller.onCapture('n_bot_left', true);
+      controller.onCapture(TUTORIAL_ENEMY_BASE_ID, true);
       controller.onTimerTick(600);
       controller.skip();
       expect(recorder.events).toEqual([]);
@@ -249,6 +309,7 @@ describe('TutorialController', () => {
         controller.onCapture('n', true);
         controller.onTimerTick(TutorialController.TOWER_ROLES_MIN_DURATION + 0.1);
         controller.onDispatch(['a', 'b'], 'c');
+        controller.onCapture(TUTORIAL_ENEMY_BASE_ID, true);
       }).not.toThrow();
       expect(controller.isCompleted).toBe(true);
     });
@@ -267,7 +328,7 @@ describe('TutorialController', () => {
       const { controller } = createController();
       performAllGuidedActions(controller);
       expect(controller.isCompleted).toBe(true);
-      expect(TUTORIAL_STEPS.length).toBe(4);
+      expect(TUTORIAL_STEPS.length).toBe(5);
     });
   });
 });

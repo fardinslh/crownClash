@@ -739,7 +739,7 @@ describe('First-launch training integration', () => {
     return scene;
   }
 
-  /** Performs the four guided actions through the real controller hooks. */
+  /** Performs the five guided actions through the real controller hooks. */
   function performGuidedActions(scene: GameScene): void {
     const controller = (scene as any).trainingController;
     controller.onDispatch(['p_base'], 'n_bot_left');
@@ -748,6 +748,7 @@ describe('First-launch training integration', () => {
     controller.onCapture('n_bot_left', true);
     controller.onTimerTick(1.6);
     controller.onDispatch(['p_base', 'n_bot_left'], 'n_center');
+    controller.onCapture('e_base', true);
   }
 
   const trackedNames = (): string[] =>
@@ -765,15 +766,15 @@ describe('First-launch training integration', () => {
     expect(shellStub.remove).toHaveBeenCalledTimes(1);
 
     // The training scene is ready for input: the guided controller sits on
-    // its first step, the overlay renders it, the spotlight marks the
-    // player's base, and the scene's pointer listeners are attached.
+    // its first step, the overlay renders it, the spotlights mark the
+    // guided towers, and the scene's pointer listeners are attached.
     expect((scene as any).trainingMode).toBe(true);
     const controller = (scene as any).trainingController;
     expect(controller.currentStepId).toBe('drag_to_attack');
     expect(controller.isActive).toBe(true);
     const overlay = (scene as any).trainingOverlay;
     expect(overlay).toBeDefined();
-    expect(overlay.spotlight.visible).toBe(true);
+    expect(overlay.isSpotlightActive).toBe(true);
     expect((scene as any).input.on).toHaveBeenCalled();
     // No shell element remains in the DOM to swallow the canvas touches.
     expect((globalThis as any).document.getElementById('loading-shell')).toBe(shellStub);
@@ -800,11 +801,11 @@ describe('First-launch training integration', () => {
     performGuidedActions(scene);
     await flushMicrotasks();
 
-    // Save failed: the four performed actions are persisted as the
+    // Save failed: the five performed actions are persisted as the
     // actions-complete sentinel so nothing is repeated, and the completion
     // analytics has NOT fired yet.
     expect(saveAttempts).toBe(1);
-    expect(storage.get(`crown_clash_training_progress_${playerId}`)).toBe('4');
+    expect(storage.get(`crown_clash_training_progress_${playerId}`)).toBe('5');
     expect(trackedNames()).not.toContain('tutorial_completed');
     // The fail-closed retry affordance is on screen.
     expect((scene as any).trainingOverlay.retryButton).toBeDefined();
@@ -817,7 +818,7 @@ describe('First-launch training integration', () => {
     expect(storage.has(`crown_clash_training_progress_${playerId}`)).toBe(false);
     // Exactly-once completion analytics across the failed + retry path.
     expect(trackedNames().filter((name) => name === 'tutorial_completed')).toHaveLength(1);
-    expect(trackedNames().filter((name) => name === 'tutorial_step_completed')).toHaveLength(4);
+    expect(trackedNames().filter((name) => name === 'tutorial_step_completed')).toHaveLength(5);
     // The first real match starts from the confirmed server write.
     expect((scene as any).scene.start).toHaveBeenCalledWith('GameScene', {
       source: 'menu',
@@ -832,8 +833,8 @@ describe('First-launch training integration', () => {
   it('reload after a failed save: training resumes straight into the save flow without repeating any action', async () => {
     const platform = new BrowserPlatformAdapter();
     const playerId = platform.getUser().id;
-    // A previous session performed all four actions but the save failed.
-    storage.set(`crown_clash_training_progress_${playerId}`, '4');
+    // A previous session performed all five guided actions but the save failed.
+    storage.set(`crown_clash_training_progress_${playerId}`, '5');
 
     // One connected api whose network recovers after the first failed save.
     let saveAttempts = 0;
@@ -859,7 +860,7 @@ describe('First-launch training integration', () => {
     expect(trackedNames().filter((name) => name === 'tutorial_step_completed')).toHaveLength(0);
     // The save retry already ran once automatically and failed closed again.
     expect(saveAttempts).toBe(1);
-    expect(storage.get(`crown_clash_training_progress_${playerId}`)).toBe('4');
+    expect(storage.get(`crown_clash_training_progress_${playerId}`)).toBe('5');
     expect((scene as any).trainingOverlay.retryButton).toBeDefined();
     expect(trackedNames()).not.toContain('tutorial_completed');
 

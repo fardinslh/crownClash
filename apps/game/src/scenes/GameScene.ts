@@ -37,6 +37,11 @@ import { CareerManager } from '../career/CareerManager.js';
 import { TrainingOverlayUI } from './trainingOverlay.js';
 import { TutorialController } from '../tutorial/TutorialController.js';
 import {
+  applyTrainingSandbox,
+  resolveTrainingGuidance,
+  TRAINING_TIME_LIMIT_SECONDS,
+} from '../tutorial/trainingGuidance.js';
+import {
   clearTrainingProgress,
   createTrainingTicket,
   loadTrainingProgress,
@@ -279,7 +284,7 @@ export class GameScene extends Phaser.Scene {
   private isExiting = false;
 
   // Guided training battle (first-play tutorial): a client-local bot match
-  // that never settles, never rewards, and completes only through the four
+  // that never settles, never rewards, and completes only through the five
   // guided actions. See TutorialController/TutorialStatus.
   private trainingMode = false;
   private trainingController?: TutorialController;
@@ -372,7 +377,7 @@ export class GameScene extends Phaser.Scene {
     this.liveMode = launchData?.mode === 'live';
     // A guided training battle is a client-local bot match: no server
     // ticket, no settlement, no rewards. Completion is reported by this
-    // client after the four guided actions and saved account-wide on the
+    // client after the five guided actions and saved account-wide on the
     // server (the server does not replay or verify the actions — it only
     // gates bot matches and matchmaker tickets on the saved flag).
     this.trainingMode = launchData?.training === true && !this.liveMode;
@@ -615,7 +620,7 @@ export class GameScene extends Phaser.Scene {
     const playerId = this.platform.getUser().id;
     const progress = loadTrainingProgress(playerId);
     if (progress === TRAINING_ACTIONS_COMPLETE) {
-      // Reload/relaunch after a failed save: the four guided actions were
+      // Reload/relaunch after a failed save: the guided actions were
       // already performed. Boot silently into the completed state and go
       // straight to the save-retry flow — the actions are never repeated.
       this.trainingController = new TutorialController(() => undefined, {
@@ -659,28 +664,72 @@ export class GameScene extends Phaser.Scene {
     if (!controller || !overlay) return;
     const step = controller.currentStep;
     overlay.renderStep(step, controller.currentStepIndex);
-    const targetId = step?.spotlightTarget ?? null;
-    const territory = targetId ? this.gameState?.territories[targetId] : null;
-    if (territory) {
-      overlay.spotlightTarget(territory.x, territory.y, territory.radius);
-    } else {
-      overlay.spotlightTarget(null, null, 0);
+    if (!step || !this.gameState) return;
+
+    // Adaptive Clash Royale-style guidance: spotlight the live strongest
+    // owned tower and the nearest capturable target, and demonstrate the
+    // exact drag gesture with the animated hand hint.
+    const guidance = resolveTrainingGuidance(this.gameState.territories, step.id);
+    const toPoint = (id: string): { x: number; y: number; radius: number } | null => {
+      const t = this.gameState.territories[id];
+      return t ? { x: t.x, y: t.y, radius: t.radius } : null;
+    };
+    const spotlightPoints = guidance.spotlightIds
+      .map(toPoint)
+      .filter((p): p is { x: number; y: number; radius: number } => p !== null);
+    overlay.spotlightTargets(spotlightPoints);
+    const hintPoints = guidance.hintPath
+      .map((id) => this.gameState.territories[id])
+      .filter((t): t is Territory => Boolean(t))
+      .map((t) => ({ x: t.x, y: t.y }));
+    overlay.showHandHint(hintPoints);
+    this.applyTrainingDimming(guidance.spotlightIds);
+  }
+
+  /**
+   * Dims every non-guided territory so the spotlighted towers read like a
+   * Clash Royale tutorial focus. Re-applied once after the creation
+   * reveal tweens settle (they write alpha 1 for ~600ms after scene start).
+   */
+  private trainingDimmingToken = 0;
+
+  private applyTrainingDimming(spotlightIds: readonly string[]): void {
+    if (!this.trainingMode) return;
+    this.trainingDimmingToken += 1;
+    const token = this.trainingDimmingToken;
+    const apply = () => {
+      if (token !== this.trainingDimmingToken || !this.trainingController?.isActive) return;
+      for (const [id, vis] of this.territoryVisuals) {
+        vis.container.setAlpha(spotlightIds.includes(id) ? 1 : 0.45);
+      }
+    };
+    apply();
+    this.time.delayedCall(850, apply);
+  }
+
+  /** Restores full board brightness (victory celebration / exit). */
+  private clearTrainingDimming(): void {
+    this.trainingDimmingToken += 1;
+    for (const vis of this.territoryVisuals.values()) {
+      vis.container.setAlpha(1);
     }
   }
 
   /**
-   * All four guided actions performed: save the account-wide completion on
+   * All guided actions performed: celebrate the Clash Royale-style victory
+   * (the enemy base just fell), then save the account-wide completion on
    * the server (fail-closed), then start the first real bot match. The
    * progress marker is cleared and the completion analytics emitted only
    * AFTER the server confirms the write — a failed save keeps the
    * actions-complete state persisted so retries and reloads resume here
-   * without repeating the four actions.
+   * without repeating the guided actions.
    */
   private handleTrainingCompleted(): void {
     if (this.trainingCompletionPending || this.isExiting) return;
     this.trainingCompletionPending = true;
     const playerId = this.platform.getUser().id;
-    this.trainingOverlay?.showSaving();
+    this.clearTrainingDimming();
+    this.trainingOverlay?.showVictoryCelebration();
     sounds.playVictory();
     this.platform.hapticNotification('success');
     void this.careerManager
@@ -697,7 +746,7 @@ export class GameScene extends Phaser.Scene {
       .catch((error: unknown) => {
         console.warn('[GameScene] Tutorial completion save failed (retryable):', error);
         this.trainingCompletionPending = false;
-        // The four guided actions are already performed: persist the
+        // The guided actions are already performed: persist the
         // actions-complete state so a retry, a relaunch, or a full reload
         // resumes straight into this save flow instead of forcing the
         // player to repeat the tutorial actions.
@@ -706,6 +755,7 @@ export class GameScene extends Phaser.Scene {
         // Fail-closed: the tutorial remains incomplete until the server
         // accepts the write. RETRY re-runs the save; nothing is unlocked
         // locally.
+        this.trainingOverlay?.setCelebrationSaving(false);
         this.trainingOverlay?.showSaveError(() => this.handleTrainingCompleted());
         this.platform.hapticNotification('error');
       });
@@ -732,9 +782,10 @@ export class GameScene extends Phaser.Scene {
 
   /**
    * Rebuilds the training battlefield in place: winning or losing the
-   * training battle never completes (or ends) the tutorial — only the four
-   * guided actions do. A rare early match end just resets the sandbox so
-   * the remaining actions stay performable.
+   * training battle never completes (or ends) the tutorial — only the
+   * guided actions do. A rare early match end (outside the scripted
+   * enemy-base finale) just resets the sandbox so the remaining actions
+   * stay performable.
    */
   private resetTrainingBattlefield(): void {
     this.destroyBattlefieldVisuals();
@@ -1726,6 +1777,8 @@ export class GameScene extends Phaser.Scene {
   private setupInputs(): void {
     // Global scene pointerdown for responsive touch targets
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      // The player's own gesture replaces the tutorial hand demonstration.
+      this.trainingOverlay?.notifyPlayerInteraction();
       if (
         this.isExiting ||
         this.matchMenuController?.isOpen() ||
@@ -2010,7 +2063,7 @@ export class GameScene extends Phaser.Scene {
         this.dragBadgeText.setColor('#10b981');
         this.dragBadgeBg.setStrokeStyle(2, 0x10b981, 1);
       } else {
-        // A real WIN/TIE/-N outcome preview is one of the four guided
+        // A real WIN/TIE/-N outcome preview is one of the guided
         // training actions.
         this.trainingController?.onPreviewShown();
         if (totalUnitsToSend > target.units) {
@@ -2202,12 +2255,18 @@ export class GameScene extends Phaser.Scene {
         // Update HUD
         this.updateHud();
 
-        // Check Game Over. Training never ends the match: winning or
-        // losing completes nothing — an early end just resets the sandbox
-        // so the remaining guided actions stay performable.
+        // Check Game Over. Training never ends the match through the
+        // ordinary flow: the enemy-base capture routes through the
+        // completion celebration (frozen battle), and any other early
+        // end just resets the sandbox so the remaining guided actions
+        // stay performable.
         if (this.gameState.status !== 'playing') {
           if (this.trainingMode) {
-            this.resetTrainingBattlefield();
+            // Victory celebration owns the frozen state — never reset
+            // mid-celebration.
+            if (!this.trainingCompletionPending) {
+              this.resetTrainingBattlefield();
+            }
           } else {
             this.endMatch();
           }
@@ -2260,8 +2319,12 @@ export class GameScene extends Phaser.Scene {
         this.gameState.status === 'playing' &&
         this.gameState.elapsedTimeSeconds >= this.aiNextTick - 1e-9
       ) {
-        this.executeAiTurn();
         this.aiNextTick += PVP_AI_TICK_SECONDS;
+        // Scripted training battle: the enemy never acts. Clash
+        // Royale-style passive tutorial opponent — the player is the only
+        // commander on the field.
+        if (this.trainingMode) continue;
+        this.executeAiTurn();
       }
     }
     if (budget.ticks > ticks) {
@@ -2406,7 +2469,7 @@ export class GameScene extends Phaser.Scene {
 
     if (arrival.captured) {
       const capturedByPlayer = arrival.attackerOwner === 'player';
-      // A player capture is one of the four guided training actions.
+      // A player capture is one of the guided training actions.
       this.trainingController?.onCapture(arrival.targetId, capturedByPlayer);
       const isCrownKeep =
         arrival.targetId === 'n_center' ||
@@ -4342,6 +4405,14 @@ export class GameScene extends Phaser.Scene {
       playerModifiers: modifiers,
       battlefieldId: this.battlefieldId,
     });
+    // Clash Royale-style sandbox: the training player is overpowered and
+    // the scripted enemy HQ is weak, so every guided action (including the
+    // finale base capture) succeeds. Client-local training only — the
+    // state never settles, so no economy value is touched.
+    if (this.trainingMode) {
+      applyTrainingSandbox(this.gameState.territories);
+      this.gameState.timeLimitSeconds = TRAINING_TIME_LIMIT_SECONDS;
+    }
   }
 
   /** Destroys every territory/army visual (scene restart or 2v2 rematch). */

@@ -94,8 +94,8 @@ describe('TutorialStatus', () => {
       expect(loadTrainingProgress('alice')).toBe(0);
     });
 
-    it('round-trips the actions-complete sentinel so a failed save never repeats the four actions', () => {
-      expect(TRAINING_ACTIONS_COMPLETE).toBe(4);
+    it('round-trips the actions-complete sentinel so a failed save never repeats the guided actions', () => {
+      expect(TRAINING_ACTIONS_COMPLETE).toBe(5);
       saveTrainingProgress('alice', TRAINING_ACTIONS_COMPLETE);
       expect(loadTrainingProgress('alice')).toBe(TRAINING_ACTIONS_COMPLETE);
       // Clearing after a confirmed server write removes it entirely.
@@ -103,8 +103,12 @@ describe('TutorialStatus', () => {
       expect(loadTrainingProgress('alice')).toBe(0);
     });
 
-    it('clamps corrupt or out-of-range progress to a fresh start', () => {
-      for (const bad of ['-1', '5', '99', 'abc', '']) {
+    it('accepts every valid resume step and clamps the rest to a fresh start', () => {
+      for (const step of [0, 1, 2, 3, 4, TRAINING_ACTIONS_COMPLETE]) {
+        saveTrainingProgress('alice', step);
+        expect(loadTrainingProgress('alice')).toBe(step);
+      }
+      for (const bad of ['-1', '6', '99', 'abc', '']) {
         store.set('crown_clash_training_progress_alice', bad);
         expect(loadTrainingProgress('alice')).toBe(0);
       }

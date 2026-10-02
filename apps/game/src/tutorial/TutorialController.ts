@@ -1,16 +1,22 @@
 /**
  * Crown Clash — Guided Training Battle Controller
  *
- * Framework-free state machine governing the first-play tutorial battle.
- * This module has zero Phaser dependency and is fully unit-testable. The
- * tutorial is completed by PERFORMING the four core actions with the real
- * battle controls — never by winning a match:
+ * Framework-free state machine governing the first-play tutorial battle
+ * (Clash Royale-style: scripted, forgiving, and ending in a guaranteed
+ * climactic victory over the enemy base). This module has zero Phaser
+ * dependency and is fully unit-testable. The tutorial is completed by
+ * PERFORMING the five guided actions with the real battle controls:
  *
- *   drag_to_attack  → Player dispatches from an owned tower (release)
- *   preview_result  → Player sees a WIN/TIE/-N drag-badge outcome preview
- *   tower_roles     → Player captures a territory (roles taught on capture)
- *   multi_dispatch  → Player dispatches from 2+ sources at once
- *   (complete)
+ *   drag_to_attack  → Player drags from an owned tower to a highlighted
+ *                     target and releases (the animated hand demonstrates
+ *                     the gesture first).
+ *   preview_result  → Player holds a drag over a target and reads the
+ *                     ⚔ WIN/TIE/-N outcome preview badge.
+ *   tower_roles     → Player captures a territory (captured towers fight
+ *                     for you — roles are kept out of the bubble).
+ *   multi_dispatch  → Player chains a drag through 2+ owned towers.
+ *   destroy_base    → Player captures the enemy base → VICTORY
+ *                     celebration, then the account-wide completion save.
  *
  * The controller is intentionally persistence-free: the battle scene owns
  * progress (resume marker) and the server owns completion (account-wide
@@ -21,40 +27,66 @@
 // Types
 // ---------------------------------------------------------------------------
 
+/** The enemy HQ territory on the fixed training battlefield (crown_cross). */
+export const TUTORIAL_ENEMY_BASE_ID = 'e_base';
+
 export const TUTORIAL_STEPS = [
   'drag_to_attack',
   'preview_result',
   'tower_roles',
   'multi_dispatch',
+  'destroy_base',
 ] as const;
 
 export type TutorialStepId = (typeof TUTORIAL_STEPS)[number];
 
 export interface TutorialStepInfo {
   id: TutorialStepId;
-  /** Short instruction shown in the overlay bubble. */
+  /** Short, imperative instruction shown in the overlay bubble. */
   instruction: string;
-  /** Territory ID to spotlight (if any). */
-  spotlightTarget?: string;
+  /**
+   * Territory IDs to spotlight for this step (guidance sources and the
+   * suggested target). The battle scene resolves live coordinates and may
+   * override adaptively (see trainingGuidance.ts).
+   */
+  spotlightTargets: readonly string[];
+  /**
+   * Territory IDs in gesture order for the animated hand hint. The final
+   * ID is the release target. Empty = no hand hint for this step.
+   */
+  hintPath: readonly string[];
 }
 
 const STEP_DEFINITIONS: readonly TutorialStepInfo[] = [
   {
     id: 'drag_to_attack',
-    instruction: 'Drag from your blue tower to attack!',
-    spotlightTarget: 'p_base',
+    instruction: 'Drag from your tower to the glowing tower!',
+    spotlightTargets: ['p_base', 'n_bot_left'],
+    hintPath: ['p_base', 'n_bot_left'],
   },
   {
     id: 'preview_result',
-    instruction: 'Badge shows WIN, TIE, or missing units',
+    instruction: 'Hold over a target — the badge predicts WIN or LOSE!',
+    spotlightTargets: ['p_base', 'n_bot_right'],
+    hintPath: ['p_base', 'n_bot_right'],
   },
   {
     id: 'tower_roles',
-    instruction: 'Capture a tower! DEF shields • PROD trains • SPD marches',
+    instruction: 'Captured towers fight for you — take another!',
+    spotlightTargets: ['n_center'],
+    hintPath: ['p_base', 'n_center'],
   },
   {
     id: 'multi_dispatch',
-    instruction: 'Drag across towers for a combo attack!',
+    instruction: 'COMBO! Drag through BOTH towers, then release on the target!',
+    spotlightTargets: ['p_base', 'n_bot_left', 'n_center'],
+    hintPath: ['p_base', 'n_bot_left', 'n_center'],
+  },
+  {
+    id: 'destroy_base',
+    instruction: 'FINISH THEM! Drag across your towers and take the enemy base!',
+    spotlightTargets: ['p_base', TUTORIAL_ENEMY_BASE_ID],
+    hintPath: ['p_base', TUTORIAL_ENEMY_BASE_ID],
   },
 ];
 
@@ -74,14 +106,14 @@ export type TutorialEventCallback = (event: TutorialEvent) => void;
 
 export interface TutorialStartOptions {
   /**
-   * Step index to resume from (0-3). Actions already performed in a
-   * previous session are not repeated. Out-of-range values clamp to a
-   * fresh start.
+   * Step index to resume from (0 to TUTORIAL_STEPS.length - 1). Actions
+   * already performed in a previous session are not repeated. Out-of-range
+   * values clamp to a fresh start.
    */
   readonly startStep?: number;
   /**
    * Boot directly into the completed state WITHOUT emitting any events.
-   * Used when the four guided actions were already performed in a previous
+   * Used when the guided actions were already performed in a previous
    * session but the server save failed: the battle scene resumes straight
    * into the save-retry flow instead of repeating the actions.
    */
@@ -113,8 +145,8 @@ export class TutorialController {
     options: TutorialStartOptions = {},
   ) {
     if (options.resumeCompleted === true) {
-      // Silent completed state for the save-retry resume path: the four
-      // guided actions were genuinely performed in a previous session, so
+      // Silent completed state for the save-retry resume path: the guided
+      // actions were genuinely performed in a previous session, so
       // no started/step events fire and no action is required again.
       this.stepIndex = STEP_DEFINITIONS.length - 1;
       this._isCompleted = true;
@@ -199,8 +231,12 @@ export class TutorialController {
 
     // Dispatches during the reading/capture steps must not skip ahead: the
     // preview step requires a seen outcome badge, the roles step a capture,
-    // and the final step a multi-source dispatch.
-    if (step === 'preview_result' || step === 'tower_roles') {
+    // and the final two steps a multi-source dispatch / the base capture.
+    if (
+      step === 'preview_result' ||
+      step === 'tower_roles' ||
+      step === 'destroy_base'
+    ) {
       return;
     }
 
@@ -215,7 +251,7 @@ export class TutorialController {
   /**
    * Called when a territory capture resolves.
    */
-  onCapture(_territoryId: string, capturedByPlayer: boolean): void {
+  onCapture(territoryId: string, capturedByPlayer: boolean): void {
     if (!this.isActive) return;
 
     if (capturedByPlayer) {
@@ -227,6 +263,17 @@ export class TutorialController {
         if (this.stepElapsed >= TutorialController.TOWER_ROLES_MIN_DURATION) {
           this.advanceStep();
         }
+        return;
+      }
+
+      // Clash Royale-style climax: capturing the enemy base IS the tutorial
+      // victory. It completes immediately — the victory celebration that
+      // follows is the readable display beat.
+      if (
+        this.currentStepId === 'destroy_base' &&
+        territoryId === TUTORIAL_ENEMY_BASE_ID
+      ) {
+        this.advanceStep();
       }
     }
   }
@@ -311,7 +358,7 @@ export class TutorialController {
     }
 
     if (this.stepIndex >= STEP_DEFINITIONS.length) {
-      // All four guided actions performed: the tutorial is complete.
+      // All guided actions performed: the tutorial is complete.
       this._isCompleted = true;
       this.emit({ type: 'completed' });
     } else {

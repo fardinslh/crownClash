@@ -43,7 +43,8 @@ export class MenuScene extends Phaser.Scene {
   /**
    * Launches the guided training battle. The training match is fully
    * client-local (no server ticket, no settlement); completion is saved
-   * account-wide by GameScene once the four guided actions are performed.
+   * account-wide by GameScene once the five guided actions are performed
+   * (the finale is capturing the enemy base).
    */
   private startTrainingBattle(): void {
     if (this.isTransitioning) return;

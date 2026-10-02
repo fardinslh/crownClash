@@ -11,7 +11,7 @@
  *   - The client owns only a per-player TRAINING PROGRESS marker so an
  *     interrupted tutorial resumes at the last unfinished guided action,
  *     and so a completed-but-unsaved tutorial retries the save without
- *     repeating the four actions.
+ *     repeating the guided actions.
  *   - The legacy per-player localStorage completion marker written by the
  *     retired War Academy flow is migrated to the server exactly once:
  *     on success it is consumed (removed), on failure it survives so the
@@ -32,6 +32,7 @@
 
 import type { BotMatchTicket } from '@crown-clash/game-core';
 import type { TutorialStepId } from './TutorialController.js';
+import { TUTORIAL_STEPS } from './TutorialController.js';
 
 const LEGACY_MARKER_PREFIX = 'crown_clash_tutorial_';
 const TRAINING_PROGRESS_PREFIX = 'crown_clash_training_progress_';
@@ -81,11 +82,11 @@ export function trainingProgressKey(playerId: string): string {
 }
 
 /**
- * Progress sentinel: all four guided actions were performed, but the
+ * Progress sentinel: all guided actions were performed, but the
  * server save has not succeeded yet. A launch with this marker resumes
  * straight into the save-retry flow — the actions are never repeated.
  */
-export const TRAINING_ACTIONS_COMPLETE = 4;
+export const TRAINING_ACTIONS_COMPLETE = TUTORIAL_STEPS.length;
 
 export function saveTrainingProgress(playerId: string, stepIndex: number): void {
   try {
@@ -96,9 +97,9 @@ export function saveTrainingProgress(playerId: string, stepIndex: number): void 
 }
 
 /**
- * Loads the resume state: 0-3 = step index to resume at,
- * TRAINING_ACTIONS_COMPLETE (4) = actions done, save pending. Anything
- * corrupt or out of range resolves to a fresh start (0).
+ * Loads the resume state: a step index (0 to TUTORIAL_STEPS.length - 1) to
+ * resume at, TRAINING_ACTIONS_COMPLETE = actions done, save pending.
+ * Anything corrupt or out of range resolves to a fresh start (0).
  */
 export function loadTrainingProgress(playerId: string): number {
   try {
