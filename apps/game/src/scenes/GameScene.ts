@@ -702,15 +702,13 @@ export class GameScene extends Phaser.Scene {
    * must feel rewarding — a freshly captured tower that fades reads as
    * broken, not "mine"); unguided enemy/neutral towers dim. Re-applied once
    * after the creation reveal tweens settle (they write alpha 1 for
-   * ~600ms after scene start) and re-applied on every player capture so a
-   * tower brightens the moment it turns blue.
+   * ~600ms after scene start) and re-applied by renderTrainingStep on every
+   * player capture so a tower brightens the moment it turns blue.
    */
   private trainingDimmingToken = 0;
-  private trainingSpotlightIds: readonly string[] = [];
 
   private applyTrainingDimming(spotlightIds: readonly string[]): void {
     if (!this.trainingMode) return;
-    this.trainingSpotlightIds = spotlightIds;
     this.trainingDimmingToken += 1;
     const token = this.trainingDimmingToken;
     const apply = () => {
@@ -1812,6 +1810,12 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
+    // The player released the screen: their finger stops being the live
+    // gesture demonstration, so the guided touch indicator may resume.
+    this.input.on('pointerup', () => {
+      this.trainingOverlay?.notifyInteractionEnded();
+    });
+
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
       if (this.isExiting || this.matchMenuController?.isOpen() || this.selectedSourceIds.length === 0) {
         return;
@@ -2489,12 +2493,14 @@ export class GameScene extends Phaser.Scene {
       const capturedByPlayer = arrival.attackerOwner === 'player';
       // A player capture is one of the guided training actions.
       this.trainingController?.onCapture(arrival.targetId, capturedByPlayer);
-      // A freshly captured tower must brighten IMMEDIATELY: the dimming
-      // snapshot was computed when the step was entered, so without this
-      // re-apply a mid-step capture stays pale (the step's spotlight list
-      // does not know the tower changed owner yet).
+      // A mid-step capture changes the board: the step's spotlight/hand
+      // guidance snapshot was computed when the step ENTERED, so without
+      // this re-resolve the demo keeps pointing at a tower the player
+      // already owns (stale guidance) until the next step begins. The
+      // freshly captured tower also brightens immediately via the ownership
+      // dimming rule inside renderTrainingStep.
       if (this.trainingMode && capturedByPlayer && this.trainingController?.isActive) {
-        this.applyTrainingDimming(this.trainingSpotlightIds);
+        this.renderTrainingStep();
       }
       const isCrownKeep =
         arrival.targetId === 'n_center' ||

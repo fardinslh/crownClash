@@ -154,16 +154,31 @@ describe('resolveTrainingGuidance', () => {
     expect(guidance.hintPath).toEqual(['p_base', 'n_bot_right']);
   });
 
-  it('suggests the two strongest owned towers for the combo step', () => {
+  it('re-points guidance away from towers captured mid-step (stale-guidance regression)', () => {
+    // Step 1's capture lands a beat AFTER step 2 entered (dispatch completes
+    // on release, the capture ~1s later): with n_bot_left now player-owned,
+    // re-resolving the preview_result guidance must move to the next
+    // capturable target instead of pointing at the player's own tower.
+    const territories = makeTerritories({
+      n_bot_left: { owner: 'player', units: 12 },
+    });
+    const guidance = resolveTrainingGuidance(territories, 'preview_result');
+    expect(guidance.spotlightIds).toEqual(['p_base', 'n_bot_right']);
+    expect(guidance.hintPath).toEqual(['p_base', 'n_bot_right']);
+  });
+
+  it('chains the combo sources so the stroke flows toward the target', () => {
     const territories = makeTerritories({
       n_bot_left: { owner: 'player', units: 22 },
       n_bot_right: { owner: 'player', units: 6 },
     });
     const guidance = resolveTrainingGuidance(territories, 'multi_dispatch');
-    // Sources by strength: n_bot_left (22) then p_base (20). The nearest
-    // capturable target from n_bot_left is n_mid_left (dist ≈ 125).
-    expect(guidance.hintPath).toEqual(['n_bot_left', 'p_base', 'n_mid_left']);
-    expect(guidance.spotlightIds).toEqual(['n_bot_left', 'p_base', 'n_mid_left']);
+    // The two strongest owned towers are chained (n_bot_left 22, p_base 20)
+    // and the nearest capturable target from n_bot_left is n_mid_left
+    // (dist ≈ 125). The chain starts at the tower FARTHEST from the target
+    // (p_base, dist ≈ 280) so the demonstrated stroke flows toward it.
+    expect(guidance.hintPath).toEqual(['p_base', 'n_bot_left', 'n_mid_left']);
+    expect(guidance.spotlightIds).toEqual(['p_base', 'n_bot_left', 'n_mid_left']);
   });
 
   it('never duplicates the source in the combo path with a single owned tower', () => {
@@ -172,17 +187,24 @@ describe('resolveTrainingGuidance', () => {
     expect(new Set(guidance.hintPath).size).toBe(guidance.hintPath.length);
   });
 
-  it('sweeps every owned tower into the enemy-base finale', () => {
+  it('sweeps every owned tower into the enemy-base finale as one continuous stroke', () => {
     const territories = makeTerritories({
       n_bot_left: { owner: 'player', units: 9 },
       n_center: { owner: 'player', units: 3 },
     });
     const guidance = resolveTrainingGuidance(territories, 'destroy_base');
     expect(guidance.hintPath.at(-1)).toBe(TUTORIAL_ENEMY_BASE_ID);
-    expect(guidance.hintPath).toContain('p_base');
-    expect(guidance.hintPath).toContain('n_bot_left');
-    expect(guidance.hintPath).toContain('n_center');
     expect(guidance.spotlightIds.at(-1)).toBe(TUTORIAL_ENEMY_BASE_ID);
+    // The sweep is a greedy nearest-neighbor stroke starting at the tower
+    // FARTHEST from the enemy base, so it reads as one smooth drag across
+    // the field: p_base → n_bot_left → n_center → e_base.
+    expect(guidance.hintPath).toEqual([
+      'p_base',
+      'n_bot_left',
+      'n_center',
+      TUTORIAL_ENEMY_BASE_ID,
+    ]);
+    expect(guidance.spotlightIds).toEqual(guidance.hintPath);
   });
 
   it('degrades gracefully without a player base', () => {

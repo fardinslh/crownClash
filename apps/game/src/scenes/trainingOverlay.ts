@@ -9,9 +9,11 @@
  *   - small step pips inline at the strip's right end (no "TRAINING 1/5"
  *     exam label);
  *   - pulsing spotlight rings on every guided territory (sources + target);
- *   - an animated HAND HINT that demonstrates the exact drag gesture along
- *     the guided path, Clash Royale-style — hidden the moment the player
- *     touches the screen;
+ *   - an animated TOUCH INDICATOR (soft glow dot + breathing pulse ring)
+ *     that demonstrates the exact drag gesture along the guided path,
+ *     Clash Royale-style — no hand anatomy, so it reads cleanly over any
+ *     board art. Hidden while the player's own finger is down and resumed
+ *     on release;
  *   - a victory celebration (banner + confetti) when the player captures the
  *     enemy base, before the account-wide completion save;
  *   - the fail-closed save-failure state: the strip transforms into a wide
@@ -64,9 +66,11 @@ export class TrainingOverlayUI {
   private readonly spotlights: SpotlightPair[] = [];
   private spotlightsVisible = 0;
 
-  // Hand hint (animated drag-gesture demonstration).
-  private readonly handContainer: Phaser.GameObjects.Container;
+  // Touch indicator (animated drag-gesture demonstration).
+  private readonly indicatorContainer: Phaser.GameObjects.Container;
   private readonly hintPathGraphics: Phaser.GameObjects.Graphics;
+  private readonly pulseRing: Phaser.GameObjects.Arc;
+  private pulseTween?: Phaser.Tweens.Tween;
   private hintPoints: readonly { x: number; y: number }[] = [];
   private hintToken = 0;
   private handHiddenByInteraction = false;
@@ -125,8 +129,11 @@ export class TrainingOverlayUI {
     }
 
     this.hintPathGraphics = scene.add.graphics().setDepth(HINT_PATH_DEPTH);
-    this.handContainer = scene.add.container(0, 0).setDepth(HAND_DEPTH);
-    this.buildHand();
+    this.indicatorContainer = scene.add.container(0, 0).setDepth(HAND_DEPTH);
+    this.pulseRing = scene.add
+      .circle(0, 0, 15, THEME.gold, 0)
+      .setStrokeStyle(2.5, 0xffffff, 0.9);
+    this.buildTouchIndicator();
 
     this.applyLayout();
     this.unbindResize = bindSceneViewportResize(scene, () => this.applyLayout());
@@ -162,42 +169,43 @@ export class TrainingOverlayUI {
   }
 
   // -------------------------------------------------------------------------
-  // Hand hint (Clash Royale-style drag-gesture demonstration)
+  // Touch indicator (Clash Royale-style drag-gesture demonstration)
   // -------------------------------------------------------------------------
 
-  /** Draws the stylized pressing hand: palm + folded fingers + index finger. */
-  private buildHand(): void {
-    const shadow = this.scene.add.ellipse(2, -24, 46, 50, 0x000000, 0.35);
-    const g = this.scene.add.graphics();
-    const skin = 0xf8fafc;
-    const outline = 0x1e293b;
+  /**
+   * Builds the touch indicator: a soft white glow dot with a breathing
+   * pulse ring. Deliberately NOT a drawn hand — abstract touch dots read
+   * cleanly over any board art and match the mobile-game convention the
+   * target audience already knows.
+   */
+  private buildTouchIndicator(): void {
+    const halo = this.scene.add.circle(0, 0, 30, THEME.gold, 0.14);
+    const glow = this.scene.add.circle(0, 0, 19, 0xffffff, 0.32);
+    const core = this.scene.add
+      .circle(0, 0, 10.5, 0xffffff, 0.95)
+      .setStrokeStyle(1.5, 0x0b1220, 0.25);
+    this.indicatorContainer.add([halo, glow, core, this.pulseRing]);
+    this.indicatorContainer.setVisible(false);
+  }
 
-    // Palm (seen from above, finger pointing down).
-    g.fillStyle(skin, 1);
-    g.fillEllipse(0, -30, 40, 44);
-    // Folded fingers (three knuckle bumps).
-    g.fillCircle(-14, -46, 8);
-    g.fillCircle(0, -50, 8);
-    g.fillCircle(14, -46, 8);
-    // Thumb.
-    g.fillCircle(-17, -22, 9);
-    // Extended index finger pressing down; fingertip sits at (0, 12).
-    g.fillRoundedRect(-6.5, -14, 13, 26, 6);
+  /** Continuous "touch here" pulse around the dot while it is visible. */
+  private startPulse(): void {
+    this.stopPulse();
+    if (this.isReducedMotion()) return;
+    this.pulseTween = this.scene.tweens.add({
+      targets: this.pulseRing,
+      scale: { from: 1, to: 1.7 },
+      alpha: { from: 0.9, to: 0 },
+      duration: 950,
+      repeat: -1,
+      ease: 'Cubic.easeOut',
+    });
+  }
 
-    // Dark outline for readability over any board art.
-    g.lineStyle(2.5, outline, 0.9);
-    g.strokeEllipse(0, -30, 40, 44);
-    g.strokeCircle(-14, -46, 8);
-    g.strokeCircle(0, -50, 8);
-    g.strokeCircle(14, -46, 8);
-    g.strokeCircle(-17, -22, 9);
-    g.strokeRoundedRect(-6.5, -14, 13, 26, 6);
-
-    // Fingertip dot marks the exact press point.
-    const tip = this.scene.add.circle(0, 12, 5.5, 0x0b1220, 0.18).setStrokeStyle(1.5, outline, 0.35);
-
-    this.handContainer.add([shadow, g, tip]);
-    this.handContainer.setVisible(false);
+  private stopPulse(): void {
+    this.pulseTween?.remove();
+    this.pulseTween = undefined;
+    this.pulseRing.setScale(1).setAlpha(0.9);
   }
 
   /**
@@ -210,25 +218,33 @@ export class TrainingOverlayUI {
     const points = this.hintPoints;
     if (this.destroyed || token !== this.hintToken || points.length === 0) return;
 
-    const hand = this.handContainer;
-    scene.tweens.killTweensOf(hand);
+    const dot = this.indicatorContainer;
+    scene.tweens.killTweensOf(dot);
 
     const start = points[0];
-    hand.setPosition(start.x, start.y).setAlpha(0).setScale(1).setVisible(true);
-    this.spawnRipple(start.x, start.y, token);
+    dot.setPosition(start.x, start.y).setAlpha(0).setScale(1).setVisible(true);
+    this.startPulse();
 
+    if (this.isReducedMotion()) {
+      // Reduced motion: a static "touch here" dot at the source plus the
+      // drawn path — no looping animation.
+      dot.setAlpha(0.92);
+      return;
+    }
+
+    this.spawnRipple(start.x, start.y, token);
     scene.tweens.add({
-      targets: hand,
+      targets: dot,
       alpha: 1,
-      duration: 220,
+      duration: 200,
       ease: 'Sine.easeOut',
       onComplete: () => {
         if (this.destroyed || token !== this.hintToken) return;
         // Press beat at the source.
         scene.tweens.add({
-          targets: hand,
-          scale: 0.9,
-          duration: 130,
+          targets: dot,
+          scale: 0.82,
+          duration: 120,
           yoyo: true,
           ease: 'Sine.easeInOut',
           onComplete: () => this.hintAfterPress(token, 0),
@@ -246,7 +262,7 @@ export class TrainingOverlayUI {
       return;
     }
 
-    const hand = this.handContainer;
+    const dot = this.indicatorContainer;
     const from = points[segmentIndex];
     const to = points[segmentIndex + 1];
     const distance = Math.hypot(to.x - from.x, to.y - from.y);
@@ -256,7 +272,7 @@ export class TrainingOverlayUI {
     const isWaypoint = segmentIndex + 1 < points.length - 1;
 
     scene.tweens.add({
-      targets: hand,
+      targets: dot,
       x: to.x,
       y: to.y,
       duration,
@@ -265,8 +281,8 @@ export class TrainingOverlayUI {
         if (this.destroyed || token !== this.hintToken) return;
         if (isWaypoint) {
           scene.tweens.add({
-            targets: hand,
-            scale: 0.92,
+            targets: dot,
+            scale: 0.88,
             duration: 110,
             yoyo: true,
             ease: 'Sine.easeInOut',
@@ -284,19 +300,19 @@ export class TrainingOverlayUI {
     if (this.destroyed || token !== this.hintToken) return;
     const points = this.hintPoints;
     const target = points[points.length - 1];
-    const hand = this.handContainer;
+    const dot = this.indicatorContainer;
 
     this.spawnRipple(target.x, target.y, token);
     scene.tweens.add({
-      targets: hand,
-      scale: 0.9,
-      duration: 130,
+      targets: dot,
+      scale: 0.82,
+      duration: 120,
       yoyo: true,
       ease: 'Sine.easeInOut',
       onComplete: () => {
         if (this.destroyed || token !== this.hintToken) return;
         scene.tweens.add({
-          targets: hand,
+          targets: dot,
           alpha: 0,
           scale: 1,
           delay: 420,
@@ -304,7 +320,8 @@ export class TrainingOverlayUI {
           ease: 'Sine.easeIn',
           onComplete: () => {
             if (this.destroyed || token !== this.hintToken) return;
-            hand.setVisible(false);
+            dot.setVisible(false);
+            this.stopPulse();
             // Loop the demonstration until the player interacts or the
             // step changes.
             scene.time.delayedCall(520, () => {
@@ -437,36 +454,58 @@ export class TrainingOverlayUI {
   }
 
   /**
-   * Shows the animated hand hint along the given gesture path (territory
+   * Shows the touch indicator along the given gesture path (territory
    * centers, sources first, release target last). An empty list hides it.
+   * While the player's own finger is down the indicator stays hidden (only
+   * the drawn path refreshes); it resumes on release.
    */
   showHandHint(points: readonly { x: number; y: number }[]): void {
     if (this.destroyed) return;
     this.hintToken += 1;
-    this.handHiddenByInteraction = false;
     this.hintPoints = points;
-    this.scene.tweens.killTweensOf(this.handContainer);
+    this.scene.tweens.killTweensOf(this.indicatorContainer);
     if (points.length === 0) {
       this.hintPathGraphics.clear();
-      this.handContainer.setVisible(false);
+      this.indicatorContainer.setVisible(false);
+      this.stopPulse();
       return;
     }
     this.drawHintPath();
+    if (this.handHiddenByInteraction) {
+      // Mid-gesture: the player's own finger is the live demonstration, so
+      // only refresh the drawn path (a capture may have re-pointed the
+      // guidance at a new target). The dot returns on release.
+      return;
+    }
     this.animateHintCycle(this.hintToken);
   }
 
   /**
-   * Hides the hand hint when the player touches the screen (their own
-   * gesture replaces the demonstration). The hint returns with the next
-   * guided step.
+   * Hides the touch indicator when the player touches the screen (their
+   * own gesture replaces the demonstration). The drawn path is hidden too;
+   * both return on release (notifyInteractionEnded) or with the next step.
    */
   notifyPlayerInteraction(): void {
     if (this.destroyed) return;
     this.handHiddenByInteraction = true;
     this.hintToken += 1;
-    this.scene.tweens.killTweensOf(this.handContainer);
+    this.scene.tweens.killTweensOf(this.indicatorContainer);
     this.hintPathGraphics.clear();
-    this.handContainer.setVisible(false);
+    this.indicatorContainer.setVisible(false);
+    this.stopPulse();
+  }
+
+  /**
+   * The player released the screen: their finger is no longer the live
+   * demonstration, so the guided demo resumes if a hint path exists.
+   */
+  notifyInteractionEnded(): void {
+    if (this.destroyed) return;
+    if (!this.handHiddenByInteraction) return;
+    this.handHiddenByInteraction = false;
+    if (this.hintPoints.length === 0) return;
+    this.drawHintPath();
+    this.animateHintCycle(this.hintToken);
   }
 
   /** Renders the current guided step (instruction + pip state). */
@@ -668,8 +707,9 @@ export class TrainingOverlayUI {
       pair.glow.destroy();
     }
     this.spotlights.length = 0;
-    this.scene.tweens.killTweensOf(this.handContainer);
-    this.handContainer.destroy(true);
+    this.scene.tweens.killTweensOf(this.indicatorContainer);
+    this.indicatorContainer.destroy(true);
+    this.stopPulse();
     this.hintPathGraphics.destroy();
     for (const piece of this.confetti) piece.destroy();
     this.confetti = [];

@@ -94,6 +94,34 @@ function distance(a: Territory, b: Territory): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+/**
+ * Orders the finale's sweep stroke as one continuous greedy
+ * nearest-neighbor path that starts at the tower FARTHEST from the enemy
+ * base and flows toward it, so the demonstrated gesture reads as a single
+ * smooth stroke across the field instead of a strength-ordered zigzag.
+ */
+function sweepPath(towers: readonly Territory[], base: Territory): Territory[] {
+  if (towers.length <= 1) return [...towers];
+  const remaining = [...towers];
+  let current = remaining.reduce((far, t) =>
+    distance(t, base) > distance(far, base) ? t : far
+  );
+  const path: Territory[] = [current];
+  remaining.splice(remaining.indexOf(current), 1);
+  while (remaining.length > 0) {
+    let best = 0;
+    for (let index = 1; index < remaining.length; index += 1) {
+      if (distance(current, remaining[index]) < distance(current, remaining[best])) {
+        best = index;
+      }
+    }
+    current = remaining[best];
+    path.push(current);
+    remaining.splice(best, 1);
+  }
+  return path;
+}
+
 /** Player-owned towers that can actually dispatch (more than 1 unit). */
 function dispatchablePlayerTowers(territories: Record<string, Territory>): Territory[] {
   return Object.values(territories).filter(
@@ -156,10 +184,15 @@ export function resolveTrainingGuidance(
   }
 
   if (stepId === 'destroy_base') {
-    // Finale: sweep every owned tower, then release on the enemy base.
+    // Finale: sweep every owned tower, then release on the enemy base. The
+    // sweep is a continuous nearest-neighbor stroke (see sweepPath) so the
+    // demonstrated gesture reads as one smooth drag across the field.
     const towers = dispatchablePlayerTowers(territories);
     const sources = towers.length > 0 ? towers : [playerBase];
-    const ordered = [...sources].sort((a, b) => b.units - a.units || a.x - b.x);
+    const base = territories[TUTORIAL_ENEMY_BASE_ID];
+    const ordered = base
+      ? sweepPath(sources, base)
+      : [...sources].sort((a, b) => b.units - a.units || a.x - b.x);
     return {
       spotlightIds: [...ordered.map((t) => t.id), TUTORIAL_ENEMY_BASE_ID],
       hintPath: [...ordered.map((t) => t.id), TUTORIAL_ENEMY_BASE_ID],
@@ -188,9 +221,14 @@ export function resolveTrainingGuidance(
     if (!target) {
       return { spotlightIds: chained.map((t) => t.id), hintPath: [] };
     }
+    // The chain starts at the tower FARTHEST from the target so the
+    // demonstrated stroke flows toward the release point as one gesture.
+    const ordered = [...chained].sort(
+      (a, b) => distance(b, target) - distance(a, target)
+    );
     return {
-      spotlightIds: [...chained.map((t) => t.id), target.id],
-      hintPath: [...chained.map((t) => t.id), target.id],
+      spotlightIds: [...ordered.map((t) => t.id), target.id],
+      hintPath: [...ordered.map((t) => t.id), target.id],
     };
   }
 
