@@ -1089,7 +1089,7 @@ def _ground_roads(bf, mats, make_material):
         length = math.hypot(bx - ax, by - ay) + 10.0
         angle = math.atan2(by - ay, bx - ax)
         cx, cy = (ax + bx) / 2.0, (ay + by) / 2.0
-        _road_strip('dry grass band', length + 16.0, 42.0, .035, angle, cx, cy, dry, 3.2, rng)
+        _road_strip('dry grass band', length + 16.0, 42.0, .035, angle, cx, cy, dry, 3.8, rng)
         _road_strip('road shoulder', length + 8.0, 30.0, .05, angle, cx, cy, mats['shoulder'], 2.4, rng)
         _road_strip('road bed', length, 19.0, .07, angle, cx, cy, mats['road'], 1.5, rng)
         for side in (-1.0, 1.0):
@@ -1229,7 +1229,7 @@ def _ground_scatter(battlefield_id, bf, mats, terrain_z, roads):
                 rot=(rng.random() * .35, rng.random() * .35, a))
 
     def flower_cluster(x, y):
-        count = 3 + int(rng.random() * 4)
+        count = 3 + int(rng.random() * 6)
         for _ in range(count):
             a = rng.random() * math.tau
             r = 1.2 + rng.random() * 2.4
@@ -1247,8 +1247,10 @@ def _ground_scatter(battlefield_id, bf, mats, terrain_z, roads):
             mats['stone'], scale=(1.3, 1.0, .45))
 
     # Counts scale with the meadow fringe (the plate grew from 616 to 1116
-    # plane units), so the extended board dresses at the same density.
-    for kind, count in (('tuft', 84), ('patch', 13), ('flower', 18), ('clover', 17), ('pebble', 33)):
+    # plane units), so the extended board dresses at the same density. The
+    # richer pass raises every kind so the meadow reads alive at phone size:
+    # denser tufts, more flowering patches, more clover and pebble ground.
+    for kind, count in (('tuft', 110), ('patch', 18), ('flower', 26), ('clover', 22), ('pebble', 42)):
         made = misses = 0
         while made < count and misses < 500:
             misses += 1
@@ -1271,7 +1273,8 @@ def _ground_scatter(battlefield_id, bf, mats, terrain_z, roads):
             else:
                 pebble(x, y)
 
-    # Roadside pebbles: worn stone collecting along the dirt road edges.
+    # Roadside pebbles: worn stone collecting along the dirt road edges, with
+    # sparse grass sprouting through the same worn shoulders.
     for (ax, ay), (bx, by) in roads:
         length = math.hypot(bx - ax, by - ay)
         angle = math.atan2(by - ay, bx - ax)
@@ -1289,6 +1292,9 @@ def _ground_scatter(battlefield_id, bf, mats, terrain_z, roads):
                 if abs(x) < 170.0 and abs(y) < 292.0:
                     ico('roadside pebble', .9 + rng.random() * .9, (x, y, terrain_z(x, y) + .5),
                         mats['stone'], scale=(1.2, .95, .55))
+                    # Sparse shoulder grass: the meadow reclaiming the lane.
+                    if rng.random() < .22:
+                        tuft(x + (rng.random() - .5) * 6.0, y + (rng.random() - .5) * 6.0)
 
 
 def _ground_bottom_fade(field, make_material):
@@ -1311,12 +1317,14 @@ def _ground_bottom_fade(field, make_material):
 _GROUND_CHANNEL_GAINS = (0.25, 0.45, 0.33)
 
 # Mower-stripe amplitude per battlefield: manicured lawns read mown, wild
-# highlands and war camps barely at all.
+# highlands and war camps barely at all. Amplitudes are tuned so the stripes
+# survive the 1140->760 downscale and the 2x DPR phone raster without ever
+# reading as zebra paint.
 _GROUND_STRIPE_AMPLITUDE = {
-    'crown_cross': .05,
-    'twin_passes': .02,
-    'royal_ring': .06,
-    'quad_citadel': .03,
+    'crown_cross': .07,
+    'twin_passes': .03,
+    'royal_ring': .085,
+    'quad_citadel': .042,
 }
 
 
@@ -1416,6 +1424,33 @@ def _diorama_plinths(bf, make_material):
         cyl('socket plinth lip', r - 3.0, 2.2, (x, y, _diorama_plinth_top_z() - 1.1), rim_mat, 40)
 
 
+def _ground_sun_pools(battlefield_id, make_material):
+    """Warm sunlight pooling across the meadow: three soft patches per map.
+
+    Each pool is three stacked concentric discs stepping the alpha down
+    toward the rim, so the light reads as a soft gradient instead of a
+    hard-edged sticker. Total centre lift stays under ~0.05 alpha: the Art
+    Bible grass palette is only kissed, never repainted. Positions are
+    fixed per battlefield, kept inside the plate border (|x| + r <= 186)
+    and deliberately off each map's centre identity feature."""
+    pools = {
+        'crown_cross': ((-95.0, 215.0, 62.0), (105.0, -175.0, 66.0), (-40.0, -60.0, 55.0)),
+        'twin_passes': ((-90.0, 180.0, 64.0), (100.0, -110.0, 60.0), (-110.0, -180.0, 58.0)),
+        'royal_ring': ((-100.0, 170.0, 62.0), (110.0, -140.0, 58.0), (60.0, 230.0, 50.0)),
+        'quad_citadel': ((-95.0, -150.0, 60.0), (95.0, 175.0, 58.0), (0.0, -230.0, 52.0)),
+    }
+    warm = (1.0, .93, .78)
+    for x, y, radius in pools.get(battlefield_id, ()):
+        for step, (r, alpha) in enumerate((
+            (radius, .012), (radius * .7, .016), (radius * .42, .022),
+        )):
+            # Sits just above every ground-level overlay (roads, ruts,
+            # identity features top out at z=.085) and below the diorama
+            # socket shades, which live on the plinth tops.
+            cyl(f'sun pool {step}', r, .015, (x, y, .105 + step * .002),
+                _flat_alpha(f'rgx_sun_{int(x)}_{step}', make_material, warm, alpha), 40)
+
+
 def ground_plate(battlefield_id, make_material):
     """Full-field rendered ground plate for one battlefield."""
     bf = _battlefield_data(battlefield_id)
@@ -1425,15 +1460,20 @@ def ground_plate(battlefield_id, make_material):
     diorama = _is_diorama_ground(battlefield_id)
 
     compensated = tuple(c * g for c, g in zip(field, _GROUND_CHANNEL_GAINS))
-    low = tuple(max(c * .72, 0.0) for c in compensated)
-    high = tuple(min(c * 1.30, 1.0) for c in compensated)
+    # Wider low->high ramp: the meadow reads lusher (deeper shade hollows,
+    # brighter sunlit crests) without drifting the mean colour, since the
+    # ramp midpoint stays on the compensated field palette.
+    low = tuple(max(c * .66, 0.0) for c in compensated)
+    high = tuple(min(c * 1.36, 1.0) for c in compensated)
     grass = _noise_material('rgx_grass', make_material, low, high, .017,
                             stripes=_GROUND_STRIPE_AMPLITUDE.get(battlefield_id, .03))
     plate = _rounded_plate(grass, terrain_z)
 
     mats = {
+        # Slightly deeper road bed: dirt lanes read recessed against the
+        # livelier grass instead of washing into it.
         'road': _noise_material('rgx_road', make_material,
-                                tuple(c * .80 for c in road),
+                                tuple(c * .72 for c in road),
                                 tuple(min(c * 1.25, 1.0) for c in road), .05, roughness=.9),
         'shoulder': _flat_alpha('rgx_shoulder', make_material,
                                 tuple(c * .55 for c in road), .35),
@@ -1453,6 +1493,7 @@ def ground_plate(battlefield_id, make_material):
         _diorama_slab(make_material)
         _diorama_plinths(bf, make_material)
     _ground_identity(battlefield_id, make_material, terrain_z)
+    _ground_sun_pools(battlefield_id, make_material)
     _ground_roads(bf, mats, make_material)
     _ground_sockets(
         bf,

@@ -218,6 +218,21 @@ Feedback must be punchy, juicy, and proportional to the action:
 | **Marching Convoy** | Directional micro-dots trailing behind lead unit, rhythmic squad bobbing | Low travel whoosh |
 | **Victory Fanfare** | Full-screen celebration flash (`#2563EB`), confetti burst, Victory card entrance | Ascending victory fanfare + Triple haptic pulse |
 
+### Living-board ambience (idle, always on)
+
+* Two soft **cloud shadows** drift across every battlefield on slow Lissajous paths
+  (periods of minutes, centre alpha ≤ 0.13 fading to 0), rendered above the tactical
+  lanes (depth 3) and below every prop, platform and unit — they shade ground and
+  roads only, never gameplay objects. On the near-black backdrop outside the plate a
+  dark shadow is invisible, so tall viewports need no clipping.
+* **Pennant props sway** a few degrees (±2.5°) around their bottom anchor on
+  sine loops with staggered phases, so the field never moves in lockstep.
+* Both layers are **skipped entirely under `prefers-reduced-motion`** and cost two
+  images plus two sines per frame — no particles, no camera motion.
+* On viewports taller than the plate image (tablets / desktop portrait) the diorama
+  gets miniature framing: a soft contact shadow under the baked slab skirt and a
+  faint cool glow behind the board. Phones crop the plate, so the layers stay off.
+
 ---
 
 ## 8. Asset Master & Export Specifications
@@ -342,8 +357,10 @@ The snippet above is illustrative only.
   war-camp meadow with four trampled dirt camps and crossroads. Plates carry 3D
   micro-relief (deterministic trig dunes that catch the sun, pressed flat under roads,
   sockets and plate borders), clustered scatter (grass tufts, tall patches, flower and
-  clover clusters, pebbles) rooted on the relief, and organic-edged dirt roads with
-  dry-grass shoulders.
+  clover clusters, pebbles, sparse shoulder grass reclaiming the lane edges) rooted on
+  the relief, three soft warm sun pools per battlefield (stacked alpha-stepped discs,
+  total centre lift ≤ 0.05, fixed positions clear of the centre identity feature), and
+  organic-edged dirt roads with dry-grass shoulders.
 * **Vector fallback:** if the ground pack is inactive or a plate fails to load,
   GameScene falls back to the flat painted vector ground layers; the baked plate simply
   replaces them when present (`if (!ground)` gates in `GameScene.createArenaBackground`).
@@ -365,8 +382,12 @@ The snippet above is illustrative only.
   inlay in `visual.roadInlay`.
 * On the baked ground plate, the same roads are baked into the plate (dirt roads with
   organic sine-jittered edges, ruts and dry-grass shoulders) from the authoritative
-  segments; the vector lanes above them are drawn softer (reduced alphas) so they read
-  as the tactical lane layer, not a second road surface.
+  segments. Over a plate the vector layer thins to a **single soft recessed lane**
+  (~12px, shadow color, ≤ 0.14 alpha) plus quiet inlay dots (≤ 0.10 alpha): the
+  baked dirt road carries the visuals and the vector lane is only the tactical route
+  guide — no second road surface, no terminals, no cobbled joints. The full
+  three-pass treatment (18px shadow / 12px stone / terminals / joints) renders only
+  on the vector fallback when no plate loaded.
 * Width: 18px shadow / 12px stone. Roads must never exceed the territory socket
   diameter, so marching convoys visually travel *between* platforms, not over them.
 * A subtle key-light rim may run along the top-left edge of each lane (single 1px

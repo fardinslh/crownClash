@@ -188,7 +188,12 @@ interface TerritoryVisual {
   sprite: Phaser.GameObjects.Image;
   basePlate: Phaser.GameObjects.Ellipse;
   ring: Phaser.GameObjects.Ellipse;
-  unitBadge: Phaser.GameObjects.Rectangle;
+  /**
+   * Unit-count badge: a rounded pill Image (cc_tbadge_* canvas texture) when
+   * the texture API is available, otherwise the legacy Rectangle fallback.
+   * Both keep the same 22px-tall geometry so layout and tests hold.
+   */
+  unitBadge: Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle;
   unitText: Phaser.GameObjects.Text;
   typeIcon: Phaser.GameObjects.Graphics;
   /** 2v2 only: '⧉' cue marking a team-shared fortress (hidden when lost). */
@@ -267,6 +272,24 @@ export class GameScene extends Phaser.Scene {
    * createArenaBackground / createTerritoryObjects).
    */
   private hasGroundPlate = false;
+  /**
+   * Ambient cloud shadows drifting over the board (living-board polish):
+   * soft dark blobs far above the ground layers but below every gameplay
+   * object. Rebuilt with the arena dressing on viewport changes; never
+   * created under reduced motion.
+   */
+  private cloudShadows: Array<{
+    image: Phaser.GameObjects.Image;
+    /** Lissajous frequencies (rad/ms), phases and amplitudes in screen px. */
+    fx: number;
+    fy: number;
+    px: number;
+    py: number;
+    ax: number;
+    ay: number;
+    cx: number;
+    cy: number;
+  }> = [];
   /** Reusable screen point for per-frame projections (zero allocation in march loops). */
   private boardPoint: BoardPoint = { u: 0, v: 0 };
   private dragGraphics!: Phaser.GameObjects.Graphics;
@@ -950,8 +973,11 @@ export class GameScene extends Phaser.Scene {
     // Static dressing is cheap to redraw once per settled viewport: destroy
     // and rebuild it for the new height. createArenaBackground covers the
     // whole dressing stack (backdrop, pools, field plate, roads, border,
-    // and the environment props at its tail).
+    // and the environment props at its tail). Prop sway tweens target the
+    // tracked images, so they die with their targets here — nothing keeps
+    // animating a destroyed sprite.
     for (const visual of this.arenaVisuals) {
+      this.tweens.killTweensOf(visual);
       visual.destroy();
     }
     this.arenaVisuals = [];
@@ -1086,6 +1112,45 @@ export class GameScene extends Phaser.Scene {
           .setDisplaySize(plateRect.width, plateRect.height)
           .setDepth(1)
       );
+
+      // Diorama framing, only on viewports taller than the plate image
+      // (tablets / desktop portrait, where the whole miniature floats over
+      // the backdrop): a soft contact shadow under the baked slab skirt and
+      // a faint cool glow behind the board, so it reads as a lit miniature
+      // on a table. Phones crop the plate to the band, so both layers stay
+      // off there — the check is the whole cost.
+      const plateTop = plateRect.cy - plateRect.height / 2;
+      const plateBottom = plateRect.cy + plateRect.height / 2;
+      if (plateBottom < visibleHeight - 4) {
+        const shadowKey = this.ensureRadialGradientTexture(
+          'cc_plate_shadow',
+          '0, 0, 0',
+          [[0, 0.5], [0.6, 0.26], [1, 0]],
+        );
+        if (shadowKey) {
+          this.trackArenaVisual(
+            this.add
+              .image(plateRect.cx, plateBottom + 12, shadowKey)
+              .setDisplaySize(plateRect.width * 1.12, 46)
+              .setDepth(1)
+          );
+        }
+      }
+      if (plateTop > 4 || plateBottom < visibleHeight - 4) {
+        const glowKey = this.ensureRadialGradientTexture(
+          'cc_board_glow',
+          '168, 210, 255',
+          [[0, 0.12], [0.55, 0.05], [1, 0]],
+        );
+        if (glowKey) {
+          this.trackArenaVisual(
+            this.add
+              .image(plateRect.cx, plateRect.cy, glowKey)
+              .setDisplaySize(plateRect.width * 1.9, plateRect.height * 1.5)
+              .setDepth(0)
+          );
+        }
+      }
     }
 
     // Map-specific terrain is deliberately a single static Graphics layer:
@@ -1226,96 +1291,97 @@ export class GameScene extends Phaser.Scene {
 
     const terrs = this.gameState.territories;
 
-    // Recessed tactical roads: a wide shadow cut, a worn stone shoulder, and
-    // a quieter inset surface. The old bright-blue lanes made the board read
-    // like a circuit diagram; this treatment keeps routes legible while the
-    // terrain remains the visual star. Over a rendered ground plate the
-    // dirt roads are baked in, so the dynamic layer thins to a soft
-    // recessed cut and route sheen instead of repainting them. Endpoints
-    // project through the board layout; widths scale with the board.
-    lanesGraphics.lineStyle(22 * layout.scale, 0x020617, ground ? 0.42 : 0.56);
-    connections.forEach(([idA, idB]) => {
-      const a = terrs[idA];
-      const b = terrs[idB];
-      if (a && b) {
-        const pa = project(a.x, a.y);
-        const pb = project(b.x, b.y);
-        lanesGraphics.lineBetween(pa.u, pa.v, pb.u, pb.v);
-      }
-    });
-
-    lanesGraphics.lineStyle(17 * layout.scale, arena.road, ground ? 0.30 : 0.42);
-    connections.forEach(([idA, idB]) => {
-      const a = terrs[idA];
-      const b = terrs[idB];
-      if (a && b) {
-        const pa = project(a.x, a.y);
-        const pb = project(b.x, b.y);
-        lanesGraphics.lineBetween(pa.u, pa.v, pb.u, pb.v);
-      }
-    });
-
-    lanesGraphics.lineStyle(11 * layout.scale, arena.road, ground ? 0.45 : 0.82);
-    connections.forEach(([idA, idB]) => {
-      const a = terrs[idA];
-      const b = terrs[idB];
-      if (a && b) {
-        const pa = project(a.x, a.y);
-        const pb = project(b.x, b.y);
-        lanesGraphics.lineBetween(pa.u, pa.v, pb.u, pb.v);
-      }
-    });
-
-    // Rounded road terminals blend each lane end into its socket.
-    lanesGraphics.fillStyle(arena.road, ground ? 0.5 : 0.82);
-    connections.forEach(([idA, idB]) => {
-      const a = terrs[idA];
-      const b = terrs[idB];
-      if (a && b) {
-        const pa = project(a.x, a.y);
-        const pb = project(b.x, b.y);
-        lanesGraphics.fillEllipse(pa.u, pa.v, 12 * layout.scale, 12 * verticalScale);
-        lanesGraphics.fillEllipse(pb.u, pb.v, 12 * layout.scale, 12 * verticalScale);
-      }
-    });
-
-    lanesGraphics.fillStyle(arena.roadInlay, ground ? 0.18 : 0.24);
-    connections.forEach(([idA, idB]) => {
-      const a = terrs[idA];
-      const b = terrs[idB];
-      if (!a || !b) return;
-      const distance = Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y);
-      const dotCount = Math.max(1, Math.floor(distance / 30));
-      for (let index = 1; index < dotCount; index++) {
-        const progress = index / dotCount;
-        const dot = project(
-          Phaser.Math.Linear(a.x, b.x, progress),
-          Phaser.Math.Linear(a.y, b.y, progress)
-        );
-        lanesGraphics.fillEllipse(dot.u, dot.v, 2.5 * layout.scale, 2.5 * verticalScale);
-      }
-    });
-
-    if (this.battlefieldId === 'crown_cross') {
-      // Cobbled lane joints preserve the exact road centerlines and widths.
+    // Recessed tactical roads. Over a rendered ground plate the dirt roads
+    // are already baked in on the same centerlines (organic edges, ruts,
+    // dry-grass shoulders), so the dynamic layer thins to a single soft
+    // recessed lane plus quiet inlay dots: the tactical routes stay legible
+    // without double-painting a second road surface over the baked one.
+    // Without a plate the full treatment renders the board complete: a
+    // wide shadow cut, a worn stone shoulder, a quieter inset surface,
+    // rounded terminals, inlay dots and (Crown Cross) cobbled joints.
+    const drawLanePass = (width: number, color: number, alpha: number): void => {
+      lanesGraphics.lineStyle(width * layout.scale, color, alpha);
       connections.forEach(([idA, idB]) => {
-        const a = terrs[idA]; const b = terrs[idB];
-        if (!a || !b) return;
-        const d = Math.hypot(b.x - a.x, b.y - a.y);
-        const nx = -(b.y - a.y) / d; const ny = (b.x - a.x) / d;
-        lanesGraphics.lineStyle(1, 0x111b29, ground ? 0.16 : 0.22);
-        for (let step = 14; step < d; step += 14) {
-          const x = a.x + (b.x - a.x) * step / d;
-          const y = a.y + (b.y - a.y) * step / d;
-          const crossA = project(x - nx * 5, y - ny * 5);
-          const crossB = project(x + nx * 5, y + ny * 5);
-          lanesGraphics.lineBetween(crossA.u, crossA.v, crossB.u, crossB.v);
-          const dirA = project(x, y);
-          const dirB = project(x + (b.x - a.x) / d * 7, y + (b.y - a.y) / d * 7);
-          lanesGraphics.lineBetween(dirA.u, dirA.v, dirB.u, dirB.v);
+        const a = terrs[idA];
+        const b = terrs[idB];
+        if (a && b) {
+          const pa = project(a.x, a.y);
+          const pb = project(b.x, b.y);
+          lanesGraphics.lineBetween(pa.u, pa.v, pb.u, pb.v);
         }
       });
+    };
+    const drawInlayDots = (alpha: number): void => {
+      lanesGraphics.fillStyle(arena.roadInlay, alpha);
+      connections.forEach(([idA, idB]) => {
+        const a = terrs[idA];
+        const b = terrs[idB];
+        if (!a || !b) return;
+        const distance = Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y);
+        const dotCount = Math.max(1, Math.floor(distance / 30));
+        for (let index = 1; index < dotCount; index++) {
+          const progress = index / dotCount;
+          const dot = project(
+            Phaser.Math.Linear(a.x, b.x, progress),
+            Phaser.Math.Linear(a.y, b.y, progress)
+          );
+          lanesGraphics.fillEllipse(dot.u, dot.v, 2.5 * layout.scale, 2.5 * verticalScale);
+        }
+      });
+    };
+
+    if (ground) {
+      drawLanePass(12, 0x020617, 0.14);
+      drawInlayDots(0.10);
+    } else {
+      drawLanePass(22, 0x020617, 0.56);
+      drawLanePass(17, arena.road, 0.42);
+      drawLanePass(11, arena.road, 0.82);
+
+      // Rounded road terminals blend each lane end into its socket.
+      lanesGraphics.fillStyle(arena.road, 0.82);
+      connections.forEach(([idA, idB]) => {
+        const a = terrs[idA];
+        const b = terrs[idB];
+        if (a && b) {
+          const pa = project(a.x, a.y);
+          const pb = project(b.x, b.y);
+          lanesGraphics.fillEllipse(pa.u, pa.v, 12 * layout.scale, 12 * verticalScale);
+          lanesGraphics.fillEllipse(pb.u, pb.v, 12 * layout.scale, 12 * verticalScale);
+        }
+      });
+
+      drawInlayDots(0.24);
+
+      if (this.battlefieldId === 'crown_cross') {
+        // Cobbled lane joints preserve the exact road centerlines and widths.
+        connections.forEach(([idA, idB]) => {
+          const a = terrs[idA]; const b = terrs[idB];
+          if (!a || !b) return;
+          const d = Math.hypot(b.x - a.x, b.y - a.y);
+          const nx = -(b.y - a.y) / d; const ny = (b.x - a.x) / d;
+          lanesGraphics.lineStyle(1, 0x111b29, 0.22);
+          for (let step = 14; step < d; step += 14) {
+            const x = a.x + (b.x - a.x) * step / d;
+            const y = a.y + (b.y - a.y) * step / d;
+            const crossA = project(x - nx * 5, y - ny * 5);
+            const crossB = project(x + nx * 5, y + ny * 5);
+            lanesGraphics.lineBetween(crossA.u, crossA.v, crossB.u, crossB.v);
+            const dirA = project(x, y);
+            const dirB = project(x + (b.x - a.x) / d * 7, y + (b.y - a.y) / d * 7);
+            lanesGraphics.lineBetween(dirA.u, dirA.v, dirB.u, dirB.v);
+          }
+        });
+      }
     }
+
+    // Living board: two soft cloud shadows drift over the plane on slow
+    // Lissajous paths, so the meadow breathes even while nothing happens.
+    // They sit just above the tactical lane layer and below every prop,
+    // platform and unit (depth 3 vs 10+), darkening only ground and roads.
+    // Never created under reduced motion; two images with two sines per
+    // frame is the whole runtime cost.
+    this.createAmbientCloudShadows(layout);
 
     // Ground sockets visually anchor the rendered 2.5D buildings: a soft
     // plinth pool grounds each one, then the socket ring and key-light rim.
@@ -1411,14 +1477,102 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * Living-board ambience: soft cloud shadows drifting over the plane.
+   *
+   * Two radial-gradient blobs follow slow Lissajous paths centered on the
+   * projected plane rect, so they wander the meadow forever without ever
+   * leaving the board (no bounds logic, no wrap, no per-frame allocation).
+   * Depth 3 keeps them above the tactical lanes (2) and below every prop
+   * and gameplay object (10+): they shade ground and roads only. On the
+   * near-black backdrop outside the plate a dark shadow is invisible, so
+   * tall viewports need no clipping.
+   */
+  private createAmbientCloudShadows(layout: BoardLayout): void {
+    this.cloudShadows = [];
+    if (this.reducedMotion) return;
+    const textureKey = this.ensureRadialGradientTexture(
+      'cc_cloud_shadow',
+      '6, 10, 20',
+      [[0, 0.13], [0.5, 0.08], [1, 0]],
+    );
+    if (!textureKey) return;
+
+    const plane = groundPlateScreenRect(layout);
+    const TAU = Math.PI * 2;
+    const specs = [
+      { widthFactor: 0.58, heightFactor: 0.3, periodX: 290_000, periodY: 430_000, phaseX: 0.0, phaseY: 2.1, ampXFactor: 0.42, ampYFactor: 0.34 },
+      { widthFactor: 0.42, heightFactor: 0.22, periodX: 230_000, periodY: 350_000, phaseX: 2.4, phaseY: 0.7, ampXFactor: 0.36, ampYFactor: 0.3 },
+    ];
+    for (const spec of specs) {
+      const image = this.trackArenaVisual(
+        this.add
+          .image(plane.cx, plane.cy, textureKey)
+          .setDisplaySize(plane.width * spec.widthFactor, plane.height * spec.heightFactor)
+          .setDepth(3)
+      );
+      this.cloudShadows.push({
+        image,
+        fx: TAU / spec.periodX,
+        fy: TAU / spec.periodY,
+        px: spec.phaseX,
+        py: spec.phaseY,
+        ax: plane.width * spec.ampXFactor,
+        ay: plane.height * spec.ampYFactor,
+        cx: plane.cx,
+        cy: plane.cy,
+      });
+    }
+  }
+
+  /**
+   * Generic soft radial-gradient canvas texture (transparent film). Shared
+   * by the ambient cloud shadows, the diorama plate drop shadow and the
+   * cool board glow, so every soft light blob on the board follows one
+   * recipe and one alpha budget.
+   */
+  private ensureRadialGradientTexture(
+    key: string,
+    rgb: string,
+    stops: ReadonlyArray<readonly [number, number]>,
+    size = 128,
+  ): string | null {
+    const textures = this.textures;
+    if (!textures || typeof textures.exists !== 'function') return null;
+    if (textures.exists(key)) return key;
+    if (typeof document === 'undefined' || !document.createElement) return null;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      const half = size / 2;
+      const gradient = ctx.createRadialGradient(half, half, size * 0.03, half, half, half);
+      for (const [offset, alpha] of stops) {
+        gradient.addColorStop(offset, `rgba(${rgb}, ${alpha})`);
+      }
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, size, size);
+      textures.addCanvas(key, canvas);
+      return key;
+    } catch (err) {
+      console.warn(`[GameScene] Failed to create ${key} texture:`, err);
+      return null;
+    }
+  }
+
+  /**
    * Static environment prop layer: one bottom-anchored image per placement,
    * above the roads/border (depth 2/3) and below every territory platform
-   * (depth 20). No per-frame work: images are created once.
+   * (depth 20). No per-frame work: images are created once. Pennants get a
+   * subtle wind sway (rotation around their bottom anchor) unless reduced
+   * motion is on; relayout rebuilds this whole layer and its tweens.
    */
   private createArenaProps(): void {
     const paths = listEnvironmentPropSpritePaths();
     if (Object.keys(paths).length === 0) return;
     const layout = this.boardLayout;
+    let swayIndex = 0;
     for (const prop of getArenaPropPositions(this.battlefieldId)) {
       const display = ARENA_PROP_DISPLAY[prop.kind];
       const anchor = layout.project(prop.x, prop.y);
@@ -1430,6 +1584,19 @@ export class GameScene extends Phaser.Scene {
           .setAlpha(display.alpha)
       );
       image.setDisplaySize(display.height * layout.scale, display.height * layout.scale);
+      if (prop.kind === 'pennant' && !this.reducedMotion) {
+        // Wind sway: a few degrees of rotation around the bottom anchor,
+        // phase-staggered so the field's pennants never move in lockstep.
+        this.tweens.add({
+          targets: image,
+          angle: { from: -2.5, to: 2.5 },
+          duration: 2300 + (swayIndex % 3) * 320,
+          yoyo: true,
+          repeat: -1,
+          ease: 'Sine.easeInOut',
+        });
+        swayIndex += 1;
+      }
     }
   }
 
@@ -1497,12 +1664,18 @@ export class GameScene extends Phaser.Scene {
         .image(0, art.spriteY * scale, textureKey)
         .setDisplaySize(art.spriteSize * scale, art.spriteSize * scale);
 
-      // Unit Count Badge Pill
+      // Unit Count Badge Pill: rounded canvas-texture pill with a subtle
+      // top-light gradient (batched Image instead of a Shape). Falls back
+      // to the legacy stroked rectangle when the texture API is unavailable
+      // (bare test instances). Same 22px-tall geometry as before.
       const badgeY = art.badgeY * scale;
       const badgeWidth = territory.tier === 3 ? 46 : territory.tier === 2 ? 42 : 38;
-      const unitBadge = this.add
-        .rectangle(0, badgeY, badgeWidth, 22, 0x070d1a, 0.96)
-        .setStrokeStyle(1.5, teamStyle.primary, 1);
+      const badgeTextureKey = this.getOrCreateTerritoryBadgeTexture(teamStyle.primary, badgeWidth);
+      const unitBadge = badgeTextureKey
+        ? this.add.image(0, badgeY, badgeTextureKey).setDisplaySize(badgeWidth, 22)
+        : this.add
+            .rectangle(0, badgeY, badgeWidth, 22, 0x070d1a, 0.96)
+            .setStrokeStyle(1.5, teamStyle.primary, 1);
 
       // Unit Count Text with resolution: 2 and bold stroke for retina sharpness
       const unitText = this.add
@@ -2602,7 +2775,7 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  update(_time: number, delta: number): void {
+  update(time: number, delta: number): void {
     if (!Number.isFinite(delta) || delta <= 0) return;
     const deltaSeconds = delta / 1000;
 
@@ -2649,6 +2822,19 @@ export class GameScene extends Phaser.Scene {
     this.updateTerritoryVisuals();
     if (!this.matchMenuController?.isPaused()) {
       this.updateArmyVisuals(deltaSeconds);
+    }
+
+    // 7. Ambient cloud shadows follow their Lissajous paths (two sines per
+    // cloud, zero allocation). Guarded so bare test loops calling update()
+    // without a scene timestamp stay safe.
+    if (this.cloudShadows.length > 0 && Number.isFinite(time)) {
+      for (let index = 0; index < this.cloudShadows.length; index++) {
+        const cloud = this.cloudShadows[index];
+        cloud.image.setPosition(
+          cloud.cx + Math.sin(time * cloud.fx + cloud.px) * cloud.ax,
+          cloud.cy + Math.sin(time * cloud.fy + cloud.py) * cloud.ay
+        );
+      }
     }
   }
 
@@ -3128,7 +3314,17 @@ export class GameScene extends Phaser.Scene {
         vis.basePlate.setStrokeStyle(2, teamStyle.dark, 0.95);
         vis.ring.setStrokeStyle(2.5, teamStyle.primary, 0.95);
         vis.ring.setFillStyle(teamStyle.glow, 0.12);
-        vis.unitBadge.setStrokeStyle(1.5, teamStyle.primary);
+        // Texture pill badges swap to the new team's texture; the legacy
+        // Rectangle fallback keeps restroking.
+        const badgeWidth = stateTerritory.tier === 3 ? 46 : stateTerritory.tier === 2 ? 42 : 38;
+        const badgeTexture = this.getOrCreateTerritoryBadgeTexture(teamStyle.primary, badgeWidth);
+        if (badgeTexture && vis.unitBadge instanceof Phaser.GameObjects.Image) {
+          if (vis.unitBadge.texture.key !== badgeTexture) {
+            vis.unitBadge.setTexture(badgeTexture).setDisplaySize(badgeWidth, 22);
+          }
+        } else if (vis.unitBadge instanceof Phaser.GameObjects.Rectangle) {
+          vis.unitBadge.setStrokeStyle(1.5, teamStyle.primary);
+        }
 
         const targetTexture = this.ensureTerritoryTexture(this.getTerritoryTextureKey(stateTerritory));
         if (vis.sprite.texture.key !== targetTexture) {
@@ -3214,6 +3410,66 @@ export class GameScene extends Phaser.Scene {
       } catch (err) {
         console.warn('[GameScene] Failed to create cc_army_aura_fortress texture:', err);
       }
+    }
+  }
+
+  /**
+   * Rounded pill texture for the territory unit-count badge (per team color
+   * x tier width). Slightly lighter toward the top so the pill reads as
+   * glass catching the key light instead of a flat black rectangle; team
+   * color stays on the stroke, so ownership reads exactly as before.
+   */
+  private getOrCreateTerritoryBadgeTexture(strokeColor: number, width: number): string | null {
+    const textures = this.textures;
+    if (!textures || typeof textures.exists !== 'function') return null;
+    if (typeof document === 'undefined' || !document.createElement) return null;
+
+    const colorHex = strokeColor.toString(16).padStart(6, '0');
+    const key = `cc_tbadge_${colorHex}_${width}`;
+    if (textures.exists(key)) return key;
+
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = width * 2;
+      canvas.height = 44;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+
+      ctx.scale(2, 2);
+      const gradient = ctx.createLinearGradient(0, 0, 0, 22);
+      gradient.addColorStop(0, 'rgba(17, 26, 43, 0.97)');
+      gradient.addColorStop(0.45, 'rgba(9, 13, 22, 0.96)');
+      gradient.addColorStop(1, 'rgba(6, 9, 16, 0.97)');
+
+      const radius = 9;
+      ctx.fillStyle = gradient;
+      ctx.strokeStyle = `#${colorHex}`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(0.75, 0.75, width - 1.5, 20.5, radius);
+      } else {
+        ctx.rect(0.75, 0.75, width - 1.5, 20.5);
+      }
+      ctx.fill();
+      ctx.stroke();
+
+      // Inner top light: a faint bright course just under the upper edge.
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.09)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(2.25, 2.25, width - 4.5, 17.5, radius - 1.5);
+      } else {
+        ctx.rect(2.25, 2.25, width - 4.5, 17.5);
+      }
+      ctx.stroke();
+
+      textures.addCanvas(key, canvas);
+      return key;
+    } catch (err) {
+      console.warn(`[GameScene] Failed to create territory badge texture for width ${width}:`, err);
+      return null;
     }
   }
 
@@ -5672,6 +5928,7 @@ export class GameScene extends Phaser.Scene {
       this.viewportRelayoutTimer = null;
     }
     this.arenaVisuals = [];
+    this.cloudShadows = [];
     this.lastAppliedViewport = { width: 0, height: 0 };
     this.bottomBarShadow = undefined;
     this.bottomBarBg = undefined;
