@@ -128,6 +128,7 @@ import {
   bindSceneViewportResize,
   getSceneViewport,
   setupSceneCamera,
+  type SceneViewport,
 } from '../ui/Viewport.js';
 import { computeResultRankPresentation, computeTwoVTwoResultGrid } from '../ui/ResultModalLayout.js';
 import {
@@ -159,6 +160,13 @@ import {
 
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 const MONO_FONT_FAMILY = '"Segoe UI", monospace, -apple-system, sans-serif';
+
+/**
+ * Debounce for the viewport-driven arena rebuild. The camera re-centers
+ * immediately on every resize event; the heavier dressing rebuild waits for
+ * the viewport to settle (interactive resizes, Bale expand animation).
+ */
+const VIEWPORT_RELAYOUT_DEBOUNCE_MS = 200;
 
 /**
  * Rendered army unit sprites: leader/follower x player/enemy x march facing
@@ -239,6 +247,19 @@ export class GameScene extends Phaser.Scene {
   private pointerWorldPoint = new Phaser.Math.Vector2();
   /** Board projection (identity for un-migrated battlefields, diorama for crown_cross). */
   private boardLayout: BoardLayout = createBoardLayout('crown_cross', 720);
+  /**
+   * Arena dressing objects (backdrop, light pools, field plate, roads,
+   * border, props) rebuilt whenever the viewport size changes — see
+   * applyViewportLayout.
+   */
+  private arenaVisuals: Phaser.GameObjects.GameObject[] = [];
+  /** Bottom HUD chrome repositioned when the viewport height changes. */
+  private bottomBarShadow?: Phaser.GameObjects.Rectangle;
+  private bottomBarBg?: Phaser.GameObjects.Rectangle;
+  /** Debounced viewport rebuild; coalesces rapid resize / expand events. */
+  private viewportRelayoutTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Last viewport the arena presentation was built for (idempotency guard). */
+  private lastAppliedViewport = { width: 0, height: 0 };
   /**
    * Whether the rendered full-field ground plate texture loaded. On the
    * diorama board the plate bakes raised stone plinths under every socket,
@@ -394,7 +415,15 @@ export class GameScene extends Phaser.Scene {
 
   create(): void {
     setupSceneCamera(this);
-    bindSceneViewportResize(this);
+    // The viewport height can change after boot (Bale expand applying late,
+    // rotation, window resize). The camera re-centers immediately on every
+    // resize; the debounced callback rebuilds the arena for the new height
+    // so the map always uses the real mobile viewport (applyViewportLayout).
+    const initialVp = getSceneViewport(this);
+    this.lastAppliedViewport = { width: initialVp.visibleWidth, height: initialVp.visibleHeight };
+    bindSceneViewportResize(this, (vp) => {
+      this.scheduleViewportRelayout(vp);
+    });
     this.initArmyVisualTextures();
     this.reducedMotion =
       this.registry.get('reducedEffects') === true ||
@@ -880,6 +909,93 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** Tracks an arena dressing object so applyViewportLayout can rebuild it. */
+  private trackArenaVisual<T extends Phaser.GameObjects.GameObject>(visual: T): T {
+    this.arenaVisuals.push(visual);
+    return visual;
+  }
+
+  /**
+   * Coalesces rapid viewport changes into one arena rebuild. Camera
+   * re-centering already ran synchronously in the resize handler, so the
+   * presentation is never stale for longer than the debounce window.
+   */
+  private scheduleViewportRelayout(vp: SceneViewport): void {
+    if (this.viewportRelayoutTimer !== null) {
+      clearTimeout(this.viewportRelayoutTimer);
+    }
+    this.viewportRelayoutTimer = setTimeout(() => {
+      this.viewportRelayoutTimer = null;
+      this.applyViewportLayout(vp);
+    }, VIEWPORT_RELAYOUT_DEBOUNCE_MS);
+  }
+
+  /**
+   * Rebuilds the viewport-dependent arena presentation after the visible
+   * size changes (Bale expand applying late, rotation, desktop window
+   * resize). Safe mid-match: gameplay state and hit radii live in the flat
+   * authoritative world space — the board projection is presentation-only,
+   * and hit-testing always unprojects through the live layout.
+   */
+  private applyViewportLayout(vp: SceneViewport): void {
+    if (
+      vp.visibleWidth === this.lastAppliedViewport.width &&
+      vp.visibleHeight === this.lastAppliedViewport.height
+    ) {
+      return;
+    }
+    this.lastAppliedViewport = { width: vp.visibleWidth, height: vp.visibleHeight };
+    this.boardLayout = createBoardLayout(this.battlefieldId, vp.visibleHeight);
+
+    // Static dressing is cheap to redraw once per settled viewport: destroy
+    // and rebuild it for the new height. createArenaBackground covers the
+    // whole dressing stack (backdrop, pools, field plate, roads, border,
+    // and the environment props at its tail).
+    for (const visual of this.arenaVisuals) {
+      visual.destroy();
+    }
+    this.arenaVisuals = [];
+    this.createArenaBackground();
+
+    // Territory platforms only reposition: their baked sizes come from the
+    // layout scale (identity 1 / diorama capped at SCALE_MAX), which does
+    // not change with height — no rebuild, no tween restart, no hit-area
+    // loss. Depths follow the painter's band at the new screen Y.
+    const layout = this.boardLayout;
+    const onBakedPlinth = this.hasGroundPlate && layout.isDimetric;
+    for (const [id, vis] of this.territoryVisuals.entries()) {
+      const territory = this.gameState.territories[id];
+      if (!territory) continue;
+      const anchor = onBakedPlinth
+        ? projectLifted(layout, territory.x, territory.y, PLINTH_TOP_LIFT)
+        : layout.project(territory.x, territory.y);
+      vis.container.setPosition(anchor.u, anchor.v);
+      vis.container.setDepth(layout.gameplayDepth('territory', anchor.v));
+    }
+    // Active selection rings re-anchor to their sockets.
+    for (const [id, ring] of this.selectionRings.entries()) {
+      const territory = this.gameState.territories[id];
+      if (!territory) continue;
+      const anchor = this.projectSocketPoint(territory.x, territory.y);
+      ring.setPosition(anchor.u, anchor.v);
+    }
+
+    // Bottom HUD chrome follows the viewport bottom edge (and re-fits its
+    // width on wide-screen changes).
+    const bottomBarY = Math.max(691, vp.visibleHeight - 28);
+    this.bottomBarShadow?.setPosition(LOGICAL_WIDTH / 2, bottomBarY + 3);
+    this.bottomBarShadow?.setSize(Math.min(364, vp.visibleWidth - 36), 42);
+    this.bottomBarBg?.setPosition(LOGICAL_WIDTH / 2, bottomBarY);
+    this.bottomBarBg?.setSize(Math.min(360, vp.visibleWidth - 40), 40);
+    this.bottomHintText?.setPosition(LOGICAL_WIDTH / 2, bottomBarY + 10);
+    const legendY = bottomBarY - 9;
+    for (const group of this.legendGroups) {
+      group.icon.setY(legendY);
+      group.word.setY(legendY);
+    }
+    this.resultModalContainer?.setPosition(LOGICAL_WIDTH / 2, vp.visibleHeight / 2);
+  }
+
   private createArenaBackground(): void {
     const { visibleWidth, visibleHeight } = getSceneViewport(this);
     const battlefield = getBattlefield(this.battlefieldId);
@@ -888,39 +1004,38 @@ export class GameScene extends Phaser.Scene {
     const project = (x: number, y: number): BoardPoint => layout.project(x, y);
     const verticalScale = layout.verticalScale();
 
-    this.add
-      .rectangle(
-        LOGICAL_WIDTH / 2,
-        visibleHeight / 2,
-        visibleWidth,
-        visibleHeight,
-        0x060a13
-      )
-      .setDepth(0);
+    this.trackArenaVisual(
+      this.add
+        .rectangle(
+          LOGICAL_WIDTH / 2,
+          visibleHeight / 2,
+          visibleWidth,
+          visibleHeight,
+          0x060a13
+        )
+        .setDepth(0)
+    );
 
     // Broad team-colored light pools make the two fronts readable without
-    // competing with the territory ownership colors. On the diorama board
-    // they anchor to the projected bases and foreshorten with the plane;
-    // identity layouts keep the legacy viewport anchors.
-    if (layout.isDimetric) {
-      const enemyPool = project(200, 110);
-      const playerPool = project(200, 610);
+    // competing with the territory ownership colors. Both board styles
+    // anchor the pools to the projected bases and foreshorten with the
+    // plane: identity layouts project 1:1, so the pools lock onto the actual
+    // base sockets at any viewport height instead of drifting away from
+    // them on tall screens.
+    const enemyPool = project(200, 110);
+    const playerPool = project(200, 610);
+    this.trackArenaVisual(
       this.add
         .ellipse(enemyPool.u, enemyPool.v, Math.max(470, visibleWidth) * layout.scale, 260 * verticalScale, THEME.teams.enemy.dark, 0.12)
-        .setDepth(0);
+        .setDepth(0)
+    );
+    this.trackArenaVisual(
       this.add
         .ellipse(playerPool.u, playerPool.v, Math.max(500, visibleWidth) * layout.scale, 290 * verticalScale, THEME.teams.player.dark, 0.14)
-        .setDepth(0);
-    } else {
-      this.add
-        .ellipse(LOGICAL_WIDTH / 2, 112, Math.max(470, visibleWidth), 260, THEME.teams.enemy.dark, 0.12)
-        .setDepth(0);
-      this.add
-        .ellipse(LOGICAL_WIDTH / 2, visibleHeight - 70, Math.max(500, visibleWidth), 290, THEME.teams.player.dark, 0.14)
-        .setDepth(0);
-    }
+        .setDepth(0)
+    );
 
-    const fieldGraphics = this.add.graphics().setDepth(1);
+    const fieldGraphics = this.trackArenaVisual(this.add.graphics().setDepth(1));
     // A denser base lets the location-specific terrain read as a miniature
     // world, rather than a translucent panel floating over the app chrome.
     // With a rendered ground plate it also sits underneath as the fallback
@@ -954,10 +1069,12 @@ export class GameScene extends Phaser.Scene {
     this.hasGroundPlate = ground !== null;
     if (ground) {
       const plateRect = groundPlateImageRect(layout);
-      this.add
-        .image(plateRect.cx, plateRect.cy, ground.textureKey)
-        .setDisplaySize(plateRect.width, plateRect.height)
-        .setDepth(1);
+      this.trackArenaVisual(
+        this.add
+          .image(plateRect.cx, plateRect.cy, ground.textureKey)
+          .setDisplaySize(plateRect.width, plateRect.height)
+          .setDepth(1)
+      );
     }
 
     // Map-specific terrain is deliberately a single static Graphics layer:
@@ -1093,7 +1210,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    const lanesGraphics = this.add.graphics().setDepth(2);
+    const lanesGraphics = this.trackArenaVisual(this.add.graphics().setDepth(2));
     const connections = battlefield.roads;
 
     const terrs = this.gameState.territories;
@@ -1242,17 +1359,20 @@ export class GameScene extends Phaser.Scene {
 
     // On the diorama board the extruded slab replaces the flat frame (the
     // plate's baked skirt is the arena edge); identity boards keep the
-    // legacy border + gold corner brackets.
+    // legacy border + gold corner brackets. The brackets anchor to the
+    // visible height (top fixed, bottom following the viewport) so the
+    // frame never floats mid-panel on tall screens; at the 720 baseline
+    // the anchors are identical to the legacy LOGICAL_HEIGHT values.
     if (!layout.isDimetric) {
-      const border = this.add.graphics().setDepth(3);
+      const border = this.trackArenaVisual(this.add.graphics().setDepth(3));
       border.lineStyle(1.5, 0x475569, 0.66);
-      border.strokeRoundedRect(8, 76, LOGICAL_WIDTH - 16, LOGICAL_HEIGHT - 128, 16);
+      border.strokeRoundedRect(8, 76, LOGICAL_WIDTH - 16, visibleHeight - 128, 16);
       border.lineStyle(3, THEME.gold, 0.58);
       const cornerLength = 22;
       const left = 12;
       const right = LOGICAL_WIDTH - 12;
       const top = 80;
-      const bottom = LOGICAL_HEIGHT - 56;
+      const bottom = visibleHeight - 56;
       border.lineBetween(left, top + cornerLength, left, top);
       border.lineBetween(left, top, left + cornerLength, top);
       border.lineBetween(right - cornerLength, top, right, top);
@@ -1276,11 +1396,13 @@ export class GameScene extends Phaser.Scene {
     for (const prop of getArenaPropPositions(this.battlefieldId)) {
       const display = ARENA_PROP_DISPLAY[prop.kind];
       const anchor = layout.project(prop.x, prop.y);
-      const image = this.add
-        .image(anchor.u, anchor.v, arenaPropTextureKey(prop.kind))
-        .setOrigin(0.5, 1)
-        .setDepth(layout.gameplayDepth('prop', anchor.v))
-        .setAlpha(display.alpha);
+      const image = this.trackArenaVisual(
+        this.add
+          .image(anchor.u, anchor.v, arenaPropTextureKey(prop.kind))
+          .setOrigin(0.5, 1)
+          .setDepth(layout.gameplayDepth('prop', anchor.v))
+          .setAlpha(display.alpha)
+      );
       image.setDisplaySize(display.height * layout.scale, display.height * layout.scale);
     }
   }
@@ -1836,10 +1958,10 @@ export class GameScene extends Phaser.Scene {
 
     // 4. Bottom Tactical Control Hint Bar
     const bottomBarY = Math.max(691, visibleHeight - 28);
-    this.add
+    this.bottomBarShadow = this.add
       .rectangle(LOGICAL_WIDTH / 2, bottomBarY + 3, Math.min(364, visibleWidth - 36), 42, 0x000000, 0.34)
       .setDepth(94);
-    this.add
+    this.bottomBarBg = this.add
       .rectangle(LOGICAL_WIDTH / 2, bottomBarY, Math.min(360, visibleWidth - 40), 40, 0x090f1d, 0.94)
       .setStrokeStyle(1.5, 0x334155, 0.92)
       .setDepth(95);
@@ -5519,6 +5641,14 @@ export class GameScene extends Phaser.Scene {
 
   private cleanup(): void {
     this.platform.hideBackButton();
+    if (this.viewportRelayoutTimer !== null) {
+      clearTimeout(this.viewportRelayoutTimer);
+      this.viewportRelayoutTimer = null;
+    }
+    this.arenaVisuals = [];
+    this.lastAppliedViewport = { width: 0, height: 0 };
+    this.bottomBarShadow = undefined;
+    this.bottomBarBg = undefined;
     this.matchMenuModalContainer?.destroy();
     this.matchMenuModalContainer = undefined;
     this.syncingModalContainer?.destroy();
