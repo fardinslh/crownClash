@@ -696,9 +696,9 @@
           "blenderBuilder": "build_ground_twin_passes",
           "blenderOwner": "neutral",
           "runtimeFilename": "ground_twin_passes.webp",
-          "targetSize": 1280,
+          "targetSize": 960,
           "targetWidth": 760,
-          "targetHeight": 1280,
+          "targetHeight": 960,
           "runtimePath": "apps/game/public/assets/grounds/ground_twin_passes.webp"
         },
         "royal_ring": {
@@ -706,9 +706,9 @@
           "blenderBuilder": "build_ground_royal_ring",
           "blenderOwner": "neutral",
           "runtimeFilename": "ground_royal_ring.webp",
-          "targetSize": 1280,
+          "targetSize": 960,
           "targetWidth": 760,
-          "targetHeight": 1280,
+          "targetHeight": 960,
           "runtimePath": "apps/game/public/assets/grounds/ground_royal_ring.webp"
         },
         "quad_citadel": {
@@ -716,9 +716,9 @@
           "blenderBuilder": "build_ground_quad_citadel",
           "blenderOwner": "neutral",
           "runtimeFilename": "ground_quad_citadel.webp",
-          "targetSize": 1280,
+          "targetSize": 960,
           "targetWidth": 760,
-          "targetHeight": 1280,
+          "targetHeight": 960,
           "runtimePath": "apps/game/public/assets/grounds/ground_quad_citadel.webp"
         }
       }

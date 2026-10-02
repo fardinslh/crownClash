@@ -7,16 +7,16 @@ import type { BattlefieldId } from '@crown-clash/game-core';
  * `battlefields.json` (server simulation, roads, hit radii are untouched).
  * This module maps that world onto the screen:
  *
- *  - Diorama battlefields (currently the Crown Cross vertical slice) render
- *    through a straight-on dimetric projection — the same ~45° pitch the
- *    Blender sprite rig uses — so the ground plane itself carries depth:
- *    world circles foreshorten to ellipses, roads recede, and gameplay
- *    objects sort by screen Y (painter's algorithm, Clash Royale style).
- *  - Every other battlefield keeps the legacy identity transform at the
- *    400x720 baseline (project(x, y) === (x, y)) until its ground plate is
- *    re-rendered through the dimetric rig, so un-migrated maps render
- *    pixel-identical there; on taller viewports the flat map stretches
- *    vertically to fill the portrait band (see createStretchedIdentityLayout).
+ *  - Every battlefield renders through a straight-on dimetric projection —
+ *    the same ~45° pitch the Blender sprite rig uses — so the ground plane
+ *    itself carries depth: world circles foreshorten to ellipses, roads
+ *    recede, and gameplay objects sort by screen Y (painter's algorithm,
+ *    Clash Royale style).
+ *  - Boards without a dimetric plate (grounds pack inactive, or a future
+ *    flat-shipped map) fall back to the legacy identity transform at the
+ *    400x720 baseline (project(x, y) === (x, y)); on taller viewports that
+ *    fallback stretches vertically to fill the portrait band (see
+ *    createStretchedIdentityLayout).
  *
  * The transform is affine, which keeps the integration cheap:
  *   u = originX + (x - 200) * scale
@@ -42,11 +42,17 @@ export const BOARD_PITCH_DEG = 45;
 export const BOARD_FORESHORTEN = Math.cos((BOARD_PITCH_DEG * Math.PI) / 180);
 
 /**
- * Battlefields rendered through the diorama projection. A battlefield joins
- * this set when its ground plate has been re-rendered through the dimetric
- * Blender rig (rollout order follows the slice plan: crown_cross first).
+ * Battlefields rendered through the diorama projection: every battlefield's
+ * ground plate is now re-rendered through the dimetric Blender rig (rollout
+ * order followed the slice plan: crown_cross first). A battlefield leaves
+ * this set only if its plate reverts to the flat top-down rig.
  */
-const DIMETRIC_BATTLEFIELDS: ReadonlySet<string> = new Set(['crown_cross']);
+const DIMETRIC_BATTLEFIELDS: ReadonlySet<string> = new Set([
+  'crown_cross',
+  'twin_passes',
+  'royal_ring',
+  'quad_citadel',
+]);
 
 export function isDimetricBattlefield(battlefieldId: BattlefieldId): boolean {
   return DIMETRIC_BATTLEFIELDS.has(battlefieldId);
@@ -196,21 +202,24 @@ export function projectLifted(
 }
 
 /**
- * Height-adaptive identity ("stretched flat") layout for un-migrated
- * battlefields. The whole flat map stretches vertically to fill the visible
+ * Height-adaptive identity ("stretched flat") layout for boards without a
+ * dimetric ground plate — the fallback while every shipped battlefield's
+ * plate renders through the dimetric rig, and for any future map that ships
+ * with a flat top-down plate (or no plate at all, when the grounds pack is
+ * inactive). The whole flat map stretches vertically to fill the visible
  * portrait band instead of leaving dead space under the authored 400x720
  * board: the ground plane (terrain, roads, sockets, rings, shadows) and the
  * plate image stretch together, while buildings and other sprites keep their
  * authored proportions.
  *
  * At the 400x720 baseline (and any shorter viewport) the transform is the
- * exact identity — project(x, y) === (x, y) — so un-migrated maps render
+ * exact identity — project(x, y) === (x, y) — so the fallback renders
  * pixel-identical to the flat board. On taller viewports the plane stretches
  * by band / world-height (foreshorten >= 1) and centers on the band.
  * unproject always maps screen points back onto the authoritative flat
  * world, so hit radii, gameplay and the server simulation are untouched.
  */
-function createStretchedIdentityLayout(
+export function createStretchedIdentityLayout(
   battlefieldId: BattlefieldId,
   visibleHeight: number
 ): BoardLayout {

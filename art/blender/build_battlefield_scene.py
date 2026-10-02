@@ -86,7 +86,7 @@ GROUND_MASTER_RESOLUTION = (1140, 1920)
 # itself carries depth (roads recede, platforms read as raised stone). A
 # battlefield joins this set when its runtime board projection switches to
 # the dimetric layout (see DIMETRIC_BATTLEFIELDS in boardProjection.ts).
-GROUND_DIORAMA_BATTLEFIELDS = {"crown_cross"}
+GROUND_DIORAMA_BATTLEFIELDS = {"crown_cross", "twin_passes", "royal_ring", "quad_citadel"}
 # Camera framing: the 1140x1440 master covers 480 plane units vertically
 # (640 * cos(45deg) ~= 452.5 plane + slab skirt + plinth headroom) and
 # exactly 380 plane units horizontally (480 * 1140 / 1440).

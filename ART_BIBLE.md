@@ -40,12 +40,12 @@ All 3D source assets rendered in Blender must use a **locked orthographic camera
 
 ### Board Projection & Diorama Ground Plates
 
-The battlefield itself is authored in a **flat authoritative world space** (380×640 logical px, `battlefields.json`; server simulation, roads and hit radii are untouched). Diorama battlefields (currently the Crown Cross vertical slice) render that world through an affine dimetric projection in `boardProjection.ts`:
+The battlefield itself is authored in a **flat authoritative world space** (380×640 logical px, `battlefields.json`; server simulation, roads and hit radii are untouched). Every battlefield renders that world through an affine dimetric projection in `boardProjection.ts`:
 
 * `project(x, y)` maps world → screen at 45° pitch (foreshorten = cos 45°): ground circles become ellipses, roads recede, gameplay objects sort by screen Y (painter's algorithm).
 * `unproject` reverses it for hit testing; `PLINTH_TOP_LIFT` anchors territory visuals on the raised plinth tops baked under every socket (6.2 world px — must track `DIORAMA_PLINTH_HEIGHT - DIORAMA_PLINTH_SINK + DIORAMA_PLINTH_LIP_RISE` in `crown_cross_kit.py`).
-* The diorama ground plate (1140×1440 master, 760×960 runtime WebP) is rendered through the same rig, centered on the world rect (`GROUND_DIORAMA_AIM` = plane (0,0,0)), so image rows map world y at exactly the projection's v formula — the baked roads and plinths land under the projected sockets 1:1.
-* Un-migrated battlefields keep the identity layout (pixel-identical flat board) until their plate is re-rendered through the dimetric rig (`DIMETRIC_BATTLEFIELDS` gates the rollout).
+* Every battlefield's ground plate (1140×1440 master, 760×960 runtime WebP) is rendered through the same rig, centered on the world rect (`GROUND_DIORAMA_AIM` = plane (0,0,0)), so image rows map world y at exactly the projection's v formula — the baked roads and plinths land under the projected sockets 1:1.
+* Boards without a dimetric plate (grounds pack inactive, or a future flat-shipped map) fall back to the stretched identity layout: pixel-identical to the flat board at the 400×720 baseline, stretching vertically to fill taller viewports (`DIMETRIC_BATTLEFIELDS` gates the rollout).
 
 ---
 

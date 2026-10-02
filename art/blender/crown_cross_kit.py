@@ -1313,7 +1313,7 @@ _GROUND_STRIPE_AMPLITUDE = {
 #  - the client anchors buildings at the plinth TOP (see PLINTH_TOP_LIFT).
 # ---------------------------------------------------------------------------
 
-DIORAMA_GROUND_BATTLEFIELDS = {'crown_cross'}
+DIORAMA_GROUND_BATTLEFIELDS = {'crown_cross', 'twin_passes', 'royal_ring', 'quad_citadel'}
 # Raised platform height under every territory (plane units == logical px).
 DIORAMA_PLINTH_HEIGHT = 6.0
 # The plinth sinks 0.5 units into the meadow so no gap shows at its foot;

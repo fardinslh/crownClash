@@ -581,7 +581,7 @@ describe('GameScene viewport relayout (map uses the live mobile height)', () => 
     expect(sceneAny['bottomHintText'].y).toBe(848);
   });
 
-  it('stretches the whole flat map to fill a taller viewport (world coordinates preserved)', () => {
+  it('relayouts a second diorama battlefield (twin_passes) onto a taller viewport (world coordinates preserved)', () => {
     const scene = createGameScene('twin_passes');
     const containersBefore = new Map(
       [...territoryContainersOf(scene).entries()].map(([id, vis]) => [id, { ...vis.container }])
@@ -597,16 +597,18 @@ describe('GameScene viewport relayout (map uses the live mobile height)', () => 
     // duplication (count matches the create-time count).
     expect(arenaVisualsOf(scene).length).toBe(arenaCountAtCreate);
 
-    // The whole flat map stretches vertically onto the taller band: platforms
-    // follow the stretched projection, and screen points round-trip back to
-    // the authoritative flat world (hit radii stay correct).
+    // twin_passes now ships a diorama ground plate, so the taller viewport
+    // re-centers the foreshortened diorama band: platforms follow the dimetric
+    // projection, and screen points round-trip back to the authoritative flat
+    // world (hit radii stay correct).
     const tallLayout = createBoardLayout('twin_passes', 866);
+    expect(tallLayout.isDimetric).toBe(true);
+    expect(tallLayout.originY).toBeGreaterThan(createBoardLayout('twin_passes', 720).originY);
     const territories = (
       scene as unknown as {
         gameState: { territories: Record<string, { x: number; y: number }> };
       }
     ).gameState.territories;
-    expect(tallLayout.verticalScale()).toBeGreaterThan(1);
     for (const [id, vis] of territoryContainersOf(scene).entries()) {
       const territory = territories[id];
       const anchor = tallLayout.project(territory.x, territory.y);
@@ -616,18 +618,20 @@ describe('GameScene viewport relayout (map uses the live mobile height)', () => 
       expect(world.x).toBeCloseTo(territory.x, 6);
       expect(world.y).toBeCloseTo(territory.y, 6);
     }
-    // The player base spreads down the stretched map (was authored at 610).
+    // The diorama band re-centers downward on the taller viewport: the player
+    // base (authored at world y=610) moves down with the band.
     const playerBase = territoryContainersOf(scene).get('p_base');
     expect(playerBase!.container.y).toBeGreaterThan(containersBefore.get('p_base')!.y);
-    // The board spans the visible portrait band, not just the authored 640.
+    // The bases keep their projected foreshortened separation (the flat-world
+    // distance stays authoritative; only the projection changed).
     const baseSpan =
       territoryContainersOf(scene).get('p_base')!.container.y -
       territoryContainersOf(scene).get('e_base')!.container.y;
-    expect(baseSpan).toBeGreaterThan(500);
+    expect(baseSpan).toBeCloseTo(500 * tallLayout.verticalScale(), 6);
 
-    // The team light pools anchor to the projected bases and stretch with
-    // the ground plane: the player pool sits on the stretched p_base socket
-    // (290 logical px tall -> 290 * verticalScale on the stretched board).
+    // The team light pools anchor to the projected bases and foreshorten with
+    // the ground plane: the player pool sits on the projected p_base socket
+    // (290 logical px tall -> 290 * verticalScale on the dimetric board).
     const playerPoolAnchor = tallLayout.project(200, 610);
     const playerPoolHeight = 290 * tallLayout.verticalScale();
     const pooled = (scene.children.list as unknown as TrackedObject[]).filter(
