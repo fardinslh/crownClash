@@ -366,9 +366,13 @@ export function territoryArtFootprint(battlefieldId: BattlefieldId, territory: T
   const topCitadel = territory.type === 'fortress' && territory.tier === 3 && territory.y <= 150;
   // Quad Citadel's base/corner centers are only sqrt(3400) px apart. These
   // radii leave visible air between their sockets without altering geometry.
+  // Every other battlefield keeps a compact +5 socket: the ownership ring
+  // and the baked plinth stay one readable step inside the hit area while
+  // adjacent platforms get real air between them (radius+10 left the flank
+  // columns nearly touching at phone size).
   const socketRadius = quad
     ? territory.tier === 3 ? 29 : territory.tier === 2 ? 36 : 23
-    : topCitadel ? 35 : territory.radius + 10;
+    : topCitadel ? 32 : territory.radius + 5;
   const badgeY = quad
     ? territory.tier === 3 ? topCitadel ? 13 : 18 : territory.tier === 2 ? 18 : 14
     : territory.tier === 3 ? 25 : territory.tier === 2 ? 21 : 17;
@@ -378,9 +382,13 @@ export function territoryArtFootprint(battlefieldId: BattlefieldId, territory: T
     ringRadius: socketRadius,
     shadowWidth: socketRadius * 2,
     shadowHeight: socketRadius * 0.75,
-    spriteSize: crown ? topCitadel ? 78 : territory.tier === 3 ? 94 : territory.tier === 2 ? 84 : 72 : quad
-      ? territory.tier === 3 ? 64 : territory.tier === 2 ? 76 : 48
-      : topCitadel ? 82 : territory.tier === 3 ? 102 : territory.tier === 2 ? 88 : 72,
+    // Building sprites: sized for presence but compact enough that adjacent
+    // fortresses keep clear air between their silhouettes on every phone —
+    // the board layout scales together at every viewport, so the separation
+    // reads identically from 360px to 430px wide screens.
+    spriteSize: crown ? topCitadel ? 72 : territory.tier === 3 ? 86 : territory.tier === 2 ? 76 : 64 : quad
+      ? territory.tier === 3 ? 58 : territory.tier === 2 ? 68 : 44
+      : topCitadel ? 74 : territory.tier === 3 ? 92 : territory.tier === 2 ? 80 : 64,
     spriteY: crown ? topCitadel ? 2 : -15 : topCitadel ? 6 : quad ? -5 : -8,
     badgeY,
     sharedCueX: territory.x < 200 ? -33 : 33,

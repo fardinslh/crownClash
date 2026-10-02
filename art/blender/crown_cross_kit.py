@@ -1107,7 +1107,7 @@ def _ground_sockets(bf, ao_mat, plinth_top_z=0.04, diorama=False):
     the disc stays inside the plinth rim so nothing floats over the edge."""
     for territory in bf['territories']:
         x, y = _to_plane(territory['x'], territory['y'])
-        radius = (_socket_radius(territory) - 4.0) if diorama else (territory['radius'] + 6.0)
+        radius = (_socket_radius(bf, territory) - 4.0) if diorama else (territory['radius'] + 6.0)
         cyl('socket shade', radius, .02, (x, y, plinth_top_z), ao_mat, 32)
 
 
@@ -1360,16 +1360,26 @@ def _is_diorama_ground(battlefield_id):
     return battlefield_id in DIORAMA_GROUND_BATTLEFIELDS
 
 
-def _socket_radius(territory):
-    """Platform radius mirrored from the client's territoryArtFootprint."""
+def _socket_radius(bf, territory):
+    """Platform radius mirrored EXACTLY from the client's territoryArtFootprint.
+
+    The client traces its ownership ring on the baked plinth's lip, so any
+    drift here shows up as a ring floating inside (or outside) its stone
+    platform. Quad Citadel tunes bespoke sockets because its base/corner
+    centers are only sqrt(3400) px apart; every other battlefield uses the
+    compact radius+5 socket (top citadels get 32)."""
+    battlefield_id = bf['id']
+    tier = territory.get('tier')
     top_citadel = (
         territory.get('type') == 'fortress'
-        and territory.get('tier') == 3
+        and tier == 3
         and territory.get('y', 999) <= 150
     )
+    if battlefield_id == 'quad_citadel':
+        return 29.0 if tier == 3 else 36.0 if tier == 2 else 23.0
     if top_citadel:
-        return 35.0
-    return territory['radius'] + 10.0
+        return 32.0
+    return territory['radius'] + 5.0
 
 
 def _diorama_slab(make_material):
@@ -1413,7 +1423,7 @@ def _diorama_plinths(bf, make_material):
     rim_mat = make_material('rgx_plinth_rim', rim, .8, use_gradient=False)
     for territory in bf['territories']:
         x, y = _to_plane(territory['x'], territory['y'])
-        r = _socket_radius(territory)
+        r = _socket_radius(bf, territory)
         # Base sinks DIORAMA_PLINTH_SINK into the meadow so no gap shows.
         cyl('socket plinth', r, DIORAMA_PLINTH_HEIGHT, (x, y, DIORAMA_PLINTH_HEIGHT / 2.0 - DIORAMA_PLINTH_SINK), mat, 40)
         # Thin lighter rim course standing PROUD of the plinth top: reads as

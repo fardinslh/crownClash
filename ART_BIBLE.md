@@ -368,8 +368,12 @@ The snippet above is illustrative only.
   (9–11 per map, see the environment pack) at prop layer depth, plus low-contrast
   painted blades on the Crown Cross floor. Grass never overlaps sockets, roads
   or the arena frame (enforced by BattlefieldArt tests).
-* **Territory platforms:** circular, diameter = `2 × territory radius` (+7px plinth,
-  +10px ownership ring). Bases (Tier 3, r=36) read ~3× larger than the smallest prop.
+* **Territory platforms:** circular, diameter = `2 × territory radius` (+5px ownership
+  ring/plinth; Quad Citadel tunes bespoke sockets — 23/29/36 by tier — because its
+  base/corner centers are only sqrt(3400) px apart). Bases (Tier 3, r=36) read ~3×
+  larger than the smallest prop. Platform and sprite sizes are presentation-only and
+  scale with the board layout, so the separation between adjacent platforms reads
+  identically from 360px to 430px wide phones; hit areas stay `radius × 2.5`.
 * **Vertical relief:** buildings may rise above their platform (sprite anchored
   bottom-center on the plinth top — `PLINTH_TOP_LIFT`), and on the diorama board the
   playfield itself rises too (plinth platforms, extruded slab skirt) through the fixed
