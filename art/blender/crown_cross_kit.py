@@ -1081,11 +1081,16 @@ def _ground_roads(bf, mats, make_material):
                 mats['rut'], .02, rot=(0, 0, angle))
 
 
-def _ground_sockets(bf, ao_mat):
-    """Soft contact darkening under every territory platform."""
+def _ground_sockets(bf, ao_mat, plinth_top_z=0.04, diorama=False):
+    """Soft contact darkening under every territory platform.
+
+    Diorama boards pass the plinth top height so the shade grounds each
+    building on its raised platform instead of floating at meadow level;
+    the disc stays inside the plinth rim so nothing floats over the edge."""
     for territory in bf['territories']:
         x, y = _to_plane(territory['x'], territory['y'])
-        cyl('socket shade', territory['radius'] + 6.0, .02, (x, y, .04), ao_mat, 32)
+        radius = (_socket_radius(territory) - 4.0) if diorama else (territory['radius'] + 6.0)
+        cyl('socket shade', radius, .02, (x, y, plinth_top_z), ao_mat, 32)
 
 
 def _ground_identity(battlefield_id, make_material, terrain_z):
@@ -1295,12 +1300,109 @@ _GROUND_STRIPE_AMPLITUDE = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Diorama (true 2.5D) ground plates
+#
+# The battlefields listed here render through the same straight-on dimetric
+# rig as the sprites (see GROUND_DIORAMA_BATTLEFIELDS in
+# build_battlefield_scene.py): the meadow becomes an extruded slab with a
+# visible earth skirt, and every territory socket gains a raised stone
+# plinth, so the playfield itself carries depth. Must stay in lockstep with
+# the client board projection (apps/game/src/art/boardProjection.ts):
+#  - plinth radius mirrors the client's territoryArtFootprint socketRadius;
+#  - the client anchors buildings at the plinth TOP (see PLINTH_TOP_LIFT).
+# ---------------------------------------------------------------------------
+
+DIORAMA_GROUND_BATTLEFIELDS = {'crown_cross'}
+# Raised platform height under every territory (plane units == logical px).
+DIORAMA_PLINTH_HEIGHT = 6.0
+# The plinth sinks 0.5 units into the meadow so no gap shows at its foot;
+# its TOP therefore sits at (HEIGHT - 0.5) above the plate.
+DIORAMA_PLINTH_SINK = 0.5
+# The lip rim course PROTRUDES this far above the plinth top. It must never
+# end flush with the plinth top: coincident faces block their own shadow
+# rays in Cycles and the whole platform top renders unlit black.
+DIORAMA_PLINTH_LIP_RISE = 0.7
+# Extruded board depth below the meadow (the visible diorama skirt).
+DIORAMA_SLAB_DEPTH = 25.5
+DIORAMA_SLAB_TOP_DROP = 1.5
+
+
+def _is_diorama_ground(battlefield_id):
+    return battlefield_id in DIORAMA_GROUND_BATTLEFIELDS
+
+
+def _socket_radius(territory):
+    """Platform radius mirrored from the client's territoryArtFootprint."""
+    top_citadel = (
+        territory.get('type') == 'fortress'
+        and territory.get('tier') == 3
+        and territory.get('y', 999) <= 150
+    )
+    if top_citadel:
+        return 35.0
+    return territory['radius'] + 10.0
+
+
+def _diorama_slab(make_material):
+    """Two-course extruded earth skirt under the meadow plate.
+
+    The upper course is a worn stone lip just under the grass edge; the
+    lower mass is the visible diorama skirt the camera sees at the board's
+    bottom edge. Both sit below the plate (no z-fighting with the relief,
+    which dissolves to z=0 at the plate border)."""
+    base = make_material('rgx_slab_mass', (.14, .11, .085), 1.0, use_gradient=False)
+    course = make_material('rgx_slab_course', (.185, .15, .11), 1.0, use_gradient=False)
+    top_z = -DIORAMA_SLAB_TOP_DROP
+    # Upper stone course: slightly inset so the grass overhangs it.
+    box('slab upper course', (374.0, 610.0, 7.0), (0.0, 12.0, top_z - 3.5), course, .04)
+    # Lower earth mass: the visible skirt.
+    box('slab mass', (366.0, 602.0, DIORAMA_SLAB_DEPTH), (0.0, 12.0, top_z - 7.0 - DIORAMA_SLAB_DEPTH / 2.0), base, .03)
+
+
+def _diorama_plinth_top_z():
+    """The highest platform surface: the proud lip rim's top.
+
+    Both the client's building anchor (boardProjection PLINTH_TOP_LIFT) and
+    the socket shade disc track the LIP, not the plinth body, so the sprites
+    and the shade land on the surface the camera actually sees."""
+    return DIORAMA_PLINTH_HEIGHT - DIORAMA_PLINTH_SINK + DIORAMA_PLINTH_LIP_RISE
+
+
+def _diorama_plinths(bf, make_material):
+    """Raised stone platform under every territory socket.
+
+    The client anchors each building sprite at the plinth TOP's projected
+    point (boardProjection PLINTH_TOP_LIFT) and traces its ownership ring
+    exactly on the plinth rim, so the plinth radius must mirror the client
+    socket radius 1:1."""
+    socket_rgb = _hex_rgb(bf['visual']['socket'])
+    # Lift the very dark client socket colour so the rig's sun reads the
+    # stone volume without crushing the plinth to black.
+    stone = tuple(min(c * 2.4 + .02, 1.0) for c in socket_rgb)
+    rim = tuple(min(c * 3.2 + .05, 1.0) for c in socket_rgb)
+    mat = make_material('rgx_plinth', stone, .92, use_gradient=False)
+    rim_mat = make_material('rgx_plinth_rim', rim, .8, use_gradient=False)
+    for territory in bf['territories']:
+        x, y = _to_plane(territory['x'], territory['y'])
+        r = _socket_radius(territory)
+        # Base sinks DIORAMA_PLINTH_SINK into the meadow so no gap shows.
+        cyl('socket plinth', r, DIORAMA_PLINTH_HEIGHT, (x, y, DIORAMA_PLINTH_HEIGHT / 2.0 - DIORAMA_PLINTH_SINK), mat, 40)
+        # Thin lighter rim course standing PROUD of the plinth top: reads as
+        # a worn raised lip without competing with the client's ownership
+        # ring traced on the same rim. Never flush with the plinth top:
+        # coincident faces block their own shadow rays in Cycles and the
+        # whole platform top renders unlit black.
+        cyl('socket plinth lip', r - 3.0, 2.2, (x, y, _diorama_plinth_top_z() - 1.1), rim_mat, 40)
+
+
 def ground_plate(battlefield_id, make_material):
     """Full-field rendered ground plate for one battlefield."""
     bf = _battlefield_data(battlefield_id)
     field = _hex_rgb(bf['visual']['field'])
     road = _hex_rgb(bf['visual']['road'])
     terrain_z, roads = _make_terrain(bf, battlefield_id)
+    diorama = _is_diorama_ground(battlefield_id)
 
     compensated = tuple(c * g for c, g in zip(field, _GROUND_CHANNEL_GAINS))
     low = tuple(max(c * .72, 0.0) for c in compensated)
@@ -1325,9 +1427,22 @@ def ground_plate(battlefield_id, make_material):
         'flower_light': make_material('rgx_flowerl', (.92, .90, .80), .8, use_gradient=False),
         'flower_dark': make_material('rgx_flowerd', (.95, .82, .35), .8, use_gradient=False),
     }
+    if diorama:
+        # Extruded slab skirt + raised stone plinths: the playfield itself
+        # carries depth through the dimetric rig.
+        _diorama_slab(make_material)
+        _diorama_plinths(bf, make_material)
     _ground_identity(battlefield_id, make_material, terrain_z)
     _ground_roads(bf, mats, make_material)
-    _ground_sockets(bf, mats['ao'])
+    _ground_sockets(
+        bf,
+        mats['ao'],
+        # Diorama: the shade sits just clear of the plinth lip's top face
+        # (no z-fight) and grounds each building on its raised platform.
+        plinth_top_z=(_diorama_plinth_top_z() + 0.03) if diorama else 0.04,
+        diorama=diorama,
+    )
     _ground_scatter(battlefield_id, bf, mats, terrain_z, roads)
-    _ground_bottom_fade(field, make_material)
+    if not diorama:
+        _ground_bottom_fade(field, make_material)
     return plate

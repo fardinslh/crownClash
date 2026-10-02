@@ -580,9 +580,11 @@ describe('Army Visuals Batching Optimization', () => {
 
     const visual = (fallbackScene as any).armyVisuals.get('player:army_fallback');
     expect(visual).toBeDefined();
-    // In fallback mode, it must gracefully produce Shape objects without crashing
+    // In fallback mode, it must gracefully produce Shape objects without crashing.
+    // The role aura is a ground ring: it renders as a foreshortened Ellipse
+    // through the board projection (a Circle on identity layouts).
     expect(visual.leaderShadow.kind).toBe('Ellipse');
-    expect(visual.roleAura.kind).toBe('Circle');
+    expect(visual.roleAura.kind).toBe('Ellipse');
     expect(visual.badgeBg.kind).toBe('Rectangle');
     for (const f of visual.followers) {
       expect(f.shadow.kind).toBe('Ellipse');

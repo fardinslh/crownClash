@@ -34,9 +34,18 @@ All 3D source assets rendered in Blender must use a **locked orthographic camera
 | Property | Value | Rationale |
 | :--- | :--- | :--- |
 | **Camera Type** | `Orthographic` | Eliminates perspective distortion across different screen positions. |
-| **Rotation (Euler)** | `X: 55.0°, Y: 0.0°, Z: 45.0°` | Classic 2.5D dimetric perspective; showcases roof and front facades equally. |
+| **Rotation (Euler)** | `X: 45.0°, Y: 0.0°, Z: 0.0°` | Straight-on dimetric (Clash Royale-style diorama): the camera sits due south of the subject at a 45° pitch, so every sprite grounds on the board exactly like the client's board projection (`apps/game/src/art/boardProjection.ts` — same pitch, yaw 0). |
 | **Orthographic Scale** | `6.0` (standard 2m asset) | Keeps all assets rendered at identical relative scale. |
-| **Clip Start / End** | `0.1m` / `100.0m` | Avoids Z-fighting or camera clipping. |
+| **Clip Start / End** | `0.1m` / `100.0m` | Avoids Z-fighting or camera clipping. Ground diorama plates use a 300-unit stand-off with a 600-unit far clip (see `build_battlefield_scene.py` GROUND_DIORAMA_*). |
+
+### Board Projection & Diorama Ground Plates
+
+The battlefield itself is authored in a **flat authoritative world space** (380×640 logical px, `battlefields.json`; server simulation, roads and hit radii are untouched). Diorama battlefields (currently the Crown Cross vertical slice) render that world through an affine dimetric projection in `boardProjection.ts`:
+
+* `project(x, y)` maps world → screen at 45° pitch (foreshorten = cos 45°): ground circles become ellipses, roads recede, gameplay objects sort by screen Y (painter's algorithm).
+* `unproject` reverses it for hit testing; `PLINTH_TOP_LIFT` anchors territory visuals on the raised plinth tops baked under every socket (6.2 world px — must track `DIORAMA_PLINTH_HEIGHT - DIORAMA_PLINTH_SINK + DIORAMA_PLINTH_LIP_RISE` in `crown_cross_kit.py`).
+* The diorama ground plate (1140×1440 master, 760×960 runtime WebP) is rendered through the same rig, centered on the world rect (`GROUND_DIORAMA_AIM` = plane (0,0,0)), so image rows map world y at exactly the projection's v formula — the baked roads and plinths land under the projected sockets 1:1.
+* Un-migrated battlefields keep the identity layout (pixel-identical flat board) until their plate is re-rendered through the dimetric rig (`DIMETRIC_BATTLEFIELDS` gates the rollout).
 
 ---
 
@@ -136,7 +145,7 @@ watch rooms; barracks are quoined stone halls with a chimney; stables are half-t
 plaster halls with open stalls. Each building bakes its own tight contact shadow
 (`contact_disc`), never the wide rig blob. Models live in `art/blender/crown_cross_kit.py`,
 render through the canonical rig, and use per-builder crops (`CAMERA_FRAMING`) that never
-change the 55°/45° view.
+change the 45°/0° view.
 
 **War shape & 2.5D depth (every fortress):** buildings read as war architecture, not
 houses — timber fighting galleries (hoardings) project from the curtain walls of citadels,
@@ -265,9 +274,9 @@ def setup_crown_clash_scene():
     bpy.context.collection.objects.link(cam_obj)
     bpy.context.scene.camera = cam_obj
 
-    # Position camera: 55° pitch, 45° yaw
-    cam_obj.location = (10.0, -10.0, 12.0)
-    cam_obj.rotation_euler = (math.radians(55.0), 0.0, math.radians(45.0))
+    # Position camera: 45° pitch, 0° yaw (dimetric)
+    cam_obj.location = (0.0, -12.0, 12.0)
+    cam_obj.rotation_euler = (math.radians(45.0), 0.0, 0.0)
 
     # 3. Setup Key Light (Sun)
     key_light_data = bpy.data.lights.new(name="Key_Sun", type='SUN')
@@ -313,12 +322,20 @@ The snippet above is illustrative only.
 ## 10. Terrain Proportions (2.5D Arena)
 
 * **Arena floor:** a single rendered ground plate per battlefield (`grounds` pack,
-  spriteKind `ground`), covering the full tactical area (380 × 640 logical px = one
-  760 × 1280 WebP plate) and placed at depth 1. Territory platforms, roads, props and
-  units render on top of the plate; the plate never scrolls.
-* **Baked terrain:** each plate is rendered in Blender straight top-down from the
-  authoritative `battlefields.json` geometry — roads, sockets and identity zones can
-  never drift from gameplay. Every battlefield is a meadow: Crown Cross a quiet royal
+  spriteKind `ground`), covering the full tactical area (380 × 640 logical px) and
+  placed at depth 1. Territory platforms, roads, props and units render on top of the
+  plate; the plate never scrolls. Identity boards ship 760 × 1280 WebP plates; the
+  diorama board (Crown Cross) ships 760 × 960 — the plate image is centered on the
+  projected world rect and additionally carries the baked plinth headroom above and
+  extruded slab skirt below (see section 2, Board Projection).
+* **Baked terrain:** each plate is rendered in Blender from the authoritative
+  `battlefields.json` geometry — roads, sockets and identity zones can never drift
+  from gameplay. Un-migrated battlefields render straight top-down; diorama
+  battlefields (Crown Cross) render through the same 45°/0° dimetric rig as the
+  sprites, so the playfield itself carries depth: an extruded two-course earth-slab
+  skirt under the meadow and a raised stone plinth with a proud lip under every
+  territory socket (plinth radius mirrors the client `socketRadius` 1:1, lip mirrors
+  `plateRadius`). Every battlefield is a meadow: Crown Cross a quiet royal
   meadow with mow-stripe rings and one worn green court at the contested centre; Twin
   Passes a highland pasture with a brook, banks, crags and faint mow stripes; Royal Ring
   a manicured palace lawn with gravel courts and a hedge ring; Quad Citadel an olive
@@ -337,8 +354,9 @@ The snippet above is illustrative only.
 * **Territory platforms:** circular, diameter = `2 × territory radius` (+7px plinth,
   +10px ownership ring). Bases (Tier 3, r=36) read ~3× larger than the smallest prop.
 * **Vertical relief:** buildings may rise above their platform (sprite anchored
-  bottom-center), but the playfield itself is strictly top-down except for the fixed
-  55°/45° dimetric sprite projection. No terrain parallaxes.
+  bottom-center on the plinth top — `PLINTH_TOP_LIFT`), and on the diorama board the
+  playfield itself rises too (plinth platforms, extruded slab skirt) through the fixed
+  45°/0° dimetric projection. No terrain parallaxes.
 
 ## 11. Road Appearance
 
@@ -367,8 +385,10 @@ The snippet above is illustrative only.
   are generated against the authoritative geometry
   (`scripts/generate-arena-props.mjs`) and re-validated by `BattlefieldArt.test.ts`.
 * Budget: ≤ 24 static props per battlefield, created once at scene build. They render
-  above roads (depth 2) and below territory platforms (depth 20), so gameplay objects
-  always stay on top.
+  above roads (depth 2) and below **every** territory platform — flat depth 10 under
+  the whole territory band on both layouts (identity: 20; diorama: painter band) —
+  so no tree or bush can ever cover a building regardless of screen position: props
+  frame the board, gameplay objects always stay on top.
 
 ## 13. Line Weight & Edge Treatment
 
@@ -385,11 +405,11 @@ The snippet above is illustrative only.
 | Stage | Format | Size | Notes |
 | :--- | :--- | :--- | :--- |
 | Blender master render | PNG, RGBA, transparent film | 512 × 512 per asset | fixed ortho rig, AgX/Filmic view transform |
-| Blender ground master | PNG, RGBA, transparent film | 1140 × 1920 per battlefield | straight top-down ground camera, no framing, no contact shadow |
+| Blender ground master | PNG, RGBA, transparent film | 1140 × 1920 per battlefield | top-down identity plates; diorama plates 1140 × 1440 through the 45°/0° dimetric rig |
 | Runtime territory sprite | WebP (alpha) or optimized PNG | 128 × 128 (tiers 1–2), 160 × 160 (tier 3) | crisp at 2× DPR; mipmapped |
-| Runtime ground plate | WebP (alpha) | 760 × 1280 per battlefield | 1:1 with the 380 × 640 logical field at 2× DPR |
+| Runtime ground plate | WebP (alpha) | 760 × 1280 identity, 760 × 960 diorama | 1:1 with the 380 × 640 logical field at 2× DPR; the diorama plate adds baked plinth headroom + slab skirt |
 | Runtime atlas (optional) | WebP atlas | ≤ 1024 × 1024 | only when it reduces requests without hurting maintainability |
-| Units | WebP/PNG | 64 × 64 | small on-screen footprint |
+| Units | WebP/PNG | 64 × 64 | small on-screen footprint; leader/follower × player/enemy × front/back/side facings |
 
 Budgets (section 14): territory/prop sprites stay under 80KB each; a full-field ground
 plate stays under 128KB (one plate loads per match); a battlefield's whole runtime set

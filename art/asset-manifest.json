@@ -686,9 +686,9 @@
           "blenderBuilder": "build_ground_crown_cross",
           "blenderOwner": "neutral",
           "runtimeFilename": "ground_crown_cross.webp",
-          "targetSize": 1280,
+          "targetSize": 960,
           "targetWidth": 760,
-          "targetHeight": 1280,
+          "targetHeight": 960,
           "runtimePath": "apps/game/public/assets/grounds/ground_crown_cross.webp"
         },
         "twin_passes": {

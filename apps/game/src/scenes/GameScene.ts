@@ -70,6 +70,15 @@ import {
   territoryHitAreaSize,
 } from '../art/BattlefieldArt.js';
 import {
+  createBoardLayout,
+  groundPlateImageRect,
+  groundPlateScreenRect,
+  projectLifted,
+  PLINTH_TOP_LIFT,
+  type BoardLayout,
+  type BoardPoint,
+} from '../art/boardProjection.js';
+import {
   trackEvent,
   trackTerminalMatchEvent,
   trackUpgradeEvent,
@@ -151,12 +160,26 @@ import {
 const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 const MONO_FONT_FAMILY = '"Segoe UI", monospace, -apple-system, sans-serif';
 
+/**
+ * Rendered army unit sprites: leader/follower x player/enemy x march facing
+ * (see tools/blender/generate_units.py). front is also shipped under the
+ * legacy no-suffix name, so consumers fall back to it whenever a facing
+ * texture is unavailable (bare-instance tests, failed loads).
+ */
+const UNIT_SPRITE_BASES = [
+  'unit_leader_player',
+  'unit_leader_enemy',
+  'unit_follower_player',
+  'unit_follower_enemy',
+] as const;
+const UNIT_SPRITE_FACINGS = ['front', 'back', 'side'] as const;
+
 interface TerritoryVisual {
   territory: Territory;
   container: Phaser.GameObjects.Container;
   sprite: Phaser.GameObjects.Image;
-  basePlate: Phaser.GameObjects.Arc;
-  ring: Phaser.GameObjects.Arc;
+  basePlate: Phaser.GameObjects.Ellipse;
+  ring: Phaser.GameObjects.Ellipse;
   unitBadge: Phaser.GameObjects.Rectangle;
   unitText: Phaser.GameObjects.Text;
   typeIcon: Phaser.GameObjects.Graphics;
@@ -177,7 +200,7 @@ interface ArmyFollower {
 interface ArmyVisual {
   id: string;
   container: Phaser.GameObjects.Container;
-  roleAura?: Phaser.GameObjects.Image | Phaser.GameObjects.Arc;
+  roleAura?: Phaser.GameObjects.Image | Phaser.GameObjects.Arc | Phaser.GameObjects.Ellipse;
   leaderSprite: Phaser.GameObjects.Image;
   leaderShadow: Phaser.GameObjects.Image | Phaser.GameObjects.Ellipse;
   badgeBg: Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle;
@@ -214,8 +237,19 @@ export class GameScene extends Phaser.Scene {
   private hoveredTargetId: string | null = null;
   private lastHoveredFriendlyId: string | null = null;
   private pointerWorldPoint = new Phaser.Math.Vector2();
+  /** Board projection (identity for un-migrated battlefields, diorama for crown_cross). */
+  private boardLayout: BoardLayout = createBoardLayout('crown_cross', 720);
+  /**
+   * Whether the rendered full-field ground plate texture loaded. On the
+   * diorama board the plate bakes raised stone plinths under every socket,
+   * so the flat vector socket fills/plinths are skipped (see
+   * createArenaBackground / createTerritoryObjects).
+   */
+  private hasGroundPlate = false;
+  /** Reusable screen point for per-frame projections (zero allocation in march loops). */
+  private boardPoint: BoardPoint = { u: 0, v: 0 };
   private dragGraphics!: Phaser.GameObjects.Graphics;
-  private selectionRings: Map<string, Phaser.GameObjects.Arc> = new Map();
+  private selectionRings: Map<string, Phaser.GameObjects.Ellipse> = new Map();
   private dragBadgeContainer!: Phaser.GameObjects.Container;
   private dragBadgeShadow!: Phaser.GameObjects.Rectangle;
   private dragBadgeBg!: Phaser.GameObjects.Rectangle;
@@ -347,11 +381,15 @@ export class GameScene extends Phaser.Scene {
       this.load.image(ground.textureKey, ground.path);
     }
 
-    // Load 2.5D Rendered Army Unit Sprites
-    this.load.image('unit_leader_player', 'assets/units/unit_leader_player.png');
-    this.load.image('unit_leader_enemy', 'assets/units/unit_leader_enemy.png');
-    this.load.image('unit_follower_player', 'assets/units/unit_follower_player.png');
-    this.load.image('unit_follower_enemy', 'assets/units/unit_follower_enemy.png');
+    // Load 2.5D Rendered Army Unit Sprites (one per march facing: toward the
+    // viewer, away, and across the board — plus the legacy front view under
+    // the no-suffix name as the fallback texture).
+    for (const base of UNIT_SPRITE_BASES) {
+      for (const facing of UNIT_SPRITE_FACINGS) {
+        this.load.image(`${base}_${facing}`, `assets/units/${base}_${facing}.png`);
+      }
+      this.load.image(base, `assets/units/${base}.png`);
+    }
   }
 
   create(): void {
@@ -558,14 +596,19 @@ export class GameScene extends Phaser.Scene {
     // Start atmospheric battle music
     sounds.startBattleMusic();
 
+    // True 2.5D diorama: the authoritative flat world renders through the
+    // battlefield's board projection. Identity layouts (un-migrated maps)
+    // project 1:1, so only diorama battlefields shift on screen.
+    this.boardLayout = createBoardLayout(this.battlefieldId, getSceneViewport(this).visibleHeight);
+
     // 1. Draw Arena Background & Connecting Lanes
     this.createArenaBackground();
 
     // 2. Drag & selection graphics
-    this.dragGraphics = this.add.graphics().setDepth(50);
+    this.dragGraphics = this.add.graphics().setDepth(this.boardLayout.overlayDepth(50));
 
     // Live Drag Badge preview
-    this.dragBadgeContainer = this.add.container(0, 0).setDepth(55).setVisible(false);
+    this.dragBadgeContainer = this.add.container(0, 0).setDepth(this.boardLayout.overlayDepth(55)).setVisible(false);
     this.dragBadgeShadow = this.add.rectangle(0, 3, 100, 28, 0x000000, 0.32);
     this.dragBadgeBg = this.add
       .rectangle(0, 0, 96, 26, 0x070d1a, 0.96)
@@ -678,11 +721,16 @@ export class GameScene extends Phaser.Scene {
 
     // Adaptive Clash Royale-style guidance: spotlight the live strongest
     // owned tower and the nearest capturable target, and demonstrate the
-    // exact drag gesture with the animated hand hint.
+    // exact drag gesture with the animated hand hint. Points map through the
+    // board projection so the spotlights and the hand hint land on the
+    // projected towers (sockets sit on the baked plinth top on the diorama
+    // plate).
     const guidance = resolveTrainingGuidance(this.gameState.territories, step.id);
     const toPoint = (id: string): { x: number; y: number; radius: number } | null => {
       const t = this.gameState.territories[id];
-      return t ? { x: t.x, y: t.y, radius: t.radius } : null;
+      if (!t) return null;
+      const anchor = this.projectSocketPoint(t.x, t.y);
+      return { x: anchor.u, y: anchor.v, radius: t.radius };
     };
     const spotlightPoints = guidance.spotlightIds
       .map(toPoint)
@@ -691,7 +739,10 @@ export class GameScene extends Phaser.Scene {
     const hintPoints = guidance.hintPath
       .map((id) => this.gameState.territories[id])
       .filter((t): t is Territory => Boolean(t))
-      .map((t) => ({ x: t.x, y: t.y }));
+      .map((t) => {
+        const anchor = this.projectSocketPoint(t.x, t.y);
+        return { x: anchor.u, y: anchor.v };
+      });
     overlay.showHandHint(hintPoints);
     this.applyTrainingDimming(guidance.spotlightIds);
   }
@@ -833,6 +884,9 @@ export class GameScene extends Phaser.Scene {
     const { visibleWidth, visibleHeight } = getSceneViewport(this);
     const battlefield = getBattlefield(this.battlefieldId);
     const arena = battlefield.visual;
+    const layout = this.boardLayout;
+    const project = (x: number, y: number): BoardPoint => layout.project(x, y);
+    const verticalScale = layout.verticalScale();
 
     this.add
       .rectangle(
@@ -845,13 +899,26 @@ export class GameScene extends Phaser.Scene {
       .setDepth(0);
 
     // Broad team-colored light pools make the two fronts readable without
-    // competing with the territory ownership colors.
-    this.add
-      .ellipse(LOGICAL_WIDTH / 2, 112, Math.max(470, visibleWidth), 260, THEME.teams.enemy.dark, 0.12)
-      .setDepth(0);
-    this.add
-      .ellipse(LOGICAL_WIDTH / 2, visibleHeight - 70, Math.max(500, visibleWidth), 290, THEME.teams.player.dark, 0.14)
-      .setDepth(0);
+    // competing with the territory ownership colors. On the diorama board
+    // they anchor to the projected bases and foreshorten with the plane;
+    // identity layouts keep the legacy viewport anchors.
+    if (layout.isDimetric) {
+      const enemyPool = project(200, 110);
+      const playerPool = project(200, 610);
+      this.add
+        .ellipse(enemyPool.u, enemyPool.v, Math.max(470, visibleWidth) * layout.scale, 260 * verticalScale, THEME.teams.enemy.dark, 0.12)
+        .setDepth(0);
+      this.add
+        .ellipse(playerPool.u, playerPool.v, Math.max(500, visibleWidth) * layout.scale, 290 * verticalScale, THEME.teams.player.dark, 0.14)
+        .setDepth(0);
+    } else {
+      this.add
+        .ellipse(LOGICAL_WIDTH / 2, 112, Math.max(470, visibleWidth), 260, THEME.teams.enemy.dark, 0.12)
+        .setDepth(0);
+      this.add
+        .ellipse(LOGICAL_WIDTH / 2, visibleHeight - 70, Math.max(500, visibleWidth), 290, THEME.teams.player.dark, 0.14)
+        .setDepth(0);
+    }
 
     const fieldGraphics = this.add.graphics().setDepth(1);
     // A denser base lets the location-specific terrain read as a miniature
@@ -859,59 +926,72 @@ export class GameScene extends Phaser.Scene {
     // With a rendered ground plate it also sits underneath as the fallback
     // colour the plate's bottom feather dissolves into on tall screens.
     fieldGraphics.fillStyle(arena.field, 0.9);
-    fieldGraphics.fillRoundedRect(10, 78, LOGICAL_WIDTH - 20, visibleHeight - 98, 18);
+    if (layout.isDimetric) {
+      const boardRect = groundPlateScreenRect(layout);
+      fieldGraphics.fillRoundedRect(
+        boardRect.cx - boardRect.width / 2,
+        boardRect.cy - boardRect.height / 2,
+        boardRect.width,
+        boardRect.height,
+        18 * layout.scale
+      );
+    } else {
+      fieldGraphics.fillRoundedRect(10, 78, LOGICAL_WIDTH - 20, visibleHeight - 98, 18);
+    }
 
     // The rendered full-field ground plate (Blender-baked meadow, dirt roads
     // and socket shading, 380x640 logical px, 1:1 with socket/road geometry).
     // When it is unavailable (pack inactive or texture not loaded) the flat
     // vector ground below still renders the battlefield complete. The texture
     // manager guard is optional-chained because bare-instance unit tests call
-    // create() without booting Phaser's texture system.
+    // create() without booting Phaser's texture system. On the diorama board
+    // the plate image is centered on the projected world-rect center and
+    // carries the baked plinth headroom + slab skirt bands, so its height
+    // comes from the image aspect (see groundPlateImageRect).
     const groundSprite = getArenaGroundSprite(this.battlefieldId);
     const ground =
       groundSprite && this.textures?.exists(groundSprite.textureKey) ? groundSprite : null;
+    this.hasGroundPlate = ground !== null;
     if (ground) {
+      const plateRect = groundPlateImageRect(layout);
       this.add
-        .image(LOGICAL_WIDTH / 2, 398, ground.textureKey)
-        .setDisplaySize(380, 640)
+        .image(plateRect.cx, plateRect.cy, ground.textureKey)
+        .setDisplaySize(plateRect.width, plateRect.height)
         .setDepth(1);
     }
 
     // Map-specific terrain is deliberately a single static Graphics layer:
     // richer ground composition at no runtime allocation or draw-object cost.
     // The rendered ground plate already bakes this composition, so the vector
-    // layers only run on the fallback path.
+    // layers only run on the fallback path. Every shape draws through the
+    // board projection (identity layouts project 1:1, so un-migrated maps
+    // render pixel-identical to the flat board).
     if (!ground) {
       for (const layer of createBattlefieldTerrainLayers(arena.motif, visibleHeight)) {
         if (layer.kind === 'roundedRect') {
+          const center = project(layer.x, layer.y);
+          const width = layer.width * layout.scale;
+          const height = layer.height * verticalScale;
           fieldGraphics.fillStyle(layer.color, layer.alpha);
-          fieldGraphics.fillRoundedRect(
-            layer.x - layer.width / 2,
-            layer.y - layer.height / 2,
-            layer.width,
-            layer.height,
-            layer.radius
-          );
+          fieldGraphics.fillRoundedRect(center.u - width / 2, center.v - height / 2, width, height, layer.radius * layout.scale);
           if (layer.strokeColor !== undefined && layer.strokeAlpha !== undefined) {
             fieldGraphics.lineStyle(1.5, layer.strokeColor, layer.strokeAlpha);
-            fieldGraphics.strokeRoundedRect(
-              layer.x - layer.width / 2,
-              layer.y - layer.height / 2,
-              layer.width,
-              layer.height,
-              layer.radius
-            );
+            fieldGraphics.strokeRoundedRect(center.u - width / 2, center.v - height / 2, width, height, layer.radius * layout.scale);
           }
         } else if (layer.kind === 'ellipse') {
+          const center = project(layer.x, layer.y);
           fieldGraphics.fillStyle(layer.color, layer.alpha);
-          fieldGraphics.fillEllipse(layer.x, layer.y, layer.width, layer.height);
+          fieldGraphics.fillEllipse(center.u, center.v, layer.width * layout.scale, layer.height * verticalScale);
           if (layer.strokeColor !== undefined && layer.strokeAlpha !== undefined) {
             fieldGraphics.lineStyle(1.5, layer.strokeColor, layer.strokeAlpha);
-            fieldGraphics.strokeEllipse(layer.x, layer.y, layer.width, layer.height);
+            fieldGraphics.strokeEllipse(center.u, center.v, layer.width * layout.scale, layer.height * verticalScale);
           }
         } else {
+          const a = project(layer.x1, layer.y1);
+          const b = project(layer.x2, layer.y2);
+          const c = project(layer.x3, layer.y3);
           fieldGraphics.fillStyle(layer.color, layer.alpha);
-          fieldGraphics.fillTriangle(layer.x1, layer.y1, layer.x2, layer.y2, layer.x3, layer.y3);
+          fieldGraphics.fillTriangle(a.u, a.v, b.u, b.v, c.u, c.v);
         }
       }
     }
@@ -919,28 +999,30 @@ export class GameScene extends Phaser.Scene {
     // Per-motif guide zones are now merely a quiet architectural underlay;
     // the terrain plates above carry the sense of place. Keeping these soft
     // avoids the old card-grid look on compact screens.
-    // Per-motif guide zones are now merely a quiet architectural underlay;
-    // the terrain plates above carry the sense of place. Keeping these soft
-    // avoids the old card-grid look on compact screens.
     if (!ground) {
       for (const decoration of createBattlefieldDecorations(arena.motif, visibleHeight)) {
         if (decoration.kind === 'zone') {
-          const left = decoration.x - decoration.width / 2;
-          const top = decoration.y - decoration.height / 2;
+          const center = project(decoration.x, decoration.y);
+          const width = decoration.width * layout.scale;
+          const height = decoration.height * verticalScale;
+          const left = center.u - width / 2;
+          const top = center.v - height / 2;
           fieldGraphics.fillStyle(arena.motifColor, 0.025);
-          fieldGraphics.fillRoundedRect(left, top, decoration.width, decoration.height, 22);
+          fieldGraphics.fillRoundedRect(left, top, width, height, 22 * layout.scale);
           fieldGraphics.lineStyle(1, arena.motifColor, 0.08);
-          fieldGraphics.strokeRoundedRect(left, top, decoration.width, decoration.height, 22);
+          fieldGraphics.strokeRoundedRect(left, top, width, height, 22 * layout.scale);
         }
       }
 
       // Art Bible lighting: a warm champagne key pool from the top-left and a
       // cool sky-blue ambient pool opposite (two static one-time fills). The
       // rendered ground bakes its own lighting falloff.
+      const keyPool = project(130, 180);
+      const skyPool = project(280, 520);
       fieldGraphics.fillStyle(0xfff5e6, this.battlefieldId === 'crown_cross' ? 0.02 : 0.07);
-      fieldGraphics.fillEllipse(130, 180, 240, 200);
+      fieldGraphics.fillEllipse(keyPool.u, keyPool.v, 240 * layout.scale, 200 * verticalScale);
       fieldGraphics.fillStyle(0xa8d2ff, this.battlefieldId === 'crown_cross' ? 0.02 : 0.06);
-      fieldGraphics.fillEllipse(280, 520, 220, 240);
+      fieldGraphics.fillEllipse(skyPool.u, skyPool.v, 220 * layout.scale, 240 * verticalScale);
 
       if (this.battlefieldId === 'crown_cross') {
         // Fixed, low-contrast grass blades and a mowed ring under the keep; all
@@ -949,15 +1031,22 @@ export class GameScene extends Phaser.Scene {
           const x = 25 + ((i * 73) % 350);
           const y = 95 + ((i * 113) % 542);
           const w = 5 + (i % 7);
+          const bladeA = project(x - w, y);
+          const bladeB = project(x + w, y - 3);
+          const bladeC = project(x + w / 2, y + 6);
           fieldGraphics.fillStyle(i % 3 === 0 ? 0x4e8a5c : 0x1f3d28, 0.10);
-          fieldGraphics.fillTriangle(x - w, y, x + w, y - 3, x + w / 2, y + 6);
+          fieldGraphics.fillTriangle(bladeA.u, bladeA.v, bladeB.u, bladeB.v, bladeC.u, bladeC.v);
         }
         fieldGraphics.lineStyle(1, 0x1b3624, 0.45);
         for (let y = 312; y < 414; y += 17) {
           const halfWidth = Math.sqrt(Math.max(0, 64 * 64 - (y - 360) ** 2));
-          fieldGraphics.lineBetween(200 - halfWidth, y, 200 + halfWidth, y);
+          const ringLeft = project(200 - halfWidth, y);
+          const ringRight = project(200 + halfWidth, y);
+          fieldGraphics.lineBetween(ringLeft.u, ringLeft.v, ringRight.u, ringRight.v);
         }
       } else {
+        // Identity fallback board: the legacy grid runs unprojected (this
+        // branch never renders a diorama battlefield today).
         fieldGraphics.lineStyle(1, arena.grid, 0.045);
         for (let x = 32; x < LOGICAL_WIDTH - 10; x += 56) {
           fieldGraphics.lineBetween(x, 88, x, visibleHeight - 30);
@@ -977,28 +1066,29 @@ export class GameScene extends Phaser.Scene {
           continue;
         }
         if (decoration.kind === 'line') {
-          fieldGraphics.lineBetween(decoration.x1, decoration.y1, decoration.x2, decoration.y2);
+          const a = project(decoration.x1, decoration.y1);
+          const b = project(decoration.x2, decoration.y2);
+          fieldGraphics.lineBetween(a.u, a.v, b.u, b.v);
         } else if (decoration.kind === 'ellipse') {
+          const center = project(decoration.x, decoration.y);
+          const rx = (decoration.width * layout.scale) / 2;
+          const ry = (decoration.height * verticalScale) / 2;
           const segments = 28;
           for (let index = 0; index < segments; index++) {
             const start = (index / segments) * Math.PI * 2;
             const end = ((index + 1) / segments) * Math.PI * 2;
             fieldGraphics.lineBetween(
-              decoration.x + Math.cos(start) * decoration.width * 0.5,
-              decoration.y + Math.sin(start) * decoration.height * 0.5,
-              decoration.x + Math.cos(end) * decoration.width * 0.5,
-              decoration.y + Math.sin(end) * decoration.height * 0.5
+              center.u + Math.cos(start) * rx,
+              center.v + Math.sin(start) * ry,
+              center.u + Math.cos(end) * rx,
+              center.v + Math.sin(end) * ry
             );
           }
         } else {
-          fieldGraphics.fillTriangle(
-            decoration.x1,
-            decoration.y1,
-            decoration.x2,
-            decoration.y2,
-            decoration.x3,
-            decoration.y3
-          );
+          const a = project(decoration.x1, decoration.y1);
+          const b = project(decoration.x2, decoration.y2);
+          const c = project(decoration.x3, decoration.y3);
+          fieldGraphics.fillTriangle(a.u, a.v, b.u, b.v, c.u, c.v);
         }
       }
     }
@@ -1013,31 +1103,38 @@ export class GameScene extends Phaser.Scene {
     // like a circuit diagram; this treatment keeps routes legible while the
     // terrain remains the visual star. Over a rendered ground plate the
     // dirt roads are baked in, so the dynamic layer thins to a soft
-    // recessed cut and route sheen instead of repainting them flat.
-    lanesGraphics.lineStyle(22, 0x020617, ground ? 0.42 : 0.56);
+    // recessed cut and route sheen instead of repainting them. Endpoints
+    // project through the board layout; widths scale with the board.
+    lanesGraphics.lineStyle(22 * layout.scale, 0x020617, ground ? 0.42 : 0.56);
     connections.forEach(([idA, idB]) => {
       const a = terrs[idA];
       const b = terrs[idB];
       if (a && b) {
-        lanesGraphics.lineBetween(a.x, a.y, b.x, b.y);
+        const pa = project(a.x, a.y);
+        const pb = project(b.x, b.y);
+        lanesGraphics.lineBetween(pa.u, pa.v, pb.u, pb.v);
       }
     });
 
-    lanesGraphics.lineStyle(17, arena.road, ground ? 0.30 : 0.42);
+    lanesGraphics.lineStyle(17 * layout.scale, arena.road, ground ? 0.30 : 0.42);
     connections.forEach(([idA, idB]) => {
       const a = terrs[idA];
       const b = terrs[idB];
       if (a && b) {
-        lanesGraphics.lineBetween(a.x, a.y, b.x, b.y);
+        const pa = project(a.x, a.y);
+        const pb = project(b.x, b.y);
+        lanesGraphics.lineBetween(pa.u, pa.v, pb.u, pb.v);
       }
     });
 
-    lanesGraphics.lineStyle(11, arena.road, ground ? 0.45 : 0.82);
+    lanesGraphics.lineStyle(11 * layout.scale, arena.road, ground ? 0.45 : 0.82);
     connections.forEach(([idA, idB]) => {
       const a = terrs[idA];
       const b = terrs[idB];
       if (a && b) {
-        lanesGraphics.lineBetween(a.x, a.y, b.x, b.y);
+        const pa = project(a.x, a.y);
+        const pb = project(b.x, b.y);
+        lanesGraphics.lineBetween(pa.u, pa.v, pb.u, pb.v);
       }
     });
 
@@ -1047,8 +1144,10 @@ export class GameScene extends Phaser.Scene {
       const a = terrs[idA];
       const b = terrs[idB];
       if (a && b) {
-        lanesGraphics.fillCircle(a.x, a.y, 6);
-        lanesGraphics.fillCircle(b.x, b.y, 6);
+        const pa = project(a.x, a.y);
+        const pb = project(b.x, b.y);
+        lanesGraphics.fillEllipse(pa.u, pa.v, 12 * layout.scale, 12 * verticalScale);
+        lanesGraphics.fillEllipse(pb.u, pb.v, 12 * layout.scale, 12 * verticalScale);
       }
     });
 
@@ -1061,11 +1160,11 @@ export class GameScene extends Phaser.Scene {
       const dotCount = Math.max(1, Math.floor(distance / 30));
       for (let index = 1; index < dotCount; index++) {
         const progress = index / dotCount;
-        lanesGraphics.fillCircle(
+        const dot = project(
           Phaser.Math.Linear(a.x, b.x, progress),
-          Phaser.Math.Linear(a.y, b.y, progress),
-          1.25
+          Phaser.Math.Linear(a.y, b.y, progress)
         );
+        lanesGraphics.fillEllipse(dot.u, dot.v, 2.5 * layout.scale, 2.5 * verticalScale);
       }
     });
 
@@ -1080,8 +1179,12 @@ export class GameScene extends Phaser.Scene {
         for (let step = 14; step < d; step += 14) {
           const x = a.x + (b.x - a.x) * step / d;
           const y = a.y + (b.y - a.y) * step / d;
-          lanesGraphics.lineBetween(x - nx * 5, y - ny * 5, x + nx * 5, y + ny * 5);
-          lanesGraphics.lineBetween(x, y, x + (b.x - a.x) / d * 7, y + (b.y - a.y) / d * 7);
+          const crossA = project(x - nx * 5, y - ny * 5);
+          const crossB = project(x + nx * 5, y + ny * 5);
+          lanesGraphics.lineBetween(crossA.u, crossA.v, crossB.u, crossB.v);
+          const dirA = project(x, y);
+          const dirB = project(x + (b.x - a.x) / d * 7, y + (b.y - a.y) / d * 7);
+          lanesGraphics.lineBetween(dirA.u, dirA.v, dirB.u, dirB.v);
         }
       });
     }
@@ -1089,21 +1192,35 @@ export class GameScene extends Phaser.Scene {
     // Ground sockets visually anchor the rendered 2.5D buildings: a soft
     // plinth pool grounds each one, then the socket ring and key-light rim.
     // Over a rendered ground the plate already bakes its own contact
-    // shading, so the plinth pool thins.
-    Object.values(terrs).forEach((t) => {
-      const art = territoryArtFootprint(this.battlefieldId, t);
-      lanesGraphics.fillStyle(0x020617, ground ? 0.2 : 0.3);
-      lanesGraphics.fillEllipse(t.x, t.y + 6, (art.socketRadius + 4) * 2, (art.socketRadius + 4) * 1.3);
-      lanesGraphics.fillStyle(arena.socket, 0.96);
-      lanesGraphics.fillCircle(t.x, t.y + 3, art.socketRadius);
-      lanesGraphics.lineStyle(2, arena.grid, this.battlefieldId === 'crown_cross' ? 0.32 : 0.76);
-      lanesGraphics.strokeCircle(t.x, t.y + 3, art.socketRadius);
-      lanesGraphics.lineStyle(1, arena.roadInlay, 0.2);
-      lanesGraphics.strokeCircle(t.x, t.y + 3, art.socketRadius - 5);
-      // Art Bible key-light rim (single pass, warm champagne) lifts the
-      // sockets' toy-like volume without extra display objects.
-      if (this.battlefieldId !== 'crown_cross') drawSocketRimLight(lanesGraphics, t.x, t.y + 3, art.socketRadius);
-    });
+    // shading, so the plinth pool thins. On the diorama plate the baked
+    // raised stone plinth + lip under each socket replaces the flat vector
+    // pool/fill/rings entirely (the ownership ring traces the lip instead,
+    // in createTerritoryObjects). Ground circles foreshorten to ellipses
+    // through the board projection (identity: exact circles).
+    const skipFlatSockets = this.hasGroundPlate && layout.isDimetric;
+    if (!skipFlatSockets) {
+      Object.values(terrs).forEach((t) => {
+        const art = territoryArtFootprint(this.battlefieldId, t);
+        const pool = project(t.x, t.y + 6);
+        const socket = project(t.x, t.y + 3);
+        lanesGraphics.fillStyle(0x020617, ground ? 0.2 : 0.3);
+        lanesGraphics.fillEllipse(
+          pool.u,
+          pool.v,
+          (art.socketRadius + 4) * 2 * layout.scale,
+          (art.socketRadius + 4) * 1.3 * verticalScale
+        );
+        lanesGraphics.fillStyle(arena.socket, 0.96);
+        lanesGraphics.fillEllipse(socket.u, socket.v, art.socketRadius * 2 * layout.scale, art.socketRadius * 2 * verticalScale);
+        lanesGraphics.lineStyle(2, arena.grid, this.battlefieldId === 'crown_cross' ? 0.32 : 0.76);
+        lanesGraphics.strokeEllipse(socket.u, socket.v, art.socketRadius * 2 * layout.scale, art.socketRadius * 2 * verticalScale);
+        lanesGraphics.lineStyle(1, arena.roadInlay, 0.2);
+        lanesGraphics.strokeEllipse(socket.u, socket.v, (art.socketRadius - 5) * 2 * layout.scale, (art.socketRadius - 5) * 2 * verticalScale);
+        // Art Bible key-light rim (single pass, warm champagne) lifts the
+        // sockets' toy-like volume without extra display objects.
+        if (this.battlefieldId !== 'crown_cross') drawSocketRimLight(lanesGraphics, socket.u, socket.v, art.socketRadius * layout.scale);
+      });
+    }
 
     // Rendered environment props (trees, bushes, grass, rocks, pennants):
     // static images between the roads (depth 2) and territory platforms
@@ -1123,23 +1240,28 @@ export class GameScene extends Phaser.Scene {
       lanesGraphics.strokeCircle(centerTerr.x, centerTerr.y, 68);
     }
 
-    const border = this.add.graphics().setDepth(3);
-    border.lineStyle(1.5, 0x475569, 0.66);
-    border.strokeRoundedRect(8, 76, LOGICAL_WIDTH - 16, LOGICAL_HEIGHT - 128, 16);
-    border.lineStyle(3, THEME.gold, 0.58);
-    const cornerLength = 22;
-    const left = 12;
-    const right = LOGICAL_WIDTH - 12;
-    const top = 80;
-    const bottom = LOGICAL_HEIGHT - 56;
-    border.lineBetween(left, top + cornerLength, left, top);
-    border.lineBetween(left, top, left + cornerLength, top);
-    border.lineBetween(right - cornerLength, top, right, top);
-    border.lineBetween(right, top, right, top + cornerLength);
-    border.lineBetween(left, bottom - cornerLength, left, bottom);
-    border.lineBetween(left, bottom, left + cornerLength, bottom);
-    border.lineBetween(right - cornerLength, bottom, right, bottom);
-    border.lineBetween(right, bottom, right, bottom - cornerLength);
+    // On the diorama board the extruded slab replaces the flat frame (the
+    // plate's baked skirt is the arena edge); identity boards keep the
+    // legacy border + gold corner brackets.
+    if (!layout.isDimetric) {
+      const border = this.add.graphics().setDepth(3);
+      border.lineStyle(1.5, 0x475569, 0.66);
+      border.strokeRoundedRect(8, 76, LOGICAL_WIDTH - 16, LOGICAL_HEIGHT - 128, 16);
+      border.lineStyle(3, THEME.gold, 0.58);
+      const cornerLength = 22;
+      const left = 12;
+      const right = LOGICAL_WIDTH - 12;
+      const top = 80;
+      const bottom = LOGICAL_HEIGHT - 56;
+      border.lineBetween(left, top + cornerLength, left, top);
+      border.lineBetween(left, top, left + cornerLength, top);
+      border.lineBetween(right - cornerLength, top, right, top);
+      border.lineBetween(right, top, right, top + cornerLength);
+      border.lineBetween(left, bottom - cornerLength, left, bottom);
+      border.lineBetween(left, bottom, left + cornerLength, bottom);
+      border.lineBetween(right - cornerLength, bottom, right, bottom);
+      border.lineBetween(right, bottom, right, bottom - cornerLength);
+    }
   }
 
   /**
@@ -1150,53 +1272,85 @@ export class GameScene extends Phaser.Scene {
   private createArenaProps(): void {
     const paths = listEnvironmentPropSpritePaths();
     if (Object.keys(paths).length === 0) return;
+    const layout = this.boardLayout;
     for (const prop of getArenaPropPositions(this.battlefieldId)) {
       const display = ARENA_PROP_DISPLAY[prop.kind];
+      const anchor = layout.project(prop.x, prop.y);
       const image = this.add
-        .image(prop.x, prop.y, arenaPropTextureKey(prop.kind))
+        .image(anchor.u, anchor.v, arenaPropTextureKey(prop.kind))
         .setOrigin(0.5, 1)
-        .setDepth(10)
+        .setDepth(layout.gameplayDepth('prop', anchor.v))
         .setAlpha(display.alpha);
-      image.setDisplaySize(display.height, display.height);
+      image.setDisplaySize(display.height * layout.scale, display.height * layout.scale);
     }
   }
 
   private createTerritoryObjects(): void {
+    const layout = this.boardLayout;
+    const scale = layout.scale;
+    const verticalScale = layout.verticalScale();
+    // On the diorama plate every socket sits on a baked raised stone
+    // plinth (lip top at PLINTH_TOP_LIFT world px), so territory visuals
+    // anchor at the plinth TOP and the flat pool/shadow/fill are skipped:
+    // the plinth grounds the platform and the ownership ring traces the
+    // lip rim (plateRadius mirrors the kit's lip radius 1:1).
+    const onBakedPlinth = this.hasGroundPlate && layout.isDimetric;
     Object.values(this.gameState.territories).forEach((territory, index) => {
-      const container = this.add.container(territory.x, territory.y).setDepth(20);
+      const anchor = onBakedPlinth
+        ? projectLifted(layout, territory.x, territory.y, PLINTH_TOP_LIFT)
+        : layout.project(territory.x, territory.y);
+      const container = this.add
+        .container(anchor.u, anchor.v)
+        .setDepth(layout.gameplayDepth('territory', anchor.v));
       const art = territoryArtFootprint(this.battlefieldId, territory);
 
       const teamStyle = THEME.teams[territory.owner];
 
-      const groundShadow = this.add.ellipse(
-        0,
-        territory.radius * 0.5,
-        art.shadowWidth,
-        art.shadowHeight,
-        0x000000,
-        0.55
-      );
+      // Contact shadow under the platform. On the baked plinth the plate's
+      // own baked plinth shading grounds the platform, so no vector shadow.
+      const groundShadow = onBakedPlinth
+        ? null
+        : this.add.ellipse(
+            0,
+            territory.radius * 0.5 * verticalScale,
+            art.shadowWidth * scale,
+            art.shadowHeight * scale,
+            0x000000,
+            0.55
+          );
 
       // Match the raised base plate to its battlefield's terrain palette.
       // This retains the high-contrast ownership ring while avoiding the
-      // detached black-node look of the former universal plate.
+      // detached black-node look of the former universal plate. Ground
+      // circles foreshorten to ellipses on the diorama board. On the baked
+      // plinth the stone platform replaces the flat fill, so only the
+      // ownership stroke traces the lip rim.
       const terrainSocket = getBattlefield(this.battlefieldId).visual.socket;
       const basePlate = this.add
-        .circle(0, 4, art.plateRadius, terrainSocket, 0.98)
+        .ellipse(
+          0,
+          4 * verticalScale,
+          art.plateRadius * 2 * scale,
+          art.plateRadius * 2 * verticalScale,
+          terrainSocket,
+          onBakedPlinth ? 0 : 0.98
+        )
         .setStrokeStyle(2, teamStyle.dark, 0.95);
 
       const ring = this.add
-        .circle(0, 4, art.ringRadius, teamStyle.glow, 0.12)
+        .ellipse(0, 4 * verticalScale, art.ringRadius * 2 * scale, art.ringRadius * 2 * verticalScale, teamStyle.glow, 0.12)
         .setStrokeStyle(2.5, teamStyle.primary, 0.92);
 
       // 2.5D Rendered Fortress Sprite (procedural fallback if the file failed).
       // Sized for presence: the rendered silhouettes carry the map's mass.
       // Visual-only — the hit area stays the authoritative radius*2.5.
       const textureKey = this.ensureTerritoryTexture(this.getTerritoryTextureKey(territory));
-      const sprite = this.add.image(0, art.spriteY, textureKey).setDisplaySize(art.spriteSize, art.spriteSize);
+      const sprite = this.add
+        .image(0, art.spriteY * scale, textureKey)
+        .setDisplaySize(art.spriteSize * scale, art.spriteSize * scale);
 
       // Unit Count Badge Pill
-      const badgeY = art.badgeY;
+      const badgeY = art.badgeY * scale;
       const badgeWidth = territory.tier === 3 ? 46 : territory.tier === 2 ? 42 : 38;
       const unitBadge = this.add
         .rectangle(0, badgeY, badgeWidth, 22, 0x070d1a, 0.96)
@@ -1223,7 +1377,7 @@ export class GameScene extends Phaser.Scene {
       const roleIconSize = 16;
       const typeIcon = this.add.graphics();
       drawTowerRoleIcon(typeIcon, territory.type, -roleIconSize / 2, -roleIconSize / 2, roleIconSize);
-      typeIcon.setPosition(art.roleIconX, art.roleIconY);
+      typeIcon.setPosition(art.roleIconX * scale, art.roleIconY * scale);
 
       // 2v2 shared-territory cue: every tier-3 fortress is a team-shared
       // base (either teammate may dispatch from it). Glyph + banner copy —
@@ -1231,7 +1385,7 @@ export class GameScene extends Phaser.Scene {
       let sharedCue: Phaser.GameObjects.Text | undefined;
       if (this.is2v2 && territory.type === 'fortress' && territory.tier === 3) {
         sharedCue = this.add
-          .text(art.sharedCueX, art.sharedCueY, TWO_V_TWO_SHARED_CUE_GLYPH, {
+          .text(art.sharedCueX * scale, art.sharedCueY * scale, TWO_V_TWO_SHARED_CUE_GLYPH, {
             fontFamily: FONT_FAMILY,
             fontSize: '10px',
             fontStyle: 'bold',
@@ -1245,7 +1399,13 @@ export class GameScene extends Phaser.Scene {
       }
 
       container.add([
-        groundShadow, ring, basePlate, sprite, unitBadge, unitText, typeIcon,
+        ...(groundShadow ? [groundShadow] : []),
+        ring,
+        basePlate,
+        sprite,
+        unitBadge,
+        unitText,
+        typeIcon,
         ...(sharedCue ? [sharedCue] : []),
       ]);
 
@@ -1285,7 +1445,7 @@ export class GameScene extends Phaser.Scene {
         });
         this.tweens.add({
           targets: sprite,
-          y: art.spriteY - 2,
+          y: (art.spriteY - 2) * scale,
           duration: 1500 + index * 45,
           delay: 320 + index * 70,
           yoyo: true,
@@ -1771,16 +1931,15 @@ export class GameScene extends Phaser.Scene {
 
   private getTerritoryUnderPointer(pointer: Phaser.Input.Pointer): Territory | null {
     pointer.positionToCamera(this.cameras.main, this.pointerWorldPoint);
+    // Pointer lands in projected screen space: map it back to the
+    // authoritative flat world before the circle hit-test (identity layouts
+    // unproject 1:1, so legacy hit accuracy is unchanged).
+    const world = this.boardLayout.unproject(this.pointerWorldPoint.x, this.pointerWorldPoint.y);
     let closest: Territory | null = null;
     let minDistance = Infinity;
 
     for (const t of Object.values(this.gameState.territories)) {
-      const dist = Phaser.Math.Distance.Between(
-        this.pointerWorldPoint.x,
-        this.pointerWorldPoint.y,
-        t.x,
-        t.y
-      );
+      const dist = Phaser.Math.Distance.Between(world.x, world.y, t.x, t.y);
       const hitRadius = t.radius + 18;
       if (dist <= hitRadius && dist < minDistance) {
         minDistance = dist;
@@ -1911,19 +2070,44 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Projects a territory-socket world point onto the surface the camera
+   * actually sees there: the baked plinth top on the diorama plate (see
+   * PLINTH_TOP_LIFT), or the flat ground everywhere else. Every overlay that
+   * anchors to a socket (selection/drag rings, target markers, arrival VFX)
+   * draws through this so it hugs the platform instead of sinking into it.
+   */
+  private projectSocketPoint(x: number, y: number): BoardPoint {
+    if (this.hasGroundPlate && this.boardLayout.isDimetric) {
+      return projectLifted(this.boardLayout, x, y, PLINTH_TOP_LIFT);
+    }
+    return this.boardLayout.project(x, y);
+  }
+
   private highlightSelectedTerritory(territoryId: string): void {
     const territory = this.gameState.territories[territoryId];
     if (!territory) return;
+    const layout = this.boardLayout;
 
     let ring = this.selectionRings.get(territoryId);
     if (!ring) {
+      // Ground circles foreshorten to ellipses through the board projection
+      // (identity layouts: scale/verticalScale are 1, so an exact circle).
       ring = this.add
-        .circle(0, 0, territory.radius + 6, 0xffffff, 0)
+        .ellipse(
+          0,
+          0,
+          (territory.radius + 6) * 2 * layout.scale,
+          (territory.radius + 6) * 2 * layout.verticalScale(),
+          0xffffff,
+          0
+        )
         .setStrokeStyle(3, 0xffffff, 0.95)
-        .setDepth(45);
+        .setDepth(layout.overlayDepth(45));
       this.selectionRings.set(territoryId, ring);
     }
-    ring.setPosition(territory.x, territory.y).setVisible(true);
+    const anchor = this.projectSocketPoint(territory.x, territory.y);
+    ring.setPosition(anchor.u, anchor.v).setVisible(true);
     this.tweens.killTweensOf(ring);
     ring.setScale(0.88).setAlpha(1);
     if (!this.reducedMotion) {
@@ -1970,9 +2154,22 @@ export class GameScene extends Phaser.Scene {
     }
 
     const target = this.hoveredTargetId ? this.gameState.territories[this.hoveredTargetId] : null;
+    // The whole gesture overlay draws in projected screen space: sources,
+    // hovered targets and the free pointer all map through the board layout
+    // (identity layouts project 1:1, so un-migrated maps render unchanged).
+    // Socket-anchored points (sources, hovered targets) sit on the surface
+    // the camera sees there: the baked plinth top on the diorama plate.
+    const layout = this.boardLayout;
+    const sourceAnchors = selectedTerritories.map((src) => ({
+      source: src,
+      anchor: this.projectSocketPoint(src.x, src.y),
+    }));
     pointer.positionToCamera(this.cameras.main, this.pointerWorldPoint);
-    const targetX = target ? target.x : this.pointerWorldPoint.x;
-    const targetY = target ? target.y : this.pointerWorldPoint.y;
+    const targetAnchor = target
+      ? this.projectSocketPoint(target.x, target.y)
+      : { u: this.pointerWorldPoint.x, v: this.pointerWorldPoint.y };
+    const targetX = targetAnchor.u;
+    const targetY = targetAnchor.v;
 
     const isHoveringTarget = !!target;
     const isFriendly = target && target.owner === 'player';
@@ -1985,15 +2182,15 @@ export class GameScene extends Phaser.Scene {
 
     // A dark under-stroke keeps the command path readable over roads and units.
     this.dragGraphics.lineStyle(8, 0x020617, 0.72);
-    selectedTerritories.forEach((src) => {
-      this.dragGraphics.lineBetween(src.x, src.y, targetX, targetY);
+    sourceAnchors.forEach(({ anchor }) => {
+      this.dragGraphics.lineBetween(anchor.u, anchor.v, targetX, targetY);
     });
     this.dragGraphics.lineStyle(3.5, color, 0.96);
-    selectedTerritories.forEach((src) => {
-      this.dragGraphics.lineBetween(src.x, src.y, targetX, targetY);
+    sourceAnchors.forEach(({ anchor }) => {
+      this.dragGraphics.lineBetween(anchor.u, anchor.v, targetX, targetY);
 
-      const angle = Phaser.Math.Angle.Between(src.x, src.y, targetX, targetY);
-      const stopDistance = target ? target.radius + 10 : 2;
+      const angle = Phaser.Math.Angle.Between(anchor.u, anchor.v, targetX, targetY);
+      const stopDistance = target ? (target.radius + 10) * layout.scale : 2;
       const tipX = targetX - Math.cos(angle) * stopDistance;
       const tipY = targetY - Math.sin(angle) * stopDistance;
       const rearX = tipX - Math.cos(angle) * 10;
@@ -2012,37 +2209,37 @@ export class GameScene extends Phaser.Scene {
     });
 
     // If multiple sources, draw a visual connection chain between the selected sources
-    if (selectedTerritories.length > 1) {
+    if (sourceAnchors.length > 1) {
       this.dragGraphics.lineStyle(2, 0x60a5fa, 0.5);
-      for (let i = 0; i < selectedTerritories.length - 1; i++) {
+      for (let i = 0; i < sourceAnchors.length - 1; i++) {
         this.dragGraphics.lineBetween(
-          selectedTerritories[i].x,
-          selectedTerritories[i].y,
-          selectedTerritories[i + 1].x,
-          selectedTerritories[i + 1].y
+          sourceAnchors[i].anchor.u,
+          sourceAnchors[i].anchor.v,
+          sourceAnchors[i + 1].anchor.u,
+          sourceAnchors[i + 1].anchor.v
         );
       }
     }
 
     // Target reticle or end dot
     if (isHoveringTarget && target) {
-      const reticleRadius = target.radius + 10;
+      const reticleRadius = (target.radius + 10) * layout.scale;
       this.dragGraphics.fillStyle(color, 0.09);
-      this.dragGraphics.fillCircle(target.x, target.y, reticleRadius);
+      this.dragGraphics.fillCircle(targetX, targetY, reticleRadius);
       this.dragGraphics.lineStyle(5, 0x020617, 0.78);
-      this.dragGraphics.strokeCircle(target.x, target.y, reticleRadius);
+      this.dragGraphics.strokeCircle(targetX, targetY, reticleRadius);
       this.dragGraphics.lineStyle(2.5, color, 1);
-      this.dragGraphics.strokeCircle(target.x, target.y, reticleRadius);
+      this.dragGraphics.strokeCircle(targetX, targetY, reticleRadius);
       this.dragGraphics.lineStyle(2, color, 0.9);
       const tickInner = reticleRadius + 4;
       const tickOuter = reticleRadius + 10;
       for (let index = 0; index < 4; index++) {
         const angle = index * (Math.PI / 2);
         this.dragGraphics.lineBetween(
-          target.x + Math.cos(angle) * tickInner,
-          target.y + Math.sin(angle) * tickInner,
-          target.x + Math.cos(angle) * tickOuter,
-          target.y + Math.sin(angle) * tickOuter
+          targetX + Math.cos(angle) * tickInner,
+          targetY + Math.sin(angle) * tickInner,
+          targetX + Math.cos(angle) * tickOuter,
+          targetY + Math.sin(angle) * tickOuter
         );
       }
     } else {
@@ -2058,11 +2255,11 @@ export class GameScene extends Phaser.Scene {
       0
     );
 
-    const centroidX = selectedTerritories.reduce((sum, src) => sum + src.x, 0) / selectedTerritories.length;
-    const centroidY = selectedTerritories.reduce((sum, src) => sum + src.y, 0) / selectedTerritories.length;
+    const centroidU = sourceAnchors.reduce((sum, { anchor }) => sum + anchor.u, 0) / sourceAnchors.length;
+    const centroidV = sourceAnchors.reduce((sum, { anchor }) => sum + anchor.v, 0) / sourceAnchors.length;
 
-    const midX = (centroidX + targetX) / 2;
-    const midY = (centroidY + targetY) / 2;
+    const midX = (centroidU + targetX) / 2;
+    const midY = (centroidV + targetY) / 2;
 
     const badgeWasVisible = this.dragBadgeContainer.visible;
     this.dragBadgeContainer.setPosition(midX, midY).setVisible(true);
@@ -2488,6 +2685,10 @@ export class GameScene extends Phaser.Scene {
 
     const teamStyle = THEME.teams[arrival.newOwner];
     const targetRoleStyle = TERRITORY_TYPE_PRESENTATION[vis.territory.type];
+    // Every arrival effect anchors at the territory's projected screen
+    // point, lifted onto the baked plinth top on the diorama plate.
+    const anchor = this.projectSocketPoint(vis.territory.x, vis.territory.y);
+    const anchorScale = this.boardLayout.scale;
 
     if (arrival.captured) {
       const capturedByPlayer = arrival.attackerOwner === 'player';
@@ -2532,18 +2733,18 @@ export class GameScene extends Phaser.Scene {
       }
 
       this.spawnImpactRing(
-        vis.territory.x,
-        vis.territory.y,
-        vis.territory.radius + 2,
+        anchor.u,
+        anchor.v,
+        (vis.territory.radius + 2) * anchorScale,
         teamStyle.glow,
         2.25
       );
-      this.spawnCaptureFlash(vis.territory.x, vis.territory.y, teamStyle.light);
-      this.spawnCaptureBurst(vis.territory.x, vis.territory.y, teamStyle.light);
+      this.spawnCaptureFlash(anchor.u, anchor.v, teamStyle.light);
+      this.spawnCaptureBurst(anchor.u, anchor.v, teamStyle.light);
 
       this.spawnFloatingText(
-        vis.territory.x,
-        vis.territory.y - 20,
+        anchor.u,
+        anchor.v - 20 * anchorScale,
         capturedByPlayer ? `CAPTURE +${arrival.remainingUnits}` : 'TOWER LOST',
         teamStyle.lightHex
       );
@@ -2562,15 +2763,15 @@ export class GameScene extends Phaser.Scene {
       }
 
       this.spawnFloatingText(
-        vis.territory.x,
-        vis.territory.y - 20,
+        anchor.u,
+        anchor.v - 20 * anchorScale,
         `+${arrival.incomingUnits}`,
         '#10b981'
       );
       this.spawnImpactRing(
-        vis.territory.x,
-        vis.territory.y,
-        vis.territory.radius,
+        anchor.u,
+        anchor.v,
+        vis.territory.radius * anchorScale,
         0x10b981,
         1.55
       );
@@ -2582,26 +2783,26 @@ export class GameScene extends Phaser.Scene {
       if (!this.reducedMotion) {
         this.tweens.add({
           targets: vis.container,
-          x: vis.territory.x + 4,
+          x: anchor.u + 4,
           duration: 40,
           yoyo: true,
           repeat: 2,
           onComplete: () => {
-            vis.container.x = vis.territory.x;
+            vis.container.x = anchor.u;
           },
         });
       }
 
       this.spawnFloatingText(
-        vis.territory.x,
-        vis.territory.y - 20,
+        anchor.u,
+        anchor.v - 20 * anchorScale,
         fortressBlocked ? `DEFLECT -${arrival.incomingUnits}` : `-${arrival.incomingUnits}`,
         fortressBlocked ? '#fbbf24' : '#ef4444'
       );
       this.spawnImpactRing(
-        vis.territory.x,
-        vis.territory.y,
-        vis.territory.radius,
+        anchor.u,
+        anchor.v,
+        vis.territory.radius * anchorScale,
         fortressBlocked ? targetRoleStyle.color : THEME.teams.enemy.light,
         fortressBlocked ? 1.7 : 1.35
       );
@@ -2612,7 +2813,7 @@ export class GameScene extends Phaser.Scene {
 
   private spawnCaptureFlash(x: number, y: number, color: number): void {
     if (this.reducedMotion) return;
-    const flash = this.add.circle(x, y, 10, color, 0.42).setDepth(30);
+    const flash = this.add.circle(x, y, 10, color, 0.42).setDepth(this.boardLayout.overlayDepth(30));
     this.tweens.add({
       targets: flash,
       scale: 5.2,
@@ -2633,7 +2834,7 @@ export class GameScene extends Phaser.Scene {
     const ring = this.add
       .circle(x, y, radius, color, 0.04)
       .setStrokeStyle(3, color, 0.95)
-      .setDepth(31);
+      .setDepth(this.boardLayout.overlayDepth(31));
 
     this.tweens.add({
       targets: ring,
@@ -2654,7 +2855,7 @@ export class GameScene extends Phaser.Scene {
       const spark = this.add
         .rectangle(x, y, 3, 8, color, 0.95)
         .setRotation(angle)
-        .setDepth(32);
+        .setDepth(this.boardLayout.overlayDepth(32));
 
       this.tweens.add({
         targets: spark,
@@ -2695,7 +2896,7 @@ export class GameScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5)
-      .setDepth(60);
+      .setDepth(this.boardLayout.overlayDepth(60));
 
     this.tweens.add({
       targets: float,
@@ -2944,10 +3145,16 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Update or create visual for each active army
+    // Update or create visual for each active army. Marching stays
+    // authoritative in flat world space; rendering projects through the
+    // board layout (identity layouts project 1:1).
+    const layout = this.boardLayout;
+    const scale = layout.scale;
+    const verticalScale = layout.verticalScale();
     for (const army of armies) {
       const currentX = Phaser.Math.Linear(army.startX, army.targetX, army.progress);
       const currentY = Phaser.Math.Linear(army.startY, army.targetY, army.progress);
+      const anchor = layout.projectInto(currentX, currentY, this.boardPoint);
       const visualId = `${army.owner}:${army.id}`;
 
       let visual = this.armyVisuals.get(visualId);
@@ -2955,15 +3162,41 @@ export class GameScene extends Phaser.Scene {
       if (!visual) {
         const sourceType = this.gameState.territories[army.sourceId]?.type ?? 'barracks';
         const roleStyle = TERRITORY_TYPE_PRESENTATION[sourceType];
-        const container = this.add.container(currentX, currentY).setDepth(35);
+        const container = this.add
+          .container(anchor.u, anchor.v)
+          .setDepth(layout.gameplayDepth('convoy', anchor.v));
 
-        // Calculate travel angle and direction vectors
-        const angle = Phaser.Math.Angle.Between(army.startX, army.startY, army.targetX, army.targetY);
+        // Screen-space travel direction: the projected march vector drives
+        // facing, formation and speedlines so they read correctly on the
+        // foreshortened diorama board (identity: the world vector).
+        const angle = Phaser.Math.Angle.Between(
+          0,
+          0,
+          (army.targetX - army.startX) * scale,
+          (army.targetY - army.startY) * verticalScale
+        );
         const cos = Math.cos(angle);
         const sin = Math.sin(angle);
         const perpX = -sin;
         const perpY = cos;
         const isFacingLeft = cos < -0.05;
+        // March facing from the screen-space travel direction: across the
+        // board (side, mirrored for leftward marches), toward the viewer
+        // (front) or away (back). Falls back to the legacy front sprite.
+        const pickUnitTexture = (role: 'leader' | 'follower'): string => {
+          const roleBase =
+            army.owner === 'player'
+              ? role === 'leader'
+                ? 'unit_leader_player'
+                : 'unit_follower_player'
+              : role === 'leader'
+                ? 'unit_leader_enemy'
+                : 'unit_follower_enemy';
+          const facing =
+            Math.abs(cos) >= Math.abs(sin) ? 'side' : sin > 0 ? 'front' : 'back';
+          const key = `${roleBase}_${facing}`;
+          return this.textures?.exists(key) ? key : roleBase;
+        };
 
         // Determine follower formation based on army size
         const followerOffsets: Array<{ x: number; y: number; delay: number }> = [];
@@ -2995,52 +3228,56 @@ export class GameScene extends Phaser.Scene {
           speedLines.lineStyle(2, roleStyle.color, 0.65);
           for (const offset of [-7, 0, 7]) {
             speedLines.lineBetween(
-              -cos * 42 + perpX * offset,
-              -sin * 42 + perpY * offset,
-              -cos * 21 + perpX * offset,
-              -sin * 21 + perpY * offset
+              (-cos * 42 + perpX * offset) * scale,
+              (-sin * 42 + perpY * offset) * scale,
+              (-cos * 21 + perpX * offset) * scale,
+              (-sin * 21 + perpY * offset) * scale
             );
           }
         }
 
-        // 1. Role Aura (Batch-friendly Image running on MultiPipeline)
-        let roleAura: Phaser.GameObjects.Image | Phaser.GameObjects.Arc;
+        // 1. Role Aura (Batch-friendly Image running on MultiPipeline).
+        // A ground ring: foreshortens with the board plane.
+        let roleAura: Phaser.GameObjects.Image | Phaser.GameObjects.Arc | Phaser.GameObjects.Ellipse;
         const auraTexture = sourceType === 'fortress' ? 'cc_army_aura_fortress' : 'cc_army_aura_normal';
         if (this.textures?.exists(auraTexture)) {
           roleAura = this.add
             .image(0, 1, auraTexture)
-            .setDisplaySize(30, 30)
+            .setDisplaySize(30 * scale, 30 * verticalScale)
             .setTint(roleStyle.color);
         } else {
           roleAura = this.add
-            .circle(0, 1, 15, roleStyle.color, 0.1)
+            .ellipse(0, 1, 30 * scale, 30 * verticalScale, roleStyle.color, 0.1)
             .setStrokeStyle(sourceType === 'fortress' ? 3 : 1.5, roleStyle.color, 0.82);
         }
 
-        // 2. Followers (Shadows & Sprites)
+        // 2. Followers (Shadows & Sprites). Formation offsets are screen
+        // units; the board scale keeps them proportionate on the diorama.
         const followers: ArmyFollower[] = [];
-        const followerTexture = army.owner === 'player' ? 'unit_follower_player' : 'unit_follower_enemy';
+        const followerTexture = pickUnitTexture('follower');
         const hasShadowTexture = Boolean(this.textures?.exists('cc_army_shadow'));
 
         for (const f of followerOffsets) {
+          const followerX = f.x * scale;
+          const followerY = f.y * scale;
           const shadow = hasShadowTexture
             ? this.add
-                .image(f.x, f.y + 7, 'cc_army_shadow')
-                .setDisplaySize(13, 6)
+                .image(followerX, followerY + 7 * scale, 'cc_army_shadow')
+                .setDisplaySize(13 * scale, 6 * scale)
                 .setTint(0x000000)
                 .setAlpha(0.32)
-            : this.add.ellipse(f.x, f.y + 7, 13, 6, 0x000000, 0.32);
+            : this.add.ellipse(followerX, followerY + 7 * scale, 13 * scale, 6 * scale, 0x000000, 0.32);
 
           const sprite = this.add
-            .image(f.x, f.y, followerTexture)
-            .setScale(0.19)
+            .image(followerX, followerY, followerTexture)
+            .setScale(0.19 * scale)
             .setFlipX(isFacingLeft);
 
           followers.push({
             shadow,
             sprite,
-            relX: f.x,
-            relY: f.y,
+            relX: followerX,
+            relY: followerY,
             delaySeconds: f.delay / 1000,
           });
         }
@@ -3048,23 +3285,23 @@ export class GameScene extends Phaser.Scene {
         // 3. Commander / Leader Unit
         const leaderShadow = hasShadowTexture
           ? this.add
-              .image(0, 9, 'cc_army_shadow')
-              .setDisplaySize(18, 7)
+              .image(0, 9 * scale, 'cc_army_shadow')
+              .setDisplaySize(18 * scale, 7 * scale)
               .setTint(0x000000)
               .setAlpha(0.38)
-          : this.add.ellipse(0, 9, 18, 7, 0x000000, 0.38);
+          : this.add.ellipse(0, 9 * scale, 18 * scale, 7 * scale, 0x000000, 0.38);
 
-        const leaderTexture = army.owner === 'player' ? 'unit_leader_player' : 'unit_leader_enemy';
+        const leaderTexture = pickUnitTexture('leader');
         const leaderSprite = this.add
           .image(0, 0, leaderTexture)
-          .setScale(0.25)
+          .setScale(0.25 * scale)
           .setFlipX(isFacingLeft);
 
         // 4. High-contrast Troop Count Pill Badge. In 2v2 the marching
         // army is attributed to its dispatching slot via the shape glyph
         // parsed from the server army id (predictions use my own slot).
         // Put the label ahead of downward marches so it does not cover the rear rank.
-        const badgeY = this.battlefieldId === 'crown_cross' ? sin > 0.15 ? 24 : -23 : -19;
+        const badgeY = (this.battlefieldId === 'crown_cross' ? sin > 0.15 ? 24 : -23 : -19) * scale;
         const slotAttribution2v2 = this.twoVTwoArmyShape(army);
         const initialUnits = slotAttribution2v2
           ? `${slotAttribution2v2} ${roleStyle.label} ${army.units}`
@@ -3123,7 +3360,8 @@ export class GameScene extends Phaser.Scene {
           badgeText,
           badgeColor: roleStyle.color,
           followers,
-          rearOffset: { x: lastOffset.x, y: lastOffset.y },
+          // Screen-space rear offset (already scaled) for the dust trail.
+          rearOffset: { x: lastOffset.x * scale, y: lastOffset.y * scale },
           dustTimer: 0.05,
           dustInterval: sourceType === 'stable' ? 0.09 : sourceType === 'barracks' ? 0.14 : 0.18,
           dustColor: roleStyle.color,
@@ -3142,7 +3380,8 @@ export class GameScene extends Phaser.Scene {
           });
         }
       } else {
-        visual.container.setPosition(currentX, currentY);
+        visual.container.setPosition(anchor.u, anchor.v);
+        visual.container.setDepth(layout.gameplayDepth('convoy', anchor.v));
         const slotAttribution2v2 = this.twoVTwoArmyShape(army);
         const unitsStr = slotAttribution2v2
           ? `${slotAttribution2v2} ${visual.roleLabel} ${army.units}`
@@ -3161,13 +3400,14 @@ export class GameScene extends Phaser.Scene {
           }
         }
 
-        // Emit rhythmic dust puff behind rearmost follower
+        // Emit rhythmic dust puff behind rearmost follower. Dust items live
+        // in screen space; the puff trails the projected convoy rear.
         visual.dustTimer -= deltaSeconds;
         if (!this.reducedMotion && visual.dustTimer <= 0) {
           visual.dustTimer = visual.dustInterval;
           this.dustSimulator.spawn(
-            currentX + visual.rearOffset.x,
-            currentY + visual.rearOffset.y,
+            anchor.u + visual.rearOffset.x,
+            anchor.v + visual.rearOffset.y,
             visual.dustColor
           );
         }
@@ -3177,14 +3417,14 @@ export class GameScene extends Phaser.Scene {
         visual.phaseSeconds += deltaSeconds;
         const leaderStride = computeMarchStride(visual.phaseSeconds, 0, this.sharedStrideMetrics);
         visual.leaderSprite.y = leaderStride.leaderY;
-        visual.leaderSprite.setScale(leaderStride.leaderScaleX, leaderStride.leaderScaleY);
+        visual.leaderSprite.setScale(leaderStride.leaderScaleX * scale, leaderStride.leaderScaleY * scale);
 
         const followerCount = visual.followers.length;
         for (let fIdx = 0; fIdx < followerCount; fIdx++) {
           const f = visual.followers[fIdx];
           const fStride = computeMarchStride(visual.phaseSeconds, f.delaySeconds, this.sharedStrideMetrics);
           f.sprite.y = f.relY + fStride.followerYOffset;
-          f.sprite.setScale(fStride.followerScaleX, fStride.followerScaleY);
+          f.sprite.setScale(fStride.followerScaleX * scale, fStride.followerScaleY * scale);
         }
       }
     }
@@ -3193,6 +3433,7 @@ export class GameScene extends Phaser.Scene {
       this.dustSimulator.update(deltaSeconds);
       const dustItems = this.dustSimulator.getItems();
       const poolLen = this.dustPool.length;
+      const dustLayout = this.boardLayout;
       for (let i = 0; i < poolLen; i++) {
         const item = dustItems[i];
         const arc = this.dustPool[i];
@@ -3200,6 +3441,8 @@ export class GameScene extends Phaser.Scene {
         if (item.active) {
           arc.setVisible(true);
           arc.setPosition(item.x, item.y);
+          // Painter's depth: a puff sorts with the gameplay band it sits in.
+          arc.setDepth(dustLayout.gameplayDepth('dust', item.y));
           arc.setScale(item.scale);
           arc.setAlpha(item.alpha);
           if (arc.fillColor !== item.color) {

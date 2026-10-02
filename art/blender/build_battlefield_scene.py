@@ -5,7 +5,7 @@ Builds the standard Crown Clash 2.5D render scene and renders the sprite kit
 declared in the canonical runtime asset manifest (`art/asset-manifest.json`),
 per ART_BIBLE.md sections 2-8 and 10-14:
 
-  - fixed orthographic dimetric camera (55 deg pitch / 45 deg yaw), aimed at
+  - fixed orthographic dimetric camera (45 deg pitch / 0 deg yaw), aimed at
     the asset origin via a track-to constraint
   - fixed three-point lighting rig (warm key, cool fill, white rim)
   - fixed world ambient (slate #161B26, strength 0.4)
@@ -53,9 +53,13 @@ import sys
 # ---------------------------------------------------------------------------
 # Art Bible constants (single source of truth mirrored from ART_BIBLE.md)
 # ---------------------------------------------------------------------------
-
-CAMERA_PITCH_DEG = 55.0
-CAMERA_YAW_DEG = 45.0
+# Diorama rig (true 2.5D board): straight-on dimetric ~45 deg pitch, 0 deg yaw
+# (Clash Royale style — portrait-friendly, facades read strongly). This is
+# the canonical rig for every sprite AND the diorama ground plates; it must
+# stay in lockstep with apps/game/src/art/boardProjection.ts
+# (BOARD_PITCH_DEG / BOARD_FORESHORTEN).
+CAMERA_PITCH_DEG = 45.0
+CAMERA_YAW_DEG = 0.0
 CAMERA_DISTANCE = 12.0
 CAMERA_ORTHO_SCALE = 6.0
 CAMERA_CLIP_START = 0.1
@@ -76,6 +80,30 @@ MASTER_RESOLUTION = 512
 # render at 3x logical scale (1140x1920) and downscale into crisp 760x1280
 # runtime WebP textures (1:1 with logical px at DPR 2).
 GROUND_MASTER_RESOLUTION = (1140, 1920)
+
+# Diorama ground plates (true 2.5D board): the battlefield plane renders
+# through the SAME straight-on dimetric rig as the sprites, so the playfield
+# itself carries depth (roads recede, platforms read as raised stone). A
+# battlefield joins this set when its runtime board projection switches to
+# the dimetric layout (see DIMETRIC_BATTLEFIELDS in boardProjection.ts).
+GROUND_DIORAMA_BATTLEFIELDS = {"crown_cross"}
+# Camera framing: the 1140x1440 master covers 480 plane units vertically
+# (640 * cos(45deg) ~= 452.5 plane + slab skirt + plinth headroom) and
+# exactly 380 plane units horizontally (480 * 1140 / 1440).
+GROUND_DIORAMA_RESOLUTION = (1140, 1440)
+GROUND_DIORAMA_ORTHO_SCALE = 480.0
+# Diorama framing contract (lockstep with boardProjection.ts): the image is
+# CENTERED on the authoritative world rect (plane (0, 0) = logical
+# (200, 398)) and spans exactly its width, so the client centers the plate
+# image on the projected world-rect center and derives its height from the
+# image aspect alone: image rows map world y linearly at scale/3 per row
+# (1440 px / 480 units == 1140 px / 380 units), which reproduces the
+# client's project() v formula exactly. The 678.8-unit vertical coverage
+# leaves ~19.4 plane units of headroom above the world rect's top edge,
+# which holds the e_base plinth's proud lip (its top starts ~23px inside
+# row 0), and ~19.4 below, which holds the slab skirt (bottom ~6px past the
+# world rect's bottom edge). Taller north-edge platforms need more headroom.
+GROUND_DIORAMA_AIM = (0.0, 0.0, 0.0)
 
 # Art Bible palette (linear-ish sRGB hex -> normalized RGB)
 PALETTE = {
@@ -1047,7 +1075,8 @@ def build_royal_pavilion(palette, owner):
     """royal_ring tier 1 stable: open-front carriage pavilion with raised rear canopy.
 
     The canopy is an elliptical half-disc pushed to the back so the camera
-    (55 deg pitch) sees straight into the open front: carriage, hay, trough,
+    (45 deg pitch, due-south view) sees straight into the open front: carriage,
+    hay, trough,
     and stall divisions. The canopy top itself carries the team banner
     material, so ownership reads from the large angled surface, and a gold
     horseshoe emblem on the back wall marks the stable.
@@ -1849,7 +1878,7 @@ def build_camera():
 
     pitch = math.radians(CAMERA_PITCH_DEG)
     yaw = math.radians(CAMERA_YAW_DEG)
-    # Spherical placement on the Art Bible viewing cone (55 deg pitch / 45 deg
+    # Spherical placement on the Art Bible viewing cone (45 deg pitch / 0 deg
     # yaw), then a track-to constraint pins the view direction on the asset
     # origin regardless of future distance or ortho tweaks.
     direction = Vector((
@@ -1872,27 +1901,75 @@ def build_camera():
 
 
 # ---------------------------------------------------------------------------
-# Ground-plate camera: straight top-down orthographic (the playfield plane),
-# distinct from the 55/45 dimetric sprite camera. The plate is the only asset
-# rendered this way; see ground_plate in crown_cross_kit.py.
+# Ground-plate camera: identity boards render straight top-down (the playfield
+# plane, 1:1 with the flat authoritative world); diorama boards render the
+# plate through the same 45/0 dimetric rig as the sprites, from farther out
+# (see ground_plate in crown_cross_kit.py and build_ground_camera below).
 # ---------------------------------------------------------------------------
 
 # Orthographic distance is arbitrary (no perspective); 50 keeps the whole
 # plate and its scatter comfortably inside the rig's 0.1..100 clip range.
 GROUND_CAMERA_HEIGHT = 50.0
+# Diorama ground distance: the camera must clear the plate's whole depth
+# extent (the south slab skirt sits BEHIND the aim along the view axis), so
+# the 45-deg ray needs enough stand-off for every plate point to fall in
+# front of clip_start. 300 puts all plate+slab points at depth ~[99, 518].
+GROUND_DIORAMA_CAMERA_DISTANCE = 300.0
+# Diorama clip range: the far (north) plate edge sits ~518 units down the
+# view axis at the stand-off above, so the shared 100 clip_end would cut it.
+GROUND_DIORAMA_CLIP_END = 600.0
 # Blender maps ortho_scale onto the largest sensor axis; the 1140x1920 master
 # is portrait, so 640 spans the plate height and the width derives as
 # 640 * (1140 / 1920) = 380.
 GROUND_ORTHO_SCALE = 640.0
 
 
-def build_ground_camera():
+def build_ground_camera(dimetric=False):
+    """Ground-plate camera.
+
+    Top-down (identity boards): straight -Z orthographic, image-up at world
+    +Y — the plate renders 1:1 with the flat authoritative world.
+    Diorama boards: the plate renders through the same straight-on dimetric
+    rig as the sprites (45 deg pitch, 0 deg yaw), tracked onto the
+    authoritative world-rect center (plane (0, 0, 0) = logical (200, 398))
+    so image rows map world y exactly like the client's board projection
+    (see the GROUND_DIORAMA_AIM framing contract above).
+    """
     import bpy
+    from mathutils import Vector
+
     cam_data = bpy.data.cameras.new(name="CC_GroundCam")
     cam_data.type = "ORTHO"
-    cam_data.ortho_scale = GROUND_ORTHO_SCALE
     cam_data.clip_start = CAMERA_CLIP_START
-    cam_data.clip_end = CAMERA_CLIP_END
+    if dimetric:
+        # The stand-off pushes the plate's far edge ~518 units down the view
+        # axis; the shared 100 clip_end would cut the northern meadow.
+        cam_data.clip_end = GROUND_DIORAMA_CLIP_END
+    else:
+        cam_data.clip_end = CAMERA_CLIP_END
+    if dimetric:
+        cam_data.ortho_scale = GROUND_DIORAMA_ORTHO_SCALE
+        cam_obj = bpy.data.objects.new("CC_GroundCam", cam_data)
+        bpy.context.scene.collection.objects.link(cam_obj)
+        pitch = math.radians(CAMERA_PITCH_DEG)
+        # Same spherical placement pattern as the sprite rig, yaw 0: the
+        # camera sits due south of the plate AIM POINT (far enough back that
+        # the southern slab skirt stays in front of clip_start), looking
+        # north and down at exactly the canonical pitch.
+        direction = Vector((0.0, -math.cos(pitch), math.sin(pitch)))
+        cam_obj.location = (
+            Vector(GROUND_DIORAMA_AIM) + direction * GROUND_DIORAMA_CAMERA_DISTANCE
+        )
+        aim = bpy.data.objects.new("CC_GroundAim", None)
+        aim.location = GROUND_DIORAMA_AIM
+        bpy.context.scene.collection.objects.link(aim)
+        constraint = cam_obj.constraints.new("TRACK_TO")
+        constraint.target = aim
+        constraint.track_axis = "TRACK_NEGATIVE_Z"
+        constraint.up_axis = "UP_Y"
+        bpy.context.scene.camera = cam_obj
+        return cam_obj
+    cam_data.ortho_scale = GROUND_ORTHO_SCALE
     cam_obj = bpy.data.objects.new("CC_GroundCam", cam_data)
     bpy.context.scene.collection.objects.link(cam_obj)
     # Identity rotation: looks straight down -Z with image-up at world +Y,
@@ -2009,6 +2086,14 @@ def apply_camera_framing_values(ortho_scale, aim_height):
     bpy.data.objects["CC_CameraAim"].location.z = aim_height
 
 
+def ground_is_diorama(builder_name):
+    """True when a ground-plate builder renders through the diorama rig."""
+    if not builder_name.startswith("build_ground_"):
+        return False
+    battlefield_id = builder_name[len("build_ground_"):]
+    return battlefield_id in GROUND_DIORAMA_BATTLEFIELDS
+
+
 def build_asset(builder_name, owner):
     """Builds one asset in a freshly cleared, fully rebuilt scene.
 
@@ -2020,10 +2105,11 @@ def build_asset(builder_name, owner):
     """
     clear_default_scene()
     if builder_name.startswith("build_ground_"):
-        # Ground plates render straight top-down across the whole field rect,
-        # so the dimetric sprite camera and its per-builder framing do not
-        # apply. Lighting and world stay identical (Art Bible rig).
-        build_ground_camera()
+        # Ground plates render across the whole field rect, so the per-builder
+        # sprite framing does not apply. Identity boards render straight
+        # top-down; diorama boards render through the same straight-on
+        # dimetric rig as the sprites. Lighting and world stay identical.
+        build_ground_camera(dimetric=ground_is_diorama(builder_name))
         build_lighting_rig()
         build_world()
     else:
@@ -2102,7 +2188,14 @@ def main(argv):
 
     for render_name, builder_name, owner in assets:
         build_asset(builder_name, owner)
-        resolution = GROUND_MASTER_RESOLUTION if builder_name.startswith("build_ground_") else None
+        if builder_name.startswith("build_ground_"):
+            resolution = (
+                GROUND_DIORAMA_RESOLUTION
+                if ground_is_diorama(builder_name)
+                else GROUND_MASTER_RESOLUTION
+            )
+        else:
+            resolution = None
         render_asset(args.output, render_name, samples=args.samples,
                      transparent=not args.opaque, resolution=resolution)
         print(f"[crown-clash] rendered {render_name} -> {args.output}/{render_name}.png")

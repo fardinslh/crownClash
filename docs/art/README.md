@@ -71,18 +71,29 @@ reference an unloaded texture.
   and hay, matte-iron banding, and a pointed-log palisade ring around every base
   (`build_warcamp_*` themed builders).
 - **grounds shared pack** (`assets/grounds/`, WebP, `spriteKind: "ground"`, active):
-  one rendered full-field ground plate per battlefield (760×1280, 380×640 logical
-  px, 1:1 at 2× DPR), rendered straight top-down from the authoritative
-  `battlefields.json` geometry — baked dirt roads with organic edges, AO ground
-  sockets, per-map identity (crown mow rings and worn court, twin brook and crags,
-  royal gravel courts and hedge ring, quad dirt camps), 3D micro-relief dunes and
-  clustered grass/flower/pebble scatter. `getArenaGroundSprite` resolves the plate;
+  one rendered full-field ground plate per battlefield (380×640 logical px at 2×
+  DPR), rendered from the authoritative `battlefields.json` geometry — baked dirt
+  roads with organic edges, AO ground sockets, per-map identity (crown mow rings and
+  worn court, twin brook and crags, royal gravel courts and hedge ring, quad dirt
+  camps), 3D micro-relief dunes and clustered grass/flower/pebble scatter. Two
+  plate styles: **identity** boards (twin passes, royal ring, quad citadel) render
+  straight top-down (760×1280, 1:1 with the flat world); the **diorama** board
+  (crown cross) renders through the same 45°/0° dimetric rig as the sprites
+  (1140×1440 master → 760×960 runtime), so the playfield itself carries depth —
+  an extruded two-course earth-slab skirt under the meadow and a raised stone
+  plinth with a proud lip under every socket (plinth radius mirrors the client
+  `socketRadius` 1:1). The client places the diorama plate through
+  `groundPlateImageRect` (`apps/game/src/art/boardProjection.ts`): the image is
+  centered on the projected world rect, so its baked roads and plinths land under
+  the projected sockets exactly. `getArenaGroundSprite` resolves the plate;
   when the pack is inactive or the plate is missing, GameScene falls back to the
   flat vector ground. Render/optimize:
   `tools/blender/render_battlefield.sh grounds` then
   `tools/blender/optimize_outputs.sh art/blender/renders/grounds grounds`.
-  Ground masters are 1140×1920 (the ground camera branch of
-  `build_battlefield_scene.py`), and one plate must stay < 128KB.
+  Ground masters are 1140×1920 (identity, top-down) or 1140×1440 (diorama,
+  dimetric) from the ground camera branch of `build_battlefield_scene.py`
+  (see `GROUND_DIORAMA_*` for the diorama framing contract), and one plate must
+  stay < 128KB.
 
 Every dedicated key gets its own file — no aliases. A test fails if a pack is
 activated before all of its optimized files exist, or if two dedicated packs ship
@@ -150,8 +161,10 @@ dispatch armies with `scene.executeQaDispatch(...)`, and check
 ## Commands
 
 ```bash
-# Render the four shared marching-unit sprites (knight model from
-# art/blender/crown_cross_kit.py, canonical rig, downscaled to 128px PNGs).
+# Render the twelve shared marching-unit sprites — leader/follower ×
+# player/enemy × front/back/side facings (knight model from
+# art/blender/crown_cross_kit.py, canonical rig, downscaled to 128px PNGs;
+# front also ships under the legacy no-suffix names).
 blender --background --factory-startup --python tools/blender/generate_units.py
 
 # 1. Render a pack's master kit (deterministic; verified with Blender 5.2.2 LTS,
@@ -197,11 +210,13 @@ blender --background --factory-startup --python art/blender/build_battlefield_sc
 
 ## Determinism
 
-The scene builder uses a fixed orthographic camera (55°/45° dimetric, track-to
-constrained onto the asset origin), a fixed three-point lighting rig, a fixed world
-ambient, and `cycles.seed = 0` with `use_animated_seed = False` (`--samples`
-controls sample count). Re-rendering the same pack on the same Blender build
-produces identical PNGs. Asset generators use no randomness. Each asset renders in
+The scene builder uses a fixed orthographic camera (45° pitch / 0° yaw dimetric,
+track-to constrained onto the asset origin — the same projection the client board
+layout mirrors in `apps/game/src/art/boardProjection.ts`), a fixed three-point
+lighting rig, a fixed world ambient, and `cycles.seed = 0` with
+`use_animated_seed = False` (`--samples` controls sample count). Re-rendering the
+same pack on the same Blender build produces identical PNGs. Asset generators use
+no randomness. Each asset renders in
 a freshly cleared scene; the material palette is rebuilt after the clear, so
 repeated kit renders never accumulate orphan cameras, lights, worlds, collections,
 or materials.
