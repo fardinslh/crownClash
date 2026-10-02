@@ -194,6 +194,13 @@ interface TerritoryVisual {
    * Both keep the same 22px-tall geometry so layout and tests hold.
    */
   unitBadge: Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle;
+  /**
+   * The badge's resting scale. Texture pill badges render from a
+   * 2x-resolution canvas (retina sharpness), so their base scale is 0.5 —
+   * pulses must be relative to this base or the pill would permanently
+   * double in size (the old absolute setScale(1) pulse bug).
+   */
+  unitBadgeBaseScale: number;
   unitText: Phaser.GameObjects.Text;
   typeIcon: Phaser.GameObjects.Graphics;
   /** 2v2 only: '⧉' cue marking a team-shared fortress (hidden when lost). */
@@ -1676,6 +1683,9 @@ export class GameScene extends Phaser.Scene {
         : this.add
             .rectangle(0, badgeY, badgeWidth, 22, 0x070d1a, 0.96)
             .setStrokeStyle(1.5, teamStyle.primary, 1);
+      // Resting badge scale, derived from the object itself: 1 for the
+      // Rectangle fallback, 0.5 for the 2x-canvas texture pills.
+      const unitBadgeBaseScale = unitBadge.scaleX;
 
       // Unit Count Text with resolution: 2 and bold stroke for retina sharpness
       const unitText = this.add
@@ -1747,6 +1757,7 @@ export class GameScene extends Phaser.Scene {
         basePlate,
         ring,
         unitBadge,
+        unitBadgeBaseScale,
         unitText,
         typeIcon,
         sharedCue,
@@ -3208,10 +3219,21 @@ export class GameScene extends Phaser.Scene {
     if (this.reducedMotion) return;
     this.tweens.killTweensOf([vis.typeIcon, vis.unitBadge]);
     vis.typeIcon.setScale(1).setAlpha(1);
-    vis.unitBadge.setScale(1);
+    // Texture pill badges rest at half scale (2x-resolution canvas), so the
+    // pulse must be relative to each object's own base. The old absolute
+    // setScale(1) + scale-to-1.18 pulse permanently doubled captured
+    // barracks' counters.
+    vis.unitBadge.setScale(vis.unitBadgeBaseScale);
     this.tweens.add({
-      targets: [vis.typeIcon, vis.unitBadge],
+      targets: vis.typeIcon,
       scale: 1.18,
+      duration: 90,
+      yoyo: true,
+      ease: 'Sine.easeOut',
+    });
+    this.tweens.add({
+      targets: vis.unitBadge,
+      scale: vis.unitBadgeBaseScale * 1.18,
       duration: 90,
       yoyo: true,
       ease: 'Sine.easeOut',

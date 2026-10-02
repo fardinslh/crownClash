@@ -727,6 +727,26 @@ describe('GameScene Tower Role Icons', () => {
     expect(barracks.typeIcon.destroyed).toBe(true);
     expect(stable.typeIcon.destroyed).toBe(true);
   });
+
+  it('pulses texture-pill badges relative to their half-scale base, never doubling them', () => {
+    const visuals = (scene as any).territoryVisuals as Map<string, any>;
+    const barracks = visuals.get('n_bot_left');
+    expect(barracks).toBeDefined();
+
+    // Simulate the runtime rounded-pill badge: the 2x-resolution canvas
+    // texture renders at half scale (a 46px pill on a 92px-wide texture).
+    barracks.unitBadge.setScale(0.5);
+    barracks.unitBadgeBaseScale = 0.5;
+
+    expect(() => (scene as any).pulseTerritoryRole(barracks)).not.toThrow();
+    // Regression: the pulse used to reset the badge with an absolute
+    // setScale(1), permanently doubling the counter pill whenever a
+    // captured barracks produced its first unit.
+    expect(barracks.unitBadge.scaleX).toBe(0.5);
+    expect(barracks.unitBadge.scaleY).toBe(0.5);
+    // The icon keeps its own whole-unit base pulse.
+    expect(barracks.typeIcon.scaleX).toBe(1);
+  });
 });
 
 describe('GameScene Bottom Legend Role Icons', () => {
