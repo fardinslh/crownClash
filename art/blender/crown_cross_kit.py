@@ -811,6 +811,18 @@ def _jitter(ob, rng):
 
 GROUND_W, GROUND_H = 380.0, 640.0
 GROUND_LOGICAL_CENTER = (200.0, 398.0)
+# Meadow fringe beyond the world rect (plane units, each side): the plate
+# extends past the authored playfield so tall viewports fill with board
+# instead of empty backdrop. The client centers the plate image on the
+# projected world-rect center; shorter viewports simply crop the fringe.
+# Must stay in lockstep with GROUND_DIORAMA_ORTHO_SCALE in
+# build_battlefield_scene.py (sensor = plate + lip/skirt margins).
+MEADOW_FRINGE = 250.0
+# Plate edges in plane units: the legacy plate stopped at the world rect's
+# north edge and 24 units short of its south edge (the slab skirt takes over
+# there); the fringe extends both edges by MEADOW_FRINGE.
+_PLATE_NORTH_EDGE = 320.0 + MEADOW_FRINGE
+_PLATE_SOUTH_EDGE = -296.0 - MEADOW_FRINGE
 
 
 def _hex_rgb(value):
@@ -995,8 +1007,8 @@ def _make_terrain(bf, battlefield_id):
         result = min(
             1.0,
             max(0.0, (186.0 - abs(x)) / 14.0),
-            max(0.0, (320.0 - y) / 14.0),
-            max(0.0, (y + 302.0) / 14.0),
+            max(0.0, (_PLATE_NORTH_EDGE - y) / 14.0),
+            max(0.0, (y - _PLATE_SOUTH_EDGE + 6.0) / 14.0),
         )
         for (ax, ay), (bx, by) in roads:
             result = min(result, max(0.0, (_distance_to_segment(x, y, ax, ay, bx, by) - 13.0) / 24.0))
@@ -1013,12 +1025,18 @@ def _make_terrain(bf, battlefield_id):
 
 
 def _rounded_plate(mat, terrain_z):
-    """380x616 subdivided plate: 18px rounded corners, real micro-relief."""
-    bpy.ops.mesh.primitive_grid_add(x_subdivisions=76, y_subdivisions=124, size=1,
+    """380x1116 subdivided plate: 18px rounded corners, real micro-relief.
+
+    The plate spans the 640-unit world rect plus a 250-unit meadow fringe
+    beyond each edge (see MEADOW_FRINGE), so tall viewports fill with board
+    while shorter ones crop the fringe through the client's centered
+    image rect.
+    """
+    bpy.ops.mesh.primitive_grid_add(x_subdivisions=76, y_subdivisions=224, size=1,
                                     location=(0.0, 12.0, 0.0))
     ob = bpy.context.object
     ob.name = 'ground plate'
-    ob.scale = (GROUND_W, GROUND_H - 24.0, 1.0)
+    ob.scale = (GROUND_W, _PLATE_NORTH_EDGE - _PLATE_SOUTH_EDGE, 1.0)
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
     for vertex in ob.data.vertices:
         vertex.co.z = terrain_z(vertex.co.x, vertex.co.y)
@@ -1153,7 +1171,7 @@ def _ground_scatter(battlefield_id, bf, mats, terrain_z, roads):
         rng.seed(rng.random() * 1048576.0 + ord(ch))
 
     def blocked(x, y):
-        if abs(x) > 170.0 or abs(y) > 292.0:
+        if abs(x) > 170.0 or abs(y - 12.0) > 530.0:
             return True
         for territory in bf['territories']:
             tx, ty = _to_plane(territory['x'], territory['y'])
@@ -1178,10 +1196,10 @@ def _ground_scatter(battlefield_id, bf, mats, terrain_z, roads):
     def spot(edge_only=False):
         for _ in range(90):
             x = (rng.random() * 2.0 - 1.0) * 170.0
-            y = (rng.random() * 2.0 - 1.0) * 292.0
+            y = (rng.random() * 2.0 - 1.0) * 530.0 + 12.0
             if blocked(x, y):
                 continue
-            if edge_only and abs(x) < 90.0 and abs(y) < 150.0:
+            if edge_only and abs(x) < 90.0 and abs(y - 12.0) < 400.0:
                 continue
             return x, y
         return None
@@ -1228,7 +1246,9 @@ def _ground_scatter(battlefield_id, bf, mats, terrain_z, roads):
         ico('ground pebble', 1.4 + rng.random() * 1.2, (x, y, terrain_z(x, y) + 1.2),
             mats['stone'], scale=(1.3, 1.0, .45))
 
-    for kind, count in (('tuft', 46), ('patch', 7), ('flower', 10), ('clover', 9), ('pebble', 18)):
+    # Counts scale with the meadow fringe (the plate grew from 616 to 1116
+    # plane units), so the extended board dresses at the same density.
+    for kind, count in (('tuft', 84), ('patch', 13), ('flower', 18), ('clover', 17), ('pebble', 33)):
         made = misses = 0
         while made < count and misses < 500:
             misses += 1
@@ -1355,9 +1375,9 @@ def _diorama_slab(make_material):
     course = make_material('rgx_slab_course', (.185, .15, .11), 1.0, use_gradient=False)
     top_z = -DIORAMA_SLAB_TOP_DROP
     # Upper stone course: slightly inset so the grass overhangs it.
-    box('slab upper course', (374.0, 610.0, 7.0), (0.0, 12.0, top_z - 3.5), course, .04)
+    box('slab upper course', (374.0, 610.0 + MEADOW_FRINGE * 2.0, 7.0), (0.0, 12.0, top_z - 3.5), course, .04)
     # Lower earth mass: the visible skirt.
-    box('slab mass', (366.0, 602.0, DIORAMA_SLAB_DEPTH), (0.0, 12.0, top_z - 7.0 - DIORAMA_SLAB_DEPTH / 2.0), base, .03)
+    box('slab mass', (366.0, 602.0 + MEADOW_FRINGE * 2.0, DIORAMA_SLAB_DEPTH), (0.0, 12.0, top_z - 7.0 - DIORAMA_SLAB_DEPTH / 2.0), base, .03)
 
 
 def _diorama_plinth_top_z():

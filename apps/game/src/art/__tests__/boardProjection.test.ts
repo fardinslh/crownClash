@@ -127,11 +127,12 @@ describe('boardProjection diorama layouts', () => {
   });
 
   it('ground plate image rect is centered on the world rect with the baked aspect', () => {
-    // The diorama plate image (1140x1440 master, 760x960 runtime) is
+    // The diorama plate image (1140x2502 master, 760x1668 runtime) is
     // centered on the projected world rect; its height adds the baked
-    // plinth headroom above and the slab skirt below.
+    // 250-unit meadow fringe beyond each end of the world rect (plus the
+    // plinth headroom and slab skirt zones at the very ends).
     for (const id of DIMETRIC_IDS) {
-      for (const visibleHeight of [720, 800, 844, 932]) {
+      for (const visibleHeight of [720, 800, 844, 932, 950]) {
         const layout = createBoardLayout(id, visibleHeight);
         const plane = groundPlateScreenRect(layout);
         const image = groundPlateImageRect(layout);
@@ -139,13 +140,21 @@ describe('boardProjection diorama layouts', () => {
         expect(image.cy, id).toBe(plane.cy);
         expect(image.width, id).toBe(plane.width);
         expect(image.height, id).toBeCloseTo(plane.width * GROUND_IMAGE_ASPECT, 10);
-        // Image rows map world y at scale/3 per row (1440px / 480 units ==
+        // Image rows map world y at scale/3 per row (2502px / 834 units ==
         // 1140px / 380 units), so the image reproduces project()'s v formula:
         // the world rect's projected height equals its image-row span * scale/3.
         const worldRectRows = BOARD_WORLD_HEIGHT * 3 * Math.SQRT1_2; // 640 * 3 * cos(45deg)
         expect(plane.height, `${id} ${visibleHeight}`).toBeCloseTo(
           worldRectRows * (plane.width / 1140),
           6
+        );
+        // The baked meadow fringe makes the image TALLER than any phone
+        // band: tall viewports fill with board (the image covers the full
+        // band, top HUD strip to bottom margin) while shorter ones crop the
+        // fringe symmetrically around the projected world-rect center.
+        expect(image.cy - image.height / 2, `${id} ${visibleHeight} top`).toBeLessThanOrEqual(76);
+        expect(image.cy + image.height / 2, `${id} ${visibleHeight} bottom`).toBeGreaterThanOrEqual(
+          visibleHeight - 40
         );
       }
     }

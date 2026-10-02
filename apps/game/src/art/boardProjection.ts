@@ -135,23 +135,25 @@ export function groundPlateScreenRect(layout: BoardLayout): {
 
 /**
  * Aspect (height / width) of the diorama ground-plate image. The master is
- * 1140x1440 and the runtime texture 760x960 — both exactly this ratio —
- * because the sensor covers 480 plane units over the 380-unit width (see
+ * 1140x2502 and the runtime texture 760x1668 — both exactly this ratio —
+ * because the sensor covers 834 view units over the 380-unit width (see
  * GROUND_DIORAMA_RESOLUTION / GROUND_DIORAMA_ORTHO_SCALE in
  * build_battlefield_scene.py). The image is CENTERED on the world rect:
  * stretching it to the projected world-rect width times this aspect maps
  * image rows onto world y at scale/3 per row, which reproduces the
- * project() v formula exactly. The extra height is plinth headroom above
- * the world rect's top edge and the slab skirt below its bottom edge.
+ * project() v formula exactly. The plate bakes a 250-unit meadow fringe
+ * beyond each end of the 640-unit world rect, so the image is taller than
+ * any phone band: tall viewports fill with board while shorter ones crop
+ * the fringe symmetrically around the projected world-rect center.
  */
-export const GROUND_IMAGE_ASPECT = 1440 / 1140;
+export const GROUND_IMAGE_ASPECT = 2502 / 1140;
 
 /**
  * Screen rect the full ground-plate IMAGE must be displayed at. Diorama
- * plates (760x960) center on the projected world rect with the same width
- * and add the baked plinth headroom + slab skirt bands via the image
- * aspect; identity plates (760x1280) map the world rect 1:1, so their
- * image rect IS the plane rect.
+ * plates (760x1668) center on the projected world rect with the same width
+ * and extend past it by the baked meadow fringe (plus plinth headroom and
+ * the slab skirt) via the image aspect; identity plates (760x1280) map the
+ * world rect 1:1, so their image rect IS the plane rect.
  */
 export function groundPlateImageRect(layout: BoardLayout): {
   cx: number;

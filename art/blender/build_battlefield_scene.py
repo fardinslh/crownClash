@@ -87,22 +87,25 @@ GROUND_MASTER_RESOLUTION = (1140, 1920)
 # battlefield joins this set when its runtime board projection switches to
 # the dimetric layout (see DIMETRIC_BATTLEFIELDS in boardProjection.ts).
 GROUND_DIORAMA_BATTLEFIELDS = {"crown_cross", "twin_passes", "royal_ring", "quad_citadel"}
-# Camera framing: the 1140x1440 master covers 480 plane units vertically
-# (640 * cos(45deg) ~= 452.5 plane + slab skirt + plinth headroom) and
-# exactly 380 plane units horizontally (480 * 1140 / 1440).
-GROUND_DIORAMA_RESOLUTION = (1140, 1440)
-GROUND_DIORAMA_ORTHO_SCALE = 480.0
+# Camera framing: the 1140x2502 master covers 834 view units vertically
+# (1179.5 plane units: the 1116-unit plate — the 640-unit world rect plus a
+# 250-unit meadow fringe each side, see MEADOW_FRINGE in crown_cross_kit.py —
+# plus lip headroom and the slab skirt) and exactly 380 plane units
+# horizontally (834 * 1140 / 2502).
+GROUND_DIORAMA_RESOLUTION = (1140, 2502)
+GROUND_DIORAMA_ORTHO_SCALE = 834.0
 # Diorama framing contract (lockstep with boardProjection.ts): the image is
 # CENTERED on the authoritative world rect (plane (0, 0) = logical
 # (200, 398)) and spans exactly its width, so the client centers the plate
 # image on the projected world-rect center and derives its height from the
 # image aspect alone: image rows map world y linearly at scale/3 per row
-# (1440 px / 480 units == 1140 px / 380 units), which reproduces the
-# client's project() v formula exactly. The 678.8-unit vertical coverage
-# leaves ~19.4 plane units of headroom above the world rect's top edge,
-# which holds the e_base plinth's proud lip (its top starts ~23px inside
-# row 0), and ~19.4 below, which holds the slab skirt (bottom ~6px past the
-# world rect's bottom edge). Taller north-edge platforms need more headroom.
+# (2502 px / 834 units == 1140 px / 380 units), which reproduces the
+# client's project() v formula exactly. The 1179.5-unit vertical coverage
+# leaves ~19.7 plane units of film margin above the plate's north edge and
+# ~41.7 below its south edge (the slab skirt zone), mirroring the legacy
+# plate's margins. The meadow fringe makes the plate image TALLER than any
+# phone band, so tall viewports fill with board while shorter ones crop the
+# fringe symmetrically around the world-rect center.
 GROUND_DIORAMA_AIM = (0.0, 0.0, 0.0)
 
 # Art Bible palette (linear-ish sRGB hex -> normalized RGB)
@@ -1913,11 +1916,13 @@ GROUND_CAMERA_HEIGHT = 50.0
 # Diorama ground distance: the camera must clear the plate's whole depth
 # extent (the south slab skirt sits BEHIND the aim along the view axis), so
 # the 45-deg ray needs enough stand-off for every plate point to fall in
-# front of clip_start. 300 puts all plate+slab points at depth ~[99, 518].
-GROUND_DIORAMA_CAMERA_DISTANCE = 300.0
-# Diorama clip range: the far (north) plate edge sits ~518 units down the
+# front of clip_start. The plate grew with the meadow fringe (1116 plane
+# units, edges ~570/-546), so 520 puts all plate+slab points at depth
+# ~[116, 924].
+GROUND_DIORAMA_CAMERA_DISTANCE = 520.0
+# Diorama clip range: the far (north) plate edge sits ~924 units down the
 # view axis at the stand-off above, so the shared 100 clip_end would cut it.
-GROUND_DIORAMA_CLIP_END = 600.0
+GROUND_DIORAMA_CLIP_END = 1050.0
 # Blender maps ortho_scale onto the largest sensor axis; the 1140x1920 master
 # is portrait, so 640 spans the plate height and the width derives as
 # 640 * (1140 / 1920) = 380.
@@ -1942,7 +1947,7 @@ def build_ground_camera(dimetric=False):
     cam_data.type = "ORTHO"
     cam_data.clip_start = CAMERA_CLIP_START
     if dimetric:
-        # The stand-off pushes the plate's far edge ~518 units down the view
+        # The stand-off pushes the plate's far edge ~924 units down the view
         # axis; the shared 100 clip_end would cut the northern meadow.
         cam_data.clip_end = GROUND_DIORAMA_CLIP_END
     else:
