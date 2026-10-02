@@ -776,6 +776,15 @@ describe('First-launch training integration', () => {
     expect(overlay).toBeDefined();
     expect(overlay.isSpotlightActive).toBe(true);
     expect((scene as any).input.on).toHaveBeenCalled();
+    // Step pips sit INLINE at the strip's right end and must stay fully
+    // INSIDE the panel bounds (they previously spilled past the strip).
+    const panelLeft = overlay.panel.x - overlay.panel.width / 2;
+    const panelRight = overlay.panel.x + overlay.panel.width / 2;
+    for (const pip of overlay.pips) {
+      expect(pip.x - pip.width / 2).toBeGreaterThanOrEqual(panelLeft);
+      expect(pip.x + pip.width / 2).toBeLessThanOrEqual(panelRight);
+      expect(pip.y).toBe(overlay.panel.y);
+    }
     // No shell element remains in the DOM to swallow the canvas touches.
     expect((globalThis as any).document.getElementById('loading-shell')).toBe(shellStub);
     expect(shellStub.style.display).toBe('none');

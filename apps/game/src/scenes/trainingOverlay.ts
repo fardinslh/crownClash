@@ -148,8 +148,16 @@ export class TrainingOverlayUI {
     this.panel.setPosition(LOGICAL_WIDTH / 2, y);
     // Instruction text is centered in the strip minus the pip zone.
     this.instruction.setPosition(LOGICAL_WIDTH / 2 - 24, y - 1);
-    const pipStartX = this.panel.x + this.panel.width / 2 - 28;
-    this.pips.forEach((pip, index) => pip.setPosition(pipStartX + index * 12, y));
+    // Step pips sit INLINE at the strip's right end: below the strip there
+    // is no on-screen room on 720-tall viewports. The whole row must fit
+    // INSIDE the panel (364 wide, so the strip spans 18..382) — center it
+    // in the right margin so no dot spills past the strip edge.
+    const pipSpacing = 12;
+    const pipRowHalfWidth = ((this.pips.length - 1) * pipSpacing) / 2;
+    const pipZoneCenterX = this.panel.x + this.panel.width / 2 - 32;
+    this.pips.forEach((pip, index) =>
+      pip.setPosition(pipZoneCenterX - pipRowHalfWidth + index * pipSpacing, y)
+    );
     this.celebration?.setPosition(LOGICAL_WIDTH / 2, Math.max(150, visibleHeight * 0.34));
   }
 
