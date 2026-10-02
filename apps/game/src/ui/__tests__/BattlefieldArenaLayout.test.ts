@@ -48,14 +48,24 @@ function terrainBounds(shape: ReturnType<typeof createBattlefieldTerrainLayers>[
 }
 
 describe('battlefield arena visual layouts', () => {
-  it('places training instructions below the board on tall phones with retry room above the HUD', () => {
+  it('places the training strip in the tower-free bottom band on every viewport', () => {
+    // Tall phones: the strip parks fully below the board, clear of the
+    // player base's spotlight glow (bottom edge 666) and the ordinary
+    // bottom hint bar (which training hides anyway).
     for (const visibleHeight of [867, 889]) {
       const y = trainingOverlayPanelY(visibleHeight);
       const bottomBarY = Math.max(691, visibleHeight - 28);
-      expect(y - 29).toBeGreaterThan(664);
-      expect(y + 68).toBeLessThan(bottomBarY - 20);
+      expect(y - 23).toBeGreaterThan(666);
+      expect(y + 23).toBeLessThan(bottomBarY - 20);
     }
-    expect(trainingOverlayPanelY(720)).toBeLessThan(150);
+    // Board-fitted viewports (720): the strip replaces the bottom hint
+    // bar. Its top edge (y-23) must sit fully BELOW the enemy castle's
+    // spotlight glow (bottom edge 166) — the old top placement covered the
+    // enemy castle, which is the finale's guided target.
+    const y = trainingOverlayPanelY(720);
+    expect(y).toBe(692);
+    expect(y - 23).toBeGreaterThan(166);
+    expect(y + 23).toBeLessThanOrEqual(720);
   });
   it('gives every battlefield a distinct static motif', () => {
     const crown = createBattlefieldDecorations('crown_cross', 720);

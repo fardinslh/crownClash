@@ -1,11 +1,20 @@
 import type { BattlefieldMotif } from '@crown-clash/game-core';
 
-/** Put the training instruction in the spare gap below the board on tall phones. */
+/**
+ * Vertical placement for the training instruction strip.
+ *
+ * The training battlefield (crown_cross) spans the full 400×720 board: the
+ * enemy castle ring reaches up to y≈158 and the HUD occupies y 0..76, so a
+ * top placement always covers the enemy castle (the finale's target). The
+ * only tower-free band is the bottom hint strip, so the instruction
+ * replaces it there (GameScene hides the redundant hint + legend during
+ * training). On tall viewports the strip parks fully below the board.
+ */
 export function trainingOverlayPanelY(visibleHeight: number): number {
   const bottomBarY = Math.max(691, visibleHeight - 28);
-  // Reserve room for the retry button, which hangs 68px below the panel
-  // center when a completion save fails. Short screens use the top overlay.
-  return bottomBarY >= 815 ? 730 : Math.max(96, Math.min(126, visibleHeight * 0.16));
+  // Reserve room below the strip for nothing — the retry state reuses the
+  // strip itself, so the old "+44 for the retry button" clearance is gone.
+  return bottomBarY >= 815 ? 730 : bottomBarY;
 }
 
 export type ArenaDecoration =

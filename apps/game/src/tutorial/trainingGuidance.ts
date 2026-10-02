@@ -15,7 +15,7 @@
  *      an already-owned tower.
  */
 
-import type { Territory } from '@crown-clash/game-core';
+import type { Team, Territory } from '@crown-clash/game-core';
 import type { TutorialStepId } from './TutorialController.js';
 import { TUTORIAL_ENEMY_BASE_ID } from './TutorialController.js';
 
@@ -39,6 +39,29 @@ export const TRAINING_ENEMY_BASE_PRODUCTION = 0.2;
  * instructions (the ordinary 90s bot-match limit stays unchanged).
  */
 export const TRAINING_TIME_LIMIT_SECONDS = 300;
+
+/**
+ * Alpha applied to non-guided enemy/neutral towers during training. The
+ * whole field dims EXCEPT the guided towers — and, crucially, every
+ * player-owned tower: capturing must feel rewarding, so the player's
+ * empire always stays bright (a freshly captured tower that goes pale
+ * reads as "broken", not "mine").
+ */
+export const TRAINING_DIM_ALPHA = 0.45;
+
+/**
+ * Clash Royale-style focus rule: a territory is bright when it is
+ * spotlighted by the current step OR owned by the player; everything else
+ * dims. Ownership is read from the LIVE state, never the visual snapshot
+ * (an unknown/missing territory dims conservatively).
+ */
+export function isTrainingTerritoryBright(
+  id: string,
+  owner: Team | undefined,
+  spotlightIds: readonly string[]
+): boolean {
+  return spotlightIds.includes(id) || owner === 'player';
+}
 
 export interface TrainingGuidance {
   /** Territory IDs to spotlight (dim the rest of the board). */

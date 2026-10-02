@@ -2,16 +2,20 @@
  * Crown Clash — Guided training battle overlay (Clash Royale-style).
  *
  * Renders the tutorial controller's current step inside the real battle:
- *   - a short, bold instruction bubble;
- *   - small step pips (no "TRAINING 1/5" exam label);
+ *   - a short, bold instruction strip pinned to the BOTTOM hint-bar band —
+ *     the only horizontal band that never overlaps any tower, so it can
+ *     never cover the enemy castle (the finale's target). GameScene hides
+ *     the redundant bottom hint + legend during training to make room;
+ *   - small step pips inline at the strip's right end (no "TRAINING 1/5"
+ *     exam label);
  *   - pulsing spotlight rings on every guided territory (sources + target);
  *   - an animated HAND HINT that demonstrates the exact drag gesture along
  *     the guided path, Clash Royale-style — hidden the moment the player
  *     touches the screen;
  *   - a victory celebration (banner + confetti) when the player captures the
  *     enemy base, before the account-wide completion save;
- *   - the fail-closed save-failure state (RETRY never unblocks the tutorial
- *     by itself).
+ *   - the fail-closed save-failure state: the strip transforms into a wide
+ *     RETRY button (retrying never unblocks the tutorial by itself).
  *
  * Kept as a self-contained object so GameScene only routes controller
  * events into it; no gameplay logic lives here. Nothing in this overlay is
@@ -28,9 +32,6 @@ import { TUTORIAL_STEPS } from '../tutorial/TutorialController.js';
 
 const FONT_FAMILY =
   '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
-
-/** Minimum comfortable touch target (AGENTS.md UX rules). */
-const RETRY_TARGET_SIZE = 48;
 
 /** Overlay depth layering: above the board, below the instruction panel. */
 const SPOTLIGHT_DEPTH = 6;
@@ -83,38 +84,34 @@ export class TrainingOverlayUI {
     this.scene = scene;
     this.container = scene.add.container(0, 0).setDepth(PANEL_DEPTH);
     this.panel = scene.add
-      .rectangle(LOGICAL_WIDTH / 2, 0, 372, 62, 0x0b1220, 0.96)
+      .rectangle(LOGICAL_WIDTH / 2, 0, 364, 46, 0x0b1220, 0.96)
       .setStrokeStyle(2.5, THEME.gold, 0.95);
     this.instruction = scene.add
       .text(LOGICAL_WIDTH / 2, 0, '', {
         fontFamily: FONT_FAMILY,
-        fontSize: '15px',
+        fontSize: '14px',
         fontStyle: '900',
         color: '#fde68a',
         stroke: '#000000',
         strokeThickness: 3,
         resolution: 2,
         align: 'center',
-        wordWrap: { width: 336 },
+        wordWrap: { width: 286 },
       })
       .setOrigin(0.5);
     this.container.add([this.panel, this.instruction]);
 
+    // Step pips sit INLINE at the strip's right end: below the strip there
+    // is no on-screen room on 720-tall viewports.
     for (let index = 0; index < TUTORIAL_STEPS.length; index += 1) {
-      const pip = scene.add.circle(
-        LOGICAL_WIDTH / 2 - 18 + index * 12,
-        0,
-        3,
-        0x334155,
-        1
-      );
+      const pip = scene.add.circle(0, 0, 3, 0x334155, 1);
       this.pips.push(pip);
       this.container.add(pip);
     }
 
-    // Spotlight pool: up to 8 guided territories (finale spotlights every
-    // owned tower plus the enemy base).
-    for (let index = 0; index < 8; index += 1) {
+    // Spotlight pool: up to 10 guided territories — the finale spotlights
+    // every owned tower plus the enemy base (crown_cross has 9 territories).
+    for (let index = 0; index < 10; index += 1) {
       const glow = this.scene.add
         .circle(0, 0, 10, THEME.gold, 0.16)
         .setVisible(false)
@@ -141,16 +138,18 @@ export class TrainingOverlayUI {
   // -------------------------------------------------------------------------
 
   private applyLayout(): void {
-    const { visibleWidth, visibleHeight } = getSceneViewport(this.scene);
+    // The strip keeps a fixed 364px width (the viewport is never narrower
+    // than the 400px board), so only the vertical placement reacts to the
+    // viewport: below the board on tall screens, over the bottom hint-bar
+    // band on board-fitted ones (see trainingOverlayPanelY).
+    const { visibleHeight } = getSceneViewport(this.scene);
     const y = trainingOverlayPanelY(visibleHeight);
     this.container.setPosition(0, 0);
     this.panel.setPosition(LOGICAL_WIDTH / 2, y);
-    this.instruction.setPosition(LOGICAL_WIDTH / 2, y - 5);
-    const pipY = y + 22;
-    this.pips.forEach((pip) => pip.setY(pipY));
-    if (visibleWidth > 0) {
-      this.panel.setSize(Math.min(384, visibleWidth - 20), 62);
-    }
+    // Instruction text is centered in the strip minus the pip zone.
+    this.instruction.setPosition(LOGICAL_WIDTH / 2 - 24, y - 1);
+    const pipStartX = this.panel.x + this.panel.width / 2 - 28;
+    this.pips.forEach((pip, index) => pip.setPosition(pipStartX + index * 12, y));
     this.celebration?.setPosition(LOGICAL_WIDTH / 2, Math.max(150, visibleHeight * 0.34));
   }
 
@@ -489,6 +488,11 @@ export class TrainingOverlayUI {
     this.instruction.setText('');
     this.instruction.setColor('#fde68a');
     this.pips.forEach((pip) => pip.setFillStyle(0x34d399, 1));
+    // The banner owns the moment: hide the whole instruction strip so the
+    // victory beat reads clean (showSaveError brings it back as RETRY).
+    this.panel.setVisible(false);
+    this.instruction.setVisible(false);
+    this.pips.forEach((pip) => pip.setVisible(false));
 
     const scene = this.scene;
     this.celebration?.destroy(true);
@@ -586,41 +590,56 @@ export class TrainingOverlayUI {
 
   /**
    * Fail-closed save failure: the tutorial stays incomplete until the
-   * server accepts the write. RETRY re-invokes the provided handler.
+   * server accepts the write. The instruction strip transforms into a wide
+   * RETRY button — the only tower-free band, and a hanging button would
+   * fall off-screen on 720-tall viewports.
    */
   showSaveError(onRetry: () => void): void {
     if (this.destroyed) return;
     this.clearRetry();
     this.setCelebrationSaving(false);
-    this.instruction.setText('COULD NOT SAVE TRAINING');
-    this.instruction.setColor('#fca5a5');
-    const y = this.panel.y + 44;
-    this.retryButton = this.scene.add
-      .rectangle(LOGICAL_WIDTH / 2, y, 168, RETRY_TARGET_SIZE, 0x2563eb, 1)
-      .setStrokeStyle(2, 0x60a5fa, 1)
-      .setInteractive({ useHandCursor: true });
+    this.instruction.setVisible(false);
+    this.pips.forEach((pip) => pip.setVisible(false));
+    this.panel
+      .setVisible(true)
+      .setFillStyle(0x2563eb, 1)
+      .setStrokeStyle(2.5, 0x60a5fa, 1)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => onRetry());
+    this.retryButton = this.panel;
     this.retryLabel = this.scene.add
-      .text(LOGICAL_WIDTH / 2, y, 'RETRY  ›', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '13px',
-        fontStyle: '900',
-        color: '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 2,
-        resolution: 2,
-      })
+      .text(
+        LOGICAL_WIDTH / 2,
+        this.panel.y,
+        '⚠ COULD NOT SAVE — TAP TO RETRY',
+        {
+          fontFamily: FONT_FAMILY,
+          fontSize: '13px',
+          fontStyle: '900',
+          color: '#ffffff',
+          stroke: '#000000',
+          strokeThickness: 2.5,
+          resolution: 2,
+        }
+      )
       .setOrigin(0.5);
-    this.retryButton.on('pointerdown', () => {
-      onRetry();
-    });
-    this.container.add([this.retryButton, this.retryLabel]);
+    this.container.add(this.retryLabel);
   }
 
+  /** Restores the instruction strip after a retry state. */
   private clearRetry(): void {
-    this.retryButton?.destroy();
+    if (this.retryButton) {
+      this.retryButton.off('pointerdown');
+      this.retryButton = undefined;
+    }
     this.retryLabel?.destroy();
-    this.retryButton = undefined;
     this.retryLabel = undefined;
+    this.panel
+      .setFillStyle(0x0b1220, 0.96)
+      .setStrokeStyle(2.5, THEME.gold, 0.95)
+      .disableInteractive();
+    this.instruction.setVisible(true);
+    this.pips.forEach((pip) => pip.setVisible(true));
   }
 
   private isReducedMotion(): boolean {

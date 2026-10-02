@@ -38,7 +38,9 @@ import { TrainingOverlayUI } from './trainingOverlay.js';
 import { TutorialController } from '../tutorial/TutorialController.js';
 import {
   applyTrainingSandbox,
+  isTrainingTerritoryBright,
   resolveTrainingGuidance,
+  TRAINING_DIM_ALPHA,
   TRAINING_TIME_LIMIT_SECONDS,
 } from '../tutorial/trainingGuidance.js';
 import {
@@ -596,6 +598,14 @@ export class GameScene extends Phaser.Scene {
 
     // 6. Guided training battle (first-play tutorial)
     if (this.trainingMode) {
+      // The training instruction strip replaces the bottom hint band (the
+      // only tower-free band — see BattlefieldArenaLayout), so hide the
+      // redundant ordinary-match hint + role legend while training owns it.
+      this.bottomHintText?.setVisible(false);
+      for (const group of this.legendGroups) {
+        group.icon.setVisible(false);
+        group.word.setVisible(false);
+      }
       this.initTrainingBattle();
     }
 
@@ -687,20 +697,28 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Dims every non-guided territory so the spotlighted towers read like a
-   * Clash Royale tutorial focus. Re-applied once after the creation
-   * reveal tweens settle (they write alpha 1 for ~600ms after scene start).
+   * Dims the field for the Clash Royale-style focus: the current step's
+   * spotlighted towers AND every player-owned tower stay bright (capturing
+   * must feel rewarding — a freshly captured tower that fades reads as
+   * broken, not "mine"); unguided enemy/neutral towers dim. Re-applied once
+   * after the creation reveal tweens settle (they write alpha 1 for
+   * ~600ms after scene start) and re-applied on every player capture so a
+   * tower brightens the moment it turns blue.
    */
   private trainingDimmingToken = 0;
+  private trainingSpotlightIds: readonly string[] = [];
 
   private applyTrainingDimming(spotlightIds: readonly string[]): void {
     if (!this.trainingMode) return;
+    this.trainingSpotlightIds = spotlightIds;
     this.trainingDimmingToken += 1;
     const token = this.trainingDimmingToken;
     const apply = () => {
       if (token !== this.trainingDimmingToken || !this.trainingController?.isActive) return;
       for (const [id, vis] of this.territoryVisuals) {
-        vis.container.setAlpha(spotlightIds.includes(id) ? 1 : 0.45);
+        const owner = this.gameState.territories[id]?.owner;
+        const bright = isTrainingTerritoryBright(id, owner, spotlightIds);
+        vis.container.setAlpha(bright ? 1 : TRAINING_DIM_ALPHA);
       }
     };
     apply();
@@ -2471,6 +2489,13 @@ export class GameScene extends Phaser.Scene {
       const capturedByPlayer = arrival.attackerOwner === 'player';
       // A player capture is one of the guided training actions.
       this.trainingController?.onCapture(arrival.targetId, capturedByPlayer);
+      // A freshly captured tower must brighten IMMEDIATELY: the dimming
+      // snapshot was computed when the step was entered, so without this
+      // re-apply a mid-step capture stays pale (the step's spotlight list
+      // does not know the tower changed owner yet).
+      if (this.trainingMode && capturedByPlayer && this.trainingController?.isActive) {
+        this.applyTrainingDimming(this.trainingSpotlightIds);
+      }
       const isCrownKeep =
         arrival.targetId === 'n_center' ||
         (vis.territory.type === 'fortress' && vis.territory.tier === 2);

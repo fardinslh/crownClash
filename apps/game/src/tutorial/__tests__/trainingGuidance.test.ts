@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { Territory } from '@crown-clash/game-core';
 import {
   applyTrainingSandbox,
+  isTrainingTerritoryBright,
   resolveTrainingGuidance,
+  TRAINING_DIM_ALPHA,
   TRAINING_ENEMY_BASE_PRODUCTION,
   TRAINING_TIME_LIMIT_SECONDS,
 } from '../trainingGuidance.js';
@@ -99,6 +101,27 @@ describe('applyTrainingSandbox', () => {
 
   it('keeps the generous no-pressure training time limit exported for the scene', () => {
     expect(TRAINING_TIME_LIMIT_SECONDS).toBeGreaterThan(90);
+  });
+
+  it('never dims a player-owned tower, even when the step spotlight does not know about it yet', () => {
+    // The dimming rule is ownership-first: captured towers brighten the
+    // moment they turn blue, even mid-step before the spotlight list is
+    // recomputed (a pale freshly-captured tower reads as broken).
+    expect(isTrainingTerritoryBright('n_center', 'player', ['p_base', 'e_base'])).toBe(true);
+    expect(isTrainingTerritoryBright('p_base', 'player', [])).toBe(true);
+  });
+
+  it('dims unguided enemy/neutral towers but keeps the guided ones bright', () => {
+    const spotlight = ['p_base', 'n_bot_left'];
+    expect(isTrainingTerritoryBright('p_base', 'player', spotlight)).toBe(true);
+    expect(isTrainingTerritoryBright('n_bot_left', 'neutral', spotlight)).toBe(true);
+    expect(isTrainingTerritoryBright('n_center', 'neutral', spotlight)).toBe(false);
+    expect(isTrainingTerritoryBright('e_base', 'enemy', spotlight)).toBe(false);
+    expect(TRAINING_DIM_ALPHA).toBeLessThan(1);
+  });
+
+  it('treats an unknown owner conservatively as dimmable', () => {
+    expect(isTrainingTerritoryBright('x', undefined, [])).toBe(false);
   });
 });
 
