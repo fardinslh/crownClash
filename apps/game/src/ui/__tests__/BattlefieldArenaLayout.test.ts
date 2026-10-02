@@ -127,55 +127,20 @@ describe('battlefield arena visual layouts', () => {
     }
   );
 
-  it('anchors decoration dressing to the visible field panel on tall viewports', () => {
+  it('keeps baseline gameplay art authored when the viewport becomes taller', () => {
+    // Taller viewports stretch the whole map through the board projection
+    // (see boardProjection.createStretchedIdentityLayout) — the authored
+    // dressing never extends past the 400x720 arena on its own.
     for (const motif of ['crown_cross', 'twin_passes', 'royal_ring', 'quad_citadel'] as const) {
-      const tall = createBattlefieldDecorations(motif, 867);
-      // The dressing band anchors to the visible panel bottom: 867 - 56 = 811.
-      for (const shape of tall) {
-        const { minX, maxX, minY, maxY } = shapeBounds(shape);
-        expect(minX).toBeGreaterThanOrEqual(0);
-        expect(maxX).toBeLessThanOrEqual(400);
-        expect(minY).toBeGreaterThanOrEqual(78);
-        expect(maxY).toBeLessThanOrEqual(811);
-      }
-    }
+      const tallDecorations = createBattlefieldDecorations(motif, 867);
+      const decorationMaxY = Math.max(
+        ...tallDecorations.map((shape) => shapeBounds(shape).maxY)
+      );
+      expect(decorationMaxY).toBeLessThanOrEqual(664);
 
-    // twin_passes' lane lines and cairn triangles span the full visible band:
-    // the taller corridor is dressed, not left as dead panel space.
-    const tallPasses = createBattlefieldDecorations('twin_passes', 867);
-    const laneLines = tallPasses.filter((shape) => shape.kind === 'line');
-    expect(Math.max(...laneLines.map((shape) => shapeBounds(shape).maxY))).toBe(811);
-    const baseTriangles = createBattlefieldDecorations('twin_passes', 720).filter(
-      (shape) => shape.kind === 'triangle'
-    );
-    const tallTriangles = tallPasses.filter((shape) => shape.kind === 'triangle');
-    expect(tallTriangles.length).toBeGreaterThan(baseTriangles.length);
-  });
-
-  it('extends field-spanning terrain plates into the portrait surplus', () => {
-    const tallHeight = 867;
-    const surplus = tallHeight - 720;
-    for (const motif of ['crown_cross', 'twin_passes', 'royal_ring', 'quad_citadel'] as const) {
-      const base = createBattlefieldTerrainLayers(motif, 720);
-      const tall = createBattlefieldTerrainLayers(motif, tallHeight);
-
-      for (let index = 0; index < base.length; index++) {
-        const baseShape = base[index];
-        const tallShape = tall[index];
-        if (
-          baseShape.kind === 'roundedRect' &&
-          tallShape.kind === 'roundedRect' &&
-          baseShape.height >= 480
-        ) {
-          // Field-spanning plates keep their authored top edge and extend
-          // their bottom edge by exactly the portrait surplus.
-          expect(tallShape.height).toBe(baseShape.height + surplus);
-          expect(tallShape.y - tallShape.height / 2).toBe(baseShape.y - baseShape.height / 2);
-        } else {
-          // Interior accents stay centered on the board, authored geometry.
-          expect(tallShape).toEqual(baseShape);
-        }
-      }
+      const tallTerrain = createBattlefieldTerrainLayers(motif, 867);
+      const baseTerrain = createBattlefieldTerrainLayers(motif, 720);
+      expect(tallTerrain).toEqual(baseTerrain);
     }
   });
 });

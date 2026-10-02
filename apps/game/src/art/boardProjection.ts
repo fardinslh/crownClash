@@ -12,9 +12,11 @@ import type { BattlefieldId } from '@crown-clash/game-core';
  *    Blender sprite rig uses — so the ground plane itself carries depth:
  *    world circles foreshorten to ellipses, roads recede, and gameplay
  *    objects sort by screen Y (painter's algorithm, Clash Royale style).
- *  - Every other battlefield keeps the legacy identity layout
- *    (project(x, y) === (x, y)) until its ground plate is re-rendered
- *    through the dimetric rig, so un-migrated maps render pixel-identical.
+ *  - Every other battlefield keeps the legacy identity transform at the
+ *    400x720 baseline (project(x, y) === (x, y)) until its ground plate is
+ *    re-rendered through the dimetric rig, so un-migrated maps render
+ *    pixel-identical there; on taller viewports the flat map stretches
+ *    vertically to fill the portrait band (see createStretchedIdentityLayout).
  *
  * The transform is affine, which keeps the integration cheap:
  *   u = originX + (x - 200) * scale
@@ -193,29 +195,54 @@ export function projectLifted(
   return { u: p.u, v: p.v - z * layout.verticalScale() };
 }
 
-const IDENTITY_LAYOUT_CACHE = new Map<string, BoardLayout>();
+/**
+ * Height-adaptive identity ("stretched flat") layout for un-migrated
+ * battlefields. The whole flat map stretches vertically to fill the visible
+ * portrait band instead of leaving dead space under the authored 400x720
+ * board: the ground plane (terrain, roads, sockets, rings, shadows) and the
+ * plate image stretch together, while buildings and other sprites keep their
+ * authored proportions.
+ *
+ * At the 400x720 baseline (and any shorter viewport) the transform is the
+ * exact identity — project(x, y) === (x, y) — so un-migrated maps render
+ * pixel-identical to the flat board. On taller viewports the plane stretches
+ * by band / world-height (foreshorten >= 1) and centers on the band.
+ * unproject always maps screen points back onto the authoritative flat
+ * world, so hit radii, gameplay and the server simulation are untouched.
+ */
+function createStretchedIdentityLayout(
+  battlefieldId: BattlefieldId,
+  visibleHeight: number
+): BoardLayout {
+  const bandHeight = Math.max(120, visibleHeight - BAND_TOP - BAND_BOTTOM_MARGIN);
+  const stretch = Math.max(1, bandHeight / BOARD_WORLD_HEIGHT);
+  // The identity baseline keeps the authored world center (exact identity);
+  // taller viewports center the stretched board on the band.
+  const originY = Math.max(BOARD_WORLD_CENTER_Y, BAND_TOP + bandHeight / 2);
 
-function createIdentityLayout(battlefieldId: BattlefieldId): BoardLayout {
   const layout: BoardLayout = {
     battlefieldId,
     isDimetric: false,
     originX: BOARD_WORLD_CENTER_X,
-    originY: BOARD_WORLD_CENTER_Y,
+    originY,
     scale: 1,
-    foreshorten: 1,
+    foreshorten: stretch,
     project(x, y) {
-      return { u: x, v: y };
+      return { u: x, v: originY + (y - BOARD_WORLD_CENTER_Y) * stretch };
     },
     projectInto(x, y, out) {
       out.u = x;
-      out.v = y;
+      out.v = originY + (y - BOARD_WORLD_CENTER_Y) * stretch;
       return out;
     },
     unproject(u, v) {
-      return { x: u, y: v };
+      return {
+        x: u,
+        y: BOARD_WORLD_CENTER_Y + (v - originY) / stretch,
+      };
     },
     verticalScale() {
-      return 1;
+      return stretch;
     },
     gameplayDepth(kind) {
       return LEGACY_DEPTH[kind];
@@ -308,19 +335,15 @@ const OVERLAY_DEPTH_MAP: Readonly<Record<number, number>> = Object.freeze({
 });
 
 /**
- * Resolves the board layout for a battlefield. Identity layouts are cached
- * (they depend only on the battlefield id); dimetric layouts depend on the
- * visible height and are built per scene instance.
+ * Resolves the board layout for a battlefield. Both layout styles depend on
+ * the visible height and are built per scene instance: dimetric boards fill
+ * the portrait band up to the width cap, identity (un-migrated) boards
+ * stretch the flat map to fill the band (exact identity at the 720
+ * baseline).
  */
 export function createBoardLayout(battlefieldId: BattlefieldId, visibleHeight: number): BoardLayout {
   if (!isDimetricBattlefield(battlefieldId)) {
-    const cacheKey = battlefieldId as string;
-    let cached = IDENTITY_LAYOUT_CACHE.get(cacheKey);
-    if (!cached) {
-      cached = createIdentityLayout(battlefieldId);
-      IDENTITY_LAYOUT_CACHE.set(cacheKey, cached);
-    }
-    return cached;
+    return createStretchedIdentityLayout(battlefieldId, visibleHeight);
   }
   return createDimetricLayout(battlefieldId, visibleHeight);
 }

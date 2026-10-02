@@ -1051,7 +1051,18 @@ export class GameScene extends Phaser.Scene {
         18 * layout.scale
       );
     } else {
-      fieldGraphics.fillRoundedRect(10, 78, LOGICAL_WIDTH - 20, visibleHeight - 98, 18);
+      // The flat board's panel anchors to the authored world rect
+      // (10..390 x 78..700) and stretches with the projection on tall
+      // viewports (identity at 720: 10, 78, 380, 622 — pixel-identical).
+      const panelTop = project(10, 78);
+      const panelBottom = project(390, 700);
+      fieldGraphics.fillRoundedRect(
+        panelTop.u,
+        panelTop.v,
+        panelBottom.u - panelTop.u,
+        panelBottom.v - panelTop.v,
+        18
+      );
     }
 
     // The rendered full-field ground plate (Blender-baked meadow, dirt roads
@@ -1351,36 +1362,51 @@ export class GameScene extends Phaser.Scene {
         (t) => t.owner === 'neutral' && t.tier >= 2 && t.type === 'fortress'
       );
     if (centerTerr && this.battlefieldId !== 'crown_cross') {
+      // Ground circles foreshorten/stretch to ellipses through the board
+      // projection (identity at 720: exact circles).
+      const center = project(centerTerr.x, centerTerr.y);
       lanesGraphics.lineStyle(1.5, THEME.gold, 0.28);
-      lanesGraphics.strokeCircle(centerTerr.x, centerTerr.y, 58);
+      lanesGraphics.strokeEllipse(center.u, center.v, 116 * layout.scale, 116 * verticalScale);
       lanesGraphics.lineStyle(1, THEME.gold, 0.12);
-      lanesGraphics.strokeCircle(centerTerr.x, centerTerr.y, 68);
+      lanesGraphics.strokeEllipse(center.u, center.v, 136 * layout.scale, 136 * verticalScale);
     }
 
     // On the diorama board the extruded slab replaces the flat frame (the
     // plate's baked skirt is the arena edge); identity boards keep the
-    // legacy border + gold corner brackets. The brackets anchor to the
-    // visible height (top fixed, bottom following the viewport) so the
-    // frame never floats mid-panel on tall screens; at the 720 baseline
-    // the anchors are identical to the legacy LOGICAL_HEIGHT values.
+    // legacy border + gold corner brackets, drawn in world coordinates
+    // through the projection so the frame stretches with the whole map on
+    // tall viewports (identity at 720: the legacy LOGICAL_HEIGHT anchors).
     if (!layout.isDimetric) {
       const border = this.trackArenaVisual(this.add.graphics().setDepth(3));
       border.lineStyle(1.5, 0x475569, 0.66);
-      border.strokeRoundedRect(8, 76, LOGICAL_WIDTH - 16, visibleHeight - 128, 16);
+      const frameTopLeft = project(8, 76);
+      const frameBottomRight = project(392, 668);
+      border.strokeRoundedRect(
+        frameTopLeft.u,
+        frameTopLeft.v,
+        frameBottomRight.u - frameTopLeft.u,
+        frameBottomRight.v - frameTopLeft.v,
+        16
+      );
       border.lineStyle(3, THEME.gold, 0.58);
       const cornerLength = 22;
       const left = 12;
       const right = LOGICAL_WIDTH - 12;
       const top = 80;
-      const bottom = visibleHeight - 56;
-      border.lineBetween(left, top + cornerLength, left, top);
-      border.lineBetween(left, top, left + cornerLength, top);
-      border.lineBetween(right - cornerLength, top, right, top);
-      border.lineBetween(right, top, right, top + cornerLength);
-      border.lineBetween(left, bottom - cornerLength, left, bottom);
-      border.lineBetween(left, bottom, left + cornerLength, bottom);
-      border.lineBetween(right - cornerLength, bottom, right, bottom);
-      border.lineBetween(right, bottom, right, bottom - cornerLength);
+      const bottom = 664;
+      const bracket = (x1: number, y1: number, x2: number, y2: number): void => {
+        const a = project(x1, y1);
+        const b = project(x2, y2);
+        border.lineBetween(a.u, a.v, b.u, b.v);
+      };
+      bracket(left, top + cornerLength, left, top);
+      bracket(left, top, left + cornerLength, top);
+      bracket(right - cornerLength, top, right, top);
+      bracket(right, top, right, top + cornerLength);
+      bracket(left, bottom - cornerLength, left, bottom);
+      bracket(left, bottom, left + cornerLength, bottom);
+      bracket(right - cornerLength, bottom, right, bottom);
+      bracket(right, bottom, right, bottom - cornerLength);
     }
   }
 

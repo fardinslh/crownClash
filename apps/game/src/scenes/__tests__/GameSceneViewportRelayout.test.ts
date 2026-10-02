@@ -581,7 +581,7 @@ describe('GameScene viewport relayout (map uses the live mobile height)', () => 
     expect(sceneAny['bottomHintText'].y).toBe(848);
   });
 
-  it('keeps flat-board world coordinates but re-dresses the arena on tall viewports', () => {
+  it('stretches the whole flat map to fill a taller viewport (world coordinates preserved)', () => {
     const scene = createGameScene('twin_passes');
     const containersBefore = new Map(
       [...territoryContainersOf(scene).entries()].map(([id, vis]) => [id, { ...vis.container }])
@@ -596,21 +596,47 @@ describe('GameScene viewport relayout (map uses the live mobile height)', () => 
     // The rebuild covers the whole dressing stack once: no prop-layer
     // duplication (count matches the create-time count).
     expect(arenaVisualsOf(scene).length).toBe(arenaCountAtCreate);
-    // Identity layouts project 1:1: platforms keep their world coordinates;
-    // camera centering owns the vertical placement.
-    for (const [id, vis] of territoryContainersOf(scene).entries()) {
-      expect(vis.container.x).toBe(containersBefore.get(id)!.x);
-      expect(vis.container.y).toBe(containersBefore.get(id)!.y);
-    }
 
-    // The team light pools anchor to the projected bases, not the viewport
-    // chrome: the player pool stays on the p_base socket at (200, 610)
-    // instead of drifting to visibleHeight - 70 = 796.
+    // The whole flat map stretches vertically onto the taller band: platforms
+    // follow the stretched projection, and screen points round-trip back to
+    // the authoritative flat world (hit radii stay correct).
+    const tallLayout = createBoardLayout('twin_passes', 866);
+    const territories = (
+      scene as unknown as {
+        gameState: { territories: Record<string, { x: number; y: number }> };
+      }
+    ).gameState.territories;
+    expect(tallLayout.verticalScale()).toBeGreaterThan(1);
+    for (const [id, vis] of territoryContainersOf(scene).entries()) {
+      const territory = territories[id];
+      const anchor = tallLayout.project(territory.x, territory.y);
+      expect(vis.container.x).toBeCloseTo(anchor.u, 6);
+      expect(vis.container.y).toBeCloseTo(anchor.v, 6);
+      const world = tallLayout.unproject(vis.container.x, vis.container.y);
+      expect(world.x).toBeCloseTo(territory.x, 6);
+      expect(world.y).toBeCloseTo(territory.y, 6);
+    }
+    // The player base spreads down the stretched map (was authored at 610).
+    const playerBase = territoryContainersOf(scene).get('p_base');
+    expect(playerBase!.container.y).toBeGreaterThan(containersBefore.get('p_base')!.y);
+    // The board spans the visible portrait band, not just the authored 640.
+    const baseSpan =
+      territoryContainersOf(scene).get('p_base')!.container.y -
+      territoryContainersOf(scene).get('e_base')!.container.y;
+    expect(baseSpan).toBeGreaterThan(500);
+
+    // The team light pools anchor to the projected bases and stretch with
+    // the ground plane: the player pool sits on the stretched p_base socket
+    // (290 logical px tall -> 290 * verticalScale on the stretched board).
+    const playerPoolAnchor = tallLayout.project(200, 610);
+    const playerPoolHeight = 290 * tallLayout.verticalScale();
     const pooled = (scene.children.list as unknown as TrackedObject[]).filter(
-      (obj) => obj.x === 200 && obj.height === 290
+      (obj) =>
+        obj.x === 200 &&
+        Math.abs(obj.y - playerPoolAnchor.v) < 0.5 &&
+        Math.abs(obj.height - playerPoolHeight) < 0.5
     );
     expect(pooled.length).toBeGreaterThanOrEqual(1);
-    expect(pooled.every((obj) => obj.y === 610)).toBe(true);
 
     const sceneAny = scene as unknown as Record<string, TrackedObject>;
     expect(sceneAny['bottomBarBg'].y).toBe(838);

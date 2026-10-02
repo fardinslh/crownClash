@@ -48,8 +48,44 @@ describe('boardProjection identity layouts', () => {
     expect(layout.overlayDepth(31)).toBe(31);
   });
 
-  it('identity layout instances are cached per battlefield', () => {
-    expect(createBoardLayout('royal_ring', 720)).toBe(createBoardLayout('royal_ring', 840));
+  it('identity layouts are exact at the 720 baseline and stretch to fill taller viewports', () => {
+    // Baseline (and any shorter viewport): the exact identity transform —
+    // un-migrated maps render pixel-identical to the flat board.
+    const base = createBoardLayout('royal_ring', 720);
+    expect(base.scale).toBe(1);
+    expect(base.verticalScale()).toBe(1);
+    expect(base.project(123, 456)).toEqual({ u: 123, v: 456 });
+    expect(createBoardLayout('twin_passes', 700).project(123, 456)).toEqual({ u: 123, v: 456 });
+
+    // Taller viewport: the whole flat map stretches vertically to fill the
+    // portrait band — u is untouched, v spreads, and unproject round-trips
+    // onto the authoritative flat world (hit radii stay correct).
+    const tall = createBoardLayout('royal_ring', 866);
+    expect(tall.scale).toBe(1);
+    expect(tall.verticalScale()).toBeGreaterThan(1);
+    for (const [x, y] of [
+      [10, 78],
+      [390, 718],
+      [200, 110],
+      [200, 610],
+    ] as const) {
+      const point = tall.project(x, y);
+      expect(point.u).toBe(x);
+      const roundTrip = tall.unproject(point.u, point.v);
+      expect(roundTrip.x).toBeCloseTo(x, 9);
+      expect(roundTrip.y).toBeCloseTo(y, 9);
+    }
+
+    // The stretched world rect fills the visible portrait band (the whole
+    // map spans the height instead of leaving dead space under the board).
+    const bandTop = tall.project(BOARD_WORLD_CENTER_X, BOARD_WORLD_TOP).v;
+    const bandBottom = tall.project(
+      BOARD_WORLD_CENTER_X,
+      BOARD_WORLD_TOP + BOARD_WORLD_HEIGHT
+    ).v;
+    expect(bandTop).toBeGreaterThanOrEqual(76);
+    expect(bandBottom).toBeLessThanOrEqual(866 - 40);
+    expect(bandBottom - bandTop).toBeGreaterThan(BOARD_WORLD_HEIGHT);
   });
 });
 

@@ -1,4 +1,4 @@
-import { LOGICAL_HEIGHT, type BattlefieldMotif } from '@crown-clash/game-core';
+import type { BattlefieldMotif } from '@crown-clash/game-core';
 
 /**
  * Vertical placement for the training instruction strip.
@@ -71,27 +71,23 @@ export type ArenaTerrainLayer =
  * make the maps feel like miniature places at phone size while preserving the
  * hierarchy of roads, ownership rings, and unit badges above them.
  *
- * Tall viewports: the flat board is top-anchored (camera scrollY is 0), so
- * the portrait surplus appears BELOW the authored 400x720 field. The
- * field-spanning plates extend into it — authored top edge fixed, bottom
- * edge extended by the surplus — so the arena fills taller screens instead
- * of floating in an undressed panel. Interior accents (brooks, rings,
- * courts) stay centered on the board. At the 720 baseline the surplus is 0
- * and every form keeps its authored geometry exactly.
+ * Authored in flat world coordinates: taller viewports stretch the whole map
+ * through the board projection (see boardProjection.createStretchedIdentityLayout),
+ * so these plates fill the visible band by stretching with the board — never
+ * by extending past the authored 400x720 arena.
  */
 export function createBattlefieldTerrainLayers(
   motif: BattlefieldMotif,
-  visibleHeight: number
+  _visibleHeight: number
 ): readonly ArenaTerrainLayer[] {
-  const surplus = Math.max(0, visibleHeight - LOGICAL_HEIGHT);
   if (motif === 'twin_passes') {
     // Highland pasture shelves frame a cold ravine: dark tree-lines flank the
     // pass, a brook threads the middle, and rocky crags guard the corners.
     // The safe middle stays open for the pass's important vertical routes.
     return [
-      { kind: 'roundedRect', x: 88, y: 376 + surplus / 2, width: 142, height: 558 + surplus, radius: 42, color: 0x1e4432, alpha: 0.72, strokeColor: 0x4e8a62, strokeAlpha: 0.22 },
-      { kind: 'roundedRect', x: 312, y: 376 + surplus / 2, width: 142, height: 558 + surplus, radius: 42, color: 0x1e4432, alpha: 0.72, strokeColor: 0x4e8a62, strokeAlpha: 0.22 },
-      { kind: 'roundedRect', x: 200, y: 376 + surplus / 2, width: 76, height: 506 + surplus, radius: 32, color: 0x14352a, alpha: 0.86, strokeColor: 0x3e8056, strokeAlpha: 0.2 },
+      { kind: 'roundedRect', x: 88, y: 376, width: 142, height: 558, radius: 42, color: 0x1e4432, alpha: 0.72, strokeColor: 0x4e8a62, strokeAlpha: 0.22 },
+      { kind: 'roundedRect', x: 312, y: 376, width: 142, height: 558, radius: 42, color: 0x1e4432, alpha: 0.72, strokeColor: 0x4e8a62, strokeAlpha: 0.22 },
+      { kind: 'roundedRect', x: 200, y: 376, width: 76, height: 506, radius: 32, color: 0x14352a, alpha: 0.86, strokeColor: 0x3e8056, strokeAlpha: 0.2 },
       { kind: 'ellipse', x: 200, y: 376, width: 44, height: 430, color: 0x2f92a3, alpha: 0.13, strokeColor: 0x79d7e4, strokeAlpha: 0.16 },
       { kind: 'triangle', x1: 18, y1: 190, x2: 78, y2: 112, x3: 138, y3: 190, color: 0x4c7057, alpha: 0.32 },
       { kind: 'triangle', x1: 262, y1: 190, x2: 322, y2: 112, x3: 382, y3: 190, color: 0x4c7057, alpha: 0.32 },
@@ -104,10 +100,10 @@ export function createBattlefieldTerrainLayers(
     // A manicured palace lawn: nested hedged courts with gold trim make the
     // radial topology read as an intentional ceremonial garden arena.
     return [
-      { kind: 'roundedRect', x: 200, y: 376 + surplus / 2, width: 356, height: 558 + surplus, radius: 46, color: 0x235640, alpha: 0.8, strokeColor: 0xc9a961, strokeAlpha: 0.18 },
+      { kind: 'roundedRect', x: 200, y: 376, width: 356, height: 558, radius: 46, color: 0x235640, alpha: 0.8, strokeColor: 0xc9a961, strokeAlpha: 0.18 },
       { kind: 'ellipse', x: 200, y: 360, width: 274, height: 354, color: 0x31714e, alpha: 0.17, strokeColor: 0xe3c87a, strokeAlpha: 0.22 },
       { kind: 'ellipse', x: 200, y: 360, width: 186, height: 244, color: 0x1d4a34, alpha: 0.78, strokeColor: 0xa78bfa, strokeAlpha: 0.22 },
-      { kind: 'roundedRect', x: 200, y: 376 + surplus / 2, width: 78, height: 492 + surplus, radius: 28, color: 0x355f45, alpha: 0.42, strokeColor: 0xe7cc87, strokeAlpha: 0.12 },
+      { kind: 'roundedRect', x: 200, y: 376, width: 78, height: 492, radius: 28, color: 0x355f45, alpha: 0.42, strokeColor: 0xe7cc87, strokeAlpha: 0.12 },
       { kind: 'ellipse', x: 74, y: 192, width: 72, height: 110, color: 0x9e6d53, alpha: 0.12 },
       { kind: 'ellipse', x: 326, y: 552, width: 72, height: 110, color: 0x9e6d53, alpha: 0.12 },
     ];
@@ -122,7 +118,7 @@ export function createBattlefieldTerrainLayers(
       { kind: 'roundedRect', x: 112, y: 500, width: 166, height: 188, radius: 34, color: 0x4c4232, alpha: 0.68, strokeColor: 0x8a744e, strokeAlpha: 0.18 },
       { kind: 'roundedRect', x: 288, y: 500, width: 166, height: 188, radius: 34, color: 0x4c4232, alpha: 0.68, strokeColor: 0x8a744e, strokeAlpha: 0.18 },
       { kind: 'ellipse', x: 200, y: 360, width: 178, height: 166, color: 0x2f5236, alpha: 0.34, strokeColor: 0x9ab07a, strokeAlpha: 0.19 },
-      { kind: 'roundedRect', x: 200, y: 360 + surplus / 2, width: 86, height: 506 + surplus, radius: 20, color: 0x33402a, alpha: 0.72 },
+      { kind: 'roundedRect', x: 200, y: 360, width: 86, height: 506, radius: 20, color: 0x33402a, alpha: 0.72 },
       { kind: 'triangle', x1: 22, y1: 334, x2: 74, y2: 360, x3: 22, y3: 386, color: 0x7f6250, alpha: 0.2 },
       { kind: 'triangle', x1: 378, y1: 334, x2: 326, y2: 360, x3: 378, y3: 386, color: 0x7f6250, alpha: 0.2 },
     ];
@@ -131,7 +127,7 @@ export function createBattlefieldTerrainLayers(
   // Crown Cross: quiet royal meadow with one worn central green; bright
   // courts and wide gold lanes hid the buildings and were rejected in review.
   return [
-    { kind: 'roundedRect', x: 200, y: 376 + surplus / 2, width: 356, height: 558 + surplus, radius: 46, color: 0x224b33, alpha: 0.78, strokeColor: 0x6fa383, strokeAlpha: 0.12 },
+    { kind: 'roundedRect', x: 200, y: 376, width: 356, height: 558, radius: 46, color: 0x224b33, alpha: 0.78, strokeColor: 0x6fa383, strokeAlpha: 0.12 },
     { kind: 'ellipse', x: 200, y: 360, width: 136, height: 136, color: 0x397550, alpha: 0.36, strokeColor: 0x8fb898, strokeAlpha: 0.15 },
   ];
 }
@@ -148,10 +144,7 @@ export function createBattlefieldDecorations(
   visibleHeight: number
 ): readonly ArenaDecoration[] {
   const top = 88;
-  // The dressing band anchors to the visible field panel bottom (mirroring
-  // the identity border brackets): exactly the legacy 664 at the 720
-  // baseline, and spanning the portrait surplus on taller screens.
-  const bottom = visibleHeight - 56;
+  const bottom = Math.min(664, visibleHeight - 30);
 
   if (motif === 'twin_passes') {
     // Two fortified corridors (the passes) with a quiet meadow column
