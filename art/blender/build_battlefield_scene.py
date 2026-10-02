@@ -72,6 +72,10 @@ WORLD_AMBIENT_COLOR = (0x16 / 255, 0x1B / 255, 0x26 / 255)  # slate #161B26
 WORLD_AMBIENT_STRENGTH = 0.28
 
 MASTER_RESOLUTION = 512
+# Ground plates cover the full 380x640-logical-px field rect, so their masters
+# render at 3x logical scale (1140x1920) and downscale into crisp 760x1280
+# runtime WebP textures (1:1 with logical px at DPR 2).
+GROUND_MASTER_RESOLUTION = (1140, 1920)
 
 # Art Bible palette (linear-ish sRGB hex -> normalized RGB)
 PALETTE = {
@@ -1534,6 +1538,96 @@ def build_cross_stable(palette, owner):
     kit.stable(kit.bmats(owner, make_material), make_material)
 
 
+# Per-map themed fortresses: the same architecture family built from each
+# battlefield's local materials (granite, palace limestone, war-camp timber),
+# with a per-map signature (crag rings, gold ornament, palisade rings).
+def build_highland_citadel(palette, owner):
+    kit = load_cross_kit()
+    kit.citadel(kit.bmats(owner, make_material, 'twin_passes'), make_material, 'twin_passes')
+
+
+def build_highland_keep(palette, owner):
+    kit = load_cross_kit()
+    kit.keep(kit.bmats(owner, make_material, 'twin_passes'), make_material, 'twin_passes')
+
+
+def build_highland_outpost(palette, owner):
+    kit = load_cross_kit()
+    kit.outpost(kit.bmats(owner, make_material, 'twin_passes'), make_material, 'twin_passes')
+
+
+def build_highland_barracks(palette, owner):
+    kit = load_cross_kit()
+    kit.barracks(kit.bmats(owner, make_material, 'twin_passes'), make_material, 'twin_passes')
+
+
+def build_highland_stable(palette, owner):
+    kit = load_cross_kit()
+    kit.stable(kit.bmats(owner, make_material, 'twin_passes'), make_material, 'twin_passes')
+
+
+def build_palace_citadel(palette, owner):
+    kit = load_cross_kit()
+    kit.citadel(kit.bmats(owner, make_material, 'royal_ring'), make_material, 'royal_ring')
+
+
+def build_palace_keep(palette, owner):
+    kit = load_cross_kit()
+    kit.keep(kit.bmats(owner, make_material, 'royal_ring'), make_material, 'royal_ring')
+
+
+def build_palace_outpost(palette, owner):
+    kit = load_cross_kit()
+    kit.outpost(kit.bmats(owner, make_material, 'royal_ring'), make_material, 'royal_ring')
+
+
+def build_palace_barracks(palette, owner):
+    kit = load_cross_kit()
+    kit.barracks(kit.bmats(owner, make_material, 'royal_ring'), make_material, 'royal_ring')
+
+
+def build_palace_stable(palette, owner):
+    kit = load_cross_kit()
+    kit.stable(kit.bmats(owner, make_material, 'royal_ring'), make_material, 'royal_ring')
+
+
+def build_warcamp_citadel(palette, owner):
+    kit = load_cross_kit()
+    kit.citadel(kit.bmats(owner, make_material, 'quad_citadel'), make_material, 'quad_citadel')
+
+
+def build_warcamp_keep(palette, owner):
+    kit = load_cross_kit()
+    kit.keep(kit.bmats(owner, make_material, 'quad_citadel'), make_material, 'quad_citadel')
+
+
+def build_warcamp_outpost(palette, owner):
+    kit = load_cross_kit()
+    kit.outpost(kit.bmats(owner, make_material, 'quad_citadel'), make_material, 'quad_citadel')
+
+
+def build_warcamp_barracks(palette, owner):
+    kit = load_cross_kit()
+    kit.barracks(kit.bmats(owner, make_material, 'quad_citadel'), make_material, 'quad_citadel')
+
+
+def build_warcamp_stable(palette, owner):
+    kit = load_cross_kit()
+    kit.stable(kit.bmats(owner, make_material, 'quad_citadel'), make_material, 'quad_citadel')
+
+
+def _is_kit_builder(name):
+    """True for builders rendered from crown_cross_kit: the cross_* fortress
+    family, its per-map themed variants, and the shared prop kit. All write
+    the kit's VerticalShade attribute themselves and bake their own tight
+    contact shadows."""
+    return (name.startswith("build_cross_")
+            or name.startswith("build_highland_")
+            or name.startswith("build_palace_")
+            or name.startswith("build_warcamp_")
+            or name.startswith("build_prop_"))
+
+
 # Shared environment props (grass, trees, rocks) live in the same kit and are
 # rendered through the same rig for every battlefield's prop layer.
 def build_prop_tree_birch(palette, owner):
@@ -1564,6 +1658,25 @@ def build_prop_grass_tuft(palette, owner):
 def build_prop_rock(palette, owner):
     kit = load_cross_kit()
     kit.rock(kit.tmats(make_material), make_material)
+
+
+# Rendered full-field ground plates. One per battlefield: the kit reads the
+# authoritative battlefields.json (road corridors, socket positions, palette)
+# and bakes the meadow into a 380x640-logical-px texture.
+def build_ground_crown_cross(palette, owner):
+    load_cross_kit().ground_plate('crown_cross', make_material)
+
+
+def build_ground_twin_passes(palette, owner):
+    load_cross_kit().ground_plate('twin_passes', make_material)
+
+
+def build_ground_royal_ring(palette, owner):
+    load_cross_kit().ground_plate('royal_ring', make_material)
+
+
+def build_ground_quad_citadel(palette, owner):
+    load_cross_kit().ground_plate('quad_citadel', make_material)
 
 
 BUILDERS = {
@@ -1597,12 +1710,31 @@ BUILDERS = {
     "build_cross_outpost": build_cross_outpost,
     "build_cross_barracks": build_cross_barracks,
     "build_cross_stable": build_cross_stable,
+    "build_highland_citadel": build_highland_citadel,
+    "build_highland_keep": build_highland_keep,
+    "build_highland_outpost": build_highland_outpost,
+    "build_highland_barracks": build_highland_barracks,
+    "build_highland_stable": build_highland_stable,
+    "build_palace_citadel": build_palace_citadel,
+    "build_palace_keep": build_palace_keep,
+    "build_palace_outpost": build_palace_outpost,
+    "build_palace_barracks": build_palace_barracks,
+    "build_palace_stable": build_palace_stable,
+    "build_warcamp_citadel": build_warcamp_citadel,
+    "build_warcamp_keep": build_warcamp_keep,
+    "build_warcamp_outpost": build_warcamp_outpost,
+    "build_warcamp_barracks": build_warcamp_barracks,
+    "build_warcamp_stable": build_warcamp_stable,
     "build_prop_tree_birch": build_prop_tree_birch,
     "build_prop_tree_apple": build_prop_tree_apple,
     "build_prop_tree_pine": build_prop_tree_pine,
     "build_prop_bush": build_prop_bush,
     "build_prop_grass_tuft": build_prop_grass_tuft,
     "build_prop_rock": build_prop_rock,
+    "build_ground_crown_cross": build_ground_crown_cross,
+    "build_ground_twin_passes": build_ground_twin_passes,
+    "build_ground_royal_ring": build_ground_royal_ring,
+    "build_ground_quad_citadel": build_ground_quad_citadel,
 }
 
 ASSET_COLLECTION = {
@@ -1636,12 +1768,31 @@ ASSET_COLLECTION = {
     "build_cross_outpost": "CC_Structures",
     "build_cross_barracks": "CC_Structures",
     "build_cross_stable": "CC_Structures",
+    "build_highland_citadel": "CC_Structures",
+    "build_highland_keep": "CC_Structures",
+    "build_highland_outpost": "CC_Structures",
+    "build_highland_barracks": "CC_Structures",
+    "build_highland_stable": "CC_Structures",
+    "build_palace_citadel": "CC_Structures",
+    "build_palace_keep": "CC_Structures",
+    "build_palace_outpost": "CC_Structures",
+    "build_palace_barracks": "CC_Structures",
+    "build_palace_stable": "CC_Structures",
+    "build_warcamp_citadel": "CC_Structures",
+    "build_warcamp_keep": "CC_Structures",
+    "build_warcamp_outpost": "CC_Structures",
+    "build_warcamp_barracks": "CC_Structures",
+    "build_warcamp_stable": "CC_Structures",
     "build_prop_tree_birch": "CC_Props",
     "build_prop_tree_apple": "CC_Props",
     "build_prop_tree_pine": "CC_Props",
     "build_prop_bush": "CC_Props",
     "build_prop_grass_tuft": "CC_Props",
     "build_prop_rock": "CC_Props",
+    "build_ground_crown_cross": "CC_Terrain",
+    "build_ground_twin_passes": "CC_Terrain",
+    "build_ground_royal_ring": "CC_Terrain",
+    "build_ground_quad_citadel": "CC_Terrain",
 }
 
 # Per-builder framing for crown_cross sprites and shared props:
@@ -1654,6 +1805,21 @@ CAMERA_FRAMING = {
     "build_cross_outpost": (4.6, 1.30),
     "build_cross_barracks": (4.25, 0.70),
     "build_cross_stable": (4.25, 0.70),
+    "build_highland_citadel": (5.15, 1.10),
+    "build_highland_keep": (4.35, 0.85),
+    "build_highland_outpost": (4.6, 1.30),
+    "build_highland_barracks": (4.25, 0.70),
+    "build_highland_stable": (4.25, 0.70),
+    "build_palace_citadel": (5.15, 1.10),
+    "build_palace_keep": (4.35, 0.85),
+    "build_palace_outpost": (4.6, 1.30),
+    "build_palace_barracks": (4.25, 0.70),
+    "build_palace_stable": (4.25, 0.70),
+    "build_warcamp_citadel": (5.15, 1.10),
+    "build_warcamp_keep": (4.35, 0.85),
+    "build_warcamp_outpost": (4.6, 1.30),
+    "build_warcamp_barracks": (4.25, 0.70),
+    "build_warcamp_stable": (4.25, 0.70),
     "build_prop_tree_birch": (4.40, 1.95),
     "build_prop_tree_apple": (4.00, 1.60),
     "build_prop_tree_pine": (4.20, 1.80),
@@ -1705,6 +1871,38 @@ def build_camera():
     return cam_obj
 
 
+# ---------------------------------------------------------------------------
+# Ground-plate camera: straight top-down orthographic (the playfield plane),
+# distinct from the 55/45 dimetric sprite camera. The plate is the only asset
+# rendered this way; see ground_plate in crown_cross_kit.py.
+# ---------------------------------------------------------------------------
+
+# Orthographic distance is arbitrary (no perspective); 50 keeps the whole
+# plate and its scatter comfortably inside the rig's 0.1..100 clip range.
+GROUND_CAMERA_HEIGHT = 50.0
+# Blender maps ortho_scale onto the largest sensor axis; the 1140x1920 master
+# is portrait, so 640 spans the plate height and the width derives as
+# 640 * (1140 / 1920) = 380.
+GROUND_ORTHO_SCALE = 640.0
+
+
+def build_ground_camera():
+    import bpy
+    cam_data = bpy.data.cameras.new(name="CC_GroundCam")
+    cam_data.type = "ORTHO"
+    cam_data.ortho_scale = GROUND_ORTHO_SCALE
+    cam_data.clip_start = CAMERA_CLIP_START
+    cam_data.clip_end = CAMERA_CLIP_END
+    cam_obj = bpy.data.objects.new("CC_GroundCam", cam_data)
+    bpy.context.scene.collection.objects.link(cam_obj)
+    # Identity rotation: looks straight down -Z with image-up at world +Y,
+    # which is the plate's top edge (logical y = 78).
+    cam_obj.location = (0.0, 0.0, GROUND_CAMERA_HEIGHT)
+    cam_obj.rotation_euler = (0.0, 0.0, 0.0)
+    bpy.context.scene.camera = cam_obj
+    return cam_obj
+
+
 def build_lighting_rig():
     import bpy
 
@@ -1747,7 +1945,7 @@ def build_world():
     background.inputs[1].default_value = WORLD_AMBIENT_STRENGTH
 
 
-def configure_render(output_dir, transparent=True, samples=64):
+def configure_render(output_dir, transparent=True, samples=64, resolution=None):
     import bpy
     scene = bpy.context.scene
     scene.render.engine = "CYCLES"
@@ -1756,8 +1954,12 @@ def configure_render(output_dir, transparent=True, samples=64):
     scene.cycles.use_denoising = True
     scene.cycles.seed = 0                # fixed seed: identical output every run
     scene.cycles.use_animated_seed = False
-    scene.render.resolution_x = MASTER_RESOLUTION
-    scene.render.resolution_y = MASTER_RESOLUTION
+    if resolution is None:
+        scene.render.resolution_x = MASTER_RESOLUTION
+        scene.render.resolution_y = MASTER_RESOLUTION
+    else:
+        scene.render.resolution_x = resolution[0]
+        scene.render.resolution_y = resolution[1]
     scene.render.resolution_percentage = 100
     scene.render.film_transparent = transparent
     scene.render.image_settings.file_format = "PNG"
@@ -1817,10 +2019,18 @@ def build_asset(builder_name, owner):
     worlds, collections, or materials.
     """
     clear_default_scene()
-    build_camera()
-    build_lighting_rig()
-    build_world()
-    apply_camera_framing(builder_name)
+    if builder_name.startswith("build_ground_"):
+        # Ground plates render straight top-down across the whole field rect,
+        # so the dimetric sprite camera and its per-builder framing do not
+        # apply. Lighting and world stay identical (Art Bible rig).
+        build_ground_camera()
+        build_lighting_rig()
+        build_world()
+    else:
+        build_camera()
+        build_lighting_rig()
+        build_world()
+        apply_camera_framing(builder_name)
     for collection_name in COLLECTIONS:
         link_to_collection(collection_name)
     palette = material_palette()
@@ -1830,17 +2040,18 @@ def build_asset(builder_name, owner):
     # the VerticalShade attribute must be written here for every mesh — a
     # missing attribute renders solid black through the gradient multiply.
     # Idempotent for rig-built meshes (e.g. build_pennant) that already carry it.
-    if builder_name.startswith("build_cross_") or builder_name.startswith("build_prop_"):
+    if _is_kit_builder(builder_name):
         import bpy
         for obj in bpy.data.objects:
             if obj.type == "MESH":
                 shade_vertical_gradient(obj)
-    # The semi-realistic crown_cross kit and the shared prop kit bake their own
-    # tight contact shadows (see crown_cross_kit.contact_disc): the rig's wide
-    # 1.75-radius blob reads as mud under buildings at sprite size. Other
-    # packs keep their approved baked shadow.
-    if not (builder_name.startswith("build_cross_") or builder_name.startswith("build_prop_")
-            or builder_name == "build_pennant"):
+    # The semi-realistic crown_cross kit (and its per-map themed variants plus
+    # the shared prop kit) bake their own tight contact shadows (see
+    # crown_cross_kit.contact_disc): the rig's wide 1.75-radius blob reads as
+    # mud under buildings at sprite size. Ground plates are full-field surfaces
+    # and never take a contact shadow. Other packs keep their baked shadow.
+    if not (_is_kit_builder(builder_name)
+            or builder_name.startswith("build_ground_") or builder_name == "build_pennant"):
         ground = make_contact_shadow()
         if ground is not None:
             move_to_collection(ground, "CC_Shadows")
@@ -1866,9 +2077,9 @@ def make_contact_shadow():
     return shadow
 
 
-def render_asset(output_dir, asset_name, samples, transparent):
+def render_asset(output_dir, asset_name, samples, transparent, resolution=None):
     import bpy
-    configure_render(output_dir, transparent=transparent, samples=samples)
+    configure_render(output_dir, transparent=transparent, samples=samples, resolution=resolution)
     bpy.context.scene.render.filepath = os.path.join(output_dir, f"{asset_name}.png")
     bpy.ops.render.render(write_still=True)
 
@@ -1884,10 +2095,12 @@ def main(argv):
 
     for render_name, builder_name, owner in assets:
         build_asset(builder_name, owner)
-        render_asset(args.output, render_name, samples=args.samples, transparent=not args.opaque)
+        resolution = GROUND_MASTER_RESOLUTION if builder_name.startswith("build_ground_") else None
+        render_asset(args.output, render_name, samples=args.samples,
+                     transparent=not args.opaque, resolution=resolution)
         print(f"[crown-clash] rendered {render_name} -> {args.output}/{render_name}.png")
 
-    print(f"[crown-clash] done: {len(assets)} master render(s) at {MASTER_RESOLUTION}x{MASTER_RESOLUTION}")
+    print(f"[crown-clash] done: {len(assets)} master render(s)")
 
 
 if __name__ == "__main__":

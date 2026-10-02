@@ -54,21 +54,30 @@ reference an unloaded texture.
   `scripts/generate-arena-props.mjs` against the canonical geometry and validated
   by `BattlefieldArt.test.ts` (clear of sockets, roads, frame; trees edge-only).
 - **twin_passes dedicated pack** (`assets/territories/twin_passes/`, WebP, active):
-  fortified mountain-passes kit — stepped crag citadels with round bastions,
-  gatehouse keeps straddling the pass, square crenellated watchtowers on rock
-  plinths, crag-slab barracks roofs, and timber stables leaning on a rock wall.
-  Ownership accents: blue/red/gray banners, beacons, roofs, and awnings.
+  the Crown Cross architecture family in **highland granite** — rough granite walls,
+  pale schist trim, heavy oak lintels, and a jittered crag-stone ring around every
+  base (`build_highland_*` themed builders).
 - **royal_ring dedicated pack** (`assets/territories/royal_ring/`, WebP, active):
-  prestigious royal-arena kit — circular marble plinths with gold trim, dark
-  polished keeps with team drum bands, gold-crowned sentry towers, marble
-  guardhouses with polished pillars, and round-roofed cavalry pavilions.
-  Ownership accents: blue/red/gray drum bands, banners, stripes, and pavilion rims.
+  the same family in **palace limestone** — cream limestone walls, pale marble trim,
+  polished iron, and gold ornament (gate keystones, parapet caps, collar bands,
+  taller crown points) (`build_palace_*` themed builders).
 - **quad_citadel dedicated pack** (`assets/territories/quad_citadel/`, WebP, active):
-  border-war camp kit — iron-banded timber keeps with canvas turrets and
-  gold-capped posts, octagonal palisade muster rings with team-dyed command
-  tents, square palisade watchtowers under canvas canopies, long war-tent
-  barracks, and covered war-wagon stables. Ownership accents: blue/red/gray
-  canvas roofs, awnings, tents, and banners.
+  the same family in **war-camp timber** — dark timber walls, aged wood trim, canvas
+  and hay, matte-iron banding, and a pointed-log palisade ring around every base
+  (`build_warcamp_*` themed builders).
+- **grounds shared pack** (`assets/grounds/`, WebP, `spriteKind: "ground"`, active):
+  one rendered full-field ground plate per battlefield (760×1280, 380×640 logical
+  px, 1:1 at 2× DPR), rendered straight top-down from the authoritative
+  `battlefields.json` geometry — baked dirt roads with organic edges, AO ground
+  sockets, per-map identity (crown mow rings and worn court, twin brook and crags,
+  royal gravel courts and hedge ring, quad dirt camps), 3D micro-relief dunes and
+  clustered grass/flower/pebble scatter. `getArenaGroundSprite` resolves the plate;
+  when the pack is inactive or the plate is missing, GameScene falls back to the
+  flat vector ground. Render/optimize:
+  `tools/blender/render_battlefield.sh grounds` then
+  `tools/blender/optimize_outputs.sh art/blender/renders/grounds grounds`.
+  Ground masters are 1140×1920 (the ground camera branch of
+  `build_battlefield_scene.py`), and one plate must stay < 128KB.
 
 Every dedicated key gets its own file — no aliases. A test fails if a pack is
 activated before all of its optimized files exist, or if two dedicated packs ship
@@ -195,9 +204,11 @@ or materials.
 ## Runtime asset rules
 
 - Masters: 512×512 RGBA PNG (transparent film), always written by the builder.
+  Ground plate masters: 1140×1920 PNG (straight top-down ground camera).
 - Runtime: WebP with alpha (dedicated packs) or PNG (generic pack); 128×128 for
-  tiers 1–2, 160×160 for tier 3; keep each territory sprite < 80 KB and the
-  per-battlefield pack < 500 KB (enforced by tests).
+  tiers 1–2, 160×160 for tier 3; ground plates 760×1280. Keep each territory
+  sprite < 80 KB, each ground plate < 128 KB, and the per-battlefield runtime set
+  (sprites + its ground plate) < 500 KB (enforced by tests).
 - If a texture file is missing or fails to load, GameScene falls back to a procedural
   texture (`createProceduralTerritoryFallbackTexture`); the game must never render
   broken/black sprites.

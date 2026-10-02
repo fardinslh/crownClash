@@ -12,8 +12,10 @@ import {
   blenderMasterPath,
   battlefieldIdFromLaunchData,
   createProceduralTerritoryFallbackTexture,
+  getArenaGroundSprite,
   getArenaPropPositions,
   getBattlefieldRuntimeAssets,
+  GROUND_TEXTURE_KEYS,
   listEnvironmentPropSpritePaths,
   listRuntimeSpritePaths,
   PROCEDURAL_FALLBACK_KEYS,
@@ -101,8 +103,16 @@ describe('canonical runtime asset manifest', () => {
         // Runtime filename and path agree with each other and the pack format.
         expect(sprite.runtimeFilename.endsWith(`.${pack.runtimeFormat}`)).toBe(true);
         expect(sprite.runtimePath).toBe(`${pack.packDirectory}/${sprite.runtimeFilename}`);
-        // Target size is a sane power-of-two-ish runtime dimension.
-        expect([64, 96, 128, 160, 256]).toContain(sprite.targetSize);
+        if (pack.spriteKind === 'ground') {
+          // Ground plates are full-field non-square plates: the optimizer
+          // resizes through the explicit targetWidth/targetHeight pair.
+          expect(sprite.targetWidth, `${packId}/${textureKey} ground targetWidth`).toBeGreaterThan(0);
+          expect(sprite.targetHeight, `${packId}/${textureKey} ground targetHeight`).toBeGreaterThan(0);
+          expect(sprite.targetSize, `${packId}/${textureKey} ground targetSize`).toBe(sprite.targetHeight);
+        } else {
+          // Target size is a sane power-of-two-ish runtime dimension.
+          expect([64, 96, 128, 160, 256]).toContain(sprite.targetSize);
+        }
         // The Blender builder referenced by the manifest exists in the scene
         // builder script, and render names stay unique per pack (a duplicate
         // would silently overwrite another master).
@@ -125,8 +135,10 @@ describe('canonical runtime asset manifest', () => {
   it('declares every texture key the resolver can emit, in every pack of its kind', () => {
     const territoryKeys = new Set(TERRITORY_TEXTURE_KEYS);
     const propKeys = new Set(PROP_TEXTURE_KEYS);
+    const groundKeys = new Set(GROUND_TEXTURE_KEYS);
     for (const [packId, pack] of Object.entries(ASSET_MANIFEST.packs)) {
-      const expected = pack.spriteKind === 'prop' ? propKeys : territoryKeys;
+      const expected =
+        pack.spriteKind === 'prop' ? propKeys : pack.spriteKind === 'ground' ? groundKeys : territoryKeys;
       expect(
         Object.keys(pack.sprites).sort(),
         `pack ${packId} must cover exactly its kind's keys`
@@ -148,10 +160,20 @@ describe('canonical runtime asset manifest', () => {
         expect(fs.existsSync(absolute), `active pack ${packId} is missing runtime file ${runtimePath}`).toBe(true);
         const image = readRuntimeImageDimensions(absolute);
         const entry = Object.values(pack.sprites).find((sprite) => sprite.runtimePath === runtimePath)!;
-        expect(image.width, `${runtimePath} width`).toBe(entry.targetSize);
-        expect(image.height, `${runtimePath} height`).toBe(entry.targetSize);
-        // Art Bible section 14: keep each territory sprite under 80 KB.
-        expect(image.bytes, `${runtimePath} exceeds the 80KB budget`).toBeLessThan(80 * 1024);
+        if (pack.spriteKind === 'ground') {
+          // Ground plates are non-square: width/height must match the
+          // manifest's targetWidth/targetHeight pair exactly.
+          expect(image.width, `${runtimePath} width`).toBe(entry.targetWidth);
+          expect(image.height, `${runtimePath} height`).toBe(entry.targetHeight);
+        } else {
+          expect(image.width, `${runtimePath} width`).toBe(entry.targetSize);
+          expect(image.height, `${runtimePath} height`).toBe(entry.targetSize);
+        }
+        // Art Bible section 14 budgets: territory/prop sprites stay under
+        // 80KB; a full-field ground plate is the whole arena in one file, so
+        // it gets the plate budget (one plate loads per match).
+        const byteBudget = pack.spriteKind === 'ground' ? 128 * 1024 : 80 * 1024;
+        expect(image.bytes, `${runtimePath} exceeds the budget`).toBeLessThan(byteBudget);
       }
     }
   });
@@ -193,6 +215,54 @@ describe('canonical runtime asset manifest', () => {
   });
 });
 
+describe('rendered ground plates', () => {
+  it('ships one non-square ground plate per battlefield at the manifest size and budget', () => {
+    const pack = ASSET_MANIFEST.packs['grounds'];
+    expect(pack).toBeDefined();
+    expect(pack!.spriteKind).toBe('ground');
+    expect(pack!.active).toBe(true);
+    expect(pack!.runtimeFormat).toBe('webp');
+    expect(Object.keys(pack!.sprites).sort()).toEqual([...GROUND_TEXTURE_KEYS].sort());
+    for (const [id, sprite] of Object.entries(pack!.sprites)) {
+      expect(sprite.runtimePath.startsWith('apps/game/public/assets/grounds/'), `${id} ground path`).toBe(true);
+      const absolute = path.join(REPO_ROOT, sprite.runtimePath);
+      expect(fs.existsSync(absolute), `missing ground plate ${sprite.runtimePath}`).toBe(true);
+      const image = readRuntimeImageDimensions(absolute);
+      expect(image.width, `${id} ground width`).toBe(sprite.targetWidth);
+      expect(image.height, `${id} ground height`).toBe(sprite.targetHeight);
+      // Full-field plate budget (Art Bible section 14): one plate loads per
+      // match, so the plate budget replaces the per-sprite 80KB rule.
+      expect(image.bytes, `${id} ground plate exceeds the 128KB plate budget`).toBeLessThan(128 * 1024);
+    }
+  });
+
+  it('resolves each battlefield ground plate with pack-namespaced texture keys', () => {
+    for (const battlefield of BATTLEFIELDS) {
+      const ground = getArenaGroundSprite(battlefield.id);
+      expect(ground, `${battlefield.id} ground plate`).not.toBeNull();
+      if (!ground) continue;
+      expect(ground.textureKey).toBe(`cc_ground_${battlefield.id}`);
+      expect(ground.path.startsWith('assets/grounds/'), `${battlefield.id} ground phaser path`).toBe(true);
+      expect(fs.existsSync(path.join(PUBLIC_DIR, ground.path)), `missing ${ground.path}`).toBe(true);
+    }
+    // Every battlefield renders its own field: distinct paths and texture keys.
+    const paths = BATTLEFIELDS.map((b) => getArenaGroundSprite(b.id)!.path);
+    expect(new Set(paths).size).toBe(paths.length);
+    const keys = BATTLEFIELDS.map((b) => getArenaGroundSprite(b.id)!.textureKey);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it('keeps the flat vector ground as the fallback when the plate is missing', () => {
+    const source = fs.readFileSync(path.resolve(__dirname, '../../scenes/GameScene.ts'), 'utf8');
+    // Preload resolves the plate through the manifest, the baked image only
+    // renders when the texture actually exists, and the vector ground layers
+    // stay as the no-plate fallback.
+    expect(source).toContain('getArenaGroundSprite');
+    expect(source).toContain('textures.exists');
+    expect(source).toContain('if (!ground)');
+  });
+});
+
 describe('battlefield preload through the manifest', () => {
   it('loads every battlefield through the manifest with complete owner variants', () => {
     for (const battlefield of BATTLEFIELDS) {
@@ -216,7 +286,15 @@ describe('battlefield preload through the manifest', () => {
           totalBytes += fs.statSync(absolute).size;
         }
       }
-      // Per-battlefield set budget (Art Bible section 14).
+      // Per-battlefield set budget (Art Bible section 14). The rendered ground
+      // plate ships with the same battlefield's match load, so it counts
+      // against the same 500KB.
+      const ground = getArenaGroundSprite(battlefield.id);
+      if (ground) {
+        const groundAbsolute = path.join(PUBLIC_DIR, ground.path);
+        expect(fs.existsSync(groundAbsolute), `missing ground plate ${ground.path}`).toBe(true);
+        totalBytes += fs.statSync(groundAbsolute).size;
+      }
       expect(totalBytes, `${battlefield.id} sprite set exceeds the 500KB budget`).toBeLessThan(500 * 1024);
     }
   });

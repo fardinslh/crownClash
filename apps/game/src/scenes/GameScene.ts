@@ -53,6 +53,7 @@ import {
   battlefieldIdFromLaunchData,
   createProceduralTerritoryFallbackTexture,
   drawSocketRimLight,
+  getArenaGroundSprite,
   getArenaPropPositions,
   listEnvironmentPropSpritePaths,
   listRuntimeSpritePaths,
@@ -330,6 +331,13 @@ export class GameScene extends Phaser.Scene {
     // behind territory platforms on every battlefield.
     for (const [textureKey, filePath] of Object.entries(listEnvironmentPropSpritePaths())) {
       this.load.image(arenaPropTextureKey(textureKey as ArenaPropKind), filePath);
+    }
+    // The battlefield's rendered full-field ground plate (optional: when the
+    // ground pack is inactive, createArenaBackground falls back to the flat
+    // vector ground).
+    const ground = getArenaGroundSprite(battlefieldId);
+    if (ground) {
+      this.load.image(ground.textureKey, ground.path);
     }
 
     // Load 2.5D Rendered Army Unit Sprites
@@ -781,122 +789,150 @@ export class GameScene extends Phaser.Scene {
     const fieldGraphics = this.add.graphics().setDepth(1);
     // A denser base lets the location-specific terrain read as a miniature
     // world, rather than a translucent panel floating over the app chrome.
+    // With a rendered ground plate it also sits underneath as the fallback
+    // colour the plate's bottom feather dissolves into on tall screens.
     fieldGraphics.fillStyle(arena.field, 0.9);
     fieldGraphics.fillRoundedRect(10, 78, LOGICAL_WIDTH - 20, visibleHeight - 98, 18);
 
+    // The rendered full-field ground plate (Blender-baked meadow, dirt roads
+    // and socket shading, 380x640 logical px, 1:1 with socket/road geometry).
+    // When it is unavailable (pack inactive or texture not loaded) the flat
+    // vector ground below still renders the battlefield complete. The texture
+    // manager guard is optional-chained because bare-instance unit tests call
+    // create() without booting Phaser's texture system.
+    const groundSprite = getArenaGroundSprite(this.battlefieldId);
+    const ground =
+      groundSprite && this.textures?.exists(groundSprite.textureKey) ? groundSprite : null;
+    if (ground) {
+      this.add
+        .image(LOGICAL_WIDTH / 2, 398, ground.textureKey)
+        .setDisplaySize(380, 640)
+        .setDepth(1);
+    }
+
     // Map-specific terrain is deliberately a single static Graphics layer:
     // richer ground composition at no runtime allocation or draw-object cost.
-    for (const layer of createBattlefieldTerrainLayers(arena.motif, visibleHeight)) {
-      if (layer.kind === 'roundedRect') {
-        fieldGraphics.fillStyle(layer.color, layer.alpha);
-        fieldGraphics.fillRoundedRect(
-          layer.x - layer.width / 2,
-          layer.y - layer.height / 2,
-          layer.width,
-          layer.height,
-          layer.radius
-        );
-        if (layer.strokeColor !== undefined && layer.strokeAlpha !== undefined) {
-          fieldGraphics.lineStyle(1.5, layer.strokeColor, layer.strokeAlpha);
-          fieldGraphics.strokeRoundedRect(
+    // The rendered ground plate already bakes this composition, so the vector
+    // layers only run on the fallback path.
+    if (!ground) {
+      for (const layer of createBattlefieldTerrainLayers(arena.motif, visibleHeight)) {
+        if (layer.kind === 'roundedRect') {
+          fieldGraphics.fillStyle(layer.color, layer.alpha);
+          fieldGraphics.fillRoundedRect(
             layer.x - layer.width / 2,
             layer.y - layer.height / 2,
             layer.width,
             layer.height,
             layer.radius
           );
+          if (layer.strokeColor !== undefined && layer.strokeAlpha !== undefined) {
+            fieldGraphics.lineStyle(1.5, layer.strokeColor, layer.strokeAlpha);
+            fieldGraphics.strokeRoundedRect(
+              layer.x - layer.width / 2,
+              layer.y - layer.height / 2,
+              layer.width,
+              layer.height,
+              layer.radius
+            );
+          }
+        } else if (layer.kind === 'ellipse') {
+          fieldGraphics.fillStyle(layer.color, layer.alpha);
+          fieldGraphics.fillEllipse(layer.x, layer.y, layer.width, layer.height);
+          if (layer.strokeColor !== undefined && layer.strokeAlpha !== undefined) {
+            fieldGraphics.lineStyle(1.5, layer.strokeColor, layer.strokeAlpha);
+            fieldGraphics.strokeEllipse(layer.x, layer.y, layer.width, layer.height);
+          }
+        } else {
+          fieldGraphics.fillStyle(layer.color, layer.alpha);
+          fieldGraphics.fillTriangle(layer.x1, layer.y1, layer.x2, layer.y2, layer.x3, layer.y3);
         }
-      } else if (layer.kind === 'ellipse') {
-        fieldGraphics.fillStyle(layer.color, layer.alpha);
-        fieldGraphics.fillEllipse(layer.x, layer.y, layer.width, layer.height);
-        if (layer.strokeColor !== undefined && layer.strokeAlpha !== undefined) {
-          fieldGraphics.lineStyle(1.5, layer.strokeColor, layer.strokeAlpha);
-          fieldGraphics.strokeEllipse(layer.x, layer.y, layer.width, layer.height);
-        }
-      } else {
-        fieldGraphics.fillStyle(layer.color, layer.alpha);
-        fieldGraphics.fillTriangle(layer.x1, layer.y1, layer.x2, layer.y2, layer.x3, layer.y3);
       }
     }
 
     // Per-motif guide zones are now merely a quiet architectural underlay;
     // the terrain plates above carry the sense of place. Keeping these soft
     // avoids the old card-grid look on compact screens.
-    for (const decoration of createBattlefieldDecorations(arena.motif, visibleHeight)) {
-      if (decoration.kind === 'zone') {
-        const left = decoration.x - decoration.width / 2;
-        const top = decoration.y - decoration.height / 2;
-        fieldGraphics.fillStyle(arena.motifColor, 0.025);
-        fieldGraphics.fillRoundedRect(left, top, decoration.width, decoration.height, 22);
-        fieldGraphics.lineStyle(1, arena.motifColor, 0.08);
-        fieldGraphics.strokeRoundedRect(left, top, decoration.width, decoration.height, 22);
+    // Per-motif guide zones are now merely a quiet architectural underlay;
+    // the terrain plates above carry the sense of place. Keeping these soft
+    // avoids the old card-grid look on compact screens.
+    if (!ground) {
+      for (const decoration of createBattlefieldDecorations(arena.motif, visibleHeight)) {
+        if (decoration.kind === 'zone') {
+          const left = decoration.x - decoration.width / 2;
+          const top = decoration.y - decoration.height / 2;
+          fieldGraphics.fillStyle(arena.motifColor, 0.025);
+          fieldGraphics.fillRoundedRect(left, top, decoration.width, decoration.height, 22);
+          fieldGraphics.lineStyle(1, arena.motifColor, 0.08);
+          fieldGraphics.strokeRoundedRect(left, top, decoration.width, decoration.height, 22);
+        }
       }
-    }
 
-    // Art Bible lighting: a warm champagne key pool from the top-left and a
-    // cool sky-blue ambient pool opposite (two static one-time fills).
-    fieldGraphics.fillStyle(0xfff5e6, this.battlefieldId === 'crown_cross' ? 0.02 : 0.07);
-    fieldGraphics.fillEllipse(130, 180, 240, 200);
-    fieldGraphics.fillStyle(0xa8d2ff, this.battlefieldId === 'crown_cross' ? 0.02 : 0.06);
-    fieldGraphics.fillEllipse(280, 520, 220, 240);
+      // Art Bible lighting: a warm champagne key pool from the top-left and a
+      // cool sky-blue ambient pool opposite (two static one-time fills). The
+      // rendered ground bakes its own lighting falloff.
+      fieldGraphics.fillStyle(0xfff5e6, this.battlefieldId === 'crown_cross' ? 0.02 : 0.07);
+      fieldGraphics.fillEllipse(130, 180, 240, 200);
+      fieldGraphics.fillStyle(0xa8d2ff, this.battlefieldId === 'crown_cross' ? 0.02 : 0.06);
+      fieldGraphics.fillEllipse(280, 520, 220, 240);
 
-    if (this.battlefieldId === 'crown_cross') {
-      // Fixed, low-contrast grass blades and a mowed ring under the keep; all
-      // drawn once below playable roads.
-      for (let i = 0; i < 150; i++) {
-        const x = 25 + ((i * 73) % 350);
-        const y = 95 + ((i * 113) % 542);
-        const w = 5 + (i % 7);
-        fieldGraphics.fillStyle(i % 3 === 0 ? 0x4e8a5c : 0x1f3d28, 0.10);
-        fieldGraphics.fillTriangle(x - w, y, x + w, y - 3, x + w / 2, y + 6);
-      }
-      fieldGraphics.lineStyle(1, 0x1b3624, 0.45);
-      for (let y = 312; y < 414; y += 17) {
-        const halfWidth = Math.sqrt(Math.max(0, 64 * 64 - (y - 360) ** 2));
-        fieldGraphics.lineBetween(200 - halfWidth, y, 200 + halfWidth, y);
-      }
-    } else {
-      fieldGraphics.lineStyle(1, arena.grid, 0.045);
-      for (let x = 32; x < LOGICAL_WIDTH - 10; x += 56) {
-        fieldGraphics.lineBetween(x, 88, x, visibleHeight - 30);
-      }
-      for (let y = 100; y < visibleHeight - 28; y += 56) {
-        fieldGraphics.lineBetween(18, y, LOGICAL_WIDTH - 18, y);
-      }
-    }
-
-    // Every map gets a recognizable silhouette, rendered once into the same
-    // static Graphics object to stay cheap on low-end Canvas devices.
-    fieldGraphics.lineStyle(1.5, arena.motifColor, 0.13);
-    fieldGraphics.fillStyle(arena.motifColor, 0.035);
-    for (const decoration of createBattlefieldDecorations(arena.motif, visibleHeight)) {
-      if (decoration.kind === 'zone') {
-        // Zones were already tinted in the floor pass above.
-        continue;
-      }
-      if (decoration.kind === 'line') {
-        fieldGraphics.lineBetween(decoration.x1, decoration.y1, decoration.x2, decoration.y2);
-      } else if (decoration.kind === 'ellipse') {
-        const segments = 28;
-        for (let index = 0; index < segments; index++) {
-          const start = (index / segments) * Math.PI * 2;
-          const end = ((index + 1) / segments) * Math.PI * 2;
-          fieldGraphics.lineBetween(
-            decoration.x + Math.cos(start) * decoration.width * 0.5,
-            decoration.y + Math.sin(start) * decoration.height * 0.5,
-            decoration.x + Math.cos(end) * decoration.width * 0.5,
-            decoration.y + Math.sin(end) * decoration.height * 0.5
-          );
+      if (this.battlefieldId === 'crown_cross') {
+        // Fixed, low-contrast grass blades and a mowed ring under the keep; all
+        // drawn once below playable roads.
+        for (let i = 0; i < 150; i++) {
+          const x = 25 + ((i * 73) % 350);
+          const y = 95 + ((i * 113) % 542);
+          const w = 5 + (i % 7);
+          fieldGraphics.fillStyle(i % 3 === 0 ? 0x4e8a5c : 0x1f3d28, 0.10);
+          fieldGraphics.fillTriangle(x - w, y, x + w, y - 3, x + w / 2, y + 6);
+        }
+        fieldGraphics.lineStyle(1, 0x1b3624, 0.45);
+        for (let y = 312; y < 414; y += 17) {
+          const halfWidth = Math.sqrt(Math.max(0, 64 * 64 - (y - 360) ** 2));
+          fieldGraphics.lineBetween(200 - halfWidth, y, 200 + halfWidth, y);
         }
       } else {
-        fieldGraphics.fillTriangle(
-          decoration.x1,
-          decoration.y1,
-          decoration.x2,
-          decoration.y2,
-          decoration.x3,
-          decoration.y3
-        );
+        fieldGraphics.lineStyle(1, arena.grid, 0.045);
+        for (let x = 32; x < LOGICAL_WIDTH - 10; x += 56) {
+          fieldGraphics.lineBetween(x, 88, x, visibleHeight - 30);
+        }
+        for (let y = 100; y < visibleHeight - 28; y += 56) {
+          fieldGraphics.lineBetween(18, y, LOGICAL_WIDTH - 18, y);
+        }
+      }
+
+      // Every map gets a recognizable silhouette, rendered once into the same
+      // static Graphics object to stay cheap on low-end Canvas devices.
+      fieldGraphics.lineStyle(1.5, arena.motifColor, 0.13);
+      fieldGraphics.fillStyle(arena.motifColor, 0.035);
+      for (const decoration of createBattlefieldDecorations(arena.motif, visibleHeight)) {
+        if (decoration.kind === 'zone') {
+          // Zones were already tinted in the floor pass above.
+          continue;
+        }
+        if (decoration.kind === 'line') {
+          fieldGraphics.lineBetween(decoration.x1, decoration.y1, decoration.x2, decoration.y2);
+        } else if (decoration.kind === 'ellipse') {
+          const segments = 28;
+          for (let index = 0; index < segments; index++) {
+            const start = (index / segments) * Math.PI * 2;
+            const end = ((index + 1) / segments) * Math.PI * 2;
+            fieldGraphics.lineBetween(
+              decoration.x + Math.cos(start) * decoration.width * 0.5,
+              decoration.y + Math.sin(start) * decoration.height * 0.5,
+              decoration.x + Math.cos(end) * decoration.width * 0.5,
+              decoration.y + Math.sin(end) * decoration.height * 0.5
+            );
+          }
+        } else {
+          fieldGraphics.fillTriangle(
+            decoration.x1,
+            decoration.y1,
+            decoration.x2,
+            decoration.y2,
+            decoration.x3,
+            decoration.y3
+          );
+        }
       }
     }
 
@@ -908,8 +944,10 @@ export class GameScene extends Phaser.Scene {
     // Recessed tactical roads: a wide shadow cut, a worn stone shoulder, and
     // a quieter inset surface. The old bright-blue lanes made the board read
     // like a circuit diagram; this treatment keeps routes legible while the
-    // terrain remains the visual star.
-    lanesGraphics.lineStyle(22, 0x020617, 0.56);
+    // terrain remains the visual star. Over a rendered ground plate the
+    // dirt roads are baked in, so the dynamic layer thins to a soft
+    // recessed cut and route sheen instead of repainting them flat.
+    lanesGraphics.lineStyle(22, 0x020617, ground ? 0.42 : 0.56);
     connections.forEach(([idA, idB]) => {
       const a = terrs[idA];
       const b = terrs[idB];
@@ -918,7 +956,7 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    lanesGraphics.lineStyle(17, arena.road, 0.42);
+    lanesGraphics.lineStyle(17, arena.road, ground ? 0.30 : 0.42);
     connections.forEach(([idA, idB]) => {
       const a = terrs[idA];
       const b = terrs[idB];
@@ -927,7 +965,7 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    lanesGraphics.lineStyle(11, arena.road, 0.82);
+    lanesGraphics.lineStyle(11, arena.road, ground ? 0.45 : 0.82);
     connections.forEach(([idA, idB]) => {
       const a = terrs[idA];
       const b = terrs[idB];
@@ -937,7 +975,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Rounded road terminals blend each lane end into its socket.
-    lanesGraphics.fillStyle(arena.road, 0.82);
+    lanesGraphics.fillStyle(arena.road, ground ? 0.5 : 0.82);
     connections.forEach(([idA, idB]) => {
       const a = terrs[idA];
       const b = terrs[idB];
@@ -947,7 +985,7 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    lanesGraphics.fillStyle(arena.roadInlay, 0.24);
+    lanesGraphics.fillStyle(arena.roadInlay, ground ? 0.18 : 0.24);
     connections.forEach(([idA, idB]) => {
       const a = terrs[idA];
       const b = terrs[idB];
@@ -971,7 +1009,7 @@ export class GameScene extends Phaser.Scene {
         if (!a || !b) return;
         const d = Math.hypot(b.x - a.x, b.y - a.y);
         const nx = -(b.y - a.y) / d; const ny = (b.x - a.x) / d;
-        lanesGraphics.lineStyle(1, 0x111b29, 0.22);
+        lanesGraphics.lineStyle(1, 0x111b29, ground ? 0.16 : 0.22);
         for (let step = 14; step < d; step += 14) {
           const x = a.x + (b.x - a.x) * step / d;
           const y = a.y + (b.y - a.y) * step / d;
@@ -983,9 +1021,11 @@ export class GameScene extends Phaser.Scene {
 
     // Ground sockets visually anchor the rendered 2.5D buildings: a soft
     // plinth pool grounds each one, then the socket ring and key-light rim.
+    // Over a rendered ground the plate already bakes its own contact
+    // shading, so the plinth pool thins.
     Object.values(terrs).forEach((t) => {
       const art = territoryArtFootprint(this.battlefieldId, t);
-      lanesGraphics.fillStyle(0x020617, 0.3);
+      lanesGraphics.fillStyle(0x020617, ground ? 0.2 : 0.3);
       lanesGraphics.fillEllipse(t.x, t.y + 6, (art.socketRadius + 4) * 2, (art.socketRadius + 4) * 1.3);
       lanesGraphics.fillStyle(arena.socket, 0.96);
       lanesGraphics.fillCircle(t.x, t.y + 3, art.socketRadius);

@@ -47,8 +47,10 @@ if [[ ! -f "${MANIFEST}" ]]; then
   exit 2
 fi
 
-# One line per unique runtime file: renderName|runtimeFilename|targetSize|runtimePath
-# (manifest aliases share a runtimePath and are deduplicated here).
+# One line per unique runtime file: renderName|runtimeFilename|width|height|runtimePath
+# (manifest aliases share a runtimePath and are deduplicated here). Sprites
+# without explicit targetWidth/targetHeight fall back to the square
+# targetSize (sprite masters); ground plates declare both dimensions.
 SPRITE_LINES="$(node -e '
   const fs = require("fs");
   const [manifestPath, packId] = process.argv.slice(1);
@@ -69,15 +71,21 @@ SPRITE_LINES="$(node -e '
       console.error(`[optimize_outputs] manifest pack "${packId}" sprite "${key}": runtimeFilename ${sprite.runtimeFilename} does not match declared format ${format}`);
       process.exit(2);
     }
+    const width = sprite.targetWidth || sprite.targetSize;
+    const height = sprite.targetHeight || sprite.targetSize;
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+      console.error(`[optimize_outputs] manifest pack "${packId}" sprite "${key}": target dimensions must be positive integers`);
+      process.exit(2);
+    }
     if (seen.has(sprite.runtimePath)) continue;
     seen.add(sprite.runtimePath);
-    console.log([sprite.blenderRenderName, sprite.runtimeFilename, sprite.targetSize, sprite.runtimePath].join("|"));
+    console.log([sprite.blenderRenderName, sprite.runtimeFilename, width, height, sprite.runtimePath].join("|"));
   }
 ' "${MANIFEST}" "${PACK_ID}")"
 
 # Fail up-front if any required master is missing (never partially optimize).
 MISSING=0
-while IFS='|' read -r RENDER_NAME _FILENAME _SIZE _PATH; do
+while IFS='|' read -r RENDER_NAME _FILENAME _WIDTH _HEIGHT _PATH; do
   if [[ ! -f "${SRC_DIR}/${RENDER_NAME}.png" ]]; then
     echo "[optimize_outputs] ERROR: missing master ${SRC_DIR}/${RENDER_NAME}.png (required by manifest pack ${PACK_ID})." >&2
     MISSING=1
@@ -107,13 +115,13 @@ pick_png_resizer() {
 }
 
 resize_png() {
-  local src="$1" out="$2" size="$3"
+  local src="$1" out="$2" width="$3" height="$4"
   local resizer
   resizer="$(pick_png_resizer)"
   case "${resizer}" in
-    magick)  magick "${src}" -resize "${size}x${size}" "${out}" ;;
-    convert) convert "${src}" -resize "${size}x${size}" "${out}" ;;
-    sips)    sips -s format png -z "${size}" "${size}" "${src}" --out "${out}" >/dev/null ;;
+    magick)  magick "${src}" -resize "${width}x${height}!" "${out}" ;;
+    convert) convert "${src}" -resize "${width}x${height}!" "${out}" ;;
+    sips)    sips -s format png -z "${height}" "${width}" "${src}" --out "${out}" >/dev/null ;;
     *)
       echo "[optimize_outputs] ERROR: no PNG resizer found. Install one of:" >&2
       echo "  macOS (built-in): sips is preinstalled; if missing, reinstall Xcode command line tools." >&2
@@ -124,7 +132,7 @@ resize_png() {
 }
 
 resize_webp() {
-  local src="$1" out="$2" size="$3"
+  local src="$1" out="$2" width="$3" height="$4"
   if ! command -v cwebp >/dev/null 2>&1; then
     echo "[optimize_outputs] ERROR: cwebp is required to produce WebP runtime assets." >&2
     echo "  macOS:    brew install webp" >&2
@@ -132,17 +140,17 @@ resize_webp() {
     exit 3
   fi
   # -resize preserves the alpha channel; quality 90 per Art Bible section 14.
-  cwebp -quiet -resize "${size}" "${size}" -alpha_filter best -q 90 "${src}" -o "${out}"
+  cwebp -quiet -resize "${width}" "${height}" -alpha_filter best -q 90 "${src}" -o "${out}"
 }
 
 WRITTEN=0
-while IFS='|' read -r RENDER_NAME RUNTIME_FILENAME TARGET_SIZE RUNTIME_PATH; do
+while IFS='|' read -r RENDER_NAME RUNTIME_FILENAME TARGET_WIDTH TARGET_HEIGHT RUNTIME_PATH; do
   SRC_PNG="${SRC_DIR}/${RENDER_NAME}.png"
   OUT_FILE="${RUNTIME_ROOT}/${RUNTIME_PATH}"
   mkdir -p "$(dirname "${OUT_FILE}")"
   case "${FORMAT}" in
-    png)  resize_png "${SRC_PNG}" "${OUT_FILE}" "${TARGET_SIZE}" ;;
-    webp) resize_webp "${SRC_PNG}" "${OUT_FILE}" "${TARGET_SIZE}" ;;
+    png)  resize_png "${SRC_PNG}" "${OUT_FILE}" "${TARGET_WIDTH}" "${TARGET_HEIGHT}" ;;
+    webp) resize_webp "${SRC_PNG}" "${OUT_FILE}" "${TARGET_WIDTH}" "${TARGET_HEIGHT}" ;;
     *)
       echo "[optimize_outputs] ERROR: manifest pack ${PACK_ID} declares unsupported runtimeFormat '${FORMAT}' (supported: png, webp)." >&2
       exit 2
@@ -152,7 +160,7 @@ while IFS='|' read -r RENDER_NAME RUNTIME_FILENAME TARGET_SIZE RUNTIME_PATH; do
     echo "[optimize_outputs] ERROR: converter reported success but ${OUT_FILE} is missing." >&2
     exit 1
   fi
-  echo "[optimize_outputs] ${RENDER_NAME}.png (512 master) -> ${RUNTIME_PATH} (${TARGET_SIZE}x${TARGET_SIZE} ${FORMAT})"
+  echo "[optimize_outputs] ${RENDER_NAME}.png (master) -> ${RUNTIME_PATH} (${TARGET_WIDTH}x${TARGET_HEIGHT} ${FORMAT})"
   WRITTEN=$((WRITTEN + 1))
 done <<< "${SPRITE_LINES}"
 

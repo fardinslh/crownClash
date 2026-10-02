@@ -24,7 +24,7 @@ TEAM_COLORS = {
 # Primitive helpers (tighter bevels than a toy kit: realism reads in the edges)
 # ---------------------------------------------------------------------------
 
-def box(name, size, loc, mat, bevel=.025, rot=None):
+def box(name, size, loc, mat, bevel=.025, rot=None, bevel_segments=2):
     bpy.ops.mesh.primitive_cube_add(size=1, location=loc)
     ob = bpy.context.object
     ob.name = name
@@ -35,7 +35,7 @@ def box(name, size, loc, mat, bevel=.025, rot=None):
     ob.data.materials.append(mat)
     mod = ob.modifiers.new('soft edges', 'BEVEL')
     mod.width = bevel
-    mod.segments = 2
+    mod.segments = bevel_segments
     ob.modifiers.new('weighted normals', 'WEIGHTED_NORMAL')
     return ob
 
@@ -154,21 +154,76 @@ def contact_disc(make_material, radius, alpha, name='contact shadow'):
 # Material sets (all use the rig's vertical gradient for depth shading)
 # ---------------------------------------------------------------------------
 
-def bmats(owner, make_material):
-    """Building materials: worn stone, pale trim, dark recesses, timber, iron."""
+# Per-map building themes: the same semi-realistic architecture family built
+# from each battlefield's local materials, so every map's fortresses read as
+# belonging to their own meadow. Values: (rgb, roughness).
+_BUILDING_THEMES = {
+    # Crown Cross: slate stone, pale trim, classic royal slate.
+    'crown_cross': {
+        'wall': ((.23, .27, .33), .88), 'trim': ((.36, .40, .46), .78),
+        'dark': ((.11, .14, .19), .92), 'wood': ((.21, .13, .08), .72),
+        'plaster': ((.34, .30, .25), .82), 'hay': ((.50, .38, .13), .90),
+        'iron': ((.15, .16, .18), .45), 'gold': ((.62, .44, .15), .35),
+    },
+    # Twin Passes: rough highland granite, pale schist, heavy oak.
+    'twin_passes': {
+        'wall': ((.27, .25, .22), .96), 'trim': ((.37, .35, .31), .86),
+        'dark': ((.12, .11, .09), .96), 'wood': ((.26, .16, .09), .76),
+        'plaster': ((.30, .27, .22), .88), 'hay': ((.48, .37, .13), .92),
+        'iron': ((.13, .14, .15), .55), 'gold': ((.55, .40, .14), .45),
+    },
+    # Royal Ring: cream limestone, pale marble, rich gold, polished iron.
+    'royal_ring': {
+        'wall': ((.55, .51, .44), .68), 'trim': ((.76, .73, .68), .45),
+        'dark': ((.24, .21, .19), .70), 'wood': ((.34, .23, .14), .65),
+        'plaster': ((.60, .56, .48), .60), 'hay': ((.55, .44, .18), .88),
+        'iron': ((.22, .24, .27), .35), 'gold': ((.80, .62, .26), .25),
+    },
+    # Quad Citadel: dark war-camp timber, aged wood, canvas, matte iron.
+    'quad_citadel': {
+        'wall': ((.30, .22, .15), .90), 'trim': ((.47, .35, .20), .78),
+        'dark': ((.12, .09, .07), .95), 'wood': ((.25, .16, .10), .80),
+        'plaster': ((.42, .36, .28), .95), 'hay': ((.55, .42, .14), .92),
+        'iron': ((.12, .13, .14), .60), 'gold': ((.50, .38, .12), .45),
+    },
+}
+
+
+def bmats(owner, make_material, theme='crown_cross'):
+    """Building materials in the battlefield's local theme.
+
+    Team colour always lives on roofs and banners (ownership readability);
+    the local theme carries stone, timber, trim and ornament."""
     team = TEAM_COLORS[owner]
-    return {
-        'wall': make_material('rlx_wall', (.23, .27, .33), .88),
-        'trim': make_material('rlx_trim', (.36, .40, .46), .78),
-        'dark': make_material('rlx_dark', (.11, .14, .19), .92),
-        'wood': make_material('rlx_wood', (.21, .13, .08), .72),
-        'plaster': make_material('rlx_plaster', (.34, .30, .25), .82),
-        'hay': make_material('rlx_hay', (.50, .38, .13), .9),
-        'iron': make_material('rlx_iron', (.15, .16, .18), .45, metallic=.85),
-        'gold': make_material('rlx_gold', (.62, .44, .15), .35, metallic=.9),
-        'roof': make_material('rlx_roof', team, .62),
-        'banner': make_material('rlx_banner', team, .85),
-    }
+    palette = _BUILDING_THEMES.get(theme, _BUILDING_THEMES['crown_cross'])
+    short = theme[:4]
+    mats = {}
+    for key, (color, roughness) in palette.items():
+        metallic = .85 if key == 'iron' else .9 if key == 'gold' else 0.0
+        mats[key] = make_material(f'rtb_{short}_{key}', color, roughness, metallic=metallic)
+    mats['roof'] = make_material(f'rtb_{short}_roof', team, .62)
+    mats['banner'] = make_material(f'rtb_{short}_banner', team, .85)
+    return mats
+
+
+def _crag_ring(mat, radii, count, rock_r=.26, z=.05):
+    """Jittered mountain stones ringing a base: the highland signature."""
+    rng = random.Random(77)
+    for i in range(count):
+        angle = i * math.tau / count + .3
+        stone = ico('crag stone', rock_r,
+                    (radii[0] * math.cos(angle), radii[1] * math.sin(angle), z),
+                    mat, scale=(1.25, .95, .55))
+        _jitter(stone, rng)
+
+
+def _palisade_ring(m, rx, ry, count, z=.30, height=.62, log_r=.07):
+    """Pointed log palisade ringing a base: the war-camp signature."""
+    for i in range(count):
+        angle = i * math.tau / count
+        cyl('palisade log', log_r, height,
+            (rx * math.cos(angle), ry * math.sin(angle), z),
+            m['wood'], 7, r2=.045)
 
 
 def kmats(owner, make_material):
@@ -251,7 +306,7 @@ def ring_merlons(m, radius, z, count, size=(.14, .30, .18)):
 # Tier 3 citadel (framing 5.15 / aim 1.10 — same crop as the shipped sprite)
 # ---------------------------------------------------------------------------
 
-def citadel(m, make_material):
+def citadel(m, make_material, theme='crown_cross'):
     contact_disc(make_material, 1.45, .25)
     box('plinth step', (2.72, 2.32, .16), (0, 0, .08), m['dark'], .02)
     box('plinth top', (2.55, 2.15, .10), (0, 0, .21), m['wall'], .02)
@@ -299,13 +354,24 @@ def citadel(m, make_material):
     # Small side details.
     arrow_slit(m, 1.16, -.30, 1.05)
     arrow_slit(m, -1.16, .30, 1.05)
+    # Map signatures.
+    if theme == 'twin_passes':
+        _crag_ring(m['trim'], (2.35, 2.0), 12)
+        box('gate lintel', (1.10, .16, .18), (0, -.86, 1.78), m['wood'], .02)
+    if theme == 'royal_ring':
+        box('gate keystone', (.16, .12, .22), (0, -.86, 1.95), m['gold'], .01)
+        for cx in (-.55, .55):
+            box('parapet cap', (.18, .18, .10), (cx, .12, 2.52), m['gold'], .01)
+    if theme == 'quad_citadel':
+        _palisade_ring(m, 2.45, 2.10, 22)
+        box('gate iron band', (.72, .10, .10), (0, -.84, 1.10), m['iron'], .01)
 
 
 # ---------------------------------------------------------------------------
 # Tier 2 crown keep (framing 4.35 / aim 0.85)
 # ---------------------------------------------------------------------------
 
-def keep(m, make_material):
+def keep(m, make_material, theme='crown_cross'):
     contact_disc(make_material, 1.30, .26)
     cyl('plinth', 1.30, .18, (0, 0, .09), m['dark'], 8)
     cyl('wall', 1.12, 1.30, (0, 0, .83), m['wall'], 8)
@@ -328,13 +394,22 @@ def keep(m, make_material):
         box('wall banner', (.34, .05, .72), (sx, -1.02, 1.05), m['banner'], .012, rot=(0, 0, rot))
         box('banner bar', (.18, .06, .07), (sx, -1.055, 1.28), m['gold'], .008, rot=(0, 0, rot))
     arrow_slit(m, 1.06, .30, 1.15, rot=(0, math.pi / 2, 0))
+    # Map signatures.
+    if theme == 'twin_passes':
+        _crag_ring(m['trim'], (1.45, 1.45), 9)
+    if theme == 'royal_ring':
+        for i in range(5):
+            a = i * math.tau / 5
+            cyl('crown point tall', .05, .26, (.36 * math.cos(a), .36 * math.sin(a), 2.50), m['gold'], 6)
+    if theme == 'quad_citadel':
+        _palisade_ring(m, 1.55, 1.55, 16, z=.24, height=.55)
 
 
 # ---------------------------------------------------------------------------
 # Tier 1 outpost watchtower (framing 4.6 / aim 1.30)
 # ---------------------------------------------------------------------------
 
-def outpost(m, make_material):
+def outpost(m, make_material, theme='crown_cross'):
     contact_disc(make_material, .95, .26)
     cyl('plinth', .85, .16, (0, 0, .08), m['dark'], 8)
     cyl('shaft', .58, 1.90, (0, 0, 1.11), m['wall'], 8)
@@ -351,13 +426,22 @@ def outpost(m, make_material):
     box('pennant', (.015, .20, .12), (.03, 0, 3.40), m['banner'], .006)
     box('wall banner', (.26, .04, .44), (0, -.60, 1.35), m['banner'], .01)
     box('banner emblem', (.05, .05, .16), (0, -.635, 1.35), m['gold'], .008)
+    # Map signatures.
+    if theme == 'twin_passes':
+        _crag_ring(m['trim'], (1.0, 1.0), 7, rock_r=.22)
+    if theme == 'royal_ring':
+        cyl('gold collar', .65, .06, (0, 0, 2.10), m['gold'], 8)
+    if theme == 'quad_citadel':
+        _palisade_ring(m, 1.05, 1.05, 12, z=.26, height=.50)
+        for z in (1.0, 1.7):
+            cyl('iron band', .60, .05, (0, 0, z), m['iron'], 8)
 
 
 # ---------------------------------------------------------------------------
 # Tier 1 barracks: stone garrison hall (framing 4.25 / aim 0.70)
 # ---------------------------------------------------------------------------
 
-def barracks(m, make_material):
+def barracks(m, make_material, theme='crown_cross'):
     contact_disc(make_material, 1.35, .25)
     box('foundation', (2.50, 1.85, .16), (0, 0, .08), m['dark'], .02)
     box('body', (2.30, 1.60, 1.25), (0, 0, .785), m['wall'], .02)
@@ -378,13 +462,21 @@ def barracks(m, make_material):
     box('banner cross H', (.20, .06, .06), (0, -.855, 1.16), m['gold'], .008)
     heater_shield('garrison shield', (.62, -.82, .62), .40, m['banner'], m['gold'])
     window_with_frame(m, 1.16, .15, .95, w=.13, h=.24, rot=(0, 0, math.pi / 2))
+    # Map signatures.
+    if theme == 'twin_passes':
+        box('gate lintel', (1.0, .14, .16), (0, -.81, 1.42), m['wood'], .02)
+    if theme == 'royal_ring':
+        box('gold ridge', (.12, 1.94, .10), (0, 0, 2.24), m['gold'], .01)
+    if theme == 'quad_citadel':
+        box('canvas awning', (1.0, .40, .05), (0, -1.04, 1.06), m['plaster'], .02)
+        box('hay bale', (.5, .34, .34), (1.32, -.55, .17), m['hay'], .02)
 
 
 # ---------------------------------------------------------------------------
 # Tier 1 stable: timber-framed hall with open stalls (framing 4.25 / aim 0.70)
 # ---------------------------------------------------------------------------
 
-def stable(m, make_material):
+def stable(m, make_material, theme='crown_cross'):
     contact_disc(make_material, 1.35, .25)
     box('foundation', (2.50, 1.95, .14), (0, 0, .07), m['dark'], .02)
     box('body plaster', (2.28, 1.55, 1.05), (0, 0, .665), m['plaster'], .02)
@@ -404,6 +496,13 @@ def stable(m, make_material):
     for x in (-.95, .95):
         box('canopy pole', (.07, .07, 1.02), (x, -1.05, .66), m['wood'], .01)
     window_with_frame(m, 1.15, .10, .82, w=.13, h=.22, rot=(0, 0, math.pi / 2))
+    # Map signatures.
+    if theme == 'twin_passes':
+        box('stone band', (2.34, 1.60, .18), (0, 0, .25), m['trim'], .02)
+    if theme == 'royal_ring':
+        box('gold canopy trim', (1.96, .52, .07), (0, -1.02, 1.06), m['gold'], .01)
+    if theme == 'quad_citadel':
+        box('canvas wall', (1.0, .05, .60), (0, -1.02, .75), m['plaster'], .012)
 
 
 # ---------------------------------------------------------------------------
@@ -555,3 +654,544 @@ def _jitter(ob, rng):
     mesh.update()
     for poly in mesh.polygons:
         poly.use_smooth = False
+
+
+# ---------------------------------------------------------------------------
+# Rendered ground plates (full-field top-down texture, one per battlefield)
+#
+# 1 Blender unit = 1 logical canvas px. The plate covers the fixed logical
+# field rect (10, 78) .. (390, 718) — 380x640 — so it lines up 1:1 with the
+# client's socket and road geometry at every viewport. Road corridors, socket
+# positions and the per-map palette are read straight from the authoritative
+# apps/server-nakama/battlefields.json, so the bake can never drift from the
+# gameplay geometry.
+#
+# Realism stack: subdivided plate with deterministic micro-relief (dunes the
+# sun shades, pressed flat under roads/sockets/manicured zones), noise-ramp
+# grass with mower stripes, dirt roads with jittered organic edges, and
+# clustered scatter (tufts, tall-grass patches, flower/clover clusters,
+# roadside pebbles) rooted at the relief height.
+# ---------------------------------------------------------------------------
+
+GROUND_W, GROUND_H = 380.0, 640.0
+GROUND_LOGICAL_CENTER = (200.0, 398.0)
+
+
+def _hex_rgb(value):
+    """battlefields.json packed int colour -> linear-ish rgb triple."""
+    return ((value >> 16 & 255) / 255.0, (value >> 8 & 255) / 255.0, (value & 255) / 255.0)
+
+
+def _to_plane(logical_x, logical_y):
+    """Logical canvas px -> ground-plane units (image top = +Y)."""
+    return (logical_x - GROUND_LOGICAL_CENTER[0], -(logical_y - GROUND_LOGICAL_CENTER[1]))
+
+
+def _battlefield_data(battlefield_id):
+    import json
+    import os
+    path = os.path.join(os.path.dirname(__file__), '..', '..',
+                        'apps', 'server-nakama', 'battlefields.json')
+    with open(path) as handle:
+        for battlefield in json.load(handle):
+            if battlefield['id'] == battlefield_id:
+                return battlefield
+    raise KeyError(f'unknown battlefield {battlefield_id!r}')
+
+
+def _territory(bf, territory_id):
+    for territory in bf['territories']:
+        if territory['id'] == territory_id:
+            return territory
+    raise KeyError(f'unknown territory {territory_id!r}')
+
+
+def _distance_to_segment(px, py, ax, ay, bx, by):
+    dx, dy = bx - ax, by - ay
+    length_sq = dx * dx + dy * dy
+    t = 0.0 if length_sq == 0 else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / length_sq))
+    return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+
+
+def _noise_material(name, make_material, low, high, scale, roughness=.95, detail=5.0,
+                    speckle=13.0, stripes=0.0, stripe_width=38.0):
+    """Flat material whose base colour is a multi-octave noise ramp low->high,
+    darkened by a fine speckle noise, with optional mower stripes along the
+    object X axis (manicured meadows only; amplitude `stripes`)."""
+    mat = make_material(name, low, roughness, use_gradient=False)
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    bsdf = nodes['Principled BSDF']
+
+    mottle = nodes.new('ShaderNodeTexNoise')
+    mottle.inputs['Scale'].default_value = scale
+    mottle.inputs['Detail'].default_value = detail
+    mottle.inputs['Roughness'].default_value = .42
+    ramp = nodes.new('ShaderNodeValToRGB')
+    ramp.color_ramp.elements[0].position = .38
+    ramp.color_ramp.elements[0].color = (*low, 1.0)
+    ramp.color_ramp.elements[1].position = .62
+    ramp.color_ramp.elements[1].color = (*high, 1.0)
+    links.new(mottle.outputs['Fac'], ramp.inputs['Fac'])
+
+    # Fine speckle: a high-frequency noise that only darkens, so the meadow
+    # reads mown rather than flat.
+    speckle_noise = nodes.new('ShaderNodeTexNoise')
+    speckle_noise.inputs['Scale'].default_value = scale * speckle
+    speckle_noise.inputs['Detail'].default_value = 3.0
+    speckle_noise.inputs['Roughness'].default_value = .5
+    speckle_ramp = nodes.new('ShaderNodeValToRGB')
+    speckle_ramp.color_ramp.elements[0].position = .3
+    speckle_ramp.color_ramp.elements[0].color = (1.0, 1.0, 1.0, 1.0)
+    speckle_ramp.color_ramp.elements[1].position = .8
+    speckle_ramp.color_ramp.elements[1].color = (.84, .84, .84, 1.0)
+    links.new(speckle_noise.outputs['Fac'], speckle_ramp.inputs['Fac'])
+
+    speckle_mix = nodes.new('ShaderNodeMix')
+    speckle_mix.data_type = 'RGBA'
+    speckle_mix.blend_type = 'MULTIPLY'
+    speckle_mix.inputs['Factor'].default_value = .3
+    links.new(ramp.outputs['Color'], speckle_mix.inputs['A'])
+    links.new(speckle_ramp.outputs['Color'], speckle_mix.inputs['B'])
+
+    if stripes > 0.0:
+        # Mower stripes: object-space X through a sine -> soft ramp -> subtle
+        # multiply. Amplitude is tiny so it reads as upkeep, not zebra paint.
+        coords = nodes.new('ShaderNodeTexCoord')
+        separate = nodes.new('ShaderNodeSeparateXYZ')
+        # Socket names differ across Blender versions; link by index.
+        links.new(coords.outputs['Object'], separate.inputs[0])
+        stripe_scale = nodes.new('ShaderNodeMath')
+        stripe_scale.operation = 'MULTIPLY'
+        stripe_scale.inputs[1].default_value = math.pi / stripe_width
+        links.new(separate.outputs['X'], stripe_scale.inputs[0])
+        stripe_sine = nodes.new('ShaderNodeMath')
+        stripe_sine.operation = 'SINE'
+        links.new(stripe_scale.outputs['Value'], stripe_sine.inputs[0])
+        stripe_ramp = nodes.new('ShaderNodeValToRGB')
+        stripe_ramp.color_ramp.elements[0].position = .44
+        stripe_ramp.color_ramp.elements[0].color = (1.0 - stripes, 1.0 - stripes, 1.0 - stripes, 1.0)
+        stripe_ramp.color_ramp.elements[1].position = .56
+        stripe_ramp.color_ramp.elements[1].color = (1.0 + stripes, 1.0 + stripes, 1.0 + stripes, 1.0)
+        links.new(stripe_sine.outputs['Value'], stripe_ramp.inputs['Fac'])
+        stripe_mix = nodes.new('ShaderNodeMix')
+        stripe_mix.data_type = 'RGBA'
+        stripe_mix.blend_type = 'MULTIPLY'
+        stripe_mix.inputs['Factor'].default_value = 1.0
+        links.new(speckle_mix.outputs['Result'], stripe_mix.inputs['A'])
+        links.new(stripe_ramp.outputs['Color'], stripe_mix.inputs['B'])
+        links.new(stripe_mix.outputs['Result'], bsdf.inputs['Base Color'])
+    else:
+        links.new(speckle_mix.outputs['Result'], bsdf.inputs['Base Color'])
+    return mat
+
+
+def _flat_alpha(name, make_material, color, alpha, roughness=.95):
+    """Flat colour material with baked transparency (BLEND + Alpha input)."""
+    mat = make_material(name, color, roughness, use_gradient=False)
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes['Principled BSDF']
+    bsdf.inputs['Alpha'].default_value = alpha
+    mat.blend_method = 'BLEND'
+    return mat
+
+
+def _identity_flats(battlefield_id):
+    """Per-map flat-terrain zones: the micro-relief is pressed flat under the
+    built and manicured places (courts, brook, camps) so their plates and the
+    gameplay geometry always sit on solid ground."""
+    if battlefield_id == 'crown_cross':
+        return [('circle', 0.0, 38.0, 178.0)]
+    if battlefield_id == 'twin_passes':
+        return [('strip', 46.0)]
+    if battlefield_id == 'royal_ring':
+        return [('circle', 0.0, 38.0, 100.0)]
+    if battlefield_id == 'quad_citadel':
+        return [
+            ('ellipse', -88.0, 174.0, 92.0, 103.0),
+            ('ellipse', 88.0, 174.0, 92.0, 103.0),
+            ('ellipse', -88.0, -102.0, 92.0, 103.0),
+            ('ellipse', 88.0, -102.0, 92.0, 103.0),
+            ('rect', 0.0, 38.0, 50.0, 252.0),
+        ]
+    return []
+
+
+def _zone_factor(zone, x, y):
+    """0 inside a flat zone, easing to 1 over ~20 units outside."""
+    kind = zone[0]
+    if kind == 'circle':
+        d = math.hypot(x - zone[1], y - zone[2]) - zone[3]
+        return max(0.0, min(1.0, (d - 4.0) / 20.0))
+    if kind == 'strip':
+        return max(0.0, min(1.0, (abs(x) - zone[1] - 4.0) / 20.0))
+    if kind == 'ellipse':
+        d = math.hypot((x - zone[1]) / zone[3], (y - zone[2]) / zone[4])
+        return max(0.0, min(1.0, (d - 1.06) * 12.0))
+    if kind == 'rect':
+        d = max(abs(x - zone[1]) - zone[3], abs(y - zone[2]) - zone[4])
+        return max(0.0, min(1.0, (d - 4.0) / 20.0))
+    return 1.0
+
+
+def _make_terrain(bf, battlefield_id):
+    """Deterministic micro-relief z(x, y) in plate units."""
+    roads = []
+    for id_a, id_b in bf['roads']:
+        a = _territory(bf, id_a)
+        b = _territory(bf, id_b)
+        roads.append((_to_plane(a['x'], a['y']), _to_plane(b['x'], b['y'])))
+    territories = [(_to_plane(t['x'], t['y']), t['radius']) for t in bf['territories']]
+    flats = _identity_flats(battlefield_id)
+
+    def undulation(x, y):
+        # Three trig octaves with irrational ratios: gentle dunes.
+        return (
+            0.55 * math.sin(x * .045 + .7) * math.cos(y * .037)
+            + 0.38 * math.sin(x * .104 + 2.1) * math.cos(y * .089 + 1.3)
+            + 0.22 * math.sin((x + y) * .151 + .4)
+        )
+
+    def factor(x, y):
+        # Relief dissolves at the plate border, under road corridors,
+        # under every socket's platform, and in each map's flat zones.
+        result = min(
+            1.0,
+            max(0.0, (186.0 - abs(x)) / 14.0),
+            max(0.0, (320.0 - y) / 14.0),
+            max(0.0, (y + 302.0) / 14.0),
+        )
+        for (ax, ay), (bx, by) in roads:
+            result = min(result, max(0.0, (_distance_to_segment(x, y, ax, ay, bx, by) - 13.0) / 24.0))
+        for (tx, ty), radius in territories:
+            result = min(result, max(0.0, (math.hypot(x - tx, y - ty) - radius - 6.0) / 18.0))
+        for zone in flats:
+            result = min(result, _zone_factor(zone, x, y))
+        return result
+
+    def terrain_z(x, y):
+        return undulation(x, y) * factor(x, y)
+
+    return terrain_z, roads
+
+
+def _rounded_plate(mat, terrain_z):
+    """380x616 subdivided plate: 18px rounded corners, real micro-relief."""
+    bpy.ops.mesh.primitive_grid_add(x_subdivisions=76, y_subdivisions=124, size=1,
+                                    location=(0.0, 12.0, 0.0))
+    ob = bpy.context.object
+    ob.name = 'ground plate'
+    ob.scale = (GROUND_W, GROUND_H - 24.0, 1.0)
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    for vertex in ob.data.vertices:
+        vertex.co.z = terrain_z(vertex.co.x, vertex.co.y)
+    ob.data.update()
+    for poly in ob.data.polygons:
+        poly.use_smooth = True
+    corners = ob.modifiers.new('rounded corners', 'BEVEL')
+    corners.width = 18.0
+    corners.segments = 6
+    try:
+        corners.affect = 'VERTICES'          # Blender 4.1+
+    except AttributeError:
+        corners.vertex_only = True           # Blender 3.x
+    ob.data.materials.append(mat)
+    return ob
+
+
+def _road_strip(name, length, width, z, angle, cx, cy, mat, edge_jitter, rng):
+    """Flat dirt strip with sine-jittered side edges: organic, not ruler-cut.
+
+    Built at the origin (edge jitter in local space), then rotated to the road
+    angle and moved onto the road line."""
+    x_steps = max(8, int(length / 7.0))
+    bpy.ops.mesh.primitive_grid_add(x_subdivisions=x_steps, y_subdivisions=3, size=1,
+                                    location=(0.0, 0.0, 0.0))
+    ob = bpy.context.object
+    ob.name = name
+    ob.scale = (length, width, 1.0)
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    half = width / 2.0
+    for vertex in ob.data.vertices:
+        if abs(vertex.co.y) > half - .35:
+            vertex.co.y += math.sin(vertex.co.x * .22 + rng.random() * .5) * edge_jitter
+    ob.data.update()
+    ob.rotation_euler = (0.0, 0.0, angle)
+    ob.location = (cx, cy, z)
+    ob.data.materials.append(mat)
+    return ob
+
+
+def _ground_roads(bf, mats, make_material):
+    """Baked dirt roads along every authoritative road segment."""
+    rng = random.Random(90210)
+    dry = _flat_alpha('rgx_dry', make_material, (.42, .40, .23), .22)
+    for id_a, id_b in bf['roads']:
+        a = _territory(bf, id_a)
+        b = _territory(bf, id_b)
+        ax, ay = _to_plane(a['x'], a['y'])
+        bx, by = _to_plane(b['x'], b['y'])
+        length = math.hypot(bx - ax, by - ay) + 10.0
+        angle = math.atan2(by - ay, bx - ax)
+        cx, cy = (ax + bx) / 2.0, (ay + by) / 2.0
+        _road_strip('dry grass band', length + 16.0, 42.0, .035, angle, cx, cy, dry, 3.2, rng)
+        _road_strip('road shoulder', length + 8.0, 30.0, .05, angle, cx, cy, mats['shoulder'], 2.4, rng)
+        _road_strip('road bed', length, 19.0, .07, angle, cx, cy, mats['road'], 1.5, rng)
+        for side in (-1.0, 1.0):
+            off = side * 5.2
+            box('road rut', (length, 1.5, .02),
+                (cx - math.sin(angle) * off, cy + math.cos(angle) * off, .085),
+                mats['rut'], .02, rot=(0, 0, angle))
+
+
+def _ground_sockets(bf, ao_mat):
+    """Soft contact darkening under every territory platform."""
+    for territory in bf['territories']:
+        x, y = _to_plane(territory['x'], territory['y'])
+        cyl('socket shade', territory['radius'] + 6.0, .02, (x, y, .04), ao_mat, 32)
+
+
+def _ground_identity(battlefield_id, make_material, terrain_z):
+    """Per-map meadow character, replacing the flat vector terrain layers."""
+    if battlefield_id == 'crown_cross':
+        court = _to_plane(200.0, 360.0)
+        light = (.24, .47, .31)
+        cyl('worn court', 68.0, .02, (court[0], court[1], .012),
+            _flat_alpha('rgx_court', make_material, light, .30), 48)
+        for radius in (130.0, 165.0):
+            bpy.ops.mesh.primitive_torus_add(major_radius=radius, minor_radius=.8,
+                                             location=(court[0], court[1], .012))
+            ring = bpy.context.object
+            ring.name = 'mow ring'
+            ring.data.materials.append(
+                _flat_alpha(f'rgx_mow_{int(radius)}', make_material, light, .12))
+    elif battlefield_id == 'twin_passes':
+        water = _noise_material('rgx_water', make_material, (.10, .38, .44), (.17, .54, .60),
+                                .05, roughness=.18, detail=2.0)
+        box('brook', (44.0, 460.0, .03), (0.0, 22.0, .02), water, .5)
+        bank = _flat_alpha('rgx_bank', make_material, (.09, .17, .10), .28)
+        for side in (-1.0, 1.0):
+            box('brook bank', (58.0, 500.0, .02), (side * 46.0, 22.0, .012), bank, .5)
+        crag = _flat_alpha('rgx_crag', make_material, (.11, .19, .13), .32)
+        for pos in ((-122.0, 286.0), (122.0, 286.0), (-122.0, -148.0), (122.0, -148.0)):
+            z = terrain_z(pos[0], pos[1])
+            blob = ico('crag shelf', 24.0, (pos[0], pos[1], z + 1.5), crag, scale=(1.5, 1.1, .14))
+            _jitter(blob, random.Random(int(abs(pos[0] * pos[1]))))
+    elif battlefield_id == 'royal_ring':
+        court = _to_plane(200.0, 360.0)
+        cyl('gravel court', 93.0, .02, (court[0], court[1], .012),
+            _flat_alpha('rgx_gravel', make_material, (.55, .47, .33), .28), 48)
+        hedge = make_material('rgx_hedge', (.11, .20, .09), .85, use_gradient=False)
+        bpy.ops.mesh.primitive_torus_add(major_radius=68.0, minor_radius=4.0,
+                                         location=(court[0], court[1], .05))
+        ring = bpy.context.object
+        ring.name = 'hedge ring'
+        ring.data.materials.append(hedge)
+        bed = _flat_alpha('rgx_bed', make_material, (.62, .43, .33), .45)
+        for pos in ((-126.0, 206.0), (126.0, -154.0)):
+            z = terrain_z(pos[0], pos[1])
+            ico('garden bed', 30.0, (pos[0], pos[1], z + 2.0), bed, scale=(1.1, 1.6, .12))
+    elif battlefield_id == 'quad_citadel':
+        dirt = (.38, .31, .20)
+        camp = _flat_alpha('rgx_camp', make_material, dirt, .45)
+        for pos in ((-88.0, 174.0, .012), (88.0, 174.0, .012), (-88.0, -102.0, .012), (88.0, -102.0, .012)):
+            box('camp ground', (166.0, 188.0, .02), pos, camp, 26.0, bevel_segments=6)
+        box('crossroad strip', (86.0, 506.0, .02), (0.0, 38.0, .014),
+            _flat_alpha('rgx_cross', make_material, dirt, .38), 16.0, bevel_segments=6)
+        wedge = _flat_alpha('rgx_wedge', make_material, (.50, .39, .31), .40)
+        for pos in ((-152.0, 38.0), (152.0, 38.0)):
+            z = terrain_z(pos[0], pos[1])
+            ico('dirt wedge', 26.0, (pos[0], pos[1], z + 1.6), wedge, scale=(1.2, .7, .12))
+
+
+def _ground_scatter(battlefield_id, bf, mats, terrain_z, roads):
+    """Deterministic meadow dressing: clustered and rooted in the relief."""
+    rng = random.Random(104729)
+    for ch in battlefield_id:
+        rng.seed(rng.random() * 1048576.0 + ord(ch))
+
+    def blocked(x, y):
+        if abs(x) > 170.0 or abs(y) > 292.0:
+            return True
+        for territory in bf['territories']:
+            tx, ty = _to_plane(territory['x'], territory['y'])
+            if math.hypot(x - tx, y - ty) < territory['radius'] + 16.0:
+                return True
+        for (ax, ay), (bx, by) in roads:
+            if _distance_to_segment(x, y, ax, ay, bx, by) < 20.0:
+                return True
+        if battlefield_id == 'crown_cross':
+            return math.hypot(x, y - 38.0) < 40.0
+        if battlefield_id == 'twin_passes':
+            return abs(x) < 34.0
+        if battlefield_id == 'royal_ring':
+            return math.hypot(x, y - 38.0) < 108.0
+        if battlefield_id == 'quad_citadel':
+            if abs(x) < 48.0 and abs(y - 38.0) < 250.0:
+                return True
+            return any(abs(x - cx) < 92.0 and abs(y - cy) < 103.0
+                       for cx, cy in ((-88.0, 174.0), (88.0, 174.0), (-88.0, -102.0), (88.0, -102.0)))
+        return False
+
+    def spot(edge_only=False):
+        for _ in range(90):
+            x = (rng.random() * 2.0 - 1.0) * 170.0
+            y = (rng.random() * 2.0 - 1.0) * 292.0
+            if blocked(x, y):
+                continue
+            if edge_only and abs(x) < 90.0 and abs(y) < 150.0:
+                continue
+            return x, y
+        return None
+
+    placed = []
+
+    def reserve(x, y):
+        for px, py in placed:
+            if math.hypot(x - px, y - py) < 13.0:
+                return False
+        placed.append((x, y))
+        return True
+
+    def tuft(x, y, tall=False):
+        z0 = terrain_z(x, y)
+        blades = (12 if tall else 4) + int(rng.random() * (7 if tall else 3))
+        for i in range(blades):
+            a = rng.random() * math.tau
+            r = 1.0 + rng.random() * (7.5 if tall else 1.6)
+            depth = (7.5 + rng.random() * 5.0) if tall else (5.5 + rng.random() * 4.5)
+            blade_x = x + r * math.cos(a)
+            blade_y = y + r * math.sin(a)
+            mat = (mats['leaf_tall'] if tall else mats['leaf']) if i % 2 else mats['leaf_dark']
+            cyl('ground blade', .55, depth,
+                (blade_x, blade_y, terrain_z(blade_x, blade_y) + depth / 2.0 - .6),
+                mat, 5, r2=.08,
+                rot=(rng.random() * .35, rng.random() * .35, a))
+
+    def flower_cluster(x, y):
+        count = 3 + int(rng.random() * 4)
+        for _ in range(count):
+            a = rng.random() * math.tau
+            r = 1.2 + rng.random() * 2.4
+            fx, fy = x + r * math.cos(a), y + r * math.sin(a)
+            white = rng.random() < .55
+            ico('meadow flower', .9, (fx, fy, terrain_z(fx, fy) + .8),
+                mats['flower_light'] if white else mats['flower_dark'], scale=(1.0, 1.0, .5))
+
+    def clover_patch(x, y):
+        ico('clover patch', 5.0 + rng.random() * 4.0, (x, y, terrain_z(x, y) + .05),
+            mats['clover'], scale=(1.1, 1.15, .16))
+
+    def pebble(x, y):
+        ico('ground pebble', 1.4 + rng.random() * 1.2, (x, y, terrain_z(x, y) + 1.2),
+            mats['stone'], scale=(1.3, 1.0, .45))
+
+    for kind, count in (('tuft', 46), ('patch', 7), ('flower', 10), ('clover', 9), ('pebble', 18)):
+        made = misses = 0
+        while made < count and misses < 500:
+            misses += 1
+            position = spot(edge_only=(kind == 'patch'))
+            if position is None:
+                continue
+            x, y = position
+            if not reserve(x, y):
+                continue
+            misses = 0
+            made += 1
+            if kind == 'tuft':
+                tuft(x, y)
+            elif kind == 'patch':
+                tuft(x, y, tall=True)
+            elif kind == 'flower':
+                flower_cluster(x, y)
+            elif kind == 'clover':
+                clover_patch(x, y)
+            else:
+                pebble(x, y)
+
+    # Roadside pebbles: worn stone collecting along the dirt road edges.
+    for (ax, ay), (bx, by) in roads:
+        length = math.hypot(bx - ax, by - ay)
+        angle = math.atan2(by - ay, bx - ax)
+        steps = max(2, int(length / 26.0))
+        for step in range(1, steps):
+            t = step / steps
+            if rng.random() < .45:
+                continue
+            for side in (-1.0, 1.0):
+                if rng.random() < .45:
+                    continue
+                off = side * (12.0 + rng.random() * 9.0)
+                x = ax + (bx - ax) * t - math.sin(angle) * off
+                y = ay + (by - ay) * t + math.cos(angle) * off
+                if abs(x) < 170.0 and abs(y) < 292.0:
+                    ico('roadside pebble', .9 + rng.random() * .9, (x, y, terrain_z(x, y) + .5),
+                        mats['stone'], scale=(1.2, .95, .55))
+
+
+def _ground_bottom_fade(field, make_material):
+    """Feather the bottom edge into the client's flat fill colour.
+
+    The plate proper stops 24px above the field-rect bottom; these strips
+    cover that last band with stepwise decreasing alpha so the client's flat
+    fill shows through and the meadow dissolves instead of ending in a seam.
+    Width stays clear of the plate's rounded bottom corners."""
+    for i, alpha in enumerate((.80, .60, .45, .32, .22, .14, .08, .03)):
+        y = -294.0 - i * 3.2
+        box('bottom fade', (320.0, 3.6, .01), (0.0, y, .05),
+            _flat_alpha(f'rgx_fade_{i}', make_material, field, alpha), 0)
+
+
+# The rig's key/fill/rim suns plus the AgX view transform brighten a flat
+# top-down plane unevenly per channel (red lifts the most), so the noise
+# ramp's source colours are pre-compensated to land on the Art Bible field
+# palette after rendering.
+_GROUND_CHANNEL_GAINS = (0.25, 0.45, 0.33)
+
+# Mower-stripe amplitude per battlefield: manicured lawns read mown, wild
+# highlands and war camps barely at all.
+_GROUND_STRIPE_AMPLITUDE = {
+    'crown_cross': .05,
+    'twin_passes': .02,
+    'royal_ring': .06,
+    'quad_citadel': .03,
+}
+
+
+def ground_plate(battlefield_id, make_material):
+    """Full-field rendered ground plate for one battlefield."""
+    bf = _battlefield_data(battlefield_id)
+    field = _hex_rgb(bf['visual']['field'])
+    road = _hex_rgb(bf['visual']['road'])
+    terrain_z, roads = _make_terrain(bf, battlefield_id)
+
+    compensated = tuple(c * g for c, g in zip(field, _GROUND_CHANNEL_GAINS))
+    low = tuple(max(c * .72, 0.0) for c in compensated)
+    high = tuple(min(c * 1.30, 1.0) for c in compensated)
+    grass = _noise_material('rgx_grass', make_material, low, high, .017,
+                            stripes=_GROUND_STRIPE_AMPLITUDE.get(battlefield_id, .03))
+    plate = _rounded_plate(grass, terrain_z)
+
+    mats = {
+        'road': _noise_material('rgx_road', make_material,
+                                tuple(c * .80 for c in road),
+                                tuple(min(c * 1.25, 1.0) for c in road), .05, roughness=.9),
+        'shoulder': _flat_alpha('rgx_shoulder', make_material,
+                                tuple(c * .55 for c in road), .35),
+        'rut': _flat_alpha('rgx_rut', make_material, (.06, .05, .04), .30),
+        'ao': _flat_alpha('rgx_ao', make_material, (.02, .05, .03), .16),
+        'leaf': make_material('rgx_leaf', (.13, .24, .10), .85, use_gradient=False),
+        'leaf_dark': make_material('rgx_leafd', (.08, .15, .06), .85, use_gradient=False),
+        'leaf_tall': make_material('rgx_leaft', (.09, .17, .07), .85, use_gradient=False),
+        'clover': _flat_alpha('rgx_clover', make_material, (.07, .14, .05), .16),
+        'stone': make_material('rgx_stone', (.36, .35, .31), .9, use_gradient=False),
+        'flower_light': make_material('rgx_flowerl', (.92, .90, .80), .8, use_gradient=False),
+        'flower_dark': make_material('rgx_flowerd', (.95, .82, .35), .8, use_gradient=False),
+    }
+    _ground_identity(battlefield_id, make_material, terrain_z)
+    _ground_roads(bf, mats, make_material)
+    _ground_sockets(bf, mats['ao'])
+    _ground_scatter(battlefield_id, bf, mats, terrain_z, roads)
+    _ground_bottom_fade(field, make_material)
+    return plate

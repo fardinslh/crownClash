@@ -42,3 +42,9 @@ tools/blender/tmp/
 
 # 2v2 Phase 5 visual QA captures (session-local)
 qa-artifacts/2v2-phase5/
+
+# Ground-plate and themed-fortress visual QA captures (session-local)
+qa-artifacts/art-grounds/
+qa-artifacts/art-realism-final/
+qa-artifacts/art-realism-probe/
+qa-artifacts/art-ugly-diagnosis/

@@ -138,6 +138,22 @@ plaster halls with open stalls. Each building bakes its own tight contact shadow
 render through the canonical rig, and use per-builder crops (`CAMERA_FRAMING`) that never
 change the 55°/45° view.
 
+**Per-map fortress themes:** every battlefield's buildings are the same architecture
+family built from that map's local materials, so fortresses always look like they belong
+to their own meadow (kit `_BUILDING_THEMES` + themed builders `build_highland_*` /
+`build_palace_*` / `build_warcamp_*` in `build_battlefield_scene.py`):
+
+* **Crown Cross** — slate stone, pale trim (`build_cross_*`): the reference look.
+* **Twin Passes** — rough highland granite, pale schist trim, heavy oak lintels, and a
+  jittered crag-stone ring around every base (`build_highland_*`).
+* **Royal Ring** — cream limestone, pale marble trim, rich gold ornament (keystone,
+  parapet caps, collar bands, taller crown points) and polished iron (`build_palace_*`).
+* **Quad Citadel** — dark war-camp timber, aged wood trim, canvas and hay, matte-iron
+  banding, and a pointed-log palisade ring around every base (`build_warcamp_*`).
+
+Ownership readability never changes: team color always lives on roofs, banners and
+shields in every theme.
+
 **Shared troops:** four sprites (leader/follower x player/enemy) of an armoured knight in
 a marching pose — greathelm with visor slit, fauld lames, pauldrons, tabard and heater
 shield in team cloth, sword at the low ready; leaders add a crest fin and cape. Rendered
@@ -284,18 +300,24 @@ The snippet above is illustrative only.
 
 ## 10. Terrain Proportions (2.5D Arena)
 
-* **Arena floor:** a single stylized green field per battlefield, occupying the full
-  tactical area (400 × ~580 logical px). Territory platforms sit *on* the floor; the
-  floor never scrolls.
-* **Terrain composition:** the floor must read as a miniature place, not a UI grid.
-  Every battlefield is a meadow: Crown Cross a quiet royal meadow with one worn
-  green court at the contested centre (no bright courts or wide gold lanes: they
-  hide the buildings); Twin Passes a highland pasture with tree-line shelves, a
-  brook and rocky crags; Royal Ring a manicured palace lawn with gold-trimmed
-  hedged courts; Quad Citadel an olive war-camp meadow with trampled dirt grounds.
-  Dirt-toned roads cross every field. These are static, non-interactive painted
-  layers below roads and sockets, so they never compromise tactical readability
-  or change battlefield geometry.
+* **Arena floor:** a single rendered ground plate per battlefield (`grounds` pack,
+  spriteKind `ground`), covering the full tactical area (380 × 640 logical px = one
+  760 × 1280 WebP plate) and placed at depth 1. Territory platforms, roads, props and
+  units render on top of the plate; the plate never scrolls.
+* **Baked terrain:** each plate is rendered in Blender straight top-down from the
+  authoritative `battlefields.json` geometry — roads, sockets and identity zones can
+  never drift from gameplay. Every battlefield is a meadow: Crown Cross a quiet royal
+  meadow with mow-stripe rings and one worn green court at the contested centre; Twin
+  Passes a highland pasture with a brook, banks, crags and faint mow stripes; Royal Ring
+  a manicured palace lawn with gravel courts and a hedge ring; Quad Citadel an olive
+  war-camp meadow with four trampled dirt camps and crossroads. Plates carry 3D
+  micro-relief (deterministic trig dunes that catch the sun, pressed flat under roads,
+  sockets and plate borders), clustered scatter (grass tufts, tall patches, flower and
+  clover clusters, pebbles) rooted on the relief, and organic-edged dirt roads with
+  dry-grass shoulders.
+* **Vector fallback:** if the ground pack is inactive or a plate fails to load,
+  GameScene falls back to the flat painted vector ground layers; the baked plate simply
+  replaces them when present (`if (!ground)` gates in `GameScene.createArenaBackground`).
 * **Grass dressing:** rendered grass tufts scatter across every battlefield
   (9–11 per map, see the environment pack) at prop layer depth, plus low-contrast
   painted blades on the Crown Cross floor. Grass never overlaps sockets, roads
@@ -311,6 +333,10 @@ The snippet above is illustrative only.
 * Roads are *recessed stone processional lanes*: a dark contact shadow pass, a solid
   stone-surface pass in the battlefield's `visual.road` color, then a dotted center
   inlay in `visual.roadInlay`.
+* On the baked ground plate, the same roads are baked into the plate (dirt roads with
+  organic sine-jittered edges, ruts and dry-grass shoulders) from the authoritative
+  segments; the vector lanes above them are drawn softer (reduced alphas) so they read
+  as the tactical lane layer, not a second road surface.
 * Width: 18px shadow / 12px stone. Roads must never exceed the territory socket
   diameter, so marching convoys visually travel *between* platforms, not over them.
 * A subtle key-light rim may run along the top-left edge of each lane (single 1px
@@ -347,9 +373,15 @@ The snippet above is illustrative only.
 | Stage | Format | Size | Notes |
 | :--- | :--- | :--- | :--- |
 | Blender master render | PNG, RGBA, transparent film | 512 × 512 per asset | fixed ortho rig, AgX/Filmic view transform |
+| Blender ground master | PNG, RGBA, transparent film | 1140 × 1920 per battlefield | straight top-down ground camera, no framing, no contact shadow |
 | Runtime territory sprite | WebP (alpha) or optimized PNG | 128 × 128 (tiers 1–2), 160 × 160 (tier 3) | crisp at 2× DPR; mipmapped |
+| Runtime ground plate | WebP (alpha) | 760 × 1280 per battlefield | 1:1 with the 380 × 640 logical field at 2× DPR |
 | Runtime atlas (optional) | WebP atlas | ≤ 1024 × 1024 | only when it reduces requests without hurting maintainability |
 | Units | WebP/PNG | 64 × 64 | small on-screen footprint |
+
+Budgets (section 14): territory/prop sprites stay under 80KB each; a full-field ground
+plate stays under 128KB (one plate loads per match); a battlefield's whole runtime set
+(sprites + its ground plate) stays under 500KB.
 
 ## 15. Mobile Readability Requirements
 

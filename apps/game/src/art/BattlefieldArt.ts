@@ -60,6 +60,14 @@ export const PROP_TEXTURE_KEYS: readonly PropTextureKey[] = Object.freeze([
   'pennant',
 ]);
 
+/** Sprite keys of the rendered ground-plate pack: one per battlefield id. */
+export const GROUND_TEXTURE_KEYS: readonly BattlefieldId[] = Object.freeze([
+  'crown_cross',
+  'twin_passes',
+  'royal_ring',
+  'quad_citadel',
+]);
+
 /** Repo-relative prefix under which Phaser serves static assets. */
 const PUBLIC_ROOT_PREFIX = 'apps/game/public/';
 
@@ -71,6 +79,12 @@ export interface RuntimeSpriteManifestEntry {
   readonly blenderOwner: 'player' | 'enemy' | 'neutral';
   readonly runtimeFilename: string;
   readonly targetSize: number;
+  /**
+   * Non-square runtime dimensions (ground plates); when present they override
+   * the square targetSize in the optimizer and the runtime file must match.
+   */
+  readonly targetWidth?: number;
+  readonly targetHeight?: number;
   /** Repo-relative path of the optimized runtime file GameScene loads. */
   readonly runtimePath: string;
   /** Set when this key deliberately reuses another key's runtime file. */
@@ -84,8 +98,11 @@ export interface RuntimeSpritePackManifest {
   readonly runtimeFormat: 'png' | 'webp';
   /** False while the pack's runtime files have not been rendered yet. */
   readonly active: boolean;
-  /** 'territory' (default) packs carry building sprites; 'prop' packs carry environment props. */
-  readonly spriteKind: 'territory' | 'prop';
+  /**
+   * 'territory' (default) packs carry building sprites; 'prop' packs carry
+   * environment props; 'ground' packs carry the full-field ground plates.
+   */
+  readonly spriteKind: 'territory' | 'prop' | 'ground';
   readonly sprites: Readonly<Record<string, RuntimeSpriteManifestEntry>>;
 }
 
@@ -150,11 +167,17 @@ export function parseAssetManifest(raw: unknown): AssetManifest {
       fail(`pack ${packId} runtimeFormat must be "png" or "webp"`);
     }
     if (typeof active !== 'boolean') fail(`pack ${packId} active must be a boolean`);
-    if (spriteKind !== undefined && spriteKind !== 'territory' && spriteKind !== 'prop') {
-      fail(`pack ${packId} spriteKind must be "territory" or "prop"`);
+    if (
+      spriteKind !== undefined &&
+      spriteKind !== 'territory' &&
+      spriteKind !== 'prop' &&
+      spriteKind !== 'ground'
+    ) {
+      fail(`pack ${packId} spriteKind must be "territory", "prop", or "ground"`);
     }
-    const kind = spriteKind === 'prop' ? 'prop' : 'territory';
-    const allowedKeys = kind === 'prop' ? PROP_TEXTURE_KEYS : RESOLVER_TEXTURE_KEYS;
+    const kind = spriteKind === 'prop' ? 'prop' : spriteKind === 'ground' ? 'ground' : 'territory';
+    const allowedKeys =
+      kind === 'prop' ? PROP_TEXTURE_KEYS : kind === 'ground' ? GROUND_TEXTURE_KEYS : RESOLVER_TEXTURE_KEYS;
     if (!isRecord(sprites) || Object.keys(sprites).length === 0) {
       fail(`pack ${packId} sprites must be a non-empty object`);
     }
@@ -165,7 +188,7 @@ export function parseAssetManifest(raw: unknown): AssetManifest {
         fail(`pack ${packId} declares unknown ${kind} texture key ${textureKey}`);
       }
       if (!isRecord(rawSprite)) fail(`pack ${packId} sprite ${textureKey} must be an object`);
-      const { blenderRenderName, blenderBuilder, blenderOwner, runtimeFilename, targetSize, runtimePath, aliasOf } =
+      const { blenderRenderName, blenderBuilder, blenderOwner, runtimeFilename, targetSize, targetWidth, targetHeight, runtimePath, aliasOf } =
         rawSprite;
       if (typeof blenderRenderName !== 'string' || blenderRenderName.length === 0) {
         fail(`pack ${packId}/${textureKey} blenderRenderName must be a non-empty string`);
@@ -182,6 +205,12 @@ export function parseAssetManifest(raw: unknown): AssetManifest {
       if (typeof targetSize !== 'number' || !Number.isInteger(targetSize) || targetSize <= 0) {
         fail(`pack ${packId}/${textureKey} targetSize must be a positive integer`);
       }
+      if (targetWidth !== undefined && (typeof targetWidth !== 'number' || !Number.isInteger(targetWidth) || targetWidth <= 0)) {
+        fail(`pack ${packId}/${textureKey} targetWidth must be a positive integer when present`);
+      }
+      if (targetHeight !== undefined && (typeof targetHeight !== 'number' || !Number.isInteger(targetHeight) || targetHeight <= 0)) {
+        fail(`pack ${packId}/${textureKey} targetHeight must be a positive integer when present`);
+      }
       if (typeof runtimePath !== 'string' || runtimePath !== `${packDirectory}/${runtimeFilename}`) {
         fail(`pack ${packId}/${textureKey} runtimePath must equal packDirectory/runtimeFilename`);
       }
@@ -194,6 +223,8 @@ export function parseAssetManifest(raw: unknown): AssetManifest {
         blenderOwner,
         runtimeFilename,
         targetSize,
+        ...(targetWidth === undefined ? {} : { targetWidth }),
+        ...(targetHeight === undefined ? {} : { targetHeight }),
         runtimePath,
         ...(aliasOf === undefined ? {} : { aliasOf }),
       };
@@ -644,6 +675,32 @@ export function listEnvironmentPropSpritePaths(): Readonly<Record<PropTextureKey
   }
   // No active prop pack: preload nothing (the prop layer renders no images).
   return Object.freeze({} as Record<PropTextureKey, string>);
+}
+
+/** A battlefield's rendered ground plate, if the ground pack is active. */
+export interface ArenaGroundSprite {
+  /** Phaser texture key (namespaced per pack, like the territory keys). */
+  readonly textureKey: string;
+  /** Public-relative path for Phaser's loader. */
+  readonly path: string;
+}
+
+/**
+ * Resolves the battlefield's rendered full-field ground plate from the shared
+ * `grounds` pack. Returns null when the pack is inactive so GameScene falls
+ * back to the flat vector ground; unknown battlefield ids fall back to the
+ * default battlefield's plate.
+ */
+export function getArenaGroundSprite(battlefieldId: BattlefieldId): ArenaGroundSprite | null {
+  const id = normalizeBattlefieldId(battlefieldId);
+  const pack = ASSET_MANIFEST.packs['grounds'];
+  if (!pack || pack.spriteKind !== 'ground' || !pack.active) return null;
+  const entry = pack.sprites[id];
+  if (!entry) return null;
+  return {
+    textureKey: `cc_ground_${id}`,
+    path: toPhaserAssetPath(entry.runtimePath),
+  };
 }
 
 /**
