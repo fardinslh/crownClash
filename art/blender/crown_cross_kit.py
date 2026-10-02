@@ -302,58 +302,142 @@ def ring_merlons(m, radius, z, count, size=(.14, .30, .18)):
             m['trim'], .01, rot=(0, 0, angle - math.pi / 2))
 
 
+def portcullis(m, x, y, z, width=.52, height=.78):
+    """Iron grille hung in the gate: the war-read on every fortress door."""
+    for i in range(5):
+        gx = x - width / 2 + width * (i + .5) / 5
+        box('portcullis bar', (.035, .05, height), (gx, y, z), m['iron'], .006)
+    for z_off in (-.26, 0, .26):
+        box('portcullis rail', (width + .05, .05, .04), (x, y, z + z_off), m['iron'], .006)
+
+
+def hoarding(m, span, y, z, count=6, out=.24, post_h=.36):
+    """Timber fighting gallery projecting from a wall face: posts, an
+    overhanging plank floor and rail, plus a baked shadow seam where the
+    gallery meets the wall. The classic war-castle silhouette."""
+    for i in range(count):
+        hx = -span / 2 + span * (i + .5) / count
+        box('hoarding post', (.07, .09, post_h), (hx, y - out / 2, z), m['wood'], .008)
+    box('hoarding floor', (span + .06, out + .08, .05), (0, y - out / 2 + .02, z + post_h / 2), m['wood'], .01)
+    box('hoarding rail', (span + .06, .05, .05), (0, y - out + .02, z + post_h / 2 - .14), m['wood'], .008)
+    box('hoarding shade', (span + .02, .05, post_h - .06), (0, y + .015, z - .02), m['dark'], .006)
+
+
+def ring_hoarding(m, radius, z, count=8, out=.22, post_h=.36, vertices=12):
+    """Timber fighting gallery ringing a round tower wall: curved posts,
+    a plank floor ring and a shadow seam under the floor."""
+    for i in range(count):
+        angle = i * math.tau / count
+        box('hoarding post', (.09, .09, post_h),
+            ((radius + out / 2) * math.cos(angle), (radius + out / 2) * math.sin(angle), z),
+            m['wood'], .008, rot=(0, 0, angle))
+    cyl('hoarding floor', radius + out / 2 + .03, .05, (0, 0, z + post_h / 2), m['wood'], vertices)
+    cyl('hoarding shade', radius + .015, post_h - .08, (0, 0, z - .03), m['dark'], vertices)
+
+
+def gable_steps(m, y, half_width, rise, z_eave, steps=4, depth=.18):
+    """Stepped stone gable parapet (corbie steps) at one roof end: each step
+    climbs the roof slope, capped at the ridge."""
+    for s in range(steps):
+        frac = (s + 1) / (steps + 1)
+        x_off = half_width * (1 - frac)
+        for sx in (-1, 1):
+            box('gable step', (.24, depth, .12), (sx * x_off, y, z_eave + rise * frac), m['trim'], .01)
+    box('gable cap', (.26, depth, .14), (0, y, z_eave + rise + .05), m['trim'], .01)
+
+
+def eave_shade(m, width, length, z, face_y, side_x):
+    """Baked shadow seams under the roof eaves on the two camera-facing
+    faces (front -Y and side +X): a thin dark strip just below the eave
+    line reads as the roof's cast shadow and grounds the silhouette."""
+    box('eave shade F', (width * .90, .045, .10), (0, face_y, z - .055), m['dark'], .006)
+    box('eave shade S', (.045, length * .78, .10), (side_x, 0, z - .055), m['dark'], .006)
+
+
+def pennant_pole(m, x, y, z_base, pole_h=.40, flag_w=.24, flag_h=.14):
+    """Team pennant on an iron pole: ownership marks on towers and gables."""
+    cyl('pennant pole', .018, pole_h, (x, y, z_base + pole_h / 2), m['iron'], 6)
+    box('pennant flag', (.02, flag_w, flag_h), (x + .025, y, z_base + pole_h - flag_h / 2), m['banner'], .006)
+
+
 # ---------------------------------------------------------------------------
 # Tier 3 citadel (framing 5.15 / aim 1.10 — same crop as the shipped sprite)
 # ---------------------------------------------------------------------------
 
 def citadel(m, make_material, theme='crown_cross'):
     contact_disc(make_material, 1.45, .25)
-    box('plinth step', (2.72, 2.32, .16), (0, 0, .08), m['dark'], .02)
-    box('plinth top', (2.55, 2.15, .10), (0, 0, .21), m['wall'], .02)
+    # Stepped three-course plinth (the recessed base course adds footprint
+    # weight without raising the stack).
+    box('plinth base', (3.00, 2.60, .13), (0, 0, .065), m['dark'], .03, bevel_segments=3)
+    box('plinth step', (2.72, 2.32, .16), (0, 0, .08), m['dark'], .03, bevel_segments=3)
+    box('plinth top', (2.55, 2.15, .10), (0, 0, .21), m['wall'], .03, bevel_segments=3)
     # Curtain walls on all four sides, front face at y = -0.88.
     wall_h = 1.32
     wall_z = .26 + wall_h / 2
-    box('wall front', (2.10, .26, wall_h), (0, -.88, wall_z), m['wall'], .015)
-    box('wall rear', (2.10, .26, wall_h), (0, .88, wall_z), m['wall'], .015)
-    box('wall left', (.26, 1.76, wall_h), (-1.02, 0, wall_z), m['wall'], .015)
-    box('wall right', (.26, 1.76, wall_h), (1.02, 0, wall_z), m['wall'], .015)
+    box('wall front', (2.10, .26, wall_h), (0, -.88, wall_z), m['wall'], .03, bevel_segments=3)
+    box('wall rear', (2.10, .26, wall_h), (0, .88, wall_z), m['wall'], .03, bevel_segments=3)
+    box('wall left', (.26, 1.76, wall_h), (-1.02, 0, wall_z), m['wall'], .03, bevel_segments=3)
+    box('wall right', (.26, 1.76, wall_h), (1.02, 0, wall_z), m['wall'], .03, bevel_segments=3)
     box('wall walk front', (2.16, .34, .07), (0, -.88, .26 + wall_h + .035), m['trim'], .01)
-    merlons(m, 2.02, -.88, .26 + wall_h + .16, 7, depth=.24)
+    merlons(m, 2.02, -.88, .26 + wall_h + .16, 7, depth=.30, width=.21, height=.26)
+    # Timber fighting galleries project from the camera-facing curtain walls:
+    # the war silhouette with baked shadow seams under the gallery floors.
+    hoarding(m, 1.80, -1.02, 1.22, count=6)
+    for i in range(4):
+        hy = -.65 + 1.30 * (i + .5) / 4
+        box('hoarding post', (.09, .07, .34), (1.26, hy, 1.22), m['wood'], .008)
+    box('hoarding floor side', (.30, 1.36, .05), (1.26, 0, 1.39), m['wood'], .01)
+    box('hoarding rail side', (.05, 1.36, .05), (1.37, 0, 1.15), m['wood'], .008)
+    box('hoarding shade side', (.05, 1.28, .28), (1.16, 0, 1.20), m['dark'], .006)
     # Corner towers with string courses, machicolations and conical roofs.
     for tx, ty, tall in ((-1.02, -.88, 0), (1.02, -.88, 0), (-1.02, .88, .18), (1.02, .88, .18)):
         cyl('tower shaft', .38, 2.05 + tall, (tx, ty, .26 + (2.05 + tall) / 2), m['wall'], 12)
-        cyl('tower string', .43, .07, (tx, ty, 1.35), m['trim'], 12)
-        cyl('tower collar', .47, .17, (tx, ty, .26 + 2.05 + tall - .02), m['trim'], 12)
+        cyl('tower string', .45, .07, (tx, ty, 1.35), m['trim'], 12)
+        cyl('tower collar', .50, .17, (tx, ty, .26 + 2.05 + tall - .02), m['trim'], 12)
         arrow_slit(m, tx, ty - .40, 1.05)
         cyl('tower roof', .60, .88, (tx, ty, .26 + 2.05 + tall + .34), m['roof'], 12, r2=.03)
         sphere('tower finial', .05, (tx, ty, .26 + 2.05 + tall + .82), m['gold'])
-    # Gatehouse flanking piers with a crenellated top.
+    # Team pennants fly from the two front towers.
+    pennant_pole(m, -1.02, -.88, 2.34, pole_h=.40)
+    pennant_pole(m, 1.02, -.88, 2.34, pole_h=.40)
+    # Gatehouse flanking piers with a crenellated top and an iron grille.
     for px in (-.48, .48):
-        box('gate pier', (.44, .46, 1.78), (px, -.88, .26 + .89), m['wall'], .018)
+        box('gate pier', (.44, .46, 1.78), (px, -.88, .26 + .89), m['wall'], .028, bevel_segments=3)
         box('pier quoin', (.48, .10, .30), (px, -.88, 1.30), m['trim'], .012)
     arched_gate(m, 0, -.86, .26 + .48, width=.62, height=.95)
-    box('gate head', (1.72, .50, .30), (0, -.88, 2.18), m['wall'], .015)
-    merlons(m, 1.6, -.88, 2.42, 5, depth=.30)
-    # Central keep with quoins, windows and a pitched team roof.
-    box('keep body', (1.30, 1.05, 2.05), (0, .12, .26 + 1.025), m['wall'], .018)
+    portcullis(m, 0, -.99, .74, width=.56, height=.84)
+    box('gate head', (1.72, .50, .30), (0, -.88, 2.18), m['wall'], .025, bevel_segments=3)
+    merlons(m, 1.6, -.88, 2.42, 5, depth=.32, width=.22, height=.24)
+    # Central keep with quoins on both camera faces, windows and a pitched
+    # team roof with eave shadow seams.
+    box('keep body', (1.30, 1.05, 2.05), (0, .12, .26 + 1.025), m['wall'], .03, bevel_segments=3)
     box('keep parapet', (1.42, 1.17, .13), (0, .12, 2.42), m['trim'], .012)
     for qx, qy, qz in ((-.70, -.44, .80), (-.70, -.44, 1.45), (.70, -.44, .80), (.70, -.44, 1.45)):
         box('keep quoin', (.16, .16, .42), (qx, qy, qz), m['trim'], .012)
+    for qz in (.80, 1.45):
+        box('keep quoin side', (.16, .16, .42), (.66, -.33, qz), m['trim'], .012)
+        box('keep quoin side', (.16, .16, .42), (.66, .57, qz), m['trim'], .012)
     window_with_frame(m, -.30, -.42, 1.55)
     window_with_frame(m, .30, -.42, 1.55)
     roof('keep roof', 1.50, 1.24, 2.49, .72, m['roof'], y=.12)
+    eave_shade(m, 1.50, 1.24, 2.49, face_y=-.40, side_x=.66)
     box('ridge cap', (.10, 1.26, .09), (0, .12, 3.24), m['trim'], .01)
     sphere('ridge finial', .05, (0, .12, 3.30), m['gold'])
     cyl('pennant pole', .02, .42, (0, -.45, 3.28), m['iron'], 6)
     box('pennant', (.02, .26, .15), (.045, -.45, 3.42), m['banner'], .008)
-    # Heraldic banner draped on the keep's front face.
+    # Heraldic banner on the keep's front face and a war standard on the side.
     box('banner cloth', (.46, .05, .82), (0, -.365, 1.92), m['banner'], .012)
     box('banner cross V', (.09, .06, .40), (0, -.375, 1.98), m['gold'], .008)
     box('banner cross H', (.30, .06, .09), (0, -.375, 2.06), m['gold'], .008)
     box('banner rod', (.56, .04, .05), (0, -.365, 2.36), m['gold'], .008)
-    # Small side details.
+    box('side standard', (.05, .40, .55), (.655, .12, 1.70), m['banner'], .012)
+    box('side standard bar', (.05, .18, .06), (.665, .12, 1.94), m['gold'], .008)
+    # War posture: arrow slits along both camera-facing curtain walls.
     arrow_slit(m, 1.16, -.30, 1.05)
     arrow_slit(m, -1.16, .30, 1.05)
+    arrow_slit(m, -.55, -1.01, .85)
+    arrow_slit(m, .55, -1.01, .85)
+    arrow_slit(m, 1.16, .45, .85)
     # Map signatures.
     if theme == 'twin_passes':
         _crag_ring(m['trim'], (2.35, 2.0), 12)
@@ -373,11 +457,16 @@ def citadel(m, make_material, theme='crown_cross'):
 
 def keep(m, make_material, theme='crown_cross'):
     contact_disc(make_material, 1.30, .26)
+    # Stepped two-course plinth (recessed base course adds footprint weight).
+    cyl('plinth base', 1.42, .13, (0, 0, .065), m['dark'], 8)
     cyl('plinth', 1.30, .18, (0, 0, .09), m['dark'], 8)
     cyl('wall', 1.12, 1.30, (0, 0, .83), m['wall'], 8)
     cyl('wall string', 1.18, .07, (0, 0, 1.30), m['trim'], 8)
     cyl('wall parapet', 1.22, .16, (0, 0, 1.51), m['wall'], 8)
-    ring_merlons(m, 1.16, 1.68, 8)
+    ring_merlons(m, 1.16, 1.68, 8, size=(.18, .34, .24))
+    # Timber fighting gallery rings the outer wall: the war silhouette with
+    # a baked shadow seam under the gallery floor.
+    ring_hoarding(m, 1.12, 1.02, count=8, out=.24, post_h=.34, vertices=8)
     # Inner watch tower with the gilded crown ring.
     cyl('tower', .48, 1.0, (0, 0, 1.70), m['wall'], 8)
     cyl('tower parapet', .56, .12, (0, 0, 2.26), m['trim'], 8)
@@ -387,13 +476,19 @@ def keep(m, make_material, theme='crown_cross'):
         a = i * math.tau / 5
         cyl('crown point', .05, .16, (.36 * math.cos(a), .36 * math.sin(a), 2.45), m['gold'], 6)
     cyl('tower roof', .62, .55, (0, 0, 2.55), m['roof'], 8, r2=.02)
+    box('eave shade TF', (.48, .05, .08), (0, -.575, 2.35), m['dark'], .006)
+    box('eave shade TS', (.05, .48, .08), (.575, 0, 2.35), m['dark'], .006)
     sphere('finial', .05, (0, 0, 2.87), m['gold'])
-    # Gate and draped standards on the camera-facing facets.
+    # Gate with an iron grille; draped standards on both camera faces.
     arched_gate(m, 0, -1.0, .57, width=.52, height=.80)
+    portcullis(m, 0, -1.12, .57, width=.48, height=.70)
     for sx, rot in ((-.42, .10), (.42, -.10)):
         box('wall banner', (.34, .05, .72), (sx, -1.02, 1.05), m['banner'], .012, rot=(0, 0, rot))
         box('banner bar', (.18, .06, .07), (sx, -1.055, 1.28), m['gold'], .008, rot=(0, 0, rot))
+    box('side standard', (.05, .34, .60), (1.09, .30, 1.05), m['banner'], .012)
+    box('side standard bar', (.05, .16, .06), (1.10, .30, 1.28), m['gold'], .008)
     arrow_slit(m, 1.06, .30, 1.15, rot=(0, math.pi / 2, 0))
+    arrow_slit(m, 1.06, -.30, .85, rot=(0, math.pi / 2, 0))
     # Map signatures.
     if theme == 'twin_passes':
         _crag_ring(m['trim'], (1.45, 1.45), 9)
@@ -411,21 +506,33 @@ def keep(m, make_material, theme='crown_cross'):
 
 def outpost(m, make_material, theme='crown_cross'):
     contact_disc(make_material, .95, .26)
+    # Stepped plinth: recessed base course under the stone step.
+    cyl('plinth base', .98, .12, (0, 0, .06), m['dark'], 8)
     cyl('plinth', .85, .16, (0, 0, .08), m['dark'], 8)
     cyl('shaft', .58, 1.90, (0, 0, 1.11), m['wall'], 8)
     cyl('string', .63, .06, (0, 0, 1.20), m['trim'], 8)
-    cyl('machicolation', .72, .18, (0, 0, 2.12), m['trim'], 8)
-    ring_merlons(m, .66, 2.30, 8, size=(.12, .22, .16))
+    cyl('string low', .63, .06, (0, 0, .70), m['trim'], 8)
+    # Timber bretèche gallery on the shaft: war depth against the tower.
+    ring_hoarding(m, .58, 1.55, count=6, out=.24, post_h=.30, vertices=8)
+    cyl('machicolation', .80, .18, (0, 0, 2.12), m['trim'], 8)
+    ring_merlons(m, .66, 2.30, 8, size=(.16, .32, .22))
     cyl('watch room', .42, .32, (0, 0, 2.37), m['wood'], 8)
     cyl('watch roof', .60, .68, (0, 0, 2.87), m['roof'], 8, r2=.02)
+    box('eave shade WF', (.44, .05, .08), (0, -.45, 2.58), m['dark'], .006)
+    box('eave shade WS', (.05, .44, .08), (.45, 0, 2.58), m['dark'], .006)
     sphere('finial', .045, (0, 0, 3.24), m['gold'])
+    # Gate with an iron grille; slits and banners on both camera faces.
     arched_gate(m, 0, -.52, .49, width=.38, height=.66)
+    portcullis(m, 0, -.63, .49, width=.34, height=.58)
     arrow_slit(m, 0, -.58, 1.50)
     arrow_slit(m, .585, .30, 1.50, rot=(0, math.pi / 2, 0))
+    arrow_slit(m, .585, -.30, 1.00, rot=(0, math.pi / 2, 0))
     cyl('pennant pole', .015, .30, (0, 0, 3.34), m['iron'], 6)
     box('pennant', (.015, .20, .12), (.03, 0, 3.40), m['banner'], .006)
     box('wall banner', (.26, .04, .44), (0, -.60, 1.35), m['banner'], .01)
     box('banner emblem', (.05, .05, .16), (0, -.635, 1.35), m['gold'], .008)
+    box('side banner', (.04, .22, .38), (.55, 0, 1.35), m['banner'], .01)
+    box('side banner emblem', (.05, .05, .14), (.565, 0, 1.35), m['gold'], .008)
     # Map signatures.
     if theme == 'twin_passes':
         _crag_ring(m['trim'], (1.0, 1.0), 7, rock_r=.22)
@@ -443,25 +550,37 @@ def outpost(m, make_material, theme='crown_cross'):
 
 def barracks(m, make_material, theme='crown_cross'):
     contact_disc(make_material, 1.35, .25)
-    box('foundation', (2.50, 1.85, .16), (0, 0, .08), m['dark'], .02)
-    box('body', (2.30, 1.60, 1.25), (0, 0, .785), m['wall'], .02)
+    box('foundation', (2.50, 1.85, .16), (0, 0, .08), m['dark'], .03, bevel_segments=3)
+    box('body', (2.30, 1.60, 1.25), (0, 0, .785), m['wall'], .03, bevel_segments=3)
     for qx, qy in ((-1.15, -.80), (1.15, -.80), (-1.15, .80), (1.15, .80)):
         for z in (.50, 1.10):
             box('quoin', (.14, .14, .34), (qx, qy, z), m['trim'], .012)
     roof('hall roof', 2.52, 1.90, 1.41, .75, m['roof'])
+    eave_shade(m, 2.52, 1.90, 1.41, face_y=-.80, side_x=1.15)
+    # Corbie-step gables on both roof ends: the war-garrison silhouette.
+    gable_steps(m, .86, 1.26, .75, 1.41, steps=4)
+    gable_steps(m, -.86, 1.26, .75, 1.41, steps=4)
     box('ridge cap', (.10, 1.92, .08), (0, 0, 2.19), m['trim'], .01)
     box('chimney', (.26, .26, .55), (.78, .42, 1.95), m['wall'], .015)
     box('chimney cap', (.32, .32, .08), (.78, .42, 2.25), m['trim'], .01)
     arched_gate(m, 0, -.81, .56, width=.50, height=.80)
+    portcullis(m, 0, -.92, .56, width=.44, height=.70)
     window_with_frame(m, -.72, -.83, 1.02, w=.15, h=.30)
     window_with_frame(m, .72, -.83, 1.02, w=.15, h=.30)
+    # Buttresses on both camera faces and the visible corners.
     for x in (-1.12, 1.12):
         box('buttress', (.16, .14, .85), (x, -.72, .585), m['trim'], .012)
+    for y in (-.35, .35):
+        box('buttress side', (.14, .16, .85), (1.14, y, .585), m['trim'], .012)
+    # Team pennants at the front gable corners.
+    pennant_pole(m, -1.02, -.78, 1.52, pole_h=.38)
+    pennant_pole(m, 1.02, -.78, 1.52, pole_h=.38)
     box('banner', (.34, .05, .62), (0, -.83, 1.12), m['banner'], .012)
     box('banner cross V', (.06, .06, .30), (0, -.855, 1.12), m['gold'], .008)
     box('banner cross H', (.20, .06, .06), (0, -.855, 1.16), m['gold'], .008)
     heater_shield('garrison shield', (.62, -.82, .62), .40, m['banner'], m['gold'])
     window_with_frame(m, 1.16, .15, .95, w=.13, h=.24, rot=(0, 0, math.pi / 2))
+    arrow_slit(m, 1.16, -.55, .95, rot=(0, 0, math.pi / 2))
     # Map signatures.
     if theme == 'twin_passes':
         box('gate lintel', (1.0, .14, .16), (0, -.81, 1.42), m['wood'], .02)
@@ -478,23 +597,40 @@ def barracks(m, make_material, theme='crown_cross'):
 
 def stable(m, make_material, theme='crown_cross'):
     contact_disc(make_material, 1.35, .25)
-    box('foundation', (2.50, 1.95, .14), (0, 0, .07), m['dark'], .02)
-    box('body plaster', (2.28, 1.55, 1.05), (0, 0, .665), m['plaster'], .02)
+    box('foundation', (2.50, 1.95, .14), (0, 0, .07), m['dark'], .03, bevel_segments=3)
+    box('body plaster', (2.28, 1.55, 1.05), (0, 0, .665), m['plaster'], .03, bevel_segments=3)
     # Half-timbered front face.
     for x in (-1.08, -.54, 0, .54, 1.08):
         box('timber post', (.10, .05, 1.05), (x, -.775, .665), m['wood'], .012)
     box('timber beam', (2.28, .05, .08), (0, -.775, 1.15), m['wood'], .012)
+    # Half-timbered side face (+X, the camera-visible side).
+    for y in (-.42, 0, .42):
+        box('timber post side', (.05, .10, 1.05), (1.13, y, .665), m['wood'], .012)
+    box('timber beam side', (.05, 1.28, .08), (1.13, 0, 1.15), m['wood'], .012)
     roof('stable roof', 2.48, 1.90, 1.19, .70, m['roof'])
+    eave_shade(m, 2.48, 1.90, 1.19, face_y=-.775, side_x=1.13)
+    # Corbie-step gables on both roof ends.
+    gable_steps(m, .83, 1.24, .70, 1.19, steps=3)
+    gable_steps(m, -.83, 1.24, .70, 1.19, steps=3)
     box('ridge cap', (.09, 1.92, .07), (0, 0, 1.94), m['trim'], .01)
+    sphere('ridge finial', .04, (0, .98, 1.99), m['gold'])
+    sphere('ridge finial', .04, (0, -.98, 1.99), m['gold'])
     arched_gate(m, 0, -.78, .45, width=.40, height=.66)
     for sx in (-.75, .75):
         box('stall recess', (.55, .10, .62), (sx, -.78, .48), m['dark'], .012)
         box('trough', (.40, .14, .16), (sx, -.86, .28), m['wood'], .012)
         box('hay', (.30, .06, .10), (sx, -.86, .37), m['hay'], .01)
-    canopy = box('canopy', (1.9, .5, .06), (0, -1.02, 1.02), m['roof'], .012)
-    canopy.rotation_euler = (.14, 0, 0)
-    for x in (-.95, .95):
-        box('canopy pole', (.07, .07, 1.02), (x, -1.05, .66), m['wood'], .01)
+    # Jettied hay loft overhangs the stalls on timber posts: the medieval
+    # depth read, with its own little pitched roof and a baked shadow seam
+    # where the loft meets the wall.
+    box('loft', (1.55, .80, .34), (0, -1.0, 1.32), m['plaster'], .02, bevel_segments=2)
+    roof('loft roof', 1.62, .84, 1.49, .22, m['roof'], y=-1.0)
+    box('loft beam', (1.62, .10, .08), (0, -1.18, 1.17), m['wood'], .012)
+    box('loft shade', (1.40, .06, .12), (0, -.79, 1.20), m['dark'], .006)
+    for x in (-.60, 0, .60):
+        box('loft post', (.09, .09, 1.02), (x, -1.28, .66), m['wood'], .01)
+    pennant_pole(m, -.78, -1.32, 1.49, pole_h=.32, flag_w=.20, flag_h=.12)
+    pennant_pole(m, .78, -1.32, 1.49, pole_h=.32, flag_w=.20, flag_h=.12)
     window_with_frame(m, 1.15, .10, .82, w=.13, h=.22, rot=(0, 0, math.pi / 2))
     # Map signatures.
     if theme == 'twin_passes':

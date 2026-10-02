@@ -42,7 +42,12 @@ reference an unloaded texture.
   semi-realistic slate-stone kit built from `art/blender/crown_cross_kit.py`
   (curtain-wall citadels with corner towers and a gatehouse, crenellated crown
   keep with a gilded crown ring, stone outposts with timber watch rooms, quoined
-  barracks halls, half-timbered stables with open stalls). Team color lives on
+  barracks halls, half-timbered stables with open stalls). War shape and 2.5D
+  depth on every fortress: timber hoardings projecting from the walls, iron
+  portcullis grilles in the gates, heavy merlons and machicolations, corbie-step
+  gables with pennant poles, a jettied hay loft on the stables, stepped plinths,
+  chunky chamfered edges, baked shadow seams under every overhang, and a deeper
+  vertical ramp for buildings than for props/units. Team color lives on
   roofs, banners and shields; each building bakes its own tight contact shadow
   (`contact_disc`); per-builder crops are in `CAMERA_FRAMING` of
   `art/blender/build_battlefield_scene.py`.

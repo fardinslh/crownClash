@@ -84,6 +84,15 @@ async function captureBattlefield(battlefieldId, outDir) {
     await cdp.send('Page.navigate', { url: APP_URL });
     await sleep(4000);
 
+    // Wait for the app to boot before starting the scene: a fixed sleep
+    // races cold dist-server loads (the game global is undefined otherwise).
+    let booted = false;
+    for (let attempt = 0; attempt < 40 && !booted; attempt += 1) {
+      await sleep(400);
+      booted = await evaluate(cdp, `Boolean(window.__PHASER_GAME__)`);
+    }
+    if (!booted) throw new Error(`app never booted for ${battlefieldId}`);
+
     await evaluate(cdp, `(() => {
       window.__PHASER_GAME__.scene.start('GameScene', {
         source: 'menu',

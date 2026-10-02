@@ -2040,11 +2040,18 @@ def build_asset(builder_name, owner):
     # the VerticalShade attribute must be written here for every mesh — a
     # missing attribute renders solid black through the gradient multiply.
     # Idempotent for rig-built meshes (e.g. build_pennant) that already carry it.
+    # Buildings use a deeper ramp (Art Bible section 6: fortress depth) than
+    # the shared props/units ramp: darker at ground contact, brighter at the
+    # parapets, so the 2.5D volume reads at sprite size.
     if _is_kit_builder(builder_name):
         import bpy
+        base, top = (
+            (0.62, 1.22) if not builder_name.startswith("build_prop_")
+            else (VERTICAL_SHADE_BASE, VERTICAL_SHADE_TOP)
+        )
         for obj in bpy.data.objects:
             if obj.type == "MESH":
-                shade_vertical_gradient(obj)
+                shade_vertical_gradient(obj, base, top)
     # The semi-realistic crown_cross kit (and its per-map themed variants plus
     # the shared prop kit) bake their own tight contact shadows (see
     # crown_cross_kit.contact_disc): the rig's wide 1.75-radius blob reads as

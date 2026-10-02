@@ -138,6 +138,17 @@ plaster halls with open stalls. Each building bakes its own tight contact shadow
 render through the canonical rig, and use per-builder crops (`CAMERA_FRAMING`) that never
 change the 55°/45° view.
 
+**War shape & 2.5D depth (every fortress):** buildings read as war architecture, not
+houses — timber fighting galleries (hoardings) project from the curtain walls of citadels,
+ring the keep's outer wall and bretèche the outpost shaft; every gate hangs an iron
+portcullis grille; merlons are heavy and machicolations overhang the towers; barracks and
+stables carry corbie-step gables and pennant poles at the gable corners; stables jetty a
+hay loft over the stalls under its own pitched roof. Depth reads through baked seams:
+dark shadow strips under every hoarding floor, roof eave and the jetty, stepped
+three-course plinths, chunky chamfered edges (0.03 bevels, 3 segments) and a deeper
+vertical ramp for buildings (0.62/1.22 vs the shared 0.80/1.12 props/units ramp), all
+inside the unchanged per-builder framing crops.
+
 **Per-map fortress themes:** every battlefield's buildings are the same architecture
 family built from that map's local materials, so fortresses always look like they belong
 to their own meadow (kit `_BUILDING_THEMES` + themed builders `build_highland_*` /
@@ -182,6 +193,7 @@ so gameplay objects always stay on top.
   * No 90° razor-sharp edges! Every sharp edge must have a 2-segment bevel with `width: 0.04m` to catch specular edge highlights from the sun.
 * **Color Gradients:**
   * Vertical color gradient applied to all models: slightly darker at ground contact, slightly brighter at upper peaks (simulates atmospheric bounce).
+  * Buildings use a deeper ramp (`0.62 → 1.22`) than shared props/units (`0.80 → 1.12`): fortress volumes ground harder and crown brighter, so the 2.5D depth reads at sprite size.
 
 ---
 
