@@ -51,3 +51,6 @@ qa-artifacts/art-ugly-diagnosis/
 
 # War-depth fortress visual QA captures (session-local)
 qa-artifacts/art-depth/
+
+# Local before/after map review images and benchmark evidence
+qa-artifacts/art-premium-refresh/

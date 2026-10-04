@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  createInitialGameState,
+  dispatchArmy,
+  PVP_SIMULATION_TICK_SECONDS,
+  stepSimulation,
+} from '@crown-clash/game-core';
+import {
   createMulberry32,
   computeScheduleHash,
   SCENARIO_DEFINITIONS,
@@ -63,13 +69,63 @@ describe('DeterministicScenarioDriver', () => {
     }
   });
 
-  it('heavy_combat schedule generates sufficient dispatches to sustain 20+ armies', () => {
+  it('heavy_combat keeps real simulated armies within [6, 18] after warmup', () => {
     const def = SCENARIO_DEFINITIONS.heavy_combat;
-    const schedule = def.generateSchedule(987654321, 60);
+    const durationSeconds = def.config.durationSeconds;
+    const schedule = def.generateSchedule(def.config.seed, durationSeconds);
+    let state = createInitialGameState({ battlefieldId: 'crown_cross' });
+    let accumulators: Record<string, number> = {};
+    let scheduleIndex = 0;
+    const steadyCounts: number[] = [];
 
-    expect(schedule.length).toBeGreaterThan(100);
-    expect(schedule[0].timeSec).toBeLessThan(1.0);
-    expect(schedule[schedule.length - 1].timeSec).toBeGreaterThan(50.0);
+    expect(def.config.targetArmyRange).toEqual({ min: 6, max: 18 });
+    expect(schedule.length).toBeGreaterThan(0);
+
+    for (let tick = 1; tick <= Math.round(durationSeconds / PVP_SIMULATION_TICK_SECONDS); tick++) {
+      const now = tick * PVP_SIMULATION_TICK_SECONDS;
+      const result = stepSimulation(state, accumulators, PVP_SIMULATION_TICK_SECONDS);
+      state = result.state;
+      accumulators = result.accumulators;
+      expect(state.status).toBe('playing');
+
+      // The benchmark refills bases before dispatch; travel and arrival stay real.
+      for (const [id, owner] of [['p_base', 'player'], ['e_base', 'enemy']] as const) {
+        const base = state.territories[id];
+        expect(base).toBeDefined();
+        if (base.units < 15) {
+          base.units = 30;
+          base.owner = owner;
+        }
+      }
+
+      while (scheduleIndex < schedule.length && schedule[scheduleIndex].timeSec <= now + 1e-9) {
+        const scheduled = schedule[scheduleIndex];
+        const source = state.territories[scheduled.sourceId];
+        const target = state.territories[scheduled.targetId];
+        expect(source).toBeDefined();
+        expect(target).toBeDefined();
+        source.owner = scheduled.owner;
+        if (source.units < 10) source.units = 25;
+        const dispatched = dispatchArmy(source, target, scheduled.owner, 0.5,
+          () => `scenario_army_${scheduleIndex}`, 1);
+        expect(dispatched.success, `scheduled dispatch ${scheduleIndex}: ${dispatched.reason ?? ''}`).toBe(true);
+        expect(dispatched.army).toBeDefined();
+        expect(dispatched.sourceTerritory).toBeDefined();
+        state.territories[source.id] = dispatched.sourceTerritory!;
+        state.armies.push(dispatched.army!);
+        scheduleIndex++;
+      }
+
+      if (now >= def.config.warmupDurationSeconds) {
+        const count = state.armies.length;
+        steadyCounts.push(count);
+        expect(count, `army count at ${now.toFixed(2)}s`).toBeGreaterThanOrEqual(6);
+        expect(count, `army count at ${now.toFixed(2)}s`).toBeLessThanOrEqual(18);
+      }
+    }
+
+    expect(scheduleIndex).toBe(schedule.length);
+    expect(steadyCounts.length).toBeGreaterThan(0);
   });
 
   it('idle_match schedule is empty', () => {
@@ -78,4 +134,3 @@ describe('DeterministicScenarioDriver', () => {
     expect(schedule).toHaveLength(0);
   });
 });
-

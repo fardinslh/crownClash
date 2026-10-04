@@ -1335,8 +1335,8 @@ export class GameScene extends Phaser.Scene {
     };
 
     if (ground) {
-      drawLanePass(12, 0x020617, 0.14);
-      drawInlayDots(0.10);
+      drawLanePass(12, 0x020617, 0.06);
+      drawInlayDots(0.06);
     } else {
       drawLanePass(22, 0x020617, 0.56);
       drawLanePass(17, arena.road, 0.42);
@@ -1641,9 +1641,9 @@ export class GameScene extends Phaser.Scene {
       // Match the raised base plate to its battlefield's terrain palette.
       // This retains the high-contrast ownership ring while avoiding the
       // detached black-node look of the former universal plate. Ground
-      // circles foreshorten to ellipses on the diorama board. On the baked
-      // plinth the stone platform replaces the flat fill, so only the
-      // ownership stroke traces the lip rim.
+      // circles foreshorten to ellipses on the diorama board. On a baked
+      // plinth its stone replaces both the flat fill and extra dark stroke;
+      // the single team-colored ownership ring traces the lip rim.
       const terrainSocket = getBattlefield(this.battlefieldId).visual.socket;
       const basePlate = this.add
         .ellipse(
@@ -1654,11 +1654,11 @@ export class GameScene extends Phaser.Scene {
           terrainSocket,
           onBakedPlinth ? 0 : 0.98
         )
-        .setStrokeStyle(2, teamStyle.dark, 0.95);
+        .setStrokeStyle(2, teamStyle.dark, onBakedPlinth ? 0 : 0.95);
 
       const ring = this.add
-        .ellipse(0, 4 * verticalScale, art.ringRadius * 2 * scale, art.ringRadius * 2 * verticalScale, teamStyle.glow, 0.12)
-        .setStrokeStyle(2.5, teamStyle.primary, 0.92);
+        .ellipse(0, 4 * verticalScale, art.ringRadius * 2 * scale, art.ringRadius * 2 * verticalScale, teamStyle.glow, 0.06)
+        .setStrokeStyle(2, teamStyle.primary, 0.92);
 
       // 2.5D Rendered Fortress Sprite (procedural fallback if the file failed).
       // Sized for presence: the rendered silhouettes carry the map's mass.
@@ -3315,9 +3315,10 @@ export class GameScene extends Phaser.Scene {
       if (vis.lastOwner !== stateTerritory.owner) {
         vis.lastOwner = stateTerritory.owner;
         const teamStyle = THEME.teams[stateTerritory.owner];
-        vis.basePlate.setStrokeStyle(2, teamStyle.dark, 0.95);
-        vis.ring.setStrokeStyle(2.5, teamStyle.primary, 0.95);
-        vis.ring.setFillStyle(teamStyle.glow, 0.12);
+        const onBakedPlinth = this.hasGroundPlate && this.boardLayout.isDimetric;
+        vis.basePlate.setStrokeStyle(2, teamStyle.dark, onBakedPlinth ? 0 : 0.95);
+        vis.ring.setStrokeStyle(2, teamStyle.primary, 0.95);
+        vis.ring.setFillStyle(teamStyle.glow, 0.06);
         // Texture pill badges swap to the new team's texture; the legacy
         // Rectangle fallback keeps restroking.
         const badgeWidth = stateTerritory.tier === 3 ? 46 : stateTerritory.tier === 2 ? 42 : 38;

@@ -36,37 +36,20 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CdpClient, pickFreeCdpPort, waitForWebSocketOpen } from './cdp-client.mjs';
+import { createQaProfile, findQaChrome, isolateQaRequests } from './qa-browser.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
 const APP_URL = process.env.CC_QA_APP_URL || 'http://localhost:3000/?benchmark_mode=1';
+const MISSING_ASSET = process.env.CC_QA_MISSING_ASSET;
+const EXPECT_FALLBACK = process.env.CC_QA_EXPECT_FALLBACK === '1';
+if (EXPECT_FALLBACK && !['ground', 'building'].includes(MISSING_ASSET)) throw new Error('Fallback verification requires CC_QA_MISSING_ASSET=ground or building');
 const VIEWPORTS = [
+  { width: 375, height: 667, dpr: 2 },
   { width: 360, height: 800, dpr: 2 },
   { width: 390, height: 844, dpr: 2 },
   { width: 430, height: 932, dpr: 2 },
 ];
-
-const CHROME_CANDIDATES = [
-  process.env.CC_QA_CHROME_BIN,
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  '/usr/bin/google-chrome',
-  '/usr/bin/chromium-browser',
-  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-].filter(Boolean);
-
-function findChrome() {
-  for (const candidate of CHROME_CANDIDATES) {
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK);
-      return candidate;
-    } catch {
-      // try the next candidate
-    }
-  }
-  throw new Error(
-    'No Chrome binary found. Set CC_QA_CHROME_BIN=/path/to/chrome (headless Chrome is required for capture).'
-  );
-}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -86,8 +69,7 @@ async function evaluate(cdp, expression, { awaitPromise = false } = {}) {
 
 async function captureViewport(chromePath, battlefieldId, viewport, outDir) {
   const cdpPort = await pickFreeCdpPort();
-  const profileDir = path.join(REPO_ROOT, `qa-artifacts/chrome-qa-${Date.now()}-${viewport.width}`);
-  fs.mkdirSync(profileDir, { recursive: true });
+  const profileDir = createQaProfile('cc-map-capture-');
   const chrome = spawn(
     chromePath,
     [
@@ -123,6 +105,9 @@ async function captureViewport(chromePath, battlefieldId, viewport, outDir) {
     const cdp = new CdpClient(ws);
     await cdp.send('Page.enable');
     await cdp.send('Runtime.enable');
+    const networkIsolation = await isolateQaRequests(cdp, APP_URL, {
+      missingAsset: MISSING_ASSET,
+    });
 
     const consoleErrors = [];
     cdp.on('Runtime.consoleAPICalled', (params) => {
@@ -194,22 +179,8 @@ async function captureViewport(chromePath, battlefieldId, viewport, outDir) {
     }
 
     const isTraining = battlefieldId === 'training';
-    if (!isTraining) {
-      // Fresh QA profiles trigger the first-session tutorial. Wait for that
-      // asynchronous navigation to finish before replacing it with the
-      // requested map, otherwise it can win a later scene.start race.
-      let autoTrainingReady = false;
-      for (let attempt = 0; attempt < 60; attempt += 1) {
-        autoTrainingReady = await evaluate(cdp, `(() => {
-          const game = window.__PHASER_GAME__;
-          const scene = game?.scene?.getScene('GameScene');
-          return game?.scene?.isActive('GameScene') === true && scene?.trainingMode === true;
-        })()`);
-        if (autoTrainingReady) break;
-        await sleep(200);
-      }
-      if (!autoTrainingReady) throw new Error('first-session training did not settle before QA map launch');
-    }
+    // Authentication is intentionally blocked: launch an isolated scene
+    // directly instead of requiring the server-driven first-session route.
     // This is an explicit QA scene launch. The menu's asynchronous career
     // connection can finish after our scene.start call. Suppress only its
     // automatic training navigation; the capture still asserts the actual
@@ -264,6 +235,22 @@ async function captureViewport(chromePath, battlefieldId, viewport, outDir) {
               visualCount: visuals.length,
               fullyVisibleCount: visuals.filter((v) => v.container.alpha >= 0.99).length,
               textureKeys: visuals.map((v) => v.sprite.texture.key),
+              groundLoaded: scene.hasGroundPlate === true && scene.textures.exists('cc_ground_' + scene.battlefieldId),
+              propsLoaded: ['tree_birch','tree_apple','tree_pine','bush','grass_tuft','rock','pennant']
+                .every((kind) => scene.textures.exists('cc_prop_' + kind)),
+              propVisualCount: scene.arenaVisuals.filter((v) => v.texture?.key?.startsWith('cc_prop_')).length,
+              totalDecodedBodyBytes: [...performance.getEntriesByType('navigation'), ...performance.getEntriesByType('resource')]
+                .filter((r) => new URL(r.name).origin === location.origin)
+                .reduce((sum, r) => sum + r.decodedBodySize, 0),
+              totalDecodedTextureBytes: [...new Set(Object.values(scene.textures.list).flatMap((texture) => texture.source))]
+                .reduce((sum, source) => sum + (Number.isFinite(source.image?.width) ? source.image.width : Math.ceil(source.width)) *
+                  (Number.isFinite(source.image?.height) ? source.image.height : Math.ceil(source.height)) * 4, 0),
+              mapAssetBytes: performance.getEntriesByType('resource')
+                .filter((r) => ['assets/territories/','assets/grounds/','assets/environment/'].some((part) => r.name.includes(part)))
+                .reduce((sum, r) => sum + r.decodedBodySize, 0),
+              decodedMapTextureBytes: Object.entries(scene.textures.list)
+                .filter(([key]) => key.startsWith('cc_' + scene.battlefieldId + '_') || key.startsWith('cc_ground_') || key.startsWith('cc_prop_'))
+                .reduce((sum, [, texture]) => sum + texture.source.reduce((n, source) => n + source.width * source.height * 4, 0), 0),
             });
           })()`
         )
@@ -271,7 +258,8 @@ async function captureViewport(chromePath, battlefieldId, viewport, outDir) {
       if (state && state.battlefieldId !== (isTraining ? 'crown_cross' : battlefieldId)) {
         throw new Error(`requested ${battlefieldId} but active scene is ${state.battlefieldId}`);
       }
-      if (state && state.packFetches > 0 && state.visualCount === state.territoryCount &&
+      if (state?.missing.length && !EXPECT_FALLBACK) break;
+      if (state && state.packFetches > 0 && (state.groundLoaded || (EXPECT_FALLBACK && MISSING_ASSET === 'ground')) && state.propsLoaded && state.visualCount === state.territoryCount &&
           state.fullyVisibleCount === state.territoryCount) break;
     }
     if (!state) throw new Error('GameScene never reached a loaded game state');
@@ -312,8 +300,20 @@ async function captureViewport(chromePath, battlefieldId, viewport, outDir) {
         throw new Error(`scene battlefieldId ${state.battlefieldId} != requested ${battlefieldId}`);
       }
     }
-    if (state.missing.length > 0) {
+    if (state.missing.length > 0 && !EXPECT_FALLBACK) {
       throw new Error(`textures failed to load: ${state.missing.join(', ')}`);
+    }
+    if ((!state.groundLoaded && !(EXPECT_FALLBACK && MISSING_ASSET === 'ground')) || !state.propsLoaded || state.propVisualCount !== ({crown_cross:24,twin_passes:22,royal_ring:22,quad_citadel:23})[state.battlefieldId]) {
+      throw new Error(`incomplete ground or prop render: ${JSON.stringify(state)}`);
+    }
+    await networkIsolation.assertHealthy();
+    if (EXPECT_FALLBACK) {
+      if (!state.missing.length) throw new Error('Expected asset failure was not exercised');
+      if (MISSING_ASSET === 'ground') {
+        if (state.groundLoaded || !state.missing.every(key => key.startsWith('cc_ground_'))) throw new Error('Missing ground did not use the vector fallback');
+      } else {
+        if (!state.textureKeys.some(key => key.startsWith('cc_fallback_')) || !state.missing.every(key => key.includes('citadel') || key.includes('outpost'))) throw new Error('Missing buildings did not use procedural fallbacks');
+      }
     }
     if (state.packFetches === 0 || state.visualCount !== state.territoryCount ||
         state.fullyVisibleCount !== state.territoryCount) {
@@ -323,7 +323,7 @@ async function captureViewport(chromePath, battlefieldId, viewport, outDir) {
       throw new Error(`not an initial clean battlefield: ${JSON.stringify(state)}`);
     }
     const expectedPack = isTraining ? 'crown_cross' : battlefieldId;
-    if (!state.textureKeys.every((key) => key.startsWith(`cc_${expectedPack}_`))) {
+    if (!state.textureKeys.every((key) => key.startsWith(`cc_${expectedPack}_`) || (EXPECT_FALLBACK && MISSING_ASSET === 'building' && key.startsWith('cc_fallback_')))) {
       throw new Error(`wrong or fallback territory pack: ${JSON.stringify(state.textureKeys)}`);
     }
     await evaluate(cdp, `(() => { window.__PHASER_GAME__.scene.pause('GameScene'); return true; })()`);
@@ -345,15 +345,66 @@ async function captureViewport(chromePath, battlefieldId, viewport, outDir) {
         metrics: m,
         packFetches: state.packFetches,
         missingTextures: state.missing,
+        verifiedFallback: EXPECT_FALLBACK ? MISSING_ASSET : null,
+        mapAssetBytes: state.mapAssetBytes,
+        decodedMapTextureBytes: state.decodedMapTextureBytes,
+        totalDecodedBodyBytes: state.totalDecodedBodyBytes,
+        totalDecodedTextureBytes: state.totalDecodedTextureBytes,
+        propVisualCount: state.propVisualCount,
         cleanFieldCaptureMatchesCanvasRender: cleanComparison,
         consoleErrors,
       };
+      await networkIsolation.assertHealthy();
       console.log(`[capture] ${cleanFileName}: ${JSON.stringify(report)}`);
       return report;
     }
 
-    // Marching armies for the final QA artifact.
+    // Exercise selection and drag through real browser input before armies.
     await evaluate(cdp, `(() => { window.__PHASER_GAME__.scene.resume('GameScene'); return true; })()`);
+    const gesture = await evaluate(cdp, `(() => {
+      const scene = window.__PHASER_GAME__.scene.getScene('GameScene');
+      const territories = Object.values(scene.gameState.territories);
+      const source = territories.find(t => t.owner === 'player');
+      const target = territories.filter(t => t.owner === 'neutral')
+        .sort((a,b) => Math.hypot(a.x-source.x,a.y-source.y)-Math.hypot(b.x-source.x,b.y-source.y))[0];
+      const rect = document.querySelector('canvas').getBoundingClientRect();
+      const camera = scene.cameras.main;
+      const point = (t) => {
+        const p = scene.boardLayout.project(t.x,t.y);
+        const canvasPoint = camera.matrix.transformPoint(p.u,p.v);
+        return {x:rect.left + canvasPoint.x * rect.width / scene.sys.game.canvas.width,
+          y:rect.top + canvasPoint.y * rect.height / scene.sys.game.canvas.height};
+      };
+      return {sourceId:source.id,targetId:target.id,source:point(source),target:point(target)};
+    })()`);
+    await cdp.send('Input.dispatchMouseEvent', {type:'mousePressed',button:'left',buttons:1,clickCount:1,...gesture.source});
+    await sleep(100);
+    const selection = await evaluate(cdp, `(() => {
+      const scene=window.__PHASER_GAME__.scene.getScene('GameScene');
+      const pointer=scene.input.activePointer;
+      const p=pointer.positionToCamera(scene.cameras.main);
+      return {selected:scene.selectedSourceIds,visible:scene.selectionRings.get('${gesture.sourceId}')?.visible===true,
+        pointer:{x:pointer.x,y:pointer.y,worldX:p.x,worldY:p.y},world:scene.boardLayout.unproject(p.x,p.y)};
+    })()`);
+    if (!selection.visible || !selection.selected.includes(gesture.sourceId)) throw new Error(`Real pointer selection failed: ${JSON.stringify({gesture,selection})}`);
+    fs.writeFileSync(path.join(outDir, `${battlefieldId}-${viewport.width}x${viewport.height}-selection.png`), Buffer.from(await captureScreenshot(cdp),'base64'));
+    await cdp.send('Input.dispatchMouseEvent', {type:'mouseMoved',button:'left',buttons:1,...gesture.target});
+    await sleep(100);
+    const drag = await evaluate(cdp, `(() => {
+      const scene=window.__PHASER_GAME__.scene.getScene('GameScene');
+      return {target:scene.hoveredTargetId,badgeVisible:scene.dragBadgeContainer.visible};
+    })()`);
+    if (drag.target !== gesture.targetId || !drag.badgeVisible) throw new Error(`Real pointer drag failed: ${JSON.stringify(drag)}`);
+    fs.writeFileSync(path.join(outDir, `${battlefieldId}-${viewport.width}x${viewport.height}-drag.png`), Buffer.from(await captureScreenshot(cdp),'base64'));
+    await cdp.send('Input.dispatchMouseEvent', {type:'mouseMoved',button:'left',buttons:1,...gesture.source});
+    await cdp.send('Input.dispatchMouseEvent', {type:'mouseReleased',button:'left',buttons:0,clickCount:1,...gesture.source});
+    const cancelled = await evaluate(cdp, `(() => {
+      const scene=window.__PHASER_GAME__.scene.getScene('GameScene');
+      return scene.selectedSourceIds.length===0 && scene.gameState.armies.length===0;
+    })()`);
+    if (!cancelled) throw new Error('Gesture cancellation changed the battlefield or left selection active');
+
+    // Marching armies for the final QA artifact.
     await evaluate(
       cdp,
       `(() => {
@@ -386,18 +437,28 @@ async function captureViewport(chromePath, battlefieldId, viewport, outDir) {
     const report = {
       file: fileName,
       cleanFile: cleanFileName,
+      selectionFile: `${battlefieldId}-${viewport.width}x${viewport.height}-selection.png`,
+      dragFile: `${battlefieldId}-${viewport.width}x${viewport.height}-drag.png`,
+      verifiedGesture: { sourceId: gesture.sourceId, targetId: gesture.targetId, cancelled: true },
       viewport,
       metrics: m,
       packFetches: state.packFetches,
       missingTextures: state.missing,
+      verifiedFallback: EXPECT_FALLBACK ? MISSING_ASSET : null,
+      mapAssetBytes: state.mapAssetBytes,
+      decodedMapTextureBytes: state.decodedMapTextureBytes,
+      totalDecodedBodyBytes: state.totalDecodedBodyBytes,
+      totalDecodedTextureBytes: state.totalDecodedTextureBytes,
+      propVisualCount: state.propVisualCount,
       cleanFieldCaptureMatchesCanvasRender: cleanComparison,
       consoleErrors,
     };
+    await networkIsolation.assertHealthy();
     console.log(`[capture] ${fileName}: ${JSON.stringify(report)}`);
     return report;
   } finally {
     chrome.kill('SIGKILL');
-    // QA scratch chrome profile: never enter git (qa-artifacts/chrome-* is ignored).
+    // Only this run's disposable OS-temp browser profile is removed.
     fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
   }
 }
@@ -487,15 +548,16 @@ async function main() {
   }
   const outDir = path.resolve(process.argv[3] || path.join(REPO_ROOT, 'qa-artifacts/art-twin-passes'));
   fs.mkdirSync(outDir, { recursive: true });
-  const chromePath = findChrome();
+  const chromePath = findQaChrome();
 
   const reports = [];
   for (const viewport of VIEWPORTS) {
     reports.push(await captureViewport(chromePath, battlefieldId, viewport, outDir));
   }
+  fs.writeFileSync(path.join(outDir, 'capture-report.json'), JSON.stringify(reports, null, 2));
 
   const problems = reports.flatMap((r) => [
-    ...(r.missingTextures.length > 0 ? [`${r.file}: missing textures`] : []),
+    ...(r.missingTextures.length > 0 && !r.verifiedFallback ? [`${r.file}: missing textures`] : []),
     ...(r.consoleErrors.length > 0 ? [`${r.file}: console errors`] : []),
     ...(r.cleanFieldCaptureMatchesCanvasRender.meanAbsDiff > 0.05
       ? [`${r.file}: capture does not match the single-viewport canvas render`]

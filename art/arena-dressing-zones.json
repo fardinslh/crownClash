@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "coordinateSpace": "logical-world",
+  "battlefields": {
+    "crown_cross": [],
+    "twin_passes": [
+      { "shape": "rectangle", "minX": 166, "maxX": 234, "minY": 133, "maxY": 653 }
+    ],
+    "royal_ring": [
+      { "shape": "circle", "x": 200, "y": 360, "radius": 108 }
+    ],
+    "quad_citadel": []
+  }
+}

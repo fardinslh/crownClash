@@ -36,7 +36,10 @@ const { MockScene, MockGameObject, MockGraphics, MockContainer, MockVector2 } = 
     text: string = '';
     color: string = '';
     fillColor: number = 0;
+    fillAlpha: number = 1;
     strokeColor: number = 0;
+    strokeWidth: number = 0;
+    strokeAlpha: number = 1;
     originX: number = 0;
     originY: number = 0;
     parentContainer: MockContainer | null = null;
@@ -96,13 +99,16 @@ const { MockScene, MockGameObject, MockGraphics, MockContainer, MockVector2 } = 
       return this;
     }
 
-    setStrokeStyle(_thickness: number, color: number, _alpha = 1) {
+    setStrokeStyle(thickness: number, color: number, alpha = 1) {
       this.strokeColor = color;
+      this.strokeWidth = thickness;
+      this.strokeAlpha = alpha;
       return this;
     }
 
-    setFillStyle(color: number, _alpha = 1) {
+    setFillStyle(color: number, alpha = 1) {
       this.fillColor = color;
+      this.fillAlpha = alpha;
       return this;
     }
 
@@ -335,7 +341,10 @@ const { MockScene, MockGameObject, MockGraphics, MockContainer, MockVector2 } = 
       ellipse: (x: number, y: number, w: number, h: number, color?: number, alpha?: number) => {
         const obj = new MockGameObject(x, y, w, h);
         if (color !== undefined) obj.fillColor = color;
-        if (alpha !== undefined) obj.alpha = alpha;
+        if (alpha !== undefined) {
+          obj.alpha = alpha;
+          obj.fillAlpha = alpha;
+        }
         this.children.add(obj);
         return obj;
       },
@@ -438,6 +447,7 @@ vi.mock('phaser', () => {
         },
       },
       GameObjects: {
+        Image: MockGameObject,
         Rectangle: MockGameObject,
         Text: MockGameObject,
         Graphics: MockGraphics,
@@ -485,7 +495,10 @@ vi.mock('../../career/CareerManager.js', () => ({
 
 import { GameScene } from '../GameScene.js';
 import { BrowserPlatformAdapter } from '@crown-clash/platform';
-import { createBoardLayout } from '../../art/boardProjection.js';
+import { createBoardLayout, PLINTH_TOP_LIFT, projectLifted } from '../../art/boardProjection.js';
+import { getArenaGroundSprite, getArenaPropPositions } from '../../art/BattlefieldArt.js';
+import { THEME } from '../../theme.js';
+import type { BattlefieldId, Territory } from '@crown-clash/game-core';
 
 interface TrackedObject {
   x: number;
@@ -494,6 +507,7 @@ interface TrackedObject {
   height: number;
   destroyed: boolean;
   fillColor: number;
+  texture?: { key: string };
 }
 
 const arenaVisualsOf = (scene: GameScene): TrackedObject[] =>
@@ -507,8 +521,15 @@ const territoryContainersOf = (scene: GameScene) =>
     >;
   }).territoryVisuals;
 
-function createGameScene(battlefieldId: string): GameScene {
+function createGameScene(battlefieldId: string, groundLoaded?: boolean): GameScene {
   const scene = new GameScene();
+  if (groundLoaded !== undefined) {
+    const ground = getArenaGroundSprite(battlefieldId as BattlefieldId);
+    expect(ground, 'relayout fixture needs a declared ground plate').not.toBeNull();
+    Object.assign(scene, {
+      textures: { exists: (key: string) => groundLoaded || key !== ground!.textureKey },
+    });
+  }
   scene.registry.set('platform', new BrowserPlatformAdapter());
   scene.scene.settings.data = {
     mode: 'bot',
@@ -644,6 +665,123 @@ describe('GameScene viewport relayout (map uses the live mobile height)', () => 
 
     const sceneAny = scene as unknown as Record<string, TrackedObject>;
     expect(sceneAny['bottomBarBg'].y).toBe(838);
+  });
+
+  it.each(['crown_cross', 'twin_passes', 'royal_ring', 'quad_citadel'] as const)(
+    'keeps %s baked-plinth anchors and one ownership ring through resize and capture',
+    (battlefieldId) => {
+      const scene = createGameScene(battlefieldId, true);
+      const probe = scene as unknown as {
+        hasGroundPlate: boolean;
+        gameState: { territories: Record<string, Territory> };
+        territoryVisuals: Map<string, {
+          container: InstanceType<typeof MockGameObject>;
+          basePlate: InstanceType<typeof MockGameObject>;
+          ring: InstanceType<typeof MockGameObject>;
+          sprite: InstanceType<typeof MockGameObject>;
+        }>;
+        selectionRings: Map<string, InstanceType<typeof MockGameObject>>;
+        highlightSelectedTerritory(id: string): void;
+      };
+      expect(probe.hasGroundPlate, 'loaded ground must exercise baked-plinth presentation').toBe(true);
+      const propCount = getArenaPropPositions(battlefieldId).length;
+      expect(propCount, 'loaded-ground fixture must include environment props').toBeGreaterThan(0);
+      const initialVisuals = new Map(probe.territoryVisuals);
+      const source = Object.values(probe.gameState.territories).find(
+        (territory) => territory.owner === 'player' && territory.tier === 3,
+      );
+      expect(source, 'fixture needs a player-owned base to select and capture').toBeDefined();
+      const sourceId = source!.id;
+      probe.highlightSelectedTerritory(sourceId);
+
+      const verifyPresentation = (height: number): void => {
+        const layout = createBoardLayout(battlefieldId, height);
+        expect(layout.isDimetric).toBe(true);
+        expect(probe.hasGroundPlate).toBe(true);
+        // Tall layouts may add a board glow/drop shadow; only prop images
+        // have a fixed count across viewport sizes.
+        expect(arenaVisualsOf(scene).filter((visual) => visual.texture?.key.startsWith('cc_prop_')))
+          .toHaveLength(propCount);
+        expect(arenaVisualsOf(scene).every((visual) => !visual.destroyed)).toBe(true);
+        for (const [id, visual] of probe.territoryVisuals) {
+          const territory = probe.gameState.territories[id];
+          const lifted = projectLifted(layout, territory.x, territory.y, PLINTH_TOP_LIFT);
+          expect(visual, 'resize must preserve existing interactive territory objects').toBe(initialVisuals.get(id));
+          expect(visual.container.x).toBeCloseTo(lifted.u, 6);
+          expect(visual.container.y).toBeCloseTo(lifted.v, 6);
+          expect(visual.basePlate.fillAlpha).toBe(0);
+          expect(visual.basePlate.strokeAlpha).toBe(0);
+          expect(visual.ring.strokeWidth).toBe(2);
+          expect(visual.ring.strokeColor).toBe(THEME.teams[territory.owner].primary);
+          expect(visual.ring.fillAlpha).toBe(0.06);
+        }
+        const selected = probe.selectionRings.get(sourceId);
+        expect(selected, 'active selection ring must survive resize').toBeDefined();
+        const selectedSource = probe.gameState.territories[sourceId];
+        const selectedAnchor = projectLifted(layout, selectedSource.x, selectedSource.y, PLINTH_TOP_LIFT);
+        expect(selected!.x).toBeCloseTo(selectedAnchor.u, 6);
+        expect(selected!.y).toBeCloseTo(selectedAnchor.v, 6);
+      };
+
+      verifyPresentation(720);
+      resizeTo(scene, 400, 866);
+      vi.advanceTimersByTime(250);
+      verifyPresentation(866);
+
+      // Replace the authoritative state object so ownership synchronization
+      // reads a real state transition, rather than mutating its visual copy.
+      probe.gameState.territories[sourceId] = {
+        ...probe.gameState.territories[sourceId], owner: 'enemy',
+      };
+      scene.updateTerritoryVisuals(true);
+      const captured = probe.territoryVisuals.get(sourceId);
+      expect(captured).toBeDefined();
+      expect(captured!.ring.strokeColor).toBe(THEME.teams.enemy.primary);
+      expect(captured!.ring.fillColor).toBe(THEME.teams.enemy.glow);
+      expect(captured!.ring.strokeAlpha).toBe(0.95);
+      expect(captured!.sprite.texture.key).toContain('_enemy');
+      verifyPresentation(866);
+
+      resizeTo(scene, 400, 720);
+      vi.advanceTimersByTime(250);
+      verifyPresentation(720);
+      scene.events.emit('shutdown');
+    },
+  );
+
+  it('keeps missing-ground grounding and flat anchors through resize and capture', () => {
+    const scene = createGameScene('crown_cross', false);
+    const probe = scene as unknown as {
+      hasGroundPlate: boolean;
+      gameState: { territories: Record<string, Territory> };
+      territoryVisuals: Map<string, {
+        container: InstanceType<typeof MockGameObject>;
+        basePlate: InstanceType<typeof MockGameObject>;
+        ring: InstanceType<typeof MockGameObject>;
+      }>;
+    };
+    expect(probe.hasGroundPlate).toBe(false);
+    resizeTo(scene, 400, 866);
+    vi.advanceTimersByTime(250);
+    probe.gameState.territories['p_base'] = {
+      ...probe.gameState.territories['p_base'], owner: 'enemy',
+    };
+    scene.updateTerritoryVisuals(true);
+
+    const layout = createBoardLayout('crown_cross', 866);
+    for (const [id, visual] of probe.territoryVisuals) {
+      const territory = probe.gameState.territories[id];
+      const anchor = layout.project(territory.x, territory.y);
+      expect(visual.container.x).toBeCloseTo(anchor.u, 6);
+      expect(visual.container.y).toBeCloseTo(anchor.v, 6);
+      expect(visual.basePlate.fillAlpha).toBe(0.98);
+      expect(visual.basePlate.strokeAlpha).toBe(0.95);
+      expect(visual.basePlate.strokeColor).toBe(THEME.teams[territory.owner].dark);
+      expect(visual.ring.strokeWidth).toBe(2);
+      expect(visual.ring.strokeColor).toBe(THEME.teams[territory.owner].primary);
+      expect(visual.ring.fillAlpha).toBe(0.06);
+    }
+    scene.events.emit('shutdown');
   });
 
   it('is idempotent: a same-size resize does not rebuild the arena', () => {

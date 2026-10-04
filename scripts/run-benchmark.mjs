@@ -1,8 +1,11 @@
+import { benchmarkClockFailures } from './benchmark-clock.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { findQaChrome, createQaProfile, isolateQaRequests } from './qa-browser.mjs';
+import { CdpClient, waitForWebSocketOpen, pickFreeCdpPort } from './cdp-client.mjs';
 
 // Import pure benchmark calculators and deterministic scenario definitions
 import {
@@ -19,7 +22,6 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '..');
 const DIST_DIR = path.resolve(REPO_ROOT, 'apps/game/dist');
 const SUMMARIES_DIR = path.resolve(REPO_ROOT, 'qa-artifacts/summaries');
-const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 
 const MIME_TYPES = {
   '.html': 'text/html',
@@ -34,14 +36,14 @@ const MIME_TYPES = {
   '.mp3': 'audio/mpeg',
 };
 
-function startStaticServer(port = 4190) {
+function startStaticServer(port = 4190, distDir = DIST_DIR) {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       let reqPath = req.url.split('?')[0];
       if (reqPath === '/') reqPath = '/index.html';
-      const filePath = path.join(DIST_DIR, reqPath);
+      const filePath = path.resolve(distDir, `.${reqPath}`);
 
-      if (!fs.existsSync(filePath)) {
+      if (!filePath.startsWith(path.resolve(distDir) + path.sep) || !fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
         res.writeHead(404);
         res.end('Not Found');
         return;
@@ -60,46 +62,13 @@ function startStaticServer(port = 4190) {
   });
 }
 
-class CdpClient {
-  constructor(ws) {
-    this.ws = ws;
-    this.id = 1;
-    this.callbacks = new Map();
-    this.eventListeners = new Map();
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data.toString());
-      if (msg.id && this.callbacks.has(msg.id)) {
-        const { resolve, reject } = this.callbacks.get(msg.id);
-        this.callbacks.delete(msg.id);
-        if (msg.error) reject(new Error(msg.error.message || JSON.stringify(msg.error)));
-        else resolve(msg.result);
-      } else if (msg.method && this.eventListeners.has(msg.method)) {
-        for (const fn of this.eventListeners.get(msg.method)) {
-          fn(msg.params);
-        }
-      }
-    };
-  }
-
-  on(event, fn) {
-    if (!this.eventListeners.has(event)) this.eventListeners.set(event, []);
-    this.eventListeners.get(event).push(fn);
-  }
-
-  send(method, params = {}) {
-    return new Promise((resolve, reject) => {
-      const msgId = this.id++;
-      this.callbacks.set(msgId, { resolve, reject });
-      this.ws.send(JSON.stringify({ id: msgId, method, params }));
-    });
-  }
-}
-
 async function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+
 export async function runDeterministicBenchmark(options = {}) {
+  const distDir = path.resolve(options.distDir || process.env.CC_QA_DIST_DIR || DIST_DIR);
   const scenarioName = options.scenario || 'normal_combat';
   const scenarioDef = SCENARIO_DEFINITIONS[scenarioName];
   if (!scenarioDef) {
@@ -118,28 +87,29 @@ export async function runDeterministicBenchmark(options = {}) {
   const rendererType = disableWebgl ? 'Canvas' : 'WebGL';
   const networkName = slow4G ? 'Slow 4G' : fast4G ? 'Fast 4G' : 'LAN';
   const port = options.port || 4191;
-  const cdpPort = options.cdpPort || 9251;
+  const cdpPort = options.cdpPort || await pickFreeCdpPort();
   const seed = options.seed ?? scenarioDef.config.seed;
 
   console.log(`\n======================================================`);
   console.log(`Deterministic Scenario: ${scenarioName} (${durationSec}s)`);
   console.log(`Viewport: ${viewport.width}x${viewport.height}@${viewport.dpr} | CPU: ${cpuThrottling}x | Renderer: ${rendererType} | Network: ${networkName}`);
-  console.log(`PRNG Seed: ${seed} | Host: Browser Emulation (Headless Chrome on Windows)`);
+  const host = `Browser Emulation (Headless Chrome on ${process.platform}/${process.arch})`;
+  console.log(`PRNG Seed: ${seed} | Host: ${host}`);
   if (recordTrace) console.log(`Performance Tracing: ENABLED`);
   if (injectLongTaskMs > 0) console.log(`Synthetic Long Task Injection: ${injectLongTaskMs}ms`);
   console.log(`======================================================`);
 
-  if (!fs.existsSync(DIST_DIR)) {
-    throw new Error(`Dist directory not found: ${DIST_DIR}. Run 'npm run build' first.`);
+  if (!fs.existsSync(distDir)) {
+    throw new Error(`Dist directory not found: ${distDir}. Run 'npm run build' first.`);
   }
 
   let server;
   let chromeProcess;
   let ws;
-  const tempProfileDir = path.resolve(REPO_ROOT, `qa-artifacts/chrome-profile-${Date.now()}`);
+  const tempProfileDir = createQaProfile('cc-benchmark-');
 
   try {
-    server = await startStaticServer(port);
+    server = await startStaticServer(port, distDir);
 
     // Real WebGL: Remove --disable-gpu for WebGL runs! Only disable when running pure Canvas mode.
     const chromeFlags = [
@@ -155,7 +125,7 @@ export async function runDeterministicBenchmark(options = {}) {
       chromeFlags.push('--disable-webgl', '--disable-3d-apis');
     }
 
-    chromeProcess = spawn(CHROME_PATH, chromeFlags, { stdio: 'ignore' });
+    chromeProcess = spawn(findQaChrome(), chromeFlags, { stdio: 'ignore' });
     await sleep(1500);
 
     const listRes = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
@@ -163,14 +133,12 @@ export async function runDeterministicBenchmark(options = {}) {
     const pageTab = tabs.find((t) => t.type === 'page') || tabs[0];
     ws = new WebSocket(pageTab.webSocketDebuggerUrl);
 
-    await new Promise((res, rej) => {
-      ws.onopen = res;
-      ws.onerror = rej;
-    });
+    await waitForWebSocketOpen(ws);
 
     const cdp = new CdpClient(ws);
     await cdp.send('Page.enable');
     await cdp.send('Runtime.enable');
+    const networkIsolation = await isolateQaRequests(cdp, `http://127.0.0.1:${port}/`);
 
     // Query browser version
     let browserVersion = 'HeadlessChrome';
@@ -264,6 +232,8 @@ export async function runDeterministicBenchmark(options = {}) {
         gameAttached: false,
         schedule: null,
         scheduleIndex: 0,
+        dispatchSuccesses: 0,
+        dispatchFailures: [],
         scenarioName: '',
         subsystemTimings: {
           simulationMs: 0,
@@ -395,10 +365,8 @@ export async function runDeterministicBenchmark(options = {}) {
           }
         }
 
-        if (game.loop && typeof game.loop.setFPSLimit === 'function') {
-          game.loop.setFPSLimit(60);
-        }
-
+        // Preserve the production TimeStep. Adding a limiter after boot can
+        // accumulate nearly two RAF intervals into each simulation update.
         // Authoritative simulation step tick
         game.events.on('step', (time, delta) => {
           const probe = window.__AUTHORITATIVE_PROBE__;
@@ -494,9 +462,10 @@ export async function runDeterministicBenchmark(options = {}) {
               const elapsedSec = (performance.now() - probe.startTime) / 1000;
               while (probe.scheduleIndex < probe.schedule.length && probe.schedule[probe.scheduleIndex].timeSec <= elapsedSec) {
                 const d = probe.schedule[probe.scheduleIndex++];
-                if (typeof scene.executeQaDispatch === 'function') {
-                  scene.executeQaDispatch(d.sourceId, d.targetId, d.owner);
-                }
+                if (typeof scene.executeQaDispatch !== 'function' ||
+                    scene.executeQaDispatch(d.sourceId, d.targetId, d.owner) !== true) {
+                  probe.dispatchFailures.push('Scheduled dispatch failed at index '+(probe.scheduleIndex-1));
+                } else probe.dispatchSuccesses++;
               }
             }
           }
@@ -592,7 +561,61 @@ export async function runDeterministicBenchmark(options = {}) {
         });
       })()`,
     });
-    await sleep(2000);
+    let startup = null;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const readiness = await cdp.send('Runtime.evaluate', {
+        expression: `(() => {
+          const scene = window.__PHASER_GAME__?.scene?.getScene('GameScene');
+          const visuals = scene?.territoryVisuals ? [...scene.territoryVisuals.values()] : [];
+          if (!scene?.gameState || !scene.hasGroundPlate || !visuals.length ||
+              !visuals.every(v => v.container.alpha >= 0.99) || scene.missingTerritoryTextures.size) return null;
+          return {
+            navigationToBattleReadyMs: performance.now(),
+            sceneElapsedSeconds: scene.gameState.elapsedTimeSeconds,
+            totalDecodedBodyBytes: [...performance.getEntriesByType('navigation'), ...performance.getEntriesByType('resource')]
+              .filter(r => new URL(r.name).origin === location.origin)
+              .reduce((n, r) => n + r.decodedBodySize, 0),
+            totalDecodedTextureBytes: [...new Set(Object.values(scene.textures.list).flatMap(texture => texture.source))]
+              .reduce((n, source) => n + (Number.isFinite(source.image?.width) ? source.image.width : Math.ceil(source.width)) *
+                (Number.isFinite(source.image?.height) ? source.image.height : Math.ceil(source.height)) * 4, 0),
+            mapAssetBytes: performance.getEntriesByType('resource')
+              .filter(r => ['assets/territories/','assets/grounds/','assets/environment/'].some(p => r.name.includes(p)))
+              .reduce((n, r) => n + r.decodedBodySize, 0),
+            decodedMapTextureBytes: Object.entries(scene.textures.list)
+              .filter(([key]) => key.startsWith('cc_crown_cross_') || key.startsWith('cc_ground_') || key.startsWith('cc_prop_'))
+              .reduce((n, [, texture]) => n + texture.source.reduce((s, source) => s + source.width * source.height * 4, 0), 0)
+          };
+        })()`,
+        returnByValue: true,
+      });
+      if (readiness.exceptionDetails) throw new Error(`Battle readiness evaluation failed: ${readiness.exceptionDetails.text}`);
+      startup = readiness.result?.value;
+      if (startup) break;
+      await sleep(100);
+    }
+    if (!startup) throw new Error('Battle never reached a fully loaded, visible initial state');
+
+    if (scenarioName === 'normal_combat' || scenarioName === 'heavy_combat') {
+      const control = await cdp.send('Runtime.evaluate', {
+        expression: `(() => {
+          const scene = window.__PHASER_GAME__.scene.getScene('GameScene');
+          if (typeof scene.executeAiTurn !== 'function') throw new Error('Automatic enemy AI hook unavailable');
+          if (typeof scene.executeQaDispatch !== 'function') throw new Error('Production QA dispatch hook unavailable');
+          // Both teams are driven by the canonical schedule. An additional
+          // production AI commander would introduce unscheduled dispatches.
+          scene.executeAiTurn = () => {};
+          scene.playerArmySpeedMultiplier = 1;
+          scene.enemyArmySpeedMultiplier = 1;
+          return { automaticEnemyAi: false, playerSpeedMultiplier: scene.playerArmySpeedMultiplier,
+            enemySpeedMultiplier: scene.enemyArmySpeedMultiplier };
+        })()`,
+        returnByValue: true,
+      });
+      if (control.exceptionDetails || control.result?.value?.automaticEnemyAi !== false ||
+          control.result?.value?.playerSpeedMultiplier !== 1 || control.result?.value?.enemySpeedMultiplier !== 1) {
+        throw new Error('Could not isolate the canonical scheduled combat workload');
+      }
+    }
 
     // Prepare deterministic schedule & hash
     const schedule = scenarioDef.generateSchedule(seed, durationSec);
@@ -658,6 +681,10 @@ export async function runDeterministicBenchmark(options = {}) {
           duplicateFramesDropped: probe.duplicateFramesDropped,
           lifecycleTransitions: probe.lifecycleTransitions,
           subsystemTimings: probe.subsystemTimings,
+          sceneElapsedSeconds: window.__PHASER_GAME__?.scene?.getScene('GameScene')?.gameState?.elapsedTimeSeconds,
+          dispatchAttempts: probe.scheduleIndex,
+          dispatchSuccesses: probe.dispatchSuccesses,
+          dispatchFailures: probe.dispatchFailures,
         };
       })()`,
       returnByValue: true,
@@ -708,12 +735,22 @@ export async function runDeterministicBenchmark(options = {}) {
         maxAllowedLongTasks: scenarioDef.config.maxAllowedLongTasks,
       }
     );
+    if (scenarioName === 'normal_combat' || scenarioName === 'heavy_combat') {
+      verification.failures.push(...benchmarkClockFailures(metrics, rawData.sceneElapsedSeconds - startup.sceneElapsedSeconds));
+      const dueDispatches = schedule.filter(d => d.timeSec <= rawData.sampleDurationMs / 1000 - 0.05).length;
+      if (!Number.isInteger(rawData.dispatchAttempts) || rawData.dispatchAttempts < dueDispatches ||
+          rawData.dispatchSuccesses !== rawData.dispatchAttempts || !Array.isArray(rawData.dispatchFailures) || rawData.dispatchFailures.length) {
+        verification.failures.push('SCHEDULED_DISPATCH_FAILED: '+JSON.stringify({dueDispatches,attempted:rawData.dispatchAttempts,
+          successful:rawData.dispatchSuccesses,failures:rawData.dispatchFailures}));
+      }
+      verification.passed = verification.failures.length === 0;
+    }
 
     const report = {
       id: `bench_${scenarioName}_${Date.now()}`,
       timestamp: new Date().toISOString(),
       environment: {
-        host: 'Browser Emulation (Headless Chrome on Windows)',
+        host,
         isPhysicalDevice: false,
         renderer: rawData.actualRenderer,
         gpuVendor: rawData.gpuVendor,
@@ -733,6 +770,11 @@ export async function runDeterministicBenchmark(options = {}) {
         seed,
       },
       metrics,
+      startup,
+      workload: { automaticEnemyAi: !['normal_combat', 'heavy_combat'].includes(scenarioName),
+        speedMultipliers: ['normal_combat', 'heavy_combat'].includes(scenarioName) ? {player:1,enemy:1} : null,
+        dispatchAttempts:rawData.dispatchAttempts,dispatchSuccesses:rawData.dispatchSuccesses,
+        scheduledUnits:'Metadata only; production executeQaDispatch uses source refill and ratio 0.5.' },
       verification,
     };
 
@@ -785,16 +827,19 @@ export async function runDeterministicBenchmark(options = {}) {
       console.warn('Failures:', verification.failures);
     }
 
-    if (!fs.existsSync(SUMMARIES_DIR)) {
-      fs.mkdirSync(SUMMARIES_DIR, { recursive: true });
+    const summariesDir = path.resolve(options.outDir || process.env.CC_QA_OUT_DIR || SUMMARIES_DIR);
+    if (!fs.existsSync(summariesDir)) {
+      fs.mkdirSync(summariesDir, { recursive: true });
     }
 
     const defaultFilename = `${scenarioName}_${viewport.width}x${viewport.height}_cpu${cpuThrottling}x_${rendererType.toLowerCase()}${slow4G ? '_slow4g' : fast4G ? '_fast4g' : ''}.json`;
     const outFilename = options.outFilename || defaultFilename;
-    const outPath = path.join(SUMMARIES_DIR, outFilename);
+    const outPath = path.join(summariesDir, outFilename);
     fs.writeFileSync(outPath, JSON.stringify(report, null, 2));
     console.log(`Saved small reviewable JSON summary to: ${outPath}\n`);
 
+    await networkIsolation.assertHealthy();
+    if (!verification.passed) throw new Error(`Benchmark prerequisites failed: ${verification.failures.join('; ')}`);
     return report;
   } finally {
     try {
@@ -860,4 +905,3 @@ if (process.argv[1] && process.argv[1].endsWith('run-benchmark.mjs')) {
     process.exit(1);
   });
 }
-

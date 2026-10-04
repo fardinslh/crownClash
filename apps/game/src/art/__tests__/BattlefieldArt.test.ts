@@ -9,11 +9,13 @@ import {
 } from '@crown-clash/game-core';
 import {
   ASSET_MANIFEST,
+  ARENA_DRESSING_ZONES,
   blenderMasterPath,
   battlefieldIdFromLaunchData,
   createProceduralTerritoryFallbackTexture,
   getArenaGroundSprite,
   getArenaPropPositions,
+  isArenaDressingExcluded,
   getBattlefieldRuntimeAssets,
   GROUND_TEXTURE_KEYS,
   listEnvironmentPropSpritePaths,
@@ -603,6 +605,37 @@ describe('battlefield art invariants', () => {
     expect(territoryHitAreaSize(27)).toBe(67.5);
     expect(territoryHitAreaSize(32)).toBe(80);
     expect(territoryHitAreaSize(36)).toBe(90);
+  });
+
+  it('reserves the riverbanks and palace court using inclusive logical-world zones', () => {
+    expect(ARENA_DRESSING_ZONES.twin_passes).toEqual([
+      { shape: 'rectangle', minX: 166, maxX: 234, minY: 133, maxY: 653 },
+    ]);
+    expect(ARENA_DRESSING_ZONES.royal_ring).toEqual([
+      { shape: 'circle', x: 200, y: 360, radius: 108 },
+    ]);
+    expect(isArenaDressingExcluded('twin_passes', 200, 386)).toBe(true);
+    expect(isArenaDressingExcluded('twin_passes', 166, 133)).toBe(true);
+    expect(isArenaDressingExcluded('twin_passes', 234, 653)).toBe(true);
+    expect(isArenaDressingExcluded('twin_passes', 165, 386)).toBe(false);
+    expect(isArenaDressingExcluded('twin_passes', 200, 132)).toBe(false);
+    expect(isArenaDressingExcluded('royal_ring', 200, 360)).toBe(true);
+    expect(isArenaDressingExcluded('royal_ring', 308, 360)).toBe(true);
+    expect(isArenaDressingExcluded('royal_ring', 309, 360)).toBe(false);
+    expect(isArenaDressingExcluded('crown_cross', 200, 360)).toBe(false);
+    expect(isArenaDressingExcluded('quad_citadel', 200, 360)).toBe(false);
+  });
+
+  it('keeps all environment prop anchors off the riverbanks and palace court', () => {
+    for (const battlefieldId of ['twin_passes', 'royal_ring'] as const) {
+      const props = getArenaPropPositions(battlefieldId);
+      expect(props.length, `${battlefieldId} must retain its environment dressing`).toBeGreaterThan(0);
+      for (const prop of props) {
+        expect(isArenaDressingExcluded(battlefieldId, prop.x, prop.y),
+          `${battlefieldId} ${prop.kind} at ${prop.x},${prop.y} overlaps a reserved ground feature`)
+          .toBe(false);
+      }
+    }
   });
 
   it('places environment props clear of territories, roads, the frame and each other', () => {

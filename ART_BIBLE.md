@@ -1,13 +1,15 @@
 # Crown Clash — Art Bible & Visual Direction
-**Version:** 1.1
+**Version:** 1.2
 **Target Platform:** Mobile WebViews (Bale, Eitaa, Telegram, Mobile Web)
-**Visual Style:** Stylized 2.5D (Rendered from Blender → 2D Texture Atlas at Runtime)
-**Primary Goal:** Maximum instant tactical readability, vibrant stylized toy-like charm, and high-end visual polish on compact mobile screens.
+**Visual Style:** Stylized 2.5D (Blender renders → optimized 2D sprites at runtime)
+**Primary Goal:** Instant tactical readability, bright volumetric cartoon environments, and polished composition on compact mobile screens.
 
-**v1.1 additions:** terrain proportions, road appearance, decorative-object scale, line
-weight & edge treatment, canonical resolution standards, mobile readability rules, and
-the Blender source pipeline (see `docs/art/README.md`). The authoritative scene-builder
-script is `art/blender/build_battlefield_scene.py`.
+**v1.2:** one bright cartoon direction across four battlefields: warm pale stone,
+rounded foliage, natural terrain color masses, restrained ownership rings and
+distinct environment identities. All four boards use the same 45° dimetric camera
+and ground framing. The controlled source pipeline is documented in
+`docs/art/README.md`; the scene builder is `art/blender/build_battlefield_scene.py`.
+This environment revision preserves shared troops and HUD design.
 
 ---
 
@@ -15,15 +17,16 @@ script is `art/blender/build_battlefield_scene.py`.
 
 1. **Instant Readability at Arm’s Length:**
    Players on 5-inch to 6.7-inch mobile screens must immediately recognize territory ownership, tier, and unit strength in under 100 milliseconds.
-2. **Believable Miniatures (Semi-Realistic Direction):**
-   Realistic medieval silhouettes at miniature scale — human-scale doors, voussoir
-   arches, framed windows, natural foliage — with tight edge bevels and grounded
-   contact shadows. Detail must survive downscaling to 64–160px sprites; thin, fragile
-   geometry and photographic noise are still avoided.
+2. **Readable Cartoon Volumes:**
+   Broad medieval silhouettes, softened edges, light warm stone and clustered
+   foliage carry the scene. Roofs, timber, stone and metal separate clearly at
+   128–160px; tiny masonry marks and high-frequency texture never replace shape.
+   Soft contact shadows ground each object without dark halos.
 3. **High Color Contrast:**
-   Bright, saturated team accents against a rich, dark tactical arena background.
+   Bright, saturated team accents against a calm green battlefield and pale stone.
+   The existing dark HUD framing remains unchanged.
 4. **Strict Asset Cohesion:**
-   Every visual asset—whether handcrafted or assisted by AI—must share identical camera projection, lighting direction, material roughness, and line weight. Assets must never appear as if they were assembled from random asset stores.
+   Every visual asset—whether handcrafted or assisted by AI—must share the camera projection, lighting direction, controlled material palette, and edge language. Assets must never appear as if they were assembled from random asset stores.
 
 ---
 
@@ -35,7 +38,7 @@ All 3D source assets rendered in Blender must use a **locked orthographic camera
 | :--- | :--- | :--- |
 | **Camera Type** | `Orthographic` | Eliminates perspective distortion across different screen positions. |
 | **Rotation (Euler)** | `X: 45.0°, Y: 0.0°, Z: 0.0°` | Straight-on dimetric (Clash Royale-style diorama): the camera sits due south of the subject at a 45° pitch, so every sprite grounds on the board exactly like the client's board projection (`apps/game/src/art/boardProjection.ts` — same pitch, yaw 0). |
-| **Orthographic Scale** | `6.0` (standard 2m asset) | Keeps all assets rendered at identical relative scale. |
+| **Orthographic Scale** | Default `6.0`; fixed per-builder crops | `CAMERA_FRAMING` keeps each building's established relative scale. |
 | **Clip Start / End** | `0.1m` / `100.0m` | Avoids Z-fighting or camera clipping. Ground diorama plates use a 300-unit stand-off with a 600-unit far clip (see `build_battlefield_scene.py` GROUND_DIORAMA_*). |
 
 ### Board Projection & Diorama Ground Plates
@@ -45,7 +48,10 @@ The battlefield itself is authored in a **flat authoritative world space** (380�
 * `project(x, y)` maps world → screen at 45° pitch (foreshorten = cos 45°): ground circles become ellipses, roads recede, gameplay objects sort by screen Y (painter's algorithm).
 * `unproject` reverses it for hit testing; `PLINTH_TOP_LIFT` anchors territory visuals on the raised plinth tops baked under every socket (6.2 world px — must track `DIORAMA_PLINTH_HEIGHT - DIORAMA_PLINTH_SINK + DIORAMA_PLINTH_LIP_RISE` in `crown_cross_kit.py`).
 * Every battlefield's ground plate (1140×2502 master, 760×1668 runtime WebP) is rendered through the same rig, centered on the world rect (`GROUND_DIORAMA_AIM` = plane (0,0,0)), so image rows map world y at exactly the projection's v formula — the baked roads and plinths land under the projected sockets 1:1. The plate bakes a 250-unit meadow fringe beyond each end of the 640-unit world rect, so tall viewports fill with board while shorter ones crop the fringe symmetrically (no empty backdrop on any phone).
-* Boards without a dimetric plate (grounds pack inactive, or a future flat-shipped map) fall back to the stretched identity layout: pixel-identical to the flat board at the 400×720 baseline, stretching vertically to fill taller viewports (`DIMETRIC_BATTLEFIELDS` gates the rollout).
+* Projection is selected by battlefield (`DIMETRIC_BATTLEFIELDS`), independently
+  of texture loading. Missing/inactive plates use vector ground in the current
+  projection; all four current maps stay dimetric. Future maps outside that set
+  use the stretched identity layout.
 
 ---
 
@@ -56,13 +62,13 @@ A standardized 3-point stylized lighting rig creates consistent depth, warm top 
 ```
                   [ Key Light (Sun) ]
                  Top-Left (45° azimuth, 60° elevation)
-                 Warm Sunlight (#FFF5E6, Energy: 4.0)
+                 Warm Sunlight (#FFF5E6, Energy: 2.2)
                          \
                           \
    [ Rim Light ]           [ 3D Model ]           [ Fill Light (Sky) ]
    Back-Right              Center (0,0,0)         Opposite Key
    Pure White (#FFFFFF)                           Cool Sky Blue (#A8D2FF)
-   Energy: 2.5                                    Energy: 1.5
+   Energy: 1.35                                    Energy: 0.8
 ```
 
 ### Lighting Parameters
@@ -70,21 +76,21 @@ A standardized 3-point stylized lighting rig creates consistent depth, warm top 
   * Type: `Sun`
   * Rotation: `X: 45°, Y: 25°, Z: -40°`
   * Color: Warm Champagne `#FFF5E6`
-  * Strength: `4.0`
+  * Strength: `2.2`
   * Shadow Softness / Angle: `0.15 rad` (crisp contact shadows with subtle edge softening).
 * **Fill Light (Area / Sky):**
-  * Type: `Sun` or `Large Area Light`
+  * Type: `Sun`
   * Color: Cool Sky Blue `#A8D2FF`
-  * Strength: `1.5`
+  * Strength: `0.8`
   * Purpose: Injects cool ambient tones into shadows, preventing pitch-black contrast.
 * **Rim Light (Backlight):**
-  * Type: `Spot` or `Sun` pointing toward the camera from behind the model.
+  * Type: `Sun`, behind-right of the model.
   * Color: Clean Rim White `#FFFFFF`
-  * Strength: `2.8`
+  * Strength: `1.35`
   * Purpose: Carves strong silhouette separation between the building edges and the arena floor.
 * **World Ambient:**
   * Background Color: Neutral Slate `#161B26`
-  * Ambient Strength: `0.4`
+  * Ambient Strength: `0.28`
   * Ambient Occlusion: Factor `1.0`, Distance `0.8m`.
 
 ---
@@ -101,8 +107,11 @@ Shadow:    #1E3A8A      Shadow:    #7F1D1D      Shadow:    #334155      Victory:
 ```
 
 ### Palette Rules
-* **Banners & Roof Tiles:** Dyed in the exact Team Primary color to establish immediate ownership.
-* **Stone Structures:** Neutral warm/cool gray stonework `#475569` with beveled edges and moss/crevice shading.
+* **Banners & Roof Tiles:** Use the team's blue/red/neutral hue with controlled
+  source-color lifts for AgX lighting. Runtime ownership rings use the exact
+  team-primary color; rendered cloth colors need not equal its hex value.
+* **Stone Structures:** Light warm limestone and cream trim, broad beveled surfaces
+  and soft crevice shading; highland stone may be cooler, but never charcoal-heavy.
 * **Trim & Metalwork:** Stylized iron `#334155` for regular buildings; polished royal gold `#F59E0B` for the central Crown Keep and Tier 3 Citadels.
 
 ---
@@ -125,56 +134,38 @@ Every territory must have a distinctive silhouette so players instantly recogniz
 ```
 
 * **Tier 1 — Watchtower / Outpost:**
-  * Single cylindrical stone tower with wooden conical tiled roof.
-  * 1 small team pennant flag.
+  * Single stout stone tower with a layered conical team roof and broad gallery.
+  * One prominent team banner on the front face.
   * Compact footprint.
 * **Tier 2 — Crown Keep (Center Strategic Stronghold):**
   * Octagonal reinforced ramparts, heavy stone battlements, central gilded crown spire.
   * Two team banners draped over stone walls.
 * **Tier 3 — Citadel / Capital Base (Player & Enemy HQ):**
-  * Grand fortified keep flanked by twin defensive turrets and reinforced archway gate.
-  * Massive team banner, gilded masonry corners, prominent visual weight.
+  * Four roofed corner towers, a central pitched-roof keep and an arched gate.
+  * Broad battlements, a clear team banner and prominent visual weight.
 
-**Crown Cross kit (approved semi-realistic direction):** believable medieval
-silhouettes at miniature scale — slate stone with pale trim courses, voussoir arches,
-framed windows, corner quoins and human-scale doors; tight 0.02–0.03 edge bevels instead
-of toy-rounds; only roofs, banners and shields carry team color. Citadels are curtain-wall
-keeps with corner towers, a gatehouse and a pitched-roof keep; the Crown Keep is a
-crenellated octagon with a gilded crown ring; outposts are stone watchtowers with timber
-watch rooms; barracks are quoined stone halls with a chimney; stables are half-timbered
-plaster halls with open stalls. Each building bakes its own tight contact shadow
-(`contact_disc`), never the wide rig blob. Models live in `art/blender/crown_cross_kit.py`,
-render through the canonical rig, and use per-builder crops (`CAMERA_FRAMING`) that never
-change the 45°/0° view.
+**Crown Cross kit (reference cartoon direction):** warm pale stone, clear team roofs,
+chunky parapets, softened chamfers and broad timber framing. Citadels retain corner
+towers and a readable gatehouse; the Crown Keep retains its gilded crown; outposts,
+barracks and open-front stables must remain distinguishable at actual mobile size.
+Depth comes from broad highlights, restrained shadow seams and tight contact shadows,
+not dense tiny details. Models share `art/blender/crown_cross_kit.py` and the canonical
+rig; per-builder `CAMERA_FRAMING` crops preserve the 45°/0° view and runtime footprint.
 
-**War shape & 2.5D depth (every fortress):** buildings read as war architecture, not
-houses — timber fighting galleries (hoardings) project from the curtain walls of citadels,
-ring the keep's outer wall and bretèche the outpost shaft; every gate hangs an iron
-portcullis grille; merlons are heavy and machicolations overhang the towers; barracks and
-stables carry corbie-step gables and pennant poles at the gable corners; stables jetty a
-hay loft over the stalls under its own pitched roof. Depth reads through baked seams:
-dark shadow strips under every hoarding floor, roof eave and the jetty, stepped
-three-course plinths, chunky chamfered edges (0.03 bevels, 3 segments) and a deeper
-vertical ramp for buildings (0.62/1.22 vs the shared 0.80/1.12 props/units ramp), all
-inside the unchanged per-builder framing crops.
+**Per-map themes:** reuse this architecture family and controlled palette with local
+accents; the differences must be visible in the ground as well as the buildings.
 
-**Per-map fortress themes:** every battlefield's buildings are the same architecture
-family built from that map's local materials, so fortresses always look like they belong
-to their own meadow (kit `_BUILDING_THEMES` + themed builders `build_highland_*` /
-`build_palace_*` / `build_warcamp_*` in `build_battlefield_scene.py`):
-
-* **Crown Cross** — slate stone, pale trim (`build_cross_*`): the reference look.
-* **Twin Passes** — rough highland granite, pale schist trim, heavy oak lintels, and a
-  jittered crag-stone ring around every base (`build_highland_*`).
-* **Royal Ring** — cream limestone, pale marble trim, rich gold ornament (keystone,
-  parapet caps, collar bands, taller crown points) and polished iron (`build_palace_*`).
-* **Quad Citadel** — dark war-camp timber, aged wood trim, canvas and hay, matte-iron
-  banding, and a pointed-log palisade ring around every base (`build_warcamp_*`).
+* **Crown Cross** — royal meadow, warm pale stone and garden borders: the reference.
+* **Twin Passes** — highland stone, pine and crags; a natural riverbank and bridge
+  aligned to the existing crossing road.
+* **Royal Ring** — palace limestone, cream courts, gold details and segmented hedges.
+* **Quad Citadel** — four distinct camps in open grassland, warm timber, trampled
+  ground and border rocks.
 
 Ownership readability never changes: team color always lives on roofs, banners and
 shields in every theme.
 
-**Shared troops:** four sprites (leader/follower x player/enemy) of an armoured knight in
+**Shared troops:** twelve sprites (leader/follower × player/enemy × front/back/side) of an armoured knight in
 a marching pose — greathelm with visor slit, fauld lames, pauldrons, tabard and heater
 shield in team cloth, sword at the low ready; leaders add a crest fin and cape. Rendered
 by `tools/blender/generate_units.py` through the same rig, 128px runtime PNGs, shared by
@@ -194,14 +185,20 @@ so gameplay objects always stay on top.
 
 * **Shader Type:** Principled BSDF (Roughness/Metallic).
 * **Roughness Targets:**
-  * Stone masonry: `0.65 – 0.80` (chalky, solid).
-  * Wood beams/timber: `0.50 – 0.65` (treated wood).
-  * Cloth banners: `0.70 – 0.85` (velvet/cotton feel).
-  * Gold crowns / Iron trim: `0.25 – 0.40` with `Metallic: 0.8 – 1.0` (smooth specular glints).
+  * Building masonry: `0.68 – 0.82`; timber: `0.65 – 0.75`.
+  * Building roofs: `0.48 – 0.50`; cloth banners: `0.76`.
+  * Building gold: roughness `0.25 – 0.35`, metallic `0.55`; iron:
+    roughness `0.35 – 0.55`, metallic `0.60`. Shared troop materials stay unchanged.
 * **Beveling Mandatory:**
-  * No 90° razor-sharp edges! Every sharp edge must have a 2-segment bevel with `width: 0.04m` to catch specular edge highlights from the sun.
+  * Building boxes use broad 3-segment chamfers capped at `0.09` model units
+    (or 24% of the smallest dimension); rounded cylinders use
+    `min(0.075, depth × 0.22, radius × 0.18)`. Building roof courses use
+    `0.055–0.065` bevels with 3 segments. Shared troop primitives keep their
+    existing narrower bevels; do not enlarge unit silhouettes as part of environment work.
 * **Color Gradients:**
-  * Vertical color gradient applied to all models: slightly darker at ground contact, slightly brighter at upper peaks (simulates atmospheric bounce).
+  * Standalone building, prop and troop sprites carry a vertical color gradient:
+    darker at ground contact and brighter at upper peaks. Baked terrain and edge
+    flora use explicit materials without the sprite-only `VerticalShade` multiply.
   * Buildings use a deeper ramp (`0.62 → 1.22`) than shared props/units (`0.80 → 1.12`): fortress volumes ground harder and crown brighter, so the 2.5D depth reads at sprite size.
 
 ---
@@ -241,135 +238,55 @@ Feedback must be punchy, juicy, and proportional to the action:
 * **Format:** 32-bit PNG with transparent alpha.
 * **Master Resolution:** `512 × 512` pixels per state.
 * **Bit Depth:** 8-bit per channel (sRGB).
-* **Color Space:** AgX or Filmic standard with medium-high contrast.
+* **Color Space:** AgX with the medium-high contrast look in the production builder.
 
 ### Runtime Game Assets (Phaser Client)
-* **Format:** WebP texture atlas (lossless or 90% quality lossy).
+* **Format:** Optimized WebP with alpha; an atlas is optional when measured to help.
 * **Runtime Resolution:** `128 × 128` (Tiers 1 & 2), `160 × 160` (Tier 3 Citadel).
-* **Mipmapping:** Enabled for smooth scaling across high-DPI retina screens.
+* **Filtering:** Linear interpolation with antialiasing; runtime mipmaps are not configured.
 
 ### File Naming Convention
-```
-territory_{tier}_{owner}_{state}.png
 
-Examples:
-territory_tier1_neutral_idle.png
-territory_tier1_player_idle.png
-territory_tier1_enemy_idle.png
-territory_tier2_center_idle.png
-territory_tier3_player_hq.png
-territory_tier3_enemy_hq.png
-unit_convoy_player.png
-unit_convoy_enemy.png
-```
+Use the manifest's exact `blenderRenderName` for PNG masters and `runtimeFilename`
+for shipped WebP files. For example, `tier1_watchtower_player_idle.png` becomes
+`outpost_player.webp`; dedicated packs live in their battlefield directory.
 
 ---
 
 ## 9. Blender Python Automation Script
 
-To guarantee that any 3D asset rendered for Crown Clash obeys the exact camera, lighting, and render settings, the following Python script can be run inside Blender:
-
-```python
-import bpy
-import math
-
-def setup_crown_clash_scene():
-    # 1. Clean default scene objects
-    bpy.ops.object.select_all(action='SELECT')
-    bpy.ops.object.delete(use_global=False)
-
-    # 2. Setup Orthographic Camera
-    cam_data = bpy.data.cameras.new(name="CrownClash_OrthoCam")
-    cam_data.type = 'ORTHO'
-    cam_data.ortho_scale = 6.0
-    cam_data.clip_start = 0.1
-    cam_data.clip_end = 100.0
-
-    cam_obj = bpy.data.objects.new("CrownClash_OrthoCam", cam_data)
-    bpy.context.collection.objects.link(cam_obj)
-    bpy.context.scene.camera = cam_obj
-
-    # Position camera: 45° pitch, 0° yaw (dimetric)
-    cam_obj.location = (0.0, -12.0, 12.0)
-    cam_obj.rotation_euler = (math.radians(45.0), 0.0, 0.0)
-
-    # 3. Setup Key Light (Sun)
-    key_light_data = bpy.data.lights.new(name="Key_Sun", type='SUN')
-    key_light_data.energy = 4.0
-    key_light_data.color = (1.0, 0.96, 0.90) # Warm Champagne
-    key_light_data.angle = math.radians(8.5)
-    key_light_obj = bpy.data.objects.new("Key_Sun", key_light_data)
-    key_light_obj.rotation_euler = (math.radians(45.0), math.radians(25.0), math.radians(-40.0))
-    bpy.context.collection.objects.link(key_light_obj)
-
-    # 4. Setup Fill Light (Sky Sun)
-    fill_light_data = bpy.data.lights.new(name="Fill_Sky", type='SUN')
-    fill_light_data.energy = 1.5
-    fill_light_data.color = (0.65, 0.82, 1.0) # Cool Sky Blue
-    fill_light_obj = bpy.data.objects.new("Fill_Sky", fill_light_data)
-    fill_light_obj.rotation_euler = (math.radians(-30.0), math.radians(-15.0), math.radians(140.0))
-    bpy.context.collection.objects.link(fill_light_obj)
-
-    # 5. Render Settings (512x512 Transparent PNG)
-    scene = bpy.context.scene
-    scene.render.engine = 'CYCLES' # or 'BLENDER_EEVEE_NEXT'
-    scene.render.resolution_x = 512
-    scene.render.resolution_y = 512
-    scene.render.resolution_percentage = 100
-    scene.render.film_transparent = True
-    scene.render.image_settings.file_format = 'PNG'
-    scene.render.image_settings.color_mode = 'RGBA'
-
-    print("Crown Clash Blender scene configured successfully.")
-
-if __name__ == "__main__":
-    setup_crown_clash_scene()
-```
-
-The canonical, full-featured scene builder is `art/blender/build_battlefield_scene.py`
-(deterministic camera, lighting rig, material palette, named collections, and headless
-render CLI). Its render kit is driven by the canonical runtime asset manifest,
-`art/asset-manifest.json`, which also drives GameScene preload and the optimizer.
-The snippet above is illustrative only.
+Use `art/blender/build_battlefield_scene.py` for every environment export. It clears
+the scene, configures the locked camera, key/fill/rim energies `2.2 / 0.8 / 1.35`,
+world ambient `0.28`, material palette and deterministic render seed, then renders
+the manifest-selected kit. Avoid independent illustrative rigs that drift from the
+actual production setup. `art/asset-manifest.json` drives render names, GameScene
+preload and runtime optimization; `docs/art/README.md` lists commands.
 
 ---
 
 ## 10. Terrain Proportions (2.5D Arena)
 
-* **Arena floor:** a single rendered ground plate per battlefield (`grounds` pack,
-  spriteKind `ground`), covering the full tactical area (380 × 640 logical px) and
-  placed at depth 1. Territory platforms, roads, props and units render on top of the
-  plate; the plate never scrolls. Identity boards ship 760 × 1280 WebP plates; the
-  diorama board (Crown Cross) ships 760 × 960 — the plate image is centered on the
-  projected world rect and additionally carries the baked plinth headroom above and
-  extruded slab skirt below (see section 2, Board Projection).
-* **Baked terrain:** each plate is rendered in Blender from the authoritative
-  `battlefields.json` geometry — roads, sockets and identity zones can never drift
-  from gameplay. Un-migrated battlefields render straight top-down; diorama
-  battlefields (Crown Cross) render through the same 45°/0° dimetric rig as the
-  sprites, so the playfield itself carries depth: an extruded two-course earth-slab
-  skirt under the meadow and a raised stone plinth with a proud lip under every
-  territory socket (plinth radius mirrors the client `socketRadius` 1:1, lip mirrors
-  `plateRadius`). Every battlefield is a meadow: Crown Cross a quiet royal
-  meadow with mow-stripe rings and one worn green court at the contested centre; Twin
-  Passes a highland pasture with a brook, banks, crags and faint mow stripes; Royal Ring
-  a manicured palace lawn with gravel courts and a hedge ring; Quad Citadel an olive
-  war-camp meadow with four trampled dirt camps and crossroads. Plates carry 3D
-  micro-relief (deterministic trig dunes that catch the sun, pressed flat under roads,
-  sockets and plate borders), clustered scatter (grass tufts, tall patches, flower and
-  clover clusters, pebbles, sparse shoulder grass reclaiming the lane edges) rooted on
-  the relief, three soft warm sun pools per battlefield (stacked alpha-stepped discs,
-  total centre lift ≤ 0.05, fixed positions clear of the centre identity feature), and
-  organic-edged dirt roads with dry-grass shoulders.
-* **Vector fallback:** if the ground pack is inactive or a plate fails to load,
-  GameScene falls back to the flat painted vector ground layers; the baked plate simply
-  replaces them when present (`if (!ground)` gates in `GameScene.createArenaBackground`).
-* **Grass dressing:** rendered grass tufts scatter across every battlefield
-  (9–11 per map, see the environment pack) at prop layer depth, plus low-contrast
-  painted blades on the Crown Cross floor. Grass never overlaps sockets, roads
-  or the arena frame (enforced by BattlefieldArt tests).
-* **Territory platforms:** circular, diameter = `2 × territory radius` (+5px ownership
-  ring/plinth; Quad Citadel tunes bespoke sockets — 23/29/36 by tier — because its
+* **Arena floor:** one rendered ground plate per battlefield (`grounds` pack),
+  placed at depth 1. All four boards use the 45°/0° dimetric rig and the same
+  `1140 × 2502` PNG master → `760 × 1668` runtime WebP. The plate covers the
+  `380 × 640` tactical rect with designed scenery extending 250 world units at
+  each end; phone viewports crop this fringe symmetrically.
+* **Baked terrain:** roads and raised plinths come from the authoritative
+  `battlefields.json`. Natural, broad grass color masses replace repeated stripes;
+  soft height relief and focused border dressing provide depth. Worn road edges
+  remain continuous and readable. The grass material carries broad light variation;
+  avoid translucent sun-pool discs intersecting the terrain. Crown Cross has royal
+  garden borders; Twin Passes has a river, banks and a crossing bridge; Royal Ring has segmented hedges
+  around its palace court; Quad Citadel has four trampled camps and border rocks.
+  Keep the contested center quiet and the top/bottom fringe deliberately composed.
+* **Vector fallback:** if a plate is missing or inactive, GameScene uses its existing
+  flat painted layers. The environment revision preserves this loading-error path.
+* **Grass dressing:** grouped low-contrast tufts support the terrain rather than
+  covering it with scattered marks. Shared rendered props stay off roads, sockets,
+  the arena frame and reserved art zones; baked scatter follows the same zones.
+* **Territory platforms:** socket radius = `territory radius + 5px`, except the
+  top citadel (`32px`) and Quad Citadel's bespoke sockets (`23/36/29px` for
+  tiers 1/2/3); Quad Citadel needs these compact sizes because its
   base/corner centers are only sqrt(3400) px apart). Bases (Tier 3, r=36) read ~3×
   larger than the smallest prop. Platform and sprite sizes are presentation-only and
   scale with the board layout, so the separation between adjacent platforms reads
@@ -385,14 +302,14 @@ The snippet above is illustrative only.
   stone-surface pass in the battlefield's `visual.road` color, then a dotted center
   inlay in `visual.roadInlay`.
 * On the baked ground plate, the same roads are baked into the plate (dirt roads with
-  organic sine-jittered edges, ruts and dry-grass shoulders) from the authoritative
+  organic sine-jittered edges, broken paving and dry-grass shoulders) from the authoritative
   segments. Over a plate the vector layer thins to a **single soft recessed lane**
-  (~12px, shadow color, ≤ 0.14 alpha) plus quiet inlay dots (≤ 0.10 alpha): the
+  (~12px, shadow color, ≤ 0.06 alpha) plus quiet inlay dots (≤ 0.06 alpha): the
   baked dirt road carries the visuals and the vector lane is only the tactical route
   guide — no second road surface, no terminals, no cobbled joints. The full
-  three-pass treatment (18px shadow / 12px stone / terminals / joints) renders only
+  three-pass treatment (22px shadow / 17px shoulder / 11px stone / terminals / joints) renders only
   on the vector fallback when no plate loaded.
-* Width: 18px shadow / 12px stone. Roads must never exceed the territory socket
+* Fallback width: 22px shadow / 17px shoulder / 11px stone. Roads must never exceed the territory socket
   diameter, so marching convoys visually travel *between* platforms, not over them.
 * A subtle key-light rim may run along the top-left edge of each lane (single 1px
   pass, warm champagne, ≤ 0.2 alpha) — the lane must still read as recessed, not raised.
@@ -409,6 +326,10 @@ The snippet above is illustrative only.
   of any territory center, and within 12–20px (per kind) of any road segment; placements
   are generated against the authoritative geometry
   (`scripts/generate-arena-props.mjs`) and re-validated by `BattlefieldArt.test.ts`.
+* Art-only reserved features live in `art/arena-dressing-zones.json`, in logical
+  world coordinates: Twin Passes river/banks `x 166–234, y 133–653`; Royal Ring
+  court radius `108` around `(200, 360)`. Boundaries are inclusive; no prop anchor
+  or ground scatter may land inside them. This file never changes gameplay data.
 * Budget: ≤ 24 static props per battlefield, created once at scene build. They render
   above roads (depth 2) and below **every** territory platform — flat depth 10 under
   the whole territory band on both layouts (identity: 20; diorama: painter band) —
@@ -418,37 +339,42 @@ The snippet above is illustrative only.
 ## 13. Line Weight & Edge Treatment
 
 * Silhouette outline: 2–2.5px (team-dark color) on every interactive object.
-* Ownership ring: 2.5px at 0.92+ alpha — the strongest consistent line on screen.
+* Ownership ring: one 2px team-primary stroke at 0.92+ alpha with 0.06 glow fill.
+  On baked plinths the redundant dark base-plate stroke is hidden, including after
+  capture. The vector fallback retains its dark base plate for grounding.
 * Grid/motif lines: 1–2px at ≤ 0.16 alpha — structure, never noise. Wide-spaced
   technical grain is capped at 0.05 alpha so it can never turn the terrain into graph
   paper on a phone-sized board.
 * Every bevel/edge highlight is a single pass (no stacked strokes); glow only from
-  the pre-defined `glow` team color at ≤ 0.12 fill alpha.
+  the pre-defined `glow` team color at ≤ 0.06 fill alpha on ownership rings.
 
 ## 14. Canonical Resolutions
 
 | Stage | Format | Size | Notes |
 | :--- | :--- | :--- | :--- |
-| Blender master render | PNG, RGBA, transparent film | 512 × 512 per asset | fixed ortho rig, AgX/Filmic view transform |
-| Blender ground master | PNG, RGBA, transparent film | 1140 × 1920 per battlefield | top-down identity plates; diorama plates 1140 × 1440 through the 45°/0° dimetric rig |
-| Runtime territory sprite | WebP (alpha) or optimized PNG | 128 × 128 (tiers 1–2), 160 × 160 (tier 3) | crisp at 2× DPR; mipmapped |
-| Runtime ground plate | WebP (alpha) | 760 × 1280 identity, 760 × 960 diorama | 1:1 with the 380 × 640 logical field at 2× DPR; the diorama plate adds baked plinth headroom + slab skirt |
+| Blender master render | PNG, RGBA, transparent film | 512 × 512 per asset | fixed ortho rig, AgX view transform |
+| Blender ground master | PNG, RGBA, transparent film | 1140 × 2502 per battlefield | every board uses the 45°/0° dimetric rig with composed meadow fringe |
+| Runtime territory sprite | WebP (alpha) or optimized PNG | 128 × 128 (tiers 1–2), 160 × 160 (tier 3) | linear filtering at runtime |
+| Runtime ground plate | WebP (alpha) | 760 × 1668 | unchanged projection and raised plinths; includes top/bottom scenery |
 | Runtime atlas (optional) | WebP atlas | ≤ 1024 × 1024 | only when it reduces requests without hurting maintainability |
-| Units | WebP/PNG | 64 × 64 | small on-screen footprint; leader/follower × player/enemy × front/back/side facings |
+| Units | PNG | 128 × 128 | existing shared troop pack; leader/follower × player/enemy × front/back/side facings |
 
-Budgets (section 14): territory/prop sprites stay under 80KB each; a full-field ground
-plate stays under 128KB (one plate loads per match); a battlefield's whole runtime set
-(sprites + its ground plate) stays under 500KB.
+Budgets (section 14): territory/prop sprites stay under 80KiB each; a full-field ground
+plate stays under 128KiB (one plate loads per match); territory sprites plus the
+battlefield's ground plate stay under 500KiB. Report shared assets and decoded
+texture memory separately.
 
 ## 15. Mobile Readability Requirements
 
-* Ownership (team color + ring), type (role icon), and unit count must be readable at
-  360 × 800, the smallest supported viewport, without zooming.
+* Ownership (team color + ring), type (role icon), and unit count must be readable
+  on small phones, including 360 × 800 and 375 × 667, without zooming.
 * Minimum on-screen territory diameter: ~44 physical px at DPR 2 on a 360px viewport.
 * Unit badges: ≥ 38 × 22 logical px with ≥ 14px bold numerals.
-* Contrast: team primaries against the meadow green floor ≥ 4.5:1; prop alpha ≤ 0.35 so
-  ambiance never competes with ownership color.
-* Verify at 360 × 800, 390 × 844, and 430 × 932 before shipping a visual change.
+* Contrast: unit numerals and role badges stay legible over every terrain color;
+  muted prop palettes and broad foliage shapes preserve ownership emphasis. Props
+  use their declared `ARENA_PROP_DISPLAY` alpha (0.9–1), not a second faded layer.
+* Verify at 375 × 667, 360 × 800, 390 × 844, and 430 × 932 before shipping a visual change;
+  inspect empty state, marching armies, selection, drag, capture and tutorial.
 
 ## 16. Typography
 

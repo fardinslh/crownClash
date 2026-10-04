@@ -5,8 +5,8 @@
 // Reads the authoritative battlefield geometry
 // (apps/server-nakama/battlefields.json) and deterministically picks prop
 // positions that are provably clear of territory sockets, roads, the arena
-// frame and each other. Prints a TypeScript literal block to paste. The
-// output is re-validated at test time by BattlefieldArt.test.ts, so regenerating
+// frame, art-only ground features and each other. Prints a TypeScript literal
+// block to paste. The output is re-validated by BattlefieldArt.test.ts, so regenerating
 // can never silently break gameplay readability.
 //
 // Usage: node scripts/generate-arena-props.mjs
@@ -19,6 +19,9 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const battlefields = JSON.parse(
   fs.readFileSync(path.join(repoRoot, 'apps/server-nakama/battlefields.json'), 'utf8')
 );
+const dressingZones = JSON.parse(
+  fs.readFileSync(path.join(repoRoot, 'art/arena-dressing-zones.json'), 'utf8')
+).battlefields;
 
 // Deterministic wish lists per battlefield: kind pools tuned per map theme.
 // Grass-heavy on purpose: the meadow ground reads alive with scattered tufts.
@@ -82,6 +85,9 @@ function generate(battlefield) {
 
   const fits = (kind, x, y) => {
     if (x < BOUNDS.xMin || x > BOUNDS.xMax || y < BOUNDS.yMin || y > BOUNDS.yMax) return false;
+    if (dressingZones[battlefield.id].some((zone) => zone.shape === 'rectangle'
+      ? x >= zone.minX && x <= zone.maxX && y >= zone.minY && y <= zone.maxY
+      : Math.hypot(x - zone.x, y - zone.y) <= zone.radius)) return false;
     if (CLEARANCE[kind].edgeOnly && x > TREE_X_MIN && x < TREE_X_MAX) return false;
     for (const territory of territories) {
       if (Math.hypot(x - territory.x, y - territory.y) < territory.radius + CLEARANCE[kind].territory) {

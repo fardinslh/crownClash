@@ -2143,8 +2143,8 @@ def build_asset(builder_name, owner):
         for obj in bpy.data.objects:
             if obj.type == "MESH":
                 shade_vertical_gradient(obj, base, top)
-    # The semi-realistic crown_cross kit (and its per-map themed variants plus
-    # the shared prop kit) bake their own tight contact shadows (see
+    # The chunky crown_cross kit (and its per-map themed variants plus
+    # the shared prop kit) bake their own feathered contact shadows (see
     # crown_cross_kit.contact_disc): the rig's wide 1.75-radius blob reads as
     # mud under buildings at sprite size. Ground plates are full-field surfaces
     # and never take a contact shadow. Other packs keep their baked shadow.

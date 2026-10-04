@@ -117,7 +117,8 @@ export const SCENARIO_DEFINITIONS: Record<BenchmarkScenarioName, DeterministicSc
         { sourceId: 'e_base', targetId: 'n_bot_right', owner: 'enemy' },
       ];
 
-      // Dispatch 3 armies every 0.35s to maintain 22-26 concurrent armies
+      // Three dispatches every 0.45s keep real base-to-node travel within
+      // the declared 6-18 army workload after the four-second warmup.
       let t = 0.5;
       while (t < durationSec - 0.5) {
         for (let k = 0; k < 3; k++) {
@@ -131,7 +132,7 @@ export const SCENARIO_DEFINITIONS: Record<BenchmarkScenarioName, DeterministicSc
             units: 4,
           });
         }
-        t += 0.35;
+        t += 0.45;
       }
       return schedule;
     },
@@ -247,4 +248,3 @@ export const SCENARIO_DEFINITIONS: Record<BenchmarkScenarioName, DeterministicSc
     },
   },
 };
-

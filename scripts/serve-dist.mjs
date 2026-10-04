@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'apps/game', 'dist');
+const DIST = path.resolve(process.env.CC_QA_DIST_DIR || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'apps/game', 'dist'));
 const PORT = Number(process.argv[2] || 4173);
 
 const MIME = {

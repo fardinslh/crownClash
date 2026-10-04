@@ -17,13 +17,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CdpClient, waitForWebSocketOpen } from './cdp-client.mjs';
+import { createQaProfile, findQaChrome, isolateQaRequests } from './qa-browser.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
 const APP_URL = process.env.CC_QA_APP_URL || 'http://127.0.0.1:4173/?benchmark_mode=1';
-const BATTLEFIELDS = ['crown_cross', 'twin_passes', 'royal_ring', 'quad_citadel'];
-const VIEWPORT = { width: 360, height: 800, dpr: 2 };
-const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const ALL_BATTLEFIELDS = ['crown_cross', 'twin_passes', 'royal_ring', 'quad_citadel'];
+const ONLY_BATTLEFIELD = process.env.CC_QA_BATTLEFIELD_ID;
+if (ONLY_BATTLEFIELD && !ALL_BATTLEFIELDS.includes(ONLY_BATTLEFIELD)) throw new Error('Unknown QA battlefield');
+const BATTLEFIELDS = ONLY_BATTLEFIELD ? [ONLY_BATTLEFIELD] : ALL_BATTLEFIELDS;
+const VERIFY_RESIZE = process.env.CC_QA_RESIZE === '1';
+const VIEWPORT = VERIFY_RESIZE ? { width: 375, height: 667, dpr: 2 } : { width: 360, height: 800, dpr: 2 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -35,11 +39,62 @@ async function evaluate(cdp, expression, { awaitPromise = false } = {}) {
   return res.result?.value;
 }
 
+async function verifyLiveResize(cdp, battlefieldId, outDir) {
+  const source = await evaluate(cdp, `(() => {
+    const scene=window.__PHASER_GAME__.scene.getScene('GameScene');
+    if (!scene.hasGroundPlate || !scene.textures.exists('cc_ground_'+scene.battlefieldId)) throw new Error('Resize requires a loaded ground plate');
+    const t=Object.values(scene.gameState.territories).find(t=>t.owner==='player' && t.units>1);
+    if (!t) throw new Error('Resize requires a selectable player territory');
+    const rect=scene.sys.game.canvas.getBoundingClientRect();
+    const p=scene.boardLayout.project(t.x,t.y), q=scene.cameras.main.matrix.transformPoint(p.u,p.v);
+    window.__qaResizeSourceId=t.id;
+    window.__qaResizeVisualCount=scene.territoryVisuals.size;
+    window.__qaResizePropCount=scene.arenaVisuals.filter(v=>v.texture?.key?.startsWith('cc_prop_')).length;
+    return {x:rect.left+q.x*rect.width/scene.sys.game.canvas.width,y:rect.top+q.y*rect.height/scene.sys.game.canvas.height};
+  })()`);
+  await cdp.send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...source});
+  await sleep(100);
+  const frames=[];
+  for (const viewport of [VIEWPORT,{width:390,height:844,dpr:2},VIEWPORT]) {
+    await cdp.send('Emulation.setDeviceMetricsOverride',{width:viewport.width,height:viewport.height,deviceScaleFactor:viewport.dpr,mobile:true});
+    await sleep(700);
+    const state=await evaluate(cdp, `(() => {
+      const scene=window.__PHASER_GAME__.scene.getScene('GameScene');
+      const selected=window.__qaResizeSourceId, errors=[];
+      const ring=scene.selectionRings.get(selected);
+      if (!scene.hasGroundPlate || !scene.textures.exists('cc_ground_'+scene.battlefieldId)) errors.push('ground missing');
+      if (!scene.selectedSourceIds.includes(selected) || !ring?.visible) errors.push('selection lost');
+      if (scene.territoryVisuals.size!==window.__qaResizeVisualCount) errors.push('territory visual count changed');
+      const props=scene.arenaVisuals.filter(v=>v.texture?.key?.startsWith('cc_prop_')).length;
+      if (props!==window.__qaResizePropCount) errors.push('prop count changed');
+      for (const [id,vis] of scene.territoryVisuals) {
+        const t=scene.gameState.territories[id], p=scene.boardLayout.project(t.x,t.y), lifted=scene.projectSocketPoint(t.x,t.y);
+        const world=scene.boardLayout.unproject(p.u,p.v);
+        if (Math.hypot(vis.container.x-lifted.u,vis.container.y-lifted.v)>0.001 || !(lifted.v<p.v)) errors.push(id+': socket anchor');
+        if (Math.hypot(world.x-t.x,world.y-t.y)>0.001) errors.push(id+': touch projection roundtrip');
+        const hit=scene.getTerritoryUnderPointer({positionToCamera:(_camera,out)=>out.set(p.u,p.v)});
+        if (hit?.id!==id) errors.push(id+': production pointer hit test');
+        if (vis.ring.lineWidth!==2 || Math.abs(vis.ring.fillAlpha-0.06)>0.0001 || vis.basePlate.strokeAlpha!==0) errors.push(id+': owner ring style');
+        if (id===selected && (Math.hypot(ring.x-lifted.u,ring.y-lifted.v)>0.001)) errors.push(id+': selection anchor');
+      }
+      const rect=scene.sys.game.canvas.getBoundingClientRect();
+      if (Math.abs(rect.width-innerWidth)>1 || Math.abs(rect.height-innerHeight)>1) errors.push('canvas does not fit resized viewport');
+      return {errors,viewport:{width:innerWidth,height:innerHeight},visibleHeight:scene.lastAppliedViewport.height,
+        territoryCount:scene.territoryVisuals.size,propCount:props,selectedSource:selected};
+    })()`);
+    if (state.errors.length || state.viewport.width!==viewport.width || state.viewport.height!==viewport.height) throw new Error('Live resize failed: '+JSON.stringify(state));
+    const file=`${battlefieldId}-${viewport.width}x${viewport.height}-resize-${frames.length}.png`;
+    const shot=await cdp.send('Page.captureScreenshot',{format:'png',fromSurface:true});
+    fs.writeFileSync(path.join(outDir,file),Buffer.from(shot.data,'base64'));
+    frames.push({...state,file});
+  }
+  return frames;
+}
+
 async function captureBattlefield(battlefieldId, outDir) {
   const cdpPort = 9500 + Math.floor(Math.random() * 300);
-  const profileDir = path.join(REPO_ROOT, `qa-artifacts/chrome-own-${Date.now()}`);
-  fs.mkdirSync(profileDir, { recursive: true });
-  const chrome = spawn(CHROME_PATH, [
+  const profileDir = createQaProfile('cc-map-ownership-');
+  const chrome = spawn(findQaChrome(), [
     '--headless=new',
     `--remote-debugging-port=${cdpPort}`,
     '--no-sandbox',
@@ -64,6 +119,7 @@ async function captureBattlefield(battlefieldId, outDir) {
     const cdp = new CdpClient(ws);
     await cdp.send('Page.enable');
     await cdp.send('Runtime.enable');
+    const networkIsolation = await isolateQaRequests(cdp, APP_URL, { missingAsset: process.env.CC_QA_MISSING_ASSET });
 
     const consoleErrors = [];
     cdp.on('Runtime.consoleAPICalled', (params) => {
@@ -92,6 +148,13 @@ async function captureBattlefield(battlefieldId, outDir) {
       booted = await evaluate(cdp, `Boolean(window.__PHASER_GAME__)`);
     }
     if (!booted) throw new Error(`app never booted for ${battlefieldId}`);
+
+    await evaluate(cdp, `(() => {
+      const game=window.__PHASER_GAME__;
+      game.registry.set('trainingLaunchedThisSession', true);
+      game.scene.getScene('MenuScene').startTrainingBattle=()=>{};
+      return true;
+    })()`);
 
     await evaluate(cdp, `(() => {
       window.__PHASER_GAME__.scene.start('GameScene', {
@@ -148,13 +211,15 @@ async function captureBattlefield(battlefieldId, outDir) {
           playerFlips,
           enemyFlips,
           missing: [...(scene.missingTerritoryTextures || [])],
+          playerVisualsCorrect: playerFlips.every(id => scene.territoryVisuals.get(id)?.sprite.texture.key.endsWith('_player')),
+          enemyVisualsCorrect: enemyFlips.every(id => scene.territoryVisuals.get(id)?.sprite.texture.key.endsWith('_enemy')),
         });
       })()`));
       if (flips.playerFlips.length > 0 && flips.enemyFlips.length > 0) break;
     }
 
     const shot = await cdp.send('Page.captureScreenshot', { format: 'png', fromSurface: true });
-    const fileName = `${battlefieldId}-360x800-ownership-change.png`;
+    const fileName = `${battlefieldId}-${VIEWPORT.width}x${VIEWPORT.height}-ownership-change.png`;
     const outPath = path.join(outDir, fileName);
     fs.writeFileSync(outPath, Buffer.from(shot.data, 'base64'));
 
@@ -163,15 +228,20 @@ async function captureBattlefield(battlefieldId, outDir) {
       playerFlips: flips.playerFlips,
       enemyFlips: flips.enemyFlips,
       missingTextures: flips.missing,
+      playerVisualsCorrect: flips.playerVisualsCorrect,
+      enemyVisualsCorrect: flips.enemyVisualsCorrect,
       consoleErrors: consoleErrors.length,
+      liveResizeFrames: VERIFY_RESIZE ? await verifyLiveResize(cdp,battlefieldId,outDir) : undefined,
     };
     console.log(`[ownership] ${fileName}: ${JSON.stringify(report)}`);
 
     const problems = [];
     if (flips.playerFlips.length === 0) problems.push('no neutral flipped to player');
     if (flips.enemyFlips.length === 0) problems.push('no neutral flipped to enemy');
+    if (!flips.playerVisualsCorrect || !flips.enemyVisualsCorrect) problems.push('ownership changed without matching rendered textures');
     if (flips.missing.length > 0) problems.push(`missing textures: ${flips.missing.join(',')}`);
     if (consoleErrors.length > 0) problems.push(`console errors: ${consoleErrors.slice(0, 3).join(' | ')}`);
+    await networkIsolation.assertHealthy();
     return { battlefieldId, report, problems };
   } finally {
     chrome.kill('SIGKILL');
@@ -186,6 +256,7 @@ async function main() {
   for (const battlefieldId of BATTLEFIELDS) {
     results.push(await captureBattlefield(battlefieldId, outDir));
   }
+  fs.writeFileSync(path.join(outDir, 'ownership-report.json'), JSON.stringify(results, null, 2));
   const problems = results.flatMap((r) => r.problems.map((p) => `${r.battlefieldId}: ${p}`));
   if (problems.length > 0) {
     console.error(`OWNERSHIP-CHANGE QA FAILED:\n${problems.join('\n')}`);

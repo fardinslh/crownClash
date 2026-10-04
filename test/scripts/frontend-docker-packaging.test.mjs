@@ -8,6 +8,27 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../..');
 
+test('frontend Docker packaging includes the shared art dressing zones before build', () => {
+  const sourcePath = path.join(REPO_ROOT, 'apps/game/src/art/BattlefieldArt.ts');
+  const source = fs.readFileSync(sourcePath, 'utf8');
+  const importedPath = /import\s+rawDressingZones\s+from\s+['"]([^'"]+)['"]/.exec(source)?.[1];
+  assert.ok(importedPath, 'BattlefieldArt must import the shared dressing-zone source');
+  const repoRelativePath = path.relative(REPO_ROOT, path.resolve(path.dirname(sourcePath), importedPath)).split(path.sep).join('/');
+  assert.ok(fs.existsSync(path.join(REPO_ROOT, repoRelativePath)), 'shared dressing zones must exist');
+
+  const dockerfile = fs.readFileSync(path.join(REPO_ROOT, 'apps/game/Dockerfile'), 'utf8');
+  const buildStage = dockerfile.split(/^FROM\s+/im).find((stage) => /^.*\sAS\sbuild\b/im.test(stage));
+  assert.ok(buildStage, 'frontend Dockerfile must have a build stage');
+  const lines = buildStage.split(/\r?\n/);
+  const copyLine = lines.findIndex((line) => {
+    const match = /^COPY\s+(\S+)\s+(\S+)\s*$/.exec(line.trim());
+    return match?.[1] === repoRelativePath && match[2].replace(/^\.\//, '') === repoRelativePath;
+  });
+  const buildLine = lines.findIndex((line) => /^RUN\s+npm\s+run\s+build\b/.test(line.trim()));
+  assert.ok(copyLine >= 0 && buildLine > copyLine,
+    `build stage must copy ${repoRelativePath} to the matching import path before npm run build`);
+});
+
 test('frontend Docker packaging includes authoritative battlefield JSON before build', () => {
   const dockerfilePath = path.join(REPO_ROOT, 'apps/game/Dockerfile');
   assert.ok(fs.existsSync(dockerfilePath), 'apps/game/Dockerfile must exist');
