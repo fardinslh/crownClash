@@ -1,5 +1,5 @@
 # Crown Clash — Art Bible & Visual Direction
-**Version:** 1.3
+**Version:** 1.4
 **Target Platform:** Mobile WebViews (Bale, Eitaa, Telegram, Mobile Web)
 **Visual Style:** Stylized 2.5D (Blender renders → optimized 2D sprites at runtime)
 **Primary Goal:** Instant tactical readability, bright volumetric cartoon environments, and polished composition on compact mobile screens.
@@ -14,6 +14,11 @@ This environment revision preserves shared troops and HUD design.
 **v1.3:** wider vertical building spacing through `art/arena-layout.json`:
 positions expand by `1.22` before the same camera projection, while sprite sizes,
 plinth shapes, counts and authoritative travel rules stay unchanged.
+
+**v1.4:** lush baked meadow cover: dense short grass and clover rosettes between
+the paths, taller grass in the fringe, and brighter map-specific greens. All
+growth stays in the existing ground texture; tactical lanes and reserved features
+remain clear and runtime prop counts stay capped at 24.
 
 ---
 
@@ -285,9 +290,12 @@ preload and runtime optimization; `docs/art/README.md` lists commands.
   Keep the contested center quiet and the top/bottom fringe deliberately composed.
 * **Vector fallback:** if a plate is missing or inactive, GameScene uses its existing
   flat painted layers. The environment revision preserves this loading-error path.
-* **Grass dressing:** grouped low-contrast tufts support the terrain rather than
-  covering it with scattered marks. Shared rendered props stay off roads, sockets,
-  the arena frame and reserved art zones; baked scatter follows the same zones.
+* **Grass dressing:** dense, low clover rosettes and broad short grass blades fill
+  the available meadow between routes; taller clumps concentrate in the fringe.
+  Use living green material tones and soft contact shadows. Grass/leaf anchors
+  avoid roads, sockets and reserved river/court zones; camp cores remain trampled,
+  with greenery reclaiming their outer verges. Bake the cover into the ground plate
+  so texture dimensions, runtime prop counts and draw calls do not grow.
 * **Territory platforms:** socket radius = `territory radius + 5px`, except the
   top citadel (`32px`) and Quad Citadel's bespoke sockets (`23/36/29px` for
   tiers 1/2/3); Quad Citadel needs these compact sizes because its

@@ -1,6 +1,6 @@
 # Battlefield Art Pipeline (Blender → Runtime)
 
-Deterministic 2.5D battlefield art pipeline, Art Bible v1.3: bright cartoon
+Deterministic 2.5D battlefield art pipeline, Art Bible v1.4: bright cartoon
 volumes, warm pale stone, natural terrain color masses and clustered foliage.
 The visual direction lives in
 [`ART_BIBLE.md`](../../ART_BIBLE.md) (sections 2–8, 10–15).
@@ -78,6 +78,13 @@ reference an unloaded texture.
   border clusters replace repeated mowing stripes and scattered tiny marks.
   Broad light variation comes from the grass material; translucent sun-pool discs
   are not layered over the terrain.
+  Lush cover is baked in `_ground_scatter`: overlapping clover rosettes and dense
+  short tufts fill available lawns, with taller clumps in the fringe. Green blades
+  and leaves check road/socket clearance as well as shared reserved zones. Camp
+  cores stay trampled while their outer verges regrow. This adds no runtime prop
+  images, shader effects or texture pixels. Tiny grass cones share one baked
+  Blender mesh/material set, avoiding thousands of object/operator updates during
+  export; the normal building and prop primitive helpers keep their existing path.
   Raised stone plinth tops retain the `6.2` world-pixel lift contract with
   `PLINTH_TOP_LIFT`; `groundPlateImageRect` centers each image on the projected world
   rect so roads and sockets align exactly. No gameplay coordinate, touch radius,

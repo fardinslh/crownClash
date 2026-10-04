@@ -40,7 +40,34 @@ def box(name, size, loc, mat, bevel=.025, rot=None, bevel_segments=2):
     return ob
 
 
-def cyl(name, r, depth, loc, mat, vertices=16, rot=None, r2=None, smooth=False):
+def cyl(name, r, depth, loc, mat, vertices=16, rot=None, r2=None, smooth=False, batch=None):
+    if batch is not None:
+        # Thousands of sub-pixel ground blades share one mesh. Avoid one bpy
+        # operator, bevel and dependency-graph update for every tiny cone.
+        start = len(batch['vertices'])
+        rx, ry, rz = rot or (0.0, 0.0, 0.0)
+        sx, cx = math.sin(rx), math.cos(rx)
+        sy, cy = math.sin(ry), math.cos(ry)
+        sz, cz = math.sin(rz), math.cos(rz)
+        for radius, z in ((r, -depth / 2), (r if r2 is None else r2, depth / 2)):
+            for i in range(vertices):
+                a = i * math.tau / vertices
+                x, y = radius * math.cos(a), radius * math.sin(a)
+                y, zz = y * cx - z * sx, y * sx + z * cx
+                x, zz = x * cy + zz * sy, -x * sy + zz * cy
+                x, y = x * cz - y * sz, x * sz + y * cz
+                batch['vertices'].append((x + loc[0], y + loc[1], zz + loc[2]))
+        faces = [tuple(start + i for i in reversed(range(vertices))),
+                 tuple(start + vertices + i for i in range(vertices))]
+        faces.extend((start + i, start + (i + 1) % vertices,
+                      start + vertices + (i + 1) % vertices, start + vertices + i)
+                     for i in range(vertices))
+        if mat not in batch['materials']:
+            batch['materials'].append(mat)
+        material_index = batch['materials'].index(mat)
+        batch['faces'].extend(faces)
+        batch['material_indices'].extend([material_index] * len(faces))
+        return None
     if r2 is None:
         bpy.ops.mesh.primitive_cylinder_add(vertices=vertices, radius=r, depth=depth, location=loc)
     else:
@@ -1256,6 +1283,7 @@ def _ground_scatter(battlefield_id, bf, mats, terrain_z, roads):
     rng = random.Random(104729)
     for ch in battlefield_id:
         rng.seed(rng.random() * 1048576.0 + ord(ch))
+    grass_batch = {'vertices': [], 'faces': [], 'materials': [], 'material_indices': []}
 
     # Client sprites and baked ground foliage share one art-only exclusion
     # source, so a regeneration cannot plant bushes on the river or court.
@@ -1294,9 +1322,11 @@ def _ground_scatter(battlefield_id, bf, mats, terrain_z, roads):
         if battlefield_id == 'royal_ring':
             return math.hypot(x, feature_y - 38.0) < 108.0
         if battlefield_id == 'quad_citadel':
-            if abs(x) < 48.0 and abs(feature_y - 38.0) < 250.0:
+            if abs(x) < 28.0 and abs(feature_y - 38.0) < 250.0:
                 return True
-            return any(abs(x - cx) < 92.0 and abs(feature_y - cy) < 103.0
+            # Keep the camp cores trampled, with grass reclaiming their
+            # outer verges instead of leaving large rectangular empty lawns.
+            return any(math.hypot((x - cx) / 66.0, (feature_y - cy) / 76.0) < 1.0
                        for cx, cy in ((-88.0, 174.0), (88.0, 174.0), (-88.0, -102.0), (88.0, -102.0)))
         return False
 
@@ -1315,27 +1345,26 @@ def _ground_scatter(battlefield_id, bf, mats, terrain_z, roads):
 
     def reserve(x, y):
         for px, py in placed:
-            if math.hypot(x - px, y - py) < 13.0:
+            if math.hypot(x - px, y - py) < 9.0:
                 return False
         placed.append((x, y))
         return True
 
     def tuft(x, y, tall=False):
-        z0 = terrain_z(x, y)
-        blades = (12 if tall else 4) + int(rng.random() * (7 if tall else 3))
+        blades = (12 if tall else 7) + int(rng.random() * 4)
         for i in range(blades):
             a = rng.random() * math.tau
-            r = 1.0 + rng.random() * (7.5 if tall else 1.6)
-            depth = (7.5 + rng.random() * 5.0) if tall else (5.5 + rng.random() * 4.5)
+            r = .8 + rng.random() * (6.0 if tall else 3.0)
+            depth = (6.5 + rng.random() * 4.0) if tall else (3.5 + rng.random() * 3.0)
             blade_x = x + r * math.cos(a)
             blade_y = y + r * math.sin(a)
-            if in_identity_zone(blade_x, blade_y):
+            if blocked(blade_x, blade_y):
                 continue
             mat = (mats['leaf_tall'] if tall else mats['leaf']) if i % 2 else mats['leaf_dark']
-            cyl('ground blade', .55, depth,
+            cyl('ground blade', .8 if tall else .65, depth,
                 (blade_x, blade_y, terrain_z(blade_x, blade_y) + depth / 2.0 - .6),
-                mat, 5, r2=.08,
-                rot=(rng.random() * .35, rng.random() * .35, a))
+                mat, 5, r2=.10,
+                rot=(rng.random() * .35, rng.random() * .35, a), batch=grass_batch)
 
     def flower_cluster(x, y):
         count = 3 + int(rng.random() * 6)
@@ -1350,21 +1379,32 @@ def _ground_scatter(battlefield_id, bf, mats, terrain_z, roads):
                 mats['flower_light'] if white else mats['flower_dark'], scale=(1.0, 1.0, .5))
 
     def clover_patch(x, y):
-        ico('clover patch', 5.0 + rng.random() * 4.0, (x, y, terrain_z(x, y) + .05),
-            mats['clover'], scale=(1.1, 1.15, .16))
+        # Low, overlapping leaf rosettes read as living ground cover after
+        # mobile downsampling, instead of almost invisible transparent discs.
+        for _ in range(4):
+            a = rng.random() * math.tau
+            r = rng.random() * 5.5
+            cx, cy = x + r * math.cos(a), y + r * math.sin(a)
+            for leaf in range(3):
+                angle = a + leaf * math.tau / 3.0
+                lx, ly = cx + 1.6 * math.cos(angle), cy + 1.6 * math.sin(angle)
+                if blocked(lx, ly):
+                    continue
+                ico('clover patch', 1.8 + rng.random() * .7,
+                    (lx, ly, terrain_z(lx, ly) + .45),
+                    mats['clover'] if leaf % 2 else mats['leaf'], scale=(1.1, 1.0, .24))
 
     def pebble(x, y):
         ico('ground pebble', 1.4 + rng.random() * 1.2, (x, y, terrain_z(x, y) + 1.2),
             mats['stone'], scale=(1.3, 1.0, .45))
 
-    # Quiet open lawns and clustered edge growth. Tiny evenly scattered
-    # specks read as compression noise at 360px; larger patches survive the
-    # downscale and keep the active tactical lanes clear.
-    for kind, count in (('tuft', 28), ('patch', 22), ('flower', 12), ('clover', 8), ('pebble', 16)):
+    # Dense meadow carpet between the tactical lanes, with taller growth
+    # concentrated in the fringe. All detail is baked into the one plate.
+    for kind, count in (('clover', 64), ('tuft', 190), ('patch', 70), ('flower', 18), ('pebble', 16)):
         made = misses = 0
         while made < count and misses < 500:
             misses += 1
-            position = spot(edge_only=(kind in ('patch', 'flower', 'clover')))
+            position = spot(edge_only=(kind in ('patch', 'flower')))
             if position is None:
                 continue
             x, y = position
@@ -1409,6 +1449,17 @@ def _ground_scatter(battlefield_id, bf, mats, terrain_z, roads):
                         if not in_identity_zone(tx, ty):
                             tuft(tx, ty)
 
+    if grass_batch['vertices']:
+        mesh = bpy.data.meshes.new('baked meadow blades')
+        mesh.from_pydata(grass_batch['vertices'], [], grass_batch['faces'])
+        for material in grass_batch['materials']:
+            mesh.materials.append(material)
+        for polygon, material_index in zip(mesh.polygons, grass_batch['material_indices']):
+            polygon.material_index = material_index
+        mesh.update()
+        meadow = bpy.data.objects.new('baked meadow blades', mesh)
+        bpy.context.collection.objects.link(meadow)
+
 
 def _ground_bottom_fade(field, make_material):
     """Feather the bottom edge into the client's flat fill colour.
@@ -1427,10 +1478,10 @@ def _ground_bottom_fade(field, make_material):
 # cooler highland sage, palace greens and olive camp grass give each map
 # an identity without changing the authoritative palette/fallback data.
 GROUND_GRASS_PALETTES = {
-    'crown_cross': ((.095, .205, .035), (.15, .30, .065)),
-    'twin_passes': ((.055, .15, .10), (.10, .24, .15)),
-    'royal_ring': ((.065, .20, .045), (.125, .29, .075)),
-    'quad_citadel': ((.12, .18, .045), (.21, .28, .085)),
+    'crown_cross': ((.105, .235, .035), (.17, .35, .065)),
+    'twin_passes': ((.055, .18, .10), (.105, .28, .15)),
+    'royal_ring': ((.07, .23, .045), (.14, .34, .075)),
+    'quad_citadel': ((.12, .21, .045), (.21, .32, .085)),
 }
 
 
@@ -1608,10 +1659,10 @@ def ground_plate(battlefield_id, make_material):
                                 (.21, .21, .10), .20),
         'paving': make_material('rgx_paving', (.40, .37, .25), .9, use_gradient=False),
         'ao': _flat_alpha('rgx_ao', make_material, (.03, .045, .025), .07),
-        'leaf': make_material('rgx_leaf', (.15, .27, .06), .85, use_gradient=False),
-        'leaf_dark': make_material('rgx_leafd', (.08, .18, .04), .85, use_gradient=False),
-        'leaf_tall': make_material('rgx_leaft', (.13, .23, .04), .85, use_gradient=False),
-        'clover': _flat_alpha('rgx_clover', make_material, (.11, .24, .055), .06),
+        'leaf': make_material('rgx_leaf', (.24, .43, .065), .85, use_gradient=False),
+        'leaf_dark': make_material('rgx_leafd', (.12, .29, .04), .85, use_gradient=False),
+        'leaf_tall': make_material('rgx_leaft', (.20, .37, .05), .85, use_gradient=False),
+        'clover': make_material('rgx_clover', (.16, .34, .075), .9, use_gradient=False),
         'stone': make_material('rgx_stone', (.36, .35, .31), .9, use_gradient=False),
         'flower_light': make_material('rgx_flowerl', (.92, .90, .80), .8, use_gradient=False),
         'flower_dark': make_material('rgx_flowerd', (.95, .82, .35), .8, use_gradient=False),
