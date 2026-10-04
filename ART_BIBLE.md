@@ -449,3 +449,32 @@ plate stays under 128KB (one plate loads per match); a battlefield's whole runti
 * Contrast: team primaries against the meadow green floor ≥ 4.5:1; prop alpha ≤ 0.35 so
   ambiance never competes with ownership color.
 * Verify at 360 × 800, 390 × 844, and 430 × 932 before shipping a visual change.
+
+## 16. Typography
+
+Fonts are bundled and self-hosted (`apps/game/public/fonts`), registered via
+`@font-face` in `index.html`, and loaded before Phaser boots (`loadGameFonts` in
+`main.ts`). Never load them from a CDN: players on Bale/Eitaa sit in Iran, where
+third-party font CDNs are unreliable. Both families are SIL OFL licensed.
+
+| Face | Weights bundled | Role |
+| :--- | :--- | :--- |
+| Baloo 2 (`FONT_FAMILY`) | 700, 800 | Every label, button, title, and HUD string — chunky rounded display text |
+| JetBrains Mono (`MONO_FONT_FAMILY`) | 400, 700 | Width-stable digits: timers, unit counts, score pills |
+
+Rules:
+
+* All canvas text is created through `createText` (`src/ui/TextStyles.ts`), which
+  injects the display font, a default weight of 700, and `resolution: renderScale`
+  so glyph textures stay crisp under the camera zoom on high-DPI phones. Callers
+  override for weight-800 titles (`fontStyle: '900'` maps to the 800 face) or mono
+  digits (`fontFamily: MONO_FONT_FAMILY`).
+* Never request a weight that is neither bundled nor a CSS alias of one: the font
+  shorthand would silently fall back to a system face. Requested 900 resolves to the
+  bundled 800; use 700/800 explicitly where possible.
+* The loading shell in `index.html` uses the same stack (Baloo 2 800 for the title)
+  so the first frame matches in-game typography.
+* Persian/Arabic-script player names are not covered by the bundled Latin faces:
+  they render through the per-glyph system fallback, exactly as before.
+* Strokes on gameplay-critical text follow section 13's line-weight rules
+  (single dark stroke, no stacked outlines).

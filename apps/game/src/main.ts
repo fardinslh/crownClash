@@ -18,6 +18,30 @@ import { selectRenderProfile } from './render/RenderProfile.js';
 // unstable guest identity.
 const platform = createPlatformAdapter();
 
+const GAME_FONT_SPECS = [
+  '700 16px "Baloo 2"',
+  '800 16px "Baloo 2"',
+  '400 16px "JetBrains Mono"',
+  '700 16px "JetBrains Mono"',
+] as const;
+
+/**
+ * Phaser rasterizes text into canvas textures once, when each scene creates
+ * its text objects, so the bundled faces must be ready before boot. The woff2
+ * files are preloaded in parallel with the JS bundle; the timeout keeps a
+ * stalled font fetch from blocking boot on very slow networks.
+ */
+const loadGameFonts = async (): Promise<void> => {
+  if (typeof document === 'undefined' || !document.fonts?.load) return;
+  const loads = Promise.all(
+    GAME_FONT_SPECS.map((spec) => document.fonts.load(spec).catch(() => undefined))
+  );
+  const timeout = new Promise<void>((resolve) => {
+    setTimeout(resolve, 2500);
+  });
+  await Promise.race([loads, timeout]);
+};
+
 const startApp = (): void => {
   platform.ready();
 
@@ -104,5 +128,7 @@ void platform.initialize()
     console.warn('[Platform] Async init warning:', err);
   })
   .finally(() => {
-    startApp();
+    void loadGameFonts().finally(() => {
+      startApp();
+    });
   });

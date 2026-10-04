@@ -31,9 +31,7 @@ import { bindSceneViewportResize, getSceneViewport } from '../ui/Viewport.js';
 import { trainingOverlayPanelY } from '../ui/BattlefieldArenaLayout.js';
 import type { TutorialStepInfo } from '../tutorial/TutorialController.js';
 import { TUTORIAL_STEPS } from '../tutorial/TutorialController.js';
-
-const FONT_FAMILY =
-  '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
+import { createText, FONT_FAMILY } from '../ui/TextStyles.js';
 
 /** Overlay depth layering: above the board, below the instruction panel. */
 const SPOTLIGHT_DEPTH = 6;
@@ -90,8 +88,7 @@ export class TrainingOverlayUI {
     this.panel = scene.add
       .rectangle(LOGICAL_WIDTH / 2, 0, 364, 46, 0x0b1220, 0.96)
       .setStrokeStyle(2.5, THEME.gold, 0.95);
-    this.instruction = scene.add
-      .text(LOGICAL_WIDTH / 2, 0, '', {
+    this.instruction = createText(scene, LOGICAL_WIDTH / 2, 0, '', {
         fontFamily: FONT_FAMILY,
         fontSize: '14px',
         fontStyle: '900',
@@ -552,8 +549,7 @@ export class TrainingOverlayUI {
     const banner = scene.add
       .rectangle(0, 0, bannerW, 84, 0x0b1220, 0.97)
       .setStrokeStyle(3, THEME.gold, 1);
-    const title = scene.add
-      .text(0, -14, '👑 VICTORY!', {
+    const title = createText(scene, 0, -14, '👑 VICTORY!', {
         fontFamily: FONT_FAMILY,
         fontSize: '27px',
         fontStyle: '900',
@@ -563,8 +559,7 @@ export class TrainingOverlayUI {
         resolution: 2,
       })
       .setOrigin(0.5);
-    const subtitle = scene.add
-      .text(0, 22, 'TRAINING COMPLETE — SAVING…', {
+    const subtitle = createText(scene, 0, 22, 'TRAINING COMPLETE — SAVING…', {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -654,8 +649,7 @@ export class TrainingOverlayUI {
       .setInteractive({ useHandCursor: true })
       .on('pointerdown', () => onRetry());
     this.retryButton = this.panel;
-    this.retryLabel = this.scene.add
-      .text(
+    this.retryLabel = createText(this.scene,
         LOGICAL_WIDTH / 2,
         this.panel.y,
         '⚠ COULD NOT SAVE — TAP TO RETRY',

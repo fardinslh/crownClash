@@ -24,8 +24,7 @@ import {
   setupSceneCamera,
 } from '../ui/Viewport.js';
 import { computeKingdomLayout } from '../ui/HubLayouts.js';
-
-const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
+import { createText, FONT_FAMILY } from '../ui/TextStyles.js';
 
 const CARD_WIDTH = 174;
 const CARD_HEIGHT = 248;
@@ -165,8 +164,7 @@ export class KingdomScene extends Phaser.Scene {
       .rectangle(34, 34, 44, 44, 0x0f172a, 0.95)
       .setStrokeStyle(1.5, 0x334155, 0.9)
       .setInteractive({ useHandCursor: true });
-    const backLabel = this.add
-      .text(34, 34, '‹', {
+    const backLabel = createText(this, 34, 34, '‹', {
         fontFamily: FONT_FAMILY,
         fontSize: '22px',
         fontStyle: '900',
@@ -177,8 +175,7 @@ export class KingdomScene extends Phaser.Scene {
     this.bindPressFeedback(backBg, backLabel);
     backBg.on('pointerdown', () => this.closeKingdom());
 
-    this.add
-      .text(LOGICAL_WIDTH / 2, 42, 'KINGDOM', {
+    createText(this, LOGICAL_WIDTH / 2, 42, 'KINGDOM', {
         fontFamily: FONT_FAMILY,
         fontSize: '24px',
         fontStyle: '900',
@@ -188,8 +185,7 @@ export class KingdomScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
-    this.add
-      .text(LOGICAL_WIDTH / 2, 68, 'Grow your realm', {
+    createText(this, LOGICAL_WIDTH / 2, 68, 'Grow your realm', {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: 'bold',
@@ -203,8 +199,7 @@ export class KingdomScene extends Phaser.Scene {
     this.goldBg = this.add
       .rectangle(LOGICAL_WIDTH - 24, 34, 10, 32, 0x0f172a, 0.95)
       .setStrokeStyle(1.5, 0xf59e0b, 0.85);
-    this.goldText = this.add
-      .text(LOGICAL_WIDTH - 38, 34, '', {
+    this.goldText = createText(this, LOGICAL_WIDTH - 38, 34, '', {
         fontFamily: FONT_FAMILY,
         fontSize: '14px',
         fontStyle: '900',
@@ -229,7 +224,7 @@ export class KingdomScene extends Phaser.Scene {
 
     this.kingdomArt = this.add.graphics();
     this.kingdomArt.y = 0;
-    this.tierText = this.add.text(146, 84 + 12, '', {
+    this.tierText = createText(this, 146, 84 + 12, '', {
       fontFamily: FONT_FAMILY,
       fontSize: '13px',
       fontStyle: '900',
@@ -238,8 +233,7 @@ export class KingdomScene extends Phaser.Scene {
       strokeThickness: 2,
       resolution: 2,
     });
-    this.kingdomLevelText = this.add
-      .text(376, 84 + 13, '', {
+    this.kingdomLevelText = createText(this, 376, 84 + 13, '', {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: '900',
@@ -250,7 +244,7 @@ export class KingdomScene extends Phaser.Scene {
 
     const track = this.add.rectangle(261, 84 + 40, 230, 7, 0x070b14, 1).setStrokeStyle(1, 0x334155, 1);
     this.tierProgressFill = this.add.rectangle(146, 84 + 40, 1, 5, THEME.gold, 1).setOrigin(0, 0.5);
-    this.tierGoalText = this.add.text(146, 84 + 52, '', {
+    this.tierGoalText = createText(this, 146, 84 + 52, '', {
       fontFamily: FONT_FAMILY,
       fontSize: '10px',
       fontStyle: 'bold',
@@ -354,8 +348,7 @@ export class KingdomScene extends Phaser.Scene {
     // Phaser's FIT scaling renders logical pixels at ~0.89x, so a 10px label
     // lands at ~9 CSS px. Nothing below 10px is considered readable enough
     // for card content at that size.
-    const titleText = this.add
-      .text(0, -102, `${meta.icon} ${meta.title}`, {
+    const titleText = createText(this, 0, -102, `${meta.icon} ${meta.title}`, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: '900',
@@ -365,8 +358,7 @@ export class KingdomScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
-    const subtitleText = this.add
-      .text(0, -82, meta.subtitle, {
+    const subtitleText = createText(this, 0, -82, meta.subtitle, {
         fontFamily: FONT_FAMILY,
         fontSize: '10px',
         fontStyle: 'bold',
@@ -374,8 +366,7 @@ export class KingdomScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
-    const levelText = this.add
-      .text(0, -58, '', {
+    const levelText = createText(this, 0, -58, '', {
         fontFamily: FONT_FAMILY,
         fontSize: '14px',
         fontStyle: '900',
@@ -385,8 +376,7 @@ export class KingdomScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
-    const milestoneText = this.add
-      .text(0, -37, '', {
+    const milestoneText = createText(this, 0, -37, '', {
         fontFamily: FONT_FAMILY,
         fontSize: '10px',
         fontStyle: 'bold',
@@ -397,8 +387,7 @@ export class KingdomScene extends Phaser.Scene {
     const progressTrack = this.add.rectangle(0, -25, 140, 6, 0x0b1120, 1).setStrokeStyle(1, 0x334155, 1);
     const progressFill = this.add.rectangle(-70, -25, 0, 4, 0x2563eb, 1).setOrigin(0, 0.5);
     const divider = this.add.rectangle(0, -11, CARD_WIDTH - 24, 1, 0x1e293b, 1);
-    const nowLabel = this.add
-      .text(0, 4, '', {
+    const nowLabel = createText(this, 0, 4, '', {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -407,8 +396,7 @@ export class KingdomScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
-    const nextLabel = this.add
-      .text(0, 28, '', {
+    const nextLabel = createText(this, 0, 28, '', {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -421,8 +409,7 @@ export class KingdomScene extends Phaser.Scene {
     const buyBg = this.add
       .rectangle(0, 96, 146, 44, 0x2563eb, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1);
-    const buyText = this.add
-      .text(0, 96, '', {
+    const buyText = createText(this, 0, 96, '', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: '900',
@@ -519,8 +506,7 @@ export class KingdomScene extends Phaser.Scene {
       .setStrokeStyle(1.5, 0xf87171, 0.9)
       .setDepth(300)
       .setAlpha(0);
-    this.toastText = this.add
-      .text(LOGICAL_WIDTH / 2, toastY, '', {
+    this.toastText = createText(this, LOGICAL_WIDTH / 2, toastY, '', {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: 'bold',
@@ -604,8 +590,7 @@ export class KingdomScene extends Phaser.Scene {
 
   private playKingdomTierCelebration(progress: KingdomProgress): void {
     this.platform.hapticNotification('success');
-    const banner = this.add
-      .text(LOGICAL_WIDTH / 2, 112, `REALM EVOLVED\n${progress.tier.name.toUpperCase()}`, {
+    const banner = createText(this, LOGICAL_WIDTH / 2, 112, `REALM EVOLVED\n${progress.tier.name.toUpperCase()}`, {
         fontFamily: FONT_FAMILY,
         fontSize: '18px',
         fontStyle: '900',

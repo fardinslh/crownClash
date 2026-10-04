@@ -19,8 +19,8 @@ import {
   type SceneViewport,
 } from '../ui/Viewport.js';
 import { computeDailyLayout } from '../ui/HubLayouts.js';
+import { createText, FONT_FAMILY } from '../ui/TextStyles.js';
 
-const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 const MISSION_ICONS: Record<DailyMissionState['id'], string> = {
   play_matches: '⚔️',
   win_match: '👑',
@@ -129,8 +129,7 @@ export class DailyScene extends Phaser.Scene {
       .rectangle(34, 34, 44, 44, 0x0f172a, 0.95)
       .setStrokeStyle(1.5, 0x334155, 0.9)
       .setInteractive({ useHandCursor: true });
-    const backLabel = this.add
-      .text(34, 32, '‹', {
+    const backLabel = createText(this, 34, 32, '‹', {
         fontFamily: FONT_FAMILY,
         fontSize: '26px',
         fontStyle: '900',
@@ -141,8 +140,7 @@ export class DailyScene extends Phaser.Scene {
     this.bindPressFeedback(backBg, backLabel);
     backBg.on('pointerdown', () => this.closeDaily());
 
-    this.add
-      .text(LOGICAL_WIDTH / 2, 39, 'ROYAL ORDERS', {
+    createText(this, LOGICAL_WIDTH / 2, 39, 'ROYAL ORDERS', {
         fontFamily: FONT_FAMILY,
         fontSize: '24px',
         fontStyle: '900',
@@ -152,8 +150,7 @@ export class DailyScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
-    this.add
-      .text(LOGICAL_WIDTH / 2, 66, 'Complete today’s campaign', {
+    createText(this, LOGICAL_WIDTH / 2, 66, 'Complete today’s campaign', {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: 'bold',
@@ -164,8 +161,7 @@ export class DailyScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    this.resetText = this.add
-      .text(LOGICAL_WIDTH / 2, 0, 'RESET  --:--:--', {
+    this.resetText = createText(this, LOGICAL_WIDTH / 2, 0, 'RESET  --:--:--', {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -177,8 +173,7 @@ export class DailyScene extends Phaser.Scene {
     this.goldBg = this.add
       .rectangle(LOGICAL_WIDTH - 24, 34, 10, 32, 0x0f172a, 0.95)
       .setStrokeStyle(1.5, THEME.gold, 0.85);
-    this.goldText = this.add
-      .text(LOGICAL_WIDTH - 38, 34, '', {
+    this.goldText = createText(this, LOGICAL_WIDTH - 38, 34, '', {
         fontFamily: FONT_FAMILY,
         fontSize: '14px',
         fontStyle: '900',
@@ -190,8 +185,7 @@ export class DailyScene extends Phaser.Scene {
       .setOrigin(1, 0.5);
     this.refreshGold();
 
-    this.statusText = this.add
-      .text(LOGICAL_WIDTH / 2, 0, 'Reading today’s orders…', {
+    this.statusText = createText(this, LOGICAL_WIDTH / 2, 0, 'Reading today’s orders…', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -205,8 +199,7 @@ export class DailyScene extends Phaser.Scene {
       .setStrokeStyle(1.5, 0xf87171, 0.9)
       .setDepth(300)
       .setAlpha(0);
-    this.toastText = this.add
-      .text(LOGICAL_WIDTH / 2, 0, '', {
+    this.toastText = createText(this, LOGICAL_WIDTH / 2, 0, '', {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: 'bold',
@@ -273,8 +266,7 @@ export class DailyScene extends Phaser.Scene {
       .rectangle(LOGICAL_WIDTH / 2, 0, 160, 44, 0x2563eb, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
-    this.retryLabel = this.add
-      .text(LOGICAL_WIDTH / 2, 0, 'RETRY', {
+    this.retryLabel = createText(this, LOGICAL_WIDTH / 2, 0, 'RETRY', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: '900',
@@ -324,11 +316,9 @@ export class DailyScene extends Phaser.Scene {
     const iconDisc = this.add
       .circle(-145, -20, 21, claimable ? 0x1d4ed8 : 0x0f172a, 1)
       .setStrokeStyle(1.5, borderColor, 0.85);
-    const icon = this.add
-      .text(-145, -20, MISSION_ICONS[mission.id], { fontSize: '19px', resolution: 2 })
+    const icon = createText(this, -145, -20, MISSION_ICONS[mission.id], { fontSize: '19px', resolution: 2 })
       .setOrigin(0.5);
-    const title = this.add
-      .text(-114, -34, mission.title.toUpperCase(), {
+    const title = createText(this, -114, -34, mission.title.toUpperCase(), {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: '900',
@@ -338,8 +328,7 @@ export class DailyScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0, 0.5);
-    const description = this.add
-      .text(-114, -13, mission.description, {
+    const description = createText(this, -114, -13, mission.description, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -347,8 +336,7 @@ export class DailyScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0, 0.5);
-    const reward = this.add
-      .text(145, -30, `+${mission.reward} 🪙`, {
+    const reward = createText(this, 145, -30, `+${mission.reward} 🪙`, {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: '900',
@@ -364,8 +352,7 @@ export class DailyScene extends Phaser.Scene {
     const fill = this.add
       .rectangle(-145, 25, Math.max(2, 188 * ratio), 6, mission.complete ? THEME.gold : 0x2563eb, 1)
       .setOrigin(0, 0.5);
-    const progress = this.add
-      .text(51, 25, `${mission.progress}/${mission.target}`, {
+    const progress = createText(this, 51, 25, `${mission.progress}/${mission.target}`, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -375,8 +362,7 @@ export class DailyScene extends Phaser.Scene {
       .setOrigin(1, 0.5);
 
     const button = this.add.rectangle(121, 24, 94, 40, 0x273449, 1).setStrokeStyle(1.5, 0x475569, 1);
-    const buttonLabel = this.add
-      .text(121, 24, mission.claimed ? 'CLAIMED ✓' : pending ? '…' : claimable ? 'CLAIM' : 'IN BATTLE', {
+    const buttonLabel = createText(this, 121, 24, mission.claimed ? 'CLAIMED ✓' : pending ? '…' : claimable ? 'CLAIM' : 'IN BATTLE', {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: '900',
@@ -429,11 +415,9 @@ export class DailyScene extends Phaser.Scene {
       .rectangle(0, 0, 352, 118, chest.unlocked ? 0x1c1830 : 0x111827, 0.99)
       .setStrokeStyle(chest.unlocked ? 2.5 : 1.5, borderColor, 1);
     const halo = this.add.circle(-126, 0, 38, THEME.gold, chest.unlocked ? 0.12 : 0.04);
-    const icon = this.add
-      .text(-126, 0, chest.claimed ? '👑' : '🎁', { fontSize: '34px', resolution: 2 })
+    const icon = createText(this, -126, 0, chest.claimed ? '👑' : '🎁', { fontSize: '34px', resolution: 2 })
       .setOrigin(0.5);
-    const title = this.add
-      .text(-77, -35, 'CROWN CHEST', {
+    const title = createText(this, -77, -35, 'CROWN CHEST', {
         fontFamily: FONT_FAMILY,
         fontSize: '16px',
         fontStyle: '900',
@@ -443,8 +427,7 @@ export class DailyScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0, 0.5);
-    const detail = this.add
-      .text(-77, -10, chest.claimed ? 'Royal bounty collected' : chest.unlocked ? 'All orders fulfilled' : `Claim all orders  ${claimedMissions}/3`, {
+    const detail = createText(this, -77, -10, chest.claimed ? 'Royal bounty collected' : chest.unlocked ? 'All orders fulfilled' : `Claim all orders  ${claimedMissions}/3`, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -452,8 +435,7 @@ export class DailyScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0, 0.5);
-    const reward = this.add
-      .text(-77, 17, `+${chest.reward} 🪙`, {
+    const reward = createText(this, -77, 17, `+${chest.reward} 🪙`, {
         fontFamily: FONT_FAMILY,
         fontSize: '14px',
         fontStyle: '900',
@@ -464,8 +446,7 @@ export class DailyScene extends Phaser.Scene {
       })
       .setOrigin(0, 0.5);
     const button = this.add.rectangle(113, 24, 100, 42, 0x273449, 1).setStrokeStyle(1.5, borderColor, 1);
-    const buttonLabel = this.add
-      .text(113, 24, chest.claimed ? 'OPENED ✓' : pending ? '…' : chest.unlocked ? 'OPEN' : 'LOCKED', {
+    const buttonLabel = createText(this, 113, 24, chest.claimed ? 'OPENED ✓' : pending ? '…' : chest.unlocked ? 'OPEN' : 'LOCKED', {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: '900',
@@ -494,8 +475,7 @@ export class DailyScene extends Phaser.Scene {
     }
     const burst = this.add.container(LOGICAL_WIDTH / 2, isChest ? 355 : 330).setDepth(250);
     const glow = this.add.circle(0, 0, isChest ? 82 : 62, THEME.gold, 0.18);
-    const label = this.add
-      .text(0, 0, `${isChest ? 'CROWN CHEST\n' : ''}+${reward} 🪙`, {
+    const label = createText(this, 0, 0, `${isChest ? 'CROWN CHEST\n' : ''}+${reward} 🪙`, {
         fontFamily: FONT_FAMILY,
         fontSize: isChest ? '22px' : '19px',
         fontStyle: '900',

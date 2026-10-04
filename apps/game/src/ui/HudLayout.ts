@@ -1,3 +1,5 @@
+import { FONT_FAMILY, MONO_FONT_FAMILY } from './TextStyles.js';
+
 export interface Rect {
   x: number;
   y: number;
@@ -40,10 +42,8 @@ export function rectanglesIntersect(a: Rect, b: Rect): boolean {
   );
 }
 
-export const HUD_FONT_FAMILY =
-  '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
-export const HUD_MONO_FONT_FAMILY =
-  'ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas, "DejaVu Sans Mono", monospace';
+export const HUD_FONT_FAMILY = FONT_FAMILY;
+export const HUD_MONO_FONT_FAMILY = MONO_FONT_FAMILY;
 
 export const HUD_PILL_HORIZONTAL_PADDING = 10;
 

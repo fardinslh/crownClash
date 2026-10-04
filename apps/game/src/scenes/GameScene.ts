@@ -157,9 +157,7 @@ import {
   DominanceBarDirtyChecker,
   DustPuffSimulator,
 } from '../combat/SmoothnessHelpers.js';
-
-const FONT_FAMILY = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
-const MONO_FONT_FAMILY = '"Segoe UI", monospace, -apple-system, sans-serif';
+import { createText, FONT_FAMILY, MONO_FONT_FAMILY } from '../ui/TextStyles.js';
 
 /**
  * Debounce for the viewport-driven arena rebuild. The camera re-centers
@@ -672,8 +670,7 @@ export class GameScene extends Phaser.Scene {
     this.dragBadgeBg = this.add
       .rectangle(0, 0, 96, 26, 0x070d1a, 0.96)
       .setStrokeStyle(2, THEME.teams.player.primary, 1);
-    this.dragBadgeText = this.add
-      .text(0, 0, '⚔ 10', {
+    this.dragBadgeText = createText(this, 0, 0, '⚔ 10', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -1688,8 +1685,7 @@ export class GameScene extends Phaser.Scene {
       const unitBadgeBaseScale = unitBadge.scaleX;
 
       // Unit Count Text with resolution: 2 and bold stroke for retina sharpness
-      const unitText = this.add
-        .text(0, badgeY, territory.units.toString(), {
+      const unitText = createText(this, 0, badgeY, territory.units.toString(), {
           fontFamily: MONO_FONT_FAMILY,
           fontSize: territory.tier === 3 ? '15px' : '14px',
           fontStyle: 'bold',
@@ -1715,8 +1711,7 @@ export class GameScene extends Phaser.Scene {
       // never color alone.
       let sharedCue: Phaser.GameObjects.Text | undefined;
       if (this.is2v2 && territory.type === 'fortress' && territory.tier === 3) {
-        sharedCue = this.add
-          .text(art.sharedCueX * scale, art.sharedCueY * scale, TWO_V_TWO_SHARED_CUE_GLYPH, {
+        sharedCue = createText(this, art.sharedCueX * scale, art.sharedCueY * scale, TWO_V_TWO_SHARED_CUE_GLYPH, {
             fontFamily: FONT_FAMILY,
             fontSize: '10px',
             fontStyle: 'bold',
@@ -1795,7 +1790,7 @@ export class GameScene extends Phaser.Scene {
 
     // Compute player HUD label width for dynamic pill sizing
     const playerLabelCandidate = this.computePlayerHudLabel();
-    const tempText = this.add.text(0, 0, playerLabelCandidate, {
+    const tempText = createText(this, 0, 0, playerLabelCandidate, {
       fontFamily: FONT_FAMILY,
       fontSize: '11px',
       fontStyle: 'bold',
@@ -1874,8 +1869,7 @@ export class GameScene extends Phaser.Scene {
       const playerMaxW = getPillMaxContentWidth(hudLayout.playerPill.visibleBounds.width);
       const playerLabel = this.computePlayerHudLabel(playerMaxW);
 
-      this.add
-        .text(hudLayout.playerPill.center.x, hudLayout.playerPill.center.y, playerLabel, {
+      createText(this, hudLayout.playerPill.center.x, hudLayout.playerPill.center.y, playerLabel, {
           fontFamily: FONT_FAMILY,
           fontSize: '11px',
           fontStyle: 'bold',
@@ -1903,8 +1897,7 @@ export class GameScene extends Phaser.Scene {
         .setDepth(95);
 
       const trophyMaxW = getPillMaxContentWidth(hudLayout.trophyPill.visibleBounds.width);
-      this.hudTrophiesText = this.add
-        .text(
+      this.hudTrophiesText = createText(this,
           hudLayout.trophyPill.center.x,
           hudLayout.trophyPill.center.y,
           formatHudTrophies(career.trophies, trophyMaxW),
@@ -1942,8 +1935,7 @@ export class GameScene extends Phaser.Scene {
         ? formatHudName(this.liveOpponentName, coinMaxW, '🔴 ')
         : formatHudCoins(career.coins, coinMaxW);
 
-      this.hudCoinsText = this.add
-        .text(
+      this.hudCoinsText = createText(this,
           hudLayout.coinPill.center.x,
           hudLayout.coinPill.center.y,
           coinOrOpponentLabel,
@@ -1974,8 +1966,7 @@ export class GameScene extends Phaser.Scene {
       .setStrokeStyle(1.5, 0xf59e0b, 0.9)
       .setDepth(95);
 
-    this.timerText = this.add
-      .text(
+    this.timerText = createText(this,
         twoVTwoClock.center.x,
         twoVTwoClock.center.y,
         '⏱ 01:30',
@@ -2045,8 +2036,7 @@ export class GameScene extends Phaser.Scene {
           .rectangle(layout.center.x, layout.center.y, layout.bounds.width, layout.bounds.height, 0x0f172a, 0.95)
           .setStrokeStyle(badge.isYou ? 2 : 1.5, badge.isYou ? 0xf59e0b : badgeColor(badge.teamId), 0.95)
           .setDepth(95);
-        this.add
-          .text(
+        createText(this,
             layout.center.x,
             layout.center.y,
             formatTwoVTwoSlotBadge(badge),
@@ -2068,8 +2058,7 @@ export class GameScene extends Phaser.Scene {
 
       const allyBadge = this.live2v2.ally;
       const bannerLayout = twoVTwoLayout.teammateBanner;
-      this.add
-        .text(
+      createText(this,
           bannerLayout.center.x,
           bannerLayout.center.y,
           formatTeammateBanner(
@@ -2131,8 +2120,7 @@ export class GameScene extends Phaser.Scene {
       .setDepth(93);
 
     // Live Score Badges at Left & Right of Dominance Bar
-    this.playerDomText = this.add
-      .text(barStartX + 6, barY, '33%', {
+    this.playerDomText = createText(this, barStartX + 6, barY, '33%', {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -2144,8 +2132,7 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0, 0.5)
       .setDepth(96);
 
-    this.enemyDomText = this.add
-      .text(barStartX + barTotalWidth - 6, barY, '33%', {
+    this.enemyDomText = createText(this, barStartX + barTotalWidth - 6, barY, '33%', {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -2158,8 +2145,7 @@ export class GameScene extends Phaser.Scene {
       .setDepth(96);
 
     // The Tug-of-War Crown Needle!
-    this.tugCrown = this.add
-      .text(hudLayout.dominanceBar.center.x, barY - 1, '👑', {
+    this.tugCrown = createText(this, hudLayout.dominanceBar.center.x, barY - 1, '👑', {
         fontSize: '14px',
         resolution: 2,
       })
@@ -2191,8 +2177,7 @@ export class GameScene extends Phaser.Scene {
       { type: 'stable', word: 'MARCHES' },
     ];
     const legendWords = legendSpecs.map((spec) =>
-      this.add
-        .text(0, legendY, spec.word, {
+      createText(this, 0, legendY, spec.word, {
           fontFamily: MONO_FONT_FAMILY,
           fontSize: '10px',
           fontStyle: 'bold',
@@ -2220,8 +2205,7 @@ export class GameScene extends Phaser.Scene {
       : this.liveMode
         ? `⚔ Live battle vs ${this.formatShortName(this.liveOpponentName, 12)}`
         : '⚔ Drag across towers to attack or reinforce';
-    this.bottomHintText = this.add
-      .text(LOGICAL_WIDTH / 2, bottomBarY + 10, initialHint, {
+    this.bottomHintText = createText(this, LOGICAL_WIDTH / 2, bottomBarY + 10, initialHint, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -2911,8 +2895,7 @@ export class GameScene extends Phaser.Scene {
     const panel = this.add
       .rectangle(0, 0, 132, 28, 0x0b1220, 0.96)
       .setStrokeStyle(1.5, battlefield.accent, 0.95);
-    const title = this.add
-      .text(0, 0, `◆ ${battlefield.name.toUpperCase()}`, {
+    const title = createText(this, 0, 0, `◆ ${battlefield.name.toUpperCase()}`, {
         fontFamily: FONT_FAMILY,
         fontSize: '10px',
         fontStyle: '900',
@@ -3241,8 +3224,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private spawnFloatingText(x: number, y: number, text: string, color: string): void {
-    const float = this.add
-      .text(x, y, text, {
+    const float = createText(this, x, y, text, {
         fontFamily: FONT_FAMILY,
         fontSize: '16px',
         fontStyle: 'bold',
@@ -3744,8 +3726,7 @@ export class GameScene extends Phaser.Scene {
             .setStrokeStyle(1.5, roleStyle.color, 1);
         }
 
-        const badgeText = this.add
-          .text(0, badgeY, initialUnits, {
+        const badgeText = createText(this, 0, badgeY, initialUnits, {
             fontFamily: FONT_FAMILY,
             fontSize: '12px',
             fontStyle: 'bold',
@@ -4091,8 +4072,7 @@ export class GameScene extends Phaser.Scene {
     const titleColor = isWin ? '#fbbf24' : '#ef4444';
     const subText = isWin ? '👑 ALL ENEMY BASES CAPTURED!' : '⚔️ YOUR DEFENSES HAVE FALLEN';
 
-    const title = this.add
-      .text(0, -275, titleText, {
+    const title = createText(this, 0, -275, titleText, {
         fontFamily: FONT_FAMILY,
         fontSize: '32px',
         fontStyle: '900',
@@ -4103,8 +4083,7 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    const subtitle = this.add
-      .text(0, -240, subText, {
+    const subtitle = createText(this, 0, -240, subText, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -4123,8 +4102,7 @@ export class GameScene extends Phaser.Scene {
       .setStrokeStyle(1.5, rankTier.color, 0.9)
       .setVisible(rankPresentation.showRankSummary);
 
-    const rankText = this.add
-      .text(0, rankPresentation.rankY - 6, `${rankTier.badge} ${rankTier.name.toUpperCase()} (🏆 ${settlement.newCareer.trophies})`, {
+    const rankText = createText(this, 0, rankPresentation.rankY - 6, `${rankTier.badge} ${rankTier.name.toUpperCase()} (🏆 ${settlement.newCareer.trophies})`, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -4158,8 +4136,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(trophyCardX, trophyCardY, 130, 64, 0x111827, 0.95)
       .setStrokeStyle(1.5, isWin ? 0xf59e0b : 0x374151, 0.85);
 
-    const trophyLabel = this.add
-      .text(trophyCardX, trophyCardY - 17, 'TROPHIES', {
+    const trophyLabel = createText(this, trophyCardX, trophyCardY - 17, 'TROPHIES', {
         fontFamily: FONT_FAMILY,
         fontSize: '10px',
         fontStyle: 'bold',
@@ -4170,8 +4147,7 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    const trophyValue = this.add
-      .text(trophyCardX, trophyCardY + 10, `${trophyDeltaStr} 🏆`, {
+    const trophyValue = createText(this, trophyCardX, trophyCardY + 10, `${trophyDeltaStr} 🏆`, {
         fontFamily: FONT_FAMILY,
         fontSize: '19px',
         fontStyle: '900',
@@ -4189,8 +4165,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(goldCardX, goldCardY, 130, 64, 0x111827, 0.95)
       .setStrokeStyle(1.5, 0xf59e0b, 0.85);
 
-    const goldLabel = this.add
-      .text(goldCardX, goldCardY - 17, 'GOLD REWARD', {
+    const goldLabel = createText(this, goldCardX, goldCardY - 17, 'GOLD REWARD', {
         fontFamily: FONT_FAMILY,
         fontSize: '10px',
         fontStyle: 'bold',
@@ -4201,8 +4176,7 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    const goldValue = this.add
-      .text(goldCardX, goldCardY + 10, `+${settlement.breakdown.totalCoins} 🪙`, {
+    const goldValue = createText(this, goldCardX, goldCardY + 10, `+${settlement.breakdown.totalCoins} 🪙`, {
         fontFamily: FONT_FAMILY,
         fontSize: '19px',
         fontStyle: '900',
@@ -4221,8 +4195,7 @@ export class GameScene extends Phaser.Scene {
     if (settlement.breakdown.streakBonus > 0) secondaryBreakdown.push(`Streak: +${settlement.breakdown.streakBonus}`);
     if (settlement.breakdown.treasuryBonus > 0) secondaryBreakdown.push(`Treasury: +${settlement.breakdown.treasuryBonus}`);
 
-    const bonusChipText = this.add
-      .text(0, -108, [primaryBreakdown.join('  •  '), secondaryBreakdown.join('  •  ')].filter(Boolean).join('\n'), {
+    const bonusChipText = createText(this, 0, -108, [primaryBreakdown.join('  •  '), secondaryBreakdown.join('  •  ')].filter(Boolean).join('\n'), {
         fontFamily: FONT_FAMILY,
         fontSize: '10px',
         fontStyle: 'bold',
@@ -4240,8 +4213,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, -68, 280, 52, 0x0f172a, 0.9)
       .setStrokeStyle(1, 0x1e293b, 1);
 
-    const matchStatsText = this.add
-      .text(
+    const matchStatsText = createText(this,
         0,
         -68,
         `⏱ Time: ${duration}s    🏰 Captured: ${stats.territoriesCapturedByPlayer}    ⚔ Dispatched: ${stats.playerUnitsDispatched}\n🔥 Win Streak: ${settlement.newCareer.currentStreak}    👑 Total Wins: ${settlement.newCareer.matchesWon}`,
@@ -4266,8 +4238,7 @@ export class GameScene extends Phaser.Scene {
       const promoGlow = this.add
         .rectangle(0, 0, 284, 28, 0x3b2f0b, 1)
         .setStrokeStyle(2, 0xfde047, 1);
-      const promoText = this.add
-        .text(0, 0, `🎉 PROMOTED TO ${rankTier.name.toUpperCase()}!`, {
+      const promoText = createText(this, 0, 0, `🎉 PROMOTED TO ${rankTier.name.toUpperCase()}!`, {
           fontFamily: FONT_FAMILY,
           fontSize: '11px',
           fontStyle: '900',
@@ -4287,8 +4258,7 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
-    const upgradeBalanceText = this.add
-      .text(0, -25, '', {
+    const upgradeBalanceText = createText(this, 0, -25, '', {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: '900',
@@ -4318,8 +4288,7 @@ export class GameScene extends Phaser.Scene {
       const rowBg = this.add
         .rectangle(row.x, row.y, 134, 44, 0x111827, 0.96)
         .setStrokeStyle(1, 0x334155, 1);
-      const label = this.add
-        .text(row.x, row.y - 7, '', {
+      const label = createText(this, row.x, row.y - 7, '', {
           fontFamily: FONT_FAMILY,
           fontSize: '8px',
           fontStyle: 'bold',
@@ -4333,8 +4302,7 @@ export class GameScene extends Phaser.Scene {
       const buyBg = this.add
         .rectangle(row.x, row.y + 13, 76, 16, 0x2563eb, 1)
         .setStrokeStyle(1, 0x60a5fa, 1);
-      const buyText = this.add
-        .text(row.x, row.y + 13, '', {
+      const buyText = createText(this, row.x, row.y + 13, '', {
           fontFamily: FONT_FAMILY,
           fontSize: '8px',
           fontStyle: '900',
@@ -4388,8 +4356,7 @@ export class GameScene extends Phaser.Scene {
       .setStrokeStyle(2, isWin ? 0x60a5fa : 0x9ca3af, 1)
       .setInteractive({ useHandCursor: true });
 
-    const btnText = this.add
-      .text(0, btnY, 'PLAY AGAIN ⚔', {
+    const btnText = createText(this, 0, btnY, 'PLAY AGAIN ⚔', {
         fontFamily: FONT_FAMILY,
         fontSize: '15px',
         fontStyle: 'bold',
@@ -4430,8 +4397,7 @@ export class GameScene extends Phaser.Scene {
       .setStrokeStyle(1.5, 0x475569, 1)
       .setInteractive({ useHandCursor: true });
 
-    const shareText = this.add
-      .text(0, shareY, 'SHARE RESULT 📢', {
+    const shareText = createText(this, 0, shareY, 'SHARE RESULT 📢', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -4464,8 +4430,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, menuY, 240, 46, 0x0f172a, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
-    const menuText = this.add
-      .text(0, menuY, 'MAIN MENU', {
+    const menuText = createText(this, 0, menuY, 'MAIN MENU', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -4552,8 +4517,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, 0, 300, 270, 0x0c1322, 0.99)
       .setStrokeStyle(2, 0xef4444, 0.95);
     const liveConnectionLost = this.liveMode;
-    const title = this.add
-      .text(0, -62, liveConnectionLost ? 'CONNECTION LOST' : 'SYNC FAILED', {
+    const title = createText(this, 0, -62, liveConnectionLost ? 'CONNECTION LOST' : 'SYNC FAILED', {
         fontFamily: FONT_FAMILY,
         fontSize: '24px',
         fontStyle: '900',
@@ -4563,8 +4527,7 @@ export class GameScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
-    const message = this.add
-      .text(
+    const message = createText(this,
         0,
         -20,
         liveConnectionLost
@@ -4585,8 +4548,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, 55, 190, 50, 0x2563eb, 1)
       .setStrokeStyle(2, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
-    const retryText = this.add
-      .text(0, 55, liveConnectionLost ? 'MAIN MENU' : 'RETRY SYNC', {
+    const retryText = createText(this, 0, 55, liveConnectionLost ? 'MAIN MENU' : 'RETRY SYNC', {
         fontFamily: FONT_FAMILY,
         fontSize: '14px',
         fontStyle: '900',
@@ -4614,8 +4576,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, 105, 190, 46, 0x0f172a, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
-    const menuText = this.add
-      .text(0, 105, 'MAIN MENU', {
+    const menuText = createText(this, 0, 105, 'MAIN MENU', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -4654,8 +4615,7 @@ export class GameScene extends Phaser.Scene {
     const card = this.add
       .rectangle(0, 0, 280, 140, 0x0c1322, 0.98)
       .setStrokeStyle(2, 0x3b82f6, 0.9);
-    const title = this.add
-      .text(0, -25, 'BATTLE COMPLETE', {
+    const title = createText(this, 0, -25, 'BATTLE COMPLETE', {
         fontFamily: FONT_FAMILY,
         fontSize: '18px',
         fontStyle: '900',
@@ -4665,8 +4625,7 @@ export class GameScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
-    const subtitle = this.add
-      .text(0, 15, 'SYNCING RESULT...', {
+    const subtitle = createText(this, 0, 15, 'SYNCING RESULT...', {
         fontFamily: MONO_FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -4804,8 +4763,7 @@ export class GameScene extends Phaser.Scene {
 
     const titleY = -cardHeight / 2 + 28;
     const titleText = this.liveMode ? 'BATTLE MENU' : 'PAUSED';
-    const title = this.add
-      .text(0, titleY, titleText, {
+    const title = createText(this, 0, titleY, titleText, {
         fontFamily: FONT_FAMILY,
         fontSize: '18px',
         fontStyle: '900',
@@ -4824,8 +4782,7 @@ export class GameScene extends Phaser.Scene {
       const warningBg = this.add
         .rectangle(0, startBtnY + 4, 234, 26, 0x450a0a, 0.95)
         .setStrokeStyle(1, 0xef4444, 0.9);
-      const warningText = this.add
-        .text(0, startBtnY + 4, '● LIVE BATTLE CONTINUES', {
+      const warningText = createText(this, 0, startBtnY + 4, '● LIVE BATTLE CONTINUES', {
           fontFamily: MONO_FONT_FAMILY,
           fontSize: '11px',
           fontStyle: 'bold',
@@ -4843,8 +4800,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, resumeY, 234, 44, 0x2563eb, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
-    const resumeText = this.add
-      .text(0, resumeY, 'RESUME', {
+    const resumeText = createText(this, 0, resumeY, 'RESUME', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -4867,8 +4823,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, soundY, 234, 44, 0x111c33, 1)
       .setStrokeStyle(1.5, 0x334155, 1)
       .setInteractive({ useHandCursor: true });
-    const soundText = this.add
-      .text(0, soundY, sounds.isMuted() ? 'SOUND: OFF' : 'SOUND: ON', {
+    const soundText = createText(this, 0, soundY, sounds.isMuted() ? 'SOUND: OFF' : 'SOUND: ON', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -4893,8 +4848,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, leaveY, 234, 44, 0x1e1520, 1)
       .setStrokeStyle(1.5, 0xef4444, 0.9)
       .setInteractive({ useHandCursor: true });
-    const leaveText = this.add
-      .text(0, leaveY, this.is2v2 ? 'SURRENDER' : 'LEAVE MATCH', {
+    const leaveText = createText(this, 0, leaveY, this.is2v2 ? 'SURRENDER' : 'LEAVE MATCH', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -4947,8 +4901,7 @@ export class GameScene extends Phaser.Scene {
       .setStrokeStyle(1, 0xf87171, 0.35);
 
     const titleY = -cardHeight / 2 + 28;
-    const title = this.add
-      .text(0, titleY, 'LEAVE MATCH?', {
+    const title = createText(this, 0, titleY, 'LEAVE MATCH?', {
         fontFamily: FONT_FAMILY,
         fontSize: '18px',
         fontStyle: '900',
@@ -4961,8 +4914,7 @@ export class GameScene extends Phaser.Scene {
 
     const message = this.matchMenuController.getConfirmationMessage();
     const subtitleY = titleY + 28;
-    const subtitle = this.add
-      .text(0, subtitleY, message, {
+    const subtitle = createText(this, 0, subtitleY, message, {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         color: this.liveMode ? '#fca5a5' : '#94a3b8',
@@ -4981,8 +4933,7 @@ export class GameScene extends Phaser.Scene {
       const warningBg = this.add
         .rectangle(0, btnStartY + 4, 234, 26, 0x450a0a, 0.95)
         .setStrokeStyle(1, 0xef4444, 0.9);
-      const warningText = this.add
-        .text(0, btnStartY + 4, '● LIVE BATTLE CONTINUES', {
+      const warningText = createText(this, 0, btnStartY + 4, '● LIVE BATTLE CONTINUES', {
           fontFamily: MONO_FONT_FAMILY,
           fontSize: '11px',
           fontStyle: 'bold',
@@ -5000,8 +4951,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, keepY, 234, 44, 0x2563eb, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
-    const keepText = this.add
-      .text(0, keepY, 'KEEP PLAYING', {
+    const keepText = createText(this, 0, keepY, 'KEEP PLAYING', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -5025,8 +4975,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, confirmLeaveY, 234, 44, 0xdc2626, 1)
       .setStrokeStyle(1.5, 0xf87171, 1)
       .setInteractive({ useHandCursor: true });
-    const confirmLeaveText = this.add
-      .text(0, confirmLeaveY, this.is2v2 ? 'SURRENDER' : 'LEAVE MATCH', {
+    const confirmLeaveText = createText(this, 0, confirmLeaveY, this.is2v2 ? 'SURRENDER' : 'LEAVE MATCH', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -5465,8 +5414,7 @@ export class GameScene extends Phaser.Scene {
       // Not fatal: the countdown still starts the match without ready votes.
     }
     if (!this.resultModalContainer) return;
-    const pending = this.add
-      .text(0, 60, 'REMATCH FOUND — ENTERING THE ARENA…', {
+    const pending = createText(this, 0, 60, 'REMATCH FOUND — ENTERING THE ARENA…', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: '900',
@@ -5497,8 +5445,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, 0, 330, 640, 0x0c1322, 0.98)
       .setStrokeStyle(2, model.cancelled ? 0x64748b : THEME.twoVTwoAccent, 0.95);
 
-    const title = this.add
-      .text(0, -275, headline.title, {
+    const title = createText(this, 0, -275, headline.title, {
         fontFamily: FONT_FAMILY,
         fontSize: '30px',
         fontStyle: '900',
@@ -5509,8 +5456,7 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    const subtitle = this.add
-      .text(0, -238, headline.subtitle, {
+    const subtitle = createText(this, 0, -238, headline.subtitle, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -5524,8 +5470,7 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     // Casual notice — honest no-rewards copy replaces the 1v1 reward cards.
-    const casualNotice = this.add
-      .text(0, -202, TWO_V_TWO_CASUAL_NOTICE, {
+    const casualNotice = createText(this, 0, -202, TWO_V_TWO_CASUAL_NOTICE, {
         fontFamily: FONT_FAMILY,
         fontSize: '10px',
         fontStyle: 'bold',
@@ -5560,8 +5505,7 @@ export class GameScene extends Phaser.Scene {
       const teamLabelText = row.group.isMyTeam
         ? `${row.group.isWinner ? '🏆' : '🛡'} YOUR TEAM ${row.group.teamId.toUpperCase()}${row.group.isWinner ? ' — WINNER' : ''}`
         : `${row.group.isWinner ? '🏆' : '⚔'} ENEMY TEAM ${row.group.teamId.toUpperCase()}${row.group.isWinner ? ' — WINNER' : ''}`;
-      const teamLabel = this.add
-        .text(0, row.labelY, teamLabelText, {
+      const teamLabel = createText(this, 0, row.labelY, teamLabelText, {
           fontFamily: FONT_FAMILY,
           fontSize: '10px',
           fontStyle: '900',
@@ -5586,8 +5530,7 @@ export class GameScene extends Phaser.Scene {
             participant.isYou ? 0.95 : 0.85
           );
         // Identity: shape glyph + slot label + YOU marker; color reinforces.
-        const nameLabel = this.add
-          .text(
+        const nameLabel = createText(this,
             cell.center.x,
             cell.center.y - 22,
             formatTwoVTwoResultCellLabel(shape, participant.label, participant.isYou, participant.displayName),
@@ -5602,8 +5545,7 @@ export class GameScene extends Phaser.Scene {
             }
           )
           .setOrigin(0.5);
-        const statusLabel = this.add
-          .text(cell.center.x, cell.center.y + 2, participant.status.toUpperCase(), {
+        const statusLabel = createText(this, cell.center.x, cell.center.y + 2, participant.status.toUpperCase(), {
             fontFamily: FONT_FAMILY,
             fontSize: '13px',
             fontStyle: '900',
@@ -5618,8 +5560,7 @@ export class GameScene extends Phaser.Scene {
             resolution: 2,
           })
           .setOrigin(0.5);
-        const statsLabel = this.add
-          .text(
+        const statsLabel = createText(this,
             cell.center.x,
             cell.center.y + 22,
             participant.abandoned
@@ -5641,8 +5582,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (model.cancelled) {
-      const cancelledNote = this.add
-        .text(0, -110, 'No result was recorded for this match.', {
+      const cancelledNote = createText(this, 0, -110, 'No result was recorded for this match.', {
           fontFamily: FONT_FAMILY,
           fontSize: '11px',
           fontStyle: 'bold',
@@ -5662,8 +5602,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, rematchY, 240, 50, 0x17123a, 1)
       .setStrokeStyle(2, THEME.twoVTwoAccent, 1)
       .setInteractive({ useHandCursor: true });
-    const rematchText = this.add
-      .text(0, rematchY, twoVTwoRematchButtonLabel(this.twoVTwoRematchVoteSent), {
+    const rematchText = createText(this, 0, rematchY, twoVTwoRematchButtonLabel(this.twoVTwoRematchVoteSent), {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: '900',
@@ -5699,8 +5638,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, shareY, 240, 46, 0x1e293b, 1)
       .setStrokeStyle(1.5, 0x475569, 1)
       .setInteractive({ useHandCursor: true });
-    const shareText = this.add
-      .text(0, shareY, 'SHARE RESULT 📢', {
+    const shareText = createText(this, 0, shareY, 'SHARE RESULT 📢', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -5726,8 +5664,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, menuY, 240, 46, 0x0f172a, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
-    const menuText = this.add
-      .text(0, menuY, 'MAIN MENU', {
+    const menuText = createText(this, 0, menuY, 'MAIN MENU', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -5770,8 +5707,7 @@ export class GameScene extends Phaser.Scene {
     const card = this.add
       .rectangle(0, 0, 290, 170, 0x0c1322, 0.99)
       .setStrokeStyle(2, 0xf59e0b, 0.95);
-    const title = this.add
-      .text(0, -50, 'CONNECTION LOST', {
+    const title = createText(this, 0, -50, 'CONNECTION LOST', {
         fontFamily: FONT_FAMILY,
         fontSize: '19px',
         fontStyle: '900',
@@ -5781,8 +5717,7 @@ export class GameScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
-    const subtitle = this.add
-      .text(0, -8, `Reconnecting… (attempt ${attempt + 1})\nYour slot is held for 30s`, {
+    const subtitle = createText(this, 0, -8, `Reconnecting… (attempt ${attempt + 1})\nYour slot is held for 30s`, {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: 'bold',
@@ -5794,8 +5729,7 @@ export class GameScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
-    const spinner = this.add
-      .text(0, 48, '⏳', { fontSize: '22px', resolution: 2 })
+    const spinner = createText(this, 0, 48, '⏳', { fontSize: '22px', resolution: 2 })
       .setOrigin(0.5);
     this.tweens.add({
       targets: spinner,
@@ -5825,8 +5759,7 @@ export class GameScene extends Phaser.Scene {
     const card = this.add
       .rectangle(0, 0, 300, 220, 0x0c1322, 0.99)
       .setStrokeStyle(2, 0xef4444, 0.95);
-    const title = this.add
-      .text(0, -75, 'MATCH ABANDONED', {
+    const title = createText(this, 0, -75, 'MATCH ABANDONED', {
         fontFamily: FONT_FAMILY,
         fontSize: '19px',
         fontStyle: '900',
@@ -5836,8 +5769,7 @@ export class GameScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
-    const subtitle = this.add
-      .text(0, -25, 'You could not rejoin in time.\nThe match continues without you.', {
+    const subtitle = createText(this, 0, -25, 'You could not rejoin in time.\nThe match continues without you.', {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: 'bold',
@@ -5849,8 +5781,7 @@ export class GameScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
-    const codeText = this.add
-      .text(0, 22, code.replaceAll('_', ' '), {
+    const codeText = createText(this, 0, 22, code.replaceAll('_', ' '), {
         fontFamily: FONT_FAMILY,
         fontSize: '9px',
         fontStyle: 'bold',
@@ -5864,8 +5795,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, 70, 200, 48, 0x0f172a, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
-    const menuText = this.add
-      .text(0, 70, 'RETURN TO MENU', {
+    const menuText = createText(this, 0, 70, 'RETURN TO MENU', {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: '900',
