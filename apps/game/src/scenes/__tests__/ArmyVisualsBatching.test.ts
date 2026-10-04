@@ -378,6 +378,25 @@ describe('Army Visuals Batching Optimization', () => {
     expect(scene.textures.exists('cc_army_aura_fortress')).toBe(true);
   });
 
+  it('keeps a diagonal marching formation aligned with the displayed road after spacing', () => {
+    const internal = scene as any;
+    internal.gameState.armies = [{
+      id: 'diagonal_spacing', owner: 'player', sourceId: 'p_base', targetId: 'n_center',
+      units: 4, startX: 100, startY: 200, targetX: 200, targetY: 320, progress: 0.2,
+    }];
+    internal.updateArmyVisuals(0.016);
+    const visual = internal.armyVisuals.get('player:diagonal_spacing');
+    expect(visual).toBeDefined();
+    const source = internal.boardLayout.project(100, 200);
+    const target = internal.boardLayout.project(200, 320);
+    const dx = target.u - source.u, dy = target.v - source.v;
+    const rear = visual.rearOffset;
+    // Collinear and behind the march, tested against the actual projected
+    // endpoints rather than a second copy of the direction calculation.
+    expect(rear.x * dy - rear.y * dx).toBeCloseTo(0, 8);
+    expect(rear.x * dx + rear.y * dy).toBeLessThan(0);
+  });
+
   it('creates batch-friendly Image instances for shadows, aura, and badge instead of Shape objects', () => {
     // Inject an active army into game state
     (scene as any).gameState.armies = [

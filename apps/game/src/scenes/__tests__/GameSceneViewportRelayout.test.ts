@@ -495,7 +495,7 @@ vi.mock('../../career/CareerManager.js', () => ({
 
 import { GameScene } from '../GameScene.js';
 import { BrowserPlatformAdapter } from '@crown-clash/platform';
-import { createBoardLayout, PLINTH_TOP_LIFT, projectLifted } from '../../art/boardProjection.js';
+import { BOARD_VERTICAL_SPACING, createBoardLayout, PLINTH_TOP_LIFT, projectLifted } from '../../art/boardProjection.js';
 import { getArenaGroundSprite, getArenaPropPositions } from '../../art/BattlefieldArt.js';
 import { THEME } from '../../theme.js';
 import type { BattlefieldId, Territory } from '@crown-clash/game-core';
@@ -648,7 +648,7 @@ describe('GameScene viewport relayout (map uses the live mobile height)', () => 
     const baseSpan =
       territoryContainersOf(scene).get('p_base')!.container.y -
       territoryContainersOf(scene).get('e_base')!.container.y;
-    expect(baseSpan).toBeCloseTo(500 * tallLayout.verticalScale(), 6);
+    expect(baseSpan).toBeCloseTo(500 * tallLayout.verticalScale() * BOARD_VERTICAL_SPACING, 6);
 
     // The team light pools anchor to the projected bases and foreshorten with
     // the ground plane: the player pool sits on the projected p_base socket

@@ -19,9 +19,10 @@ spec = importlib.util.spec_from_file_location('dressing_kit', sys.argv[1])
 kit = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(kit)
 zones = json.loads(Path(sys.argv[2]).read_text())['battlefields']
+spacing = json.loads((Path(sys.argv[2]).parent / 'arena-layout.json').read_text())['verticalSpacing']
 
 def excluded(battlefield_id, x, y):
-    lx, ly = x + 200, 398 - y
+    lx, ly = x + 200, 398 - y / spacing
     for zone in zones[battlefield_id]:
         if zone['shape'] == 'rectangle':
             if zone['minX'] <= lx <= zone['maxX'] and zone['minY'] <= ly <= zone['maxY']:
@@ -51,7 +52,7 @@ for battlefield_id in ('crown_cross', 'twin_passes', 'royal_ring', 'quad_citadel
         'emitted': len(first),
         'kinds': sorted(set(name for name, location in first)),
         'repeatIdentical': first == emissions,
-        'violations': [{'kind': name, 'x': location[0] + 200, 'y': 398 - location[1]}
+        'violations': [{'kind': name, 'x': location[0] + 200, 'y': 398 - location[1] / spacing}
                        for name, location in first
                        if excluded(battlefield_id, location[0], location[1])],
     }

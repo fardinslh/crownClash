@@ -13,6 +13,7 @@ COPY apps/game/ ./apps/game/
 COPY apps/server-nakama/battlefields.json ./apps/server-nakama/battlefields.json
 COPY art/asset-manifest.json ./art/asset-manifest.json
 COPY art/arena-dressing-zones.json ./art/arena-dressing-zones.json
+COPY art/arena-layout.json ./art/arena-layout.json
 
 ARG VITE_NAKAMA_HOST
 ARG VITE_NAKAMA_PORT

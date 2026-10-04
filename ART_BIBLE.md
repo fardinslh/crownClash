@@ -1,5 +1,5 @@
 # Crown Clash — Art Bible & Visual Direction
-**Version:** 1.2
+**Version:** 1.3
 **Target Platform:** Mobile WebViews (Bale, Eitaa, Telegram, Mobile Web)
 **Visual Style:** Stylized 2.5D (Blender renders → optimized 2D sprites at runtime)
 **Primary Goal:** Instant tactical readability, bright volumetric cartoon environments, and polished composition on compact mobile screens.
@@ -10,6 +10,10 @@ distinct environment identities. All four boards use the same 45° dimetric came
 and ground framing. The controlled source pipeline is documented in
 `docs/art/README.md`; the scene builder is `art/blender/build_battlefield_scene.py`.
 This environment revision preserves shared troops and HUD design.
+
+**v1.3:** wider vertical building spacing through `art/arena-layout.json`:
+positions expand by `1.22` before the same camera projection, while sprite sizes,
+plinth shapes, counts and authoritative travel rules stay unchanged.
 
 ---
 
@@ -45,9 +49,9 @@ All 3D source assets rendered in Blender must use a **locked orthographic camera
 
 The battlefield itself is authored in a **flat authoritative world space** (380×640 logical px, `battlefields.json`; server simulation, roads and hit radii are untouched). Every battlefield renders that world through an affine dimetric projection in `boardProjection.ts`:
 
-* `project(x, y)` maps world → screen at 45° pitch (foreshorten = cos 45°): ground circles become ellipses, roads recede, gameplay objects sort by screen Y (painter's algorithm).
+* `project(x, y)` first applies the shared `verticalSpacing = 1.22` to positions about world center `(200, 398)`, then projects at 45° pitch. Local circles/plinths keep `ry/rx = cos 45°`; buildings retain their existing size. Roads, marching positions and hit-test inversion follow the expanded placement. The extra spacing changes presentation, not server coordinates or travel duration.
 * `unproject` reverses it for hit testing; `PLINTH_TOP_LIFT` anchors territory visuals on the raised plinth tops baked under every socket (6.2 world px — must track `DIORAMA_PLINTH_HEIGHT - DIORAMA_PLINTH_SINK + DIORAMA_PLINTH_LIP_RISE` in `crown_cross_kit.py`).
-* Every battlefield's ground plate (1140×2502 master, 760×1668 runtime WebP) is rendered through the same rig, centered on the world rect (`GROUND_DIORAMA_AIM` = plane (0,0,0)), so image rows map world y at exactly the projection's v formula — the baked roads and plinths land under the projected sockets 1:1. The plate bakes a 250-unit meadow fringe beyond each end of the 640-unit world rect, so tall viewports fill with board while shorter ones crop the fringe symmetrically (no empty backdrop on any phone).
+* Every battlefield's ground plate (1140×2502 master, 760×1668 runtime WebP) uses the same centered rig (`GROUND_DIORAMA_AIM` = plane (0,0,0)). Blender reads `arena-layout.json` too, so expanded roads and plinths land under the projected sockets 1:1. River/bridge, garden court and camp geometry use the same expansion; foliage exclusions invert it back to authoritative logical coordinates. The established plate extent retains meadow fringe around the expanded playfield, filling tall phones while shorter ones crop symmetrically.
 * Projection is selected by battlefield (`DIMETRIC_BATTLEFIELDS`), independently
   of texture loading. Missing/inactive plates use vector ground in the current
   projection; all four current maps stay dimetric. Future maps outside that set

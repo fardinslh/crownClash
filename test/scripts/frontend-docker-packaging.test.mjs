@@ -8,11 +8,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../..');
 
-test('frontend Docker packaging includes the shared art dressing zones before build', () => {
-  const sourcePath = path.join(REPO_ROOT, 'apps/game/src/art/BattlefieldArt.ts');
+for (const fixture of [
+  { label: 'dressing zones', module: 'BattlefieldArt.ts', importedName: 'rawDressingZones' },
+  { label: 'arena layout', module: 'boardProjection.ts', importedName: 'arenaLayout' },
+]) test(`frontend Docker packaging includes the shared art ${fixture.label} before build`, () => {
+  const sourcePath = path.join(REPO_ROOT, 'apps/game/src/art', fixture.module);
   const source = fs.readFileSync(sourcePath, 'utf8');
-  const importedPath = /import\s+rawDressingZones\s+from\s+['"]([^'"]+)['"]/.exec(source)?.[1];
-  assert.ok(importedPath, 'BattlefieldArt must import the shared dressing-zone source');
+  const importedPath = new RegExp(`import\\s+${fixture.importedName}\\s+from\\s+['"]([^'"]+)['"]`).exec(source)?.[1];
+  assert.ok(importedPath, `${fixture.module} must import the shared ${fixture.label} source`);
   const repoRelativePath = path.relative(REPO_ROOT, path.resolve(path.dirname(sourcePath), importedPath)).split(path.sep).join('/');
   assert.ok(fs.existsSync(path.join(REPO_ROOT, repoRelativePath)), 'shared dressing zones must exist');
 

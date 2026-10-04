@@ -1,4 +1,5 @@
 import type { BattlefieldId } from '@crown-clash/game-core';
+import arenaLayout from '../../../../art/arena-layout.json' with { type: 'json' };
 
 /**
  * Board projection layer (Art Bible "true 2.5D diorama" direction).
@@ -20,8 +21,9 @@ import type { BattlefieldId } from '@crown-clash/game-core';
  *
  * The transform is affine, which keeps the integration cheap:
  *   u = originX + (x - 200) * scale
- *   v = originY + (y - 398) * scale * foreshorten
- * Local world offsets therefore scale by (scale, scale * foreshorten) and
+ *   v = originY + (y - 398) * scale * foreshorten * verticalSpacing
+ * Spacing expands positions before projection, keeping server travel unchanged.
+ * Local object offsets still scale by (scale, scale * foreshorten) and
  * ground circles become ellipses with ry / rx = foreshorten — matching the
  * baked perspective inside the dimetric sprite renders.
  */
@@ -40,6 +42,13 @@ export const BOARD_WORLD_HEIGHT = 640;
 export const BOARD_PITCH_DEG = 45;
 /** Vertical foreshortening of the ground plane: cos(pitch). */
 export const BOARD_FORESHORTEN = Math.cos((BOARD_PITCH_DEG * Math.PI) / 180);
+
+/** Art-only row spacing, shared with Blender; leaves buildings and plinths unscaled. */
+export const BOARD_VERTICAL_SPACING = arenaLayout.verticalSpacing;
+if (arenaLayout.version !== 1 || !Number.isFinite(BOARD_VERTICAL_SPACING) ||
+    BOARD_VERTICAL_SPACING < 1 || BOARD_VERTICAL_SPACING > 1.3) {
+  throw new Error('Invalid arena-layout vertical spacing');
+}
 
 /**
  * Battlefields rendered through the diorama projection: every battlefield's
@@ -94,7 +103,7 @@ export interface BoardLayout {
   readonly originX: number;
   /** Screen v of world y=398 (board vertical center). */
   readonly originY: number;
-  /** Uniform world→screen scale (applies to both axes before foreshortening). */
+  /** Object/world-X scale; world-Y positions also apply art-only row spacing. */
   readonly scale: number;
   /** Vertical ground-plane foreshortening (1 = straight top-down). */
   readonly foreshorten: number;
@@ -105,7 +114,7 @@ export interface BoardLayout {
   projectInto(x: number, y: number, out: BoardPoint): BoardPoint;
   /** Inverse map: screen point → authoritative world point (hit testing). */
   unproject(u: number, v: number): WorldPoint;
-  /** Screen-space scale factor for local world offsets (y axis). */
+  /** Local object Y scale, excluding row spacing (plinths retain their shape). */
   verticalScale(): number;
   /** Painter's depth for a gameplay object at the given screen Y. */
   gameplayDepth(kind: GameplayDepthKind, screenY: number): number;
@@ -129,7 +138,7 @@ export function groundPlateScreenRect(layout: BoardLayout): {
     cx: center.u,
     cy: center.v,
     width: BOARD_WORLD_WIDTH * layout.scale,
-    height: BOARD_WORLD_HEIGHT * layout.scale * layout.foreshorten,
+    height: BOARD_WORLD_HEIGHT * layout.scale * layout.foreshorten * (layout.isDimetric ? BOARD_VERTICAL_SPACING : 1),
   };
 }
 
@@ -141,8 +150,8 @@ export function groundPlateScreenRect(layout: BoardLayout): {
  * build_battlefield_scene.py). The image is CENTERED on the world rect:
  * stretching it to the projected world-rect width times this aspect maps
  * image rows onto world y at scale/3 per row, which reproduces the
- * project() v formula exactly. The plate bakes a 250-unit meadow fringe
- * beyond each end of the 640-unit world rect, so the image is taller than
+ * project() v formula using the shared pre-projection row spacing. The plate
+ * retains its meadow fringe around the expanded world rect, so it is taller than
  * any phone band: tall viewports fill with board while shorter ones crop
  * the fringe symmetrically around the projected world-rect center.
  */
@@ -186,7 +195,7 @@ export const PLINTH_TOP_LIFT = 6.2;
 /**
  * Projects a world point lifted `z` world px above the ground plane (e.g.
  * onto a plinth top). At the canonical 45° pitch a unit of height shifts
- * the screen exactly like a unit of world y (sin(45°) == cos(45°) ==
+ * the screen exactly like a unit of local ground-plane Y (sin(45°) == cos(45°) ==
  * foreshorten), so the lift is z * verticalScale() on v. Identity layouts
  * have no plinths and ignore the lift.
  */
@@ -268,7 +277,9 @@ export function createStretchedIdentityLayout(
 /** Width cap: the projected plate may not overflow the 400-logical-px screen. */
 const SCALE_MAX = 1.04;
 /** Headroom above the projected plane for the tallest citadel sprite. */
-const CONTENT_HEADROOM = 46;
+// The authored top bases sit 32 world units inside the plane; together with
+// this margin they retain room for the full citadel and its selection feedback.
+const CONTENT_HEADROOM = 22;
 /** Visible slab skirt depth below the projected plane's bottom edge. */
 const CONTENT_SKIRT = 18;
 /** Usable vertical band (top HUD strip / bottom margin). */
@@ -277,14 +288,14 @@ const BAND_BOTTOM_MARGIN = 40;
 
 function createDimetricLayout(battlefieldId: BattlefieldId, visibleHeight: number): BoardLayout {
   const bandHeight = Math.max(120, visibleHeight - BAND_TOP - BAND_BOTTOM_MARGIN);
-  const projectedPlaneHeight = BOARD_WORLD_HEIGHT * BOARD_FORESHORTEN;
+  const projectedPlaneHeight = BOARD_WORLD_HEIGHT * BOARD_FORESHORTEN * BOARD_VERTICAL_SPACING;
   const contentHeight = projectedPlaneHeight + CONTENT_HEADROOM + CONTENT_SKIRT;
   // Fill the band but never exceed the width cap (portrait first).
   const scale = Math.min(SCALE_MAX, Math.max(1, bandHeight / contentHeight));
   const projectedHeight = projectedPlaneHeight * scale;
   const topMargin = (bandHeight - (projectedHeight + CONTENT_HEADROOM + CONTENT_SKIRT)) / 2;
   const planeTopV = BAND_TOP + topMargin + CONTENT_HEADROOM;
-  const originY = planeTopV + (BOARD_WORLD_HEIGHT / 2) * scale * BOARD_FORESHORTEN;
+  const originY = planeTopV + projectedHeight / 2;
 
   const layout: BoardLayout = {
     battlefieldId,
@@ -296,18 +307,18 @@ function createDimetricLayout(battlefieldId: BattlefieldId, visibleHeight: numbe
     project(x, y) {
       return {
         u: BOARD_WORLD_CENTER_X + (x - BOARD_WORLD_CENTER_X) * scale,
-        v: originY + (y - BOARD_WORLD_CENTER_Y) * scale * BOARD_FORESHORTEN,
+        v: originY + (y - BOARD_WORLD_CENTER_Y) * scale * BOARD_FORESHORTEN * BOARD_VERTICAL_SPACING,
       };
     },
     projectInto(x, y, out) {
       out.u = BOARD_WORLD_CENTER_X + (x - BOARD_WORLD_CENTER_X) * scale;
-      out.v = originY + (y - BOARD_WORLD_CENTER_Y) * scale * BOARD_FORESHORTEN;
+      out.v = originY + (y - BOARD_WORLD_CENTER_Y) * scale * BOARD_FORESHORTEN * BOARD_VERTICAL_SPACING;
       return out;
     },
     unproject(u, v) {
       return {
         x: BOARD_WORLD_CENTER_X + (u - BOARD_WORLD_CENTER_X) / scale,
-        y: BOARD_WORLD_CENTER_Y + (v - originY) / (scale * BOARD_FORESHORTEN),
+        y: BOARD_WORLD_CENTER_Y + (v - originY) / (scale * BOARD_FORESHORTEN * BOARD_VERTICAL_SPACING),
       };
     },
     verticalScale() {

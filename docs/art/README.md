@@ -1,6 +1,6 @@
 # Battlefield Art Pipeline (Blender → Runtime)
 
-Deterministic 2.5D battlefield art pipeline, Art Bible v1.2: bright cartoon
+Deterministic 2.5D battlefield art pipeline, Art Bible v1.3: bright cartoon
 volumes, warm pale stone, natural terrain color masses and clustered foliage.
 The visual direction lives in
 [`ART_BIBLE.md`](../../ART_BIBLE.md) (sections 2–8, 10–15).
@@ -68,7 +68,12 @@ reference an unloaded texture.
   one plate for each of the four battlefields, all through the same 45°/0° dimetric
   rig as the buildings. `1140×2502` RGBA PNG masters become `760×1668` WebP runtime
   plates. The authoritative `380×640` logical tactical rect retains its exact roads
-  and sockets; a composed 250-unit fringe at either end fills tall phones. Natural
+  and sockets. [`art/arena-layout.json`](../../art/arena-layout.json) expands Y
+  positions by `1.22` about `(200, 398)` before projection, leaving sprite sizes,
+  plinth radii/lift and travel times unchanged. Blender uses the same factor for
+  roads/sockets and authored river/bridge, garden and camp geometry. Client
+  `unproject` and baked dressing exclusions invert the spacing for correct logical
+  hit tests and reserved zones. Composed meadow fringe fills tall phones. Natural
   grass color masses, worn continuous road edges, soft terrain relief and focused
   border clusters replace repeated mowing stripes and scattered tiny marks.
   Broad light variation comes from the grass material; translucent sun-pool discs

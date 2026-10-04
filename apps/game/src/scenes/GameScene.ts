@@ -70,6 +70,7 @@ import {
   territoryHitAreaSize,
 } from '../art/BattlefieldArt.js';
 import {
+  BOARD_VERTICAL_SPACING,
   createBoardLayout,
   groundPlateImageRect,
   groundPlateScreenRect,
@@ -1164,11 +1165,14 @@ export class GameScene extends Phaser.Scene {
     // board projection (identity layouts project 1:1, so un-migrated maps
     // render pixel-identical to the flat board).
     if (!ground) {
+      // Authored terrain shapes use the same expanded ground geometry as
+      // Blender. Local territory rings/buildings keep their original scale.
+      const terrainVerticalScale = verticalScale * (layout.isDimetric ? BOARD_VERTICAL_SPACING : 1);
       for (const layer of createBattlefieldTerrainLayers(arena.motif, visibleHeight)) {
         if (layer.kind === 'roundedRect') {
           const center = project(layer.x, layer.y);
           const width = layer.width * layout.scale;
-          const height = layer.height * verticalScale;
+          const height = layer.height * terrainVerticalScale;
           fieldGraphics.fillStyle(layer.color, layer.alpha);
           fieldGraphics.fillRoundedRect(center.u - width / 2, center.v - height / 2, width, height, layer.radius * layout.scale);
           if (layer.strokeColor !== undefined && layer.strokeAlpha !== undefined) {
@@ -1178,10 +1182,10 @@ export class GameScene extends Phaser.Scene {
         } else if (layer.kind === 'ellipse') {
           const center = project(layer.x, layer.y);
           fieldGraphics.fillStyle(layer.color, layer.alpha);
-          fieldGraphics.fillEllipse(center.u, center.v, layer.width * layout.scale, layer.height * verticalScale);
+          fieldGraphics.fillEllipse(center.u, center.v, layer.width * layout.scale, layer.height * terrainVerticalScale);
           if (layer.strokeColor !== undefined && layer.strokeAlpha !== undefined) {
             fieldGraphics.lineStyle(1.5, layer.strokeColor, layer.strokeAlpha);
-            fieldGraphics.strokeEllipse(center.u, center.v, layer.width * layout.scale, layer.height * verticalScale);
+            fieldGraphics.strokeEllipse(center.u, center.v, layer.width * layout.scale, layer.height * terrainVerticalScale);
           }
         } else {
           const a = project(layer.x1, layer.y1);
@@ -3582,7 +3586,7 @@ export class GameScene extends Phaser.Scene {
           0,
           0,
           (army.targetX - army.startX) * scale,
-          (army.targetY - army.startY) * verticalScale
+          (army.targetY - army.startY) * verticalScale * (layout.isDimetric ? BOARD_VERTICAL_SPACING : 1)
         );
         const cos = Math.cos(angle);
         const sin = Math.sin(angle);

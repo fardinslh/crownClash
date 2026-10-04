@@ -830,8 +830,15 @@ def _jitter(ob, rng):
 
 GROUND_W, GROUND_H = 380.0, 640.0
 GROUND_LOGICAL_CENTER = (200.0, 398.0)
-# Meadow fringe beyond the world rect (plane units, each side): the plate
-# extends past the authored playfield so tall viewports fill with board
+import json
+from pathlib import Path
+_ARENA_LAYOUT = json.loads((Path(__file__).resolve().parents[1] / 'arena-layout.json').read_text())
+GROUND_VERTICAL_SPACING = _ARENA_LAYOUT['verticalSpacing']
+if (_ARENA_LAYOUT['version'] != 1 or not math.isfinite(GROUND_VERTICAL_SPACING)
+        or not 1.0 <= GROUND_VERTICAL_SPACING <= 1.3):
+    raise ValueError('Invalid arena-layout vertical spacing')
+# Meadow fringe on the original plate extent (plane units): the plate still
+# extends past the expanded playfield so tall viewports fill with board
 # instead of empty backdrop. The client centers the plate image on the
 # projected world-rect center; shorter viewports simply crop the fringe.
 # Must stay in lockstep with GROUND_DIORAMA_ORTHO_SCALE in
@@ -850,8 +857,9 @@ def _hex_rgb(value):
 
 
 def _to_plane(logical_x, logical_y):
-    """Logical canvas px -> ground-plane units (image top = +Y)."""
-    return (logical_x - GROUND_LOGICAL_CENTER[0], -(logical_y - GROUND_LOGICAL_CENTER[1]))
+    """Authoritative coords -> spaced art positions; camera remains 45 degrees."""
+    return (logical_x - GROUND_LOGICAL_CENTER[0],
+            -(logical_y - GROUND_LOGICAL_CENTER[1]) * GROUND_VERTICAL_SPACING)
 
 
 def _battlefield_data(battlefield_id):
@@ -1041,7 +1049,7 @@ def _make_terrain(bf, battlefield_id):
         for (tx, ty), radius in territories:
             result = min(result, max(0.0, (math.hypot(x - tx, y - ty) - radius - 6.0) / 18.0))
         for zone in flats:
-            result = min(result, _zone_factor(zone, x, y))
+            result = min(result, _zone_factor(zone, x, y / GROUND_VERTICAL_SPACING))
         return result
 
     def terrain_z(x, y):
@@ -1257,7 +1265,7 @@ def _ground_scatter(battlefield_id, bf, mats, terrain_z, roads):
     zones = dressing['battlefields'][battlefield_id]
 
     def in_identity_zone(x, y):
-        lx, ly = x + 200, 398 - y
+        lx, ly = x + 200, 398 - y / GROUND_VERTICAL_SPACING
         for zone in zones:
             if zone['shape'] == 'rectangle':
                 if zone['minX'] <= lx <= zone['maxX'] and zone['minY'] <= ly <= zone['maxY']:
@@ -1278,16 +1286,17 @@ def _ground_scatter(battlefield_id, bf, mats, terrain_z, roads):
         for (ax, ay), (bx, by) in roads:
             if _distance_to_segment(x, y, ax, ay, bx, by) < 20.0:
                 return True
+        feature_y = y / GROUND_VERTICAL_SPACING
         if battlefield_id == 'crown_cross':
-            return math.hypot(x, y - 38.0) < 40.0
+            return math.hypot(x, feature_y - 38.0) < 40.0
         if battlefield_id == 'twin_passes':
             return abs(x) < 34.0
         if battlefield_id == 'royal_ring':
-            return math.hypot(x, y - 38.0) < 108.0
+            return math.hypot(x, feature_y - 38.0) < 108.0
         if battlefield_id == 'quad_citadel':
-            if abs(x) < 48.0 and abs(y - 38.0) < 250.0:
+            if abs(x) < 48.0 and abs(feature_y - 38.0) < 250.0:
                 return True
-            return any(abs(x - cx) < 92.0 and abs(y - cy) < 103.0
+            return any(abs(x - cx) < 92.0 and abs(feature_y - cy) < 103.0
                        for cx, cy in ((-88.0, 174.0), (88.0, 174.0), (-88.0, -102.0), (88.0, -102.0)))
         return False
 
@@ -1612,7 +1621,17 @@ def ground_plate(battlefield_id, make_material):
         # carries depth through the dimetric rig.
         _diorama_slab(make_material)
         _diorama_plinths(bf, make_material)
+    identity_before = set(bpy.data.objects)
     _ground_identity(battlefield_id, make_material, terrain_z)
+    # Keep river/bridge, garden court and camp clearings registered to the
+    # expanded positions. This is authored ground geometry, not image stretching;
+    # socket radii, building sprites and the canonical camera retain their shapes.
+    for ob in set(bpy.data.objects) - identity_before:
+        ob.location.y *= GROUND_VERTICAL_SPACING
+        if ob.type == 'MESH':
+            for vertex in ob.data.vertices:
+                vertex.co.y *= GROUND_VERTICAL_SPACING
+            ob.data.update()
     _ground_roads(bf, mats, make_material)
     _ground_sockets(
         bf,

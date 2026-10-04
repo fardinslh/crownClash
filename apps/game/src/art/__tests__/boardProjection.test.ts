@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { BATTLEFIELDS, type BattlefieldId } from '@crown-clash/game-core';
+import { territoryArtFootprint } from '../BattlefieldArt.js';
 import {
   BOARD_FORESHORTEN,
   BOARD_WORLD_CENTER_X,
@@ -7,6 +10,7 @@ import {
   BOARD_WORLD_HEIGHT,
   BOARD_WORLD_TOP,
   BOARD_WORLD_WIDTH,
+  BOARD_VERTICAL_SPACING,
   createBoardLayout,
   createStretchedIdentityLayout,
   GROUND_IMAGE_ASPECT,
@@ -28,7 +32,7 @@ describe('boardProjection diorama layouts', () => {
     expect([...DIMETRIC_IDS].sort()).toEqual(['crown_cross', 'quad_citadel', 'royal_ring', 'twin_passes']);
   });
 
-  it('projects every board foreshortened by cos(45deg) with a uniform scale', () => {
+  it('opens vertical placement while keeping the 45deg camera and local object scale', () => {
     for (const id of DIMETRIC_IDS) {
       const layout = createBoardLayout(id, 720);
       expect(layout.isDimetric, id).toBe(true);
@@ -39,11 +43,13 @@ describe('boardProjection diorama layouts', () => {
       expect(center.v, id).toBe(layout.originY);
 
       // A 100-unit horizontal step maps to scale px; the same step vertically
-      // maps to scale * foreshorten (the ground plane foreshortens, sprites do not).
+      // also applies row spacing. Objects themselves retain the 45deg shape.
       const east = layout.project(BOARD_WORLD_CENTER_X + 100, BOARD_WORLD_CENTER_Y);
       const south = layout.project(BOARD_WORLD_CENTER_X, BOARD_WORLD_CENTER_Y + 100);
       expect(east.u - center.u, id).toBeCloseTo(100 * layout.scale, 10);
-      expect(south.v - center.v, id).toBeCloseTo(100 * layout.scale * layout.foreshorten, 10);
+      expect(south.v - center.v, id).toBeCloseTo(100 * layout.scale * layout.foreshorten * BOARD_VERTICAL_SPACING, 10);
+      expect(BOARD_VERTICAL_SPACING).toBe(1.22);
+      expect(layout.verticalScale()).toBeCloseTo(layout.scale * BOARD_FORESHORTEN, 10);
     }
   });
 
@@ -78,7 +84,7 @@ describe('boardProjection diorama layouts', () => {
           BOARD_WORLD_TOP + BOARD_WORLD_HEIGHT
         ).v;
         // Headroom for the enemy citadel sprite above the projected plane top.
-        expect(planeTopV, `${id} ${visibleHeight}`).toBeGreaterThanOrEqual(122);
+        expect(planeTopV, `${id} ${visibleHeight}`).toBeGreaterThanOrEqual(98);
         // Slab skirt bottom stays clear of the bottom margin band.
         expect(planeBottomV + 18 * layout.scale, `${id} ${visibleHeight}`).toBeLessThanOrEqual(
           visibleHeight - 40
@@ -129,7 +135,7 @@ describe('boardProjection diorama layouts', () => {
   it('ground plate image rect is centered on the world rect with the baked aspect', () => {
     // The diorama plate image (1140x2502 master, 760x1668 runtime) is
     // centered on the projected world rect; its height adds the baked
-    // 250-unit meadow fringe beyond each end of the world rect (plus the
+    // retained meadow fringe beyond each end of the expanded world rect (plus the
     // plinth headroom and slab skirt zones at the very ends).
     for (const id of DIMETRIC_IDS) {
       for (const visibleHeight of [720, 800, 844, 932, 950]) {
@@ -143,7 +149,7 @@ describe('boardProjection diorama layouts', () => {
         // Image rows map world y at scale/3 per row (2502px / 834 units ==
         // 1140px / 380 units), so the image reproduces project()'s v formula:
         // the world rect's projected height equals its image-row span * scale/3.
-        const worldRectRows = BOARD_WORLD_HEIGHT * 3 * Math.SQRT1_2; // 640 * 3 * cos(45deg)
+        const worldRectRows = BOARD_WORLD_HEIGHT * BOARD_VERTICAL_SPACING * 3 * Math.SQRT1_2;
         expect(plane.height, `${id} ${visibleHeight}`).toBeCloseTo(
           worldRectRows * (plane.width / 1140),
           6
@@ -168,7 +174,7 @@ describe('boardProjection diorama layouts', () => {
       const lifted = projectLifted(layout, 200, 398, PLINTH_TOP_LIFT);
       expect(lifted.u, id).toBe(ground.u);
       // At the canonical 45deg pitch a unit of height shifts v exactly like a
-      // unit of world y: z * scale * foreshorten.
+      // unit of local ground-plane Y: z * scale * foreshorten.
       expect(lifted.v, id).toBeCloseTo(ground.v - PLINTH_TOP_LIFT * layout.verticalScale(), 10);
       // Zero lift is the ground projection.
       expect(projectLifted(layout, 85, 485, 0), id).toEqual(layout.project(85, 485));
@@ -182,6 +188,48 @@ describe('boardProjection diorama layouts', () => {
     // The fallback never carries the baked skirt: the image rect IS the
     // plane rect (a flat plate maps the world rect 1:1).
     expect(groundPlateImageRect(fallback).height).toBe(groundPlateScreenRect(fallback).height);
+  });
+
+  it('keeps full building sprites, count pills and role icons inside the mobile play band', () => {
+    for (const battlefield of BATTLEFIELDS) {
+      for (const height of [720, 800, 866, 950]) {
+        const layout = createBoardLayout(battlefield.id, height);
+        for (const territory of battlefield.territories) {
+          const art = territoryArtFootprint(battlefield.id, territory);
+          const anchor = projectLifted(layout, territory.x, territory.y, PLINTH_TOP_LIFT);
+          const top = anchor.v + (art.spriteY - art.spriteSize / 2 - 2) * layout.scale;
+          const bottom = anchor.v + Math.max(art.spriteY + art.spriteSize / 2,
+            art.badgeY + 11, art.roleIconY + 8) * layout.scale;
+          expect(top, `${battlefield.id}/${territory.id} sprite above HUD at ${height}`).toBeGreaterThan(76);
+          expect(bottom, `${battlefield.id}/${territory.id} labels below play band at ${height}`).toBeLessThan(height - 40);
+        }
+      }
+    }
+  });
+
+  it('registers the actual Blender ground positions with the client projection', () => {
+    const kitPath = fileURLToPath(new URL('../../../../../art/blender/crown_cross_kit.py', import.meta.url));
+    const points = [[200, 398], [200, 110], [200, 610], [60, 540], [340, 180]];
+    const script = `import importlib.util,json,sys,types
+sys.dont_write_bytecode=True
+sys.modules['bpy']=types.ModuleType('bpy')
+spec=importlib.util.spec_from_file_location('kit',sys.argv[1])
+kit=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(kit)
+print(json.dumps([kit._to_plane(x,y) for x,y in json.loads(sys.argv[2])]))`;
+    const bakedPoints: [number, number][] = JSON.parse(execFileSync('python3',
+      ['-c', script, kitPath, JSON.stringify(points)], { encoding: 'utf8', timeout: 5000 }));
+    expect(bakedPoints).toHaveLength(points.length);
+    for (const id of DIMETRIC_IDS) {
+      const layout = createBoardLayout(id, 720);
+      for (let i = 0; i < points.length; i++) {
+        const [x, y] = points[i];
+        const [planeX, planeY] = bakedPoints[i];
+        const projected = layout.project(x, y);
+        expect(projected.u).toBeCloseTo(layout.originX + planeX * layout.scale, 9);
+        expect(projected.v).toBeCloseTo(layout.originY - planeY * layout.scale * BOARD_FORESHORTEN, 9);
+      }
+    }
   });
 });
 
