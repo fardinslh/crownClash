@@ -6,6 +6,30 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
+    <script>
+      // Bale's miniapp.js answers every window "message" event with
+      // console.error("[Bale Sdk]: invoice id is not provided"). Any tooling
+      // that mirrors console output back through postMessage (browser
+      // extensions, devtools bridges) turns each reply into a new trigger,
+      // so the error rate explodes into an endless loop. Forward the first
+      // few messages for diagnostics, then swallow the repeats so the loop
+      // can never start. Every other console.error passes through untouched.
+      (function () {
+        var nativeError = console.error;
+        var baleInvoiceErrors = 0;
+        console.error = function () {
+          var first = arguments.length > 0 ? String(arguments[0]) : '';
+          if (
+            first.indexOf('invoice id is not provided') !== -1 &&
+            first.indexOf('Bale') !== -1
+          ) {
+            baleInvoiceErrors += 1;
+            if (baleInvoiceErrors > 3) return;
+          }
+          return nativeError.apply(console, arguments);
+        };
+      })();
+    </script>
     <script src="https://tapi.bale.ai/miniapp.js?3"></script>
     <title>Crown Clash</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
