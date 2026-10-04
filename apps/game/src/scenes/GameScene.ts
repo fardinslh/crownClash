@@ -393,6 +393,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   preload(): void {
+    // Fixed asset filenames are cached for 30 days in production. Bump this
+    // revision with baked map art changes so existing players load the new kit.
+    const mapArtPath = (path: string): string => `${path}?v=cartoon-meadow-v1.4`;
     // Track texture files that fail to load so the scene can substitute
     // procedural fallbacks instead of rendering broken sprites (the game must
     // never depend on the Blender source pipeline being present).
@@ -416,19 +419,19 @@ export class GameScene extends Phaser.Scene {
     } | undefined;
     const battlefieldId = battlefieldIdFromLaunchData(launchData);
     for (const [textureKey, filePath] of Object.entries(listRuntimeSpritePaths(battlefieldId))) {
-      this.load.image(runtimeTerritoryTextureKey(battlefieldId, textureKey), filePath);
+      this.load.image(runtimeTerritoryTextureKey(battlefieldId, textureKey), mapArtPath(filePath));
     }
     // Shared environment props (trees, bushes, grass, rocks, pennants) render
     // behind territory platforms on every battlefield.
     for (const [textureKey, filePath] of Object.entries(listEnvironmentPropSpritePaths())) {
-      this.load.image(arenaPropTextureKey(textureKey as ArenaPropKind), filePath);
+      this.load.image(arenaPropTextureKey(textureKey as ArenaPropKind), mapArtPath(filePath));
     }
     // The battlefield's rendered full-field ground plate (optional: when the
     // ground pack is inactive, createArenaBackground falls back to the flat
     // vector ground).
     const ground = getArenaGroundSprite(battlefieldId);
     if (ground) {
-      this.load.image(ground.textureKey, ground.path);
+      this.load.image(ground.textureKey, mapArtPath(ground.path));
     }
 
     // Load 2.5D Rendered Army Unit Sprites (one per march facing: toward the

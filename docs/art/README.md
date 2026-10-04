@@ -1,5 +1,10 @@
 # Battlefield Art Pipeline (Blender → Runtime)
 
+Production caches fixed sprite filenames for 30 days. `GameScene.preload()`
+adds `?v=cartoon-meadow-v1.4` to ground, building and shared prop requests.
+Bump that revision whenever this baked map kit changes, and update the preload
+regression test, so returning players receive matching terrain and buildings.
+
 Deterministic 2.5D battlefield art pipeline, Art Bible v1.4: bright cartoon
 volumes, warm pale stone, natural terrain color masses and clustered foliage.
 The visual direction lives in

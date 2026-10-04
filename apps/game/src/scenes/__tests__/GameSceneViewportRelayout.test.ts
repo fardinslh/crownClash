@@ -496,7 +496,9 @@ vi.mock('../../career/CareerManager.js', () => ({
 import { GameScene } from '../GameScene.js';
 import { BrowserPlatformAdapter } from '@crown-clash/platform';
 import { BOARD_VERTICAL_SPACING, createBoardLayout, PLINTH_TOP_LIFT, projectLifted } from '../../art/boardProjection.js';
-import { getArenaGroundSprite, getArenaPropPositions } from '../../art/BattlefieldArt.js';
+import { arenaPropTextureKey, getArenaGroundSprite, getArenaPropPositions,
+  listEnvironmentPropSpritePaths, listRuntimeSpritePaths, runtimeTerritoryTextureKey,
+  type ArenaPropKind } from '../../art/BattlefieldArt.js';
 import { THEME } from '../../theme.js';
 import type { BattlefieldId, Territory } from '@crown-clash/game-core';
 
@@ -557,6 +559,36 @@ describe('GameScene viewport relayout (map uses the live mobile height)', () => 
   afterEach(() => {
     vi.useRealTimers();
   });
+
+  it.each(['crown_cross', 'twin_passes', 'royal_ring', 'quad_citadel'] as const)(
+    'preloads the complete %s map kit with a shared cache revision', (battlefieldId) => {
+      const scene = new GameScene();
+      const image = vi.fn();
+      Object.assign(scene, { load: { on: vi.fn(), image } });
+      scene.scene.settings.data = { botMatch: { matchId: 'cache_test', battlefieldId } };
+      scene.preload();
+
+      const ground = getArenaGroundSprite(battlefieldId);
+      expect(ground, 'each shipped battlefield needs a ground plate').not.toBeNull();
+      const buildings = Object.entries(listRuntimeSpritePaths(battlefieldId));
+      const props = Object.entries(listEnvironmentPropSpritePaths());
+      expect(buildings.length).toBeGreaterThan(0);
+      expect(props.length).toBeGreaterThan(0);
+      const expectedAssets = [
+        ...buildings.map(([key, path]) => [runtimeTerritoryTextureKey(battlefieldId, key), path]),
+        ...props.map(([key, path]) => [arenaPropTextureKey(key as ArenaPropKind), path]),
+        [ground!.textureKey, ground!.path],
+      ];
+      for (const [key, path] of expectedAssets) {
+        const calls = image.mock.calls.filter(([loadedKey]) => loadedKey === key);
+        expect(calls, `preload must load ${key} exactly once`).toHaveLength(1);
+        const url = new URL(calls[0][1], 'https://game.invalid/');
+        expect(url.pathname).toBe(`/${path}`);
+        expect(url.searchParams.get('v'), `${key} must bypass the old immutable cache`)
+          .toBe('cartoon-meadow-v1.4');
+      }
+    },
+  );
 
   it('rebuilds the diorama board band after the viewport grows (Bale expand / rotation)', () => {
     const scene = createGameScene('crown_cross');
