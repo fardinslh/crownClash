@@ -415,6 +415,7 @@ async function captureViewport(chromePath, battlefieldId, viewport, outDir) {
       `(() => {
         const scene = window.__PHASER_GAME__?.scene?.getScene('GameScene');
         const territories = Object.values(scene.gameState.territories);
+        scene.executeAiTurn = () => {};
         const playerBase = territories.find((t) => t.owner === 'player');
         const enemyBase = territories.find((t) => t.owner === 'enemy');
         const neutrals = territories.filter((t) => t.owner === 'neutral');
@@ -434,6 +435,59 @@ async function captureViewport(chromePath, battlefieldId, viewport, outDir) {
       throw new Error(`army capture has no visible march for both teams: ${JSON.stringify(marchingTeams)}`);
     }
     let unitFallbackKeys = null;
+    let badgeMotion = null;
+    if (process.env.CC_QA_STABLE_BADGES === '1') {
+      badgeMotion = JSON.parse(await evaluate(cdp, `(() => {
+        const scene = window.__PHASER_GAME__.scene.getScene('GameScene');
+        const armies = scene.gameState.armies;
+        if (!armies.length) throw new Error('No marching armies for badge verification');
+        const saved = armies.map(army => army.progress);
+        const speeds = armies.map(army => army.speed * (army.owner === 'player'
+          ? scene.playerArmySpeedMultiplier : scene.enemyArmySpeedMultiplier));
+        if (!speeds.every(speed => Number.isFinite(speed) && speed > 0)) throw new Error('Invalid march speed');
+        const duration = Math.max(...speeds.map((speed, i) => (.95-saved[i])/speed));
+        const previous = new Map();
+        let maxExtraMotionPixels = 0, samples = 0, overlapSamples = 0;
+        try {
+          for (let step = 0; step <= 200; step++) {
+            const progress = speeds.map((speed, i) => saved[i] + step/200 * duration * speed);
+            armies.forEach((army, i) => { army.progress = Math.min(.95, progress[i]); });
+            scene.updateArmyVisuals(1 / 60);
+            const pills = [];
+            for (const [i, army] of armies.entries()) {
+              if (progress[i] > .95) continue;
+              const id = army.owner + ':' + army.id;
+              const visual = scene.armyVisuals.get(id);
+              if (!visual) throw new Error('Missing visual for ' + id);
+              const point = { x: visual.container.x, y: visual.container.y,
+                bx: visual.badgeBg.x, by: visual.badgeBg.y };
+              const last = previous.get(id);
+              if (last) {
+                const extra = Math.max(0, Math.abs(point.bx-last.bx)-Math.abs(point.x-last.x),
+                  Math.abs(point.by-last.by)-Math.abs(point.y-last.y));
+                maxExtraMotionPixels = Math.max(maxExtraMotionPixels, extra);
+                samples++;
+              }
+              if (visual.badgeText.y !== point.by || Math.abs(visual.badgeText.x-point.bx-7) > .000001)
+                throw new Error('Count detached from its pill');
+              previous.set(id, point);
+              const width = visual.badgeBg.displayWidth;
+              const rect = { x: point.bx-width/2, y: point.by-9, width, height:18 };
+              for (const pill of pills) if (rect.x < pill.x+pill.width && rect.x+rect.width > pill.x &&
+                rect.y < pill.y+pill.height && rect.y+rect.height > pill.y) overlapSamples++;
+              pills.push(rect);
+            }
+          }
+        } finally {
+          armies.forEach((army, i) => { army.progress = saved[i]; });
+          scene.updateArmyVisuals(0);
+        }
+        return JSON.stringify({ armies: armies.length, samples, maxExtraMotionPixels, overlapSamples });
+      })()`));
+      if (badgeMotion.samples < 400 || badgeMotion.maxExtraMotionPixels > .000001 || badgeMotion.overlapSamples > 0) {
+        throw new Error(`Marching count jumped independently of its squad: ${JSON.stringify(badgeMotion)}`);
+      }
+    }
     if (EXPECT_FALLBACK && MISSING_ASSET === 'unit') {
       unitFallbackKeys = JSON.parse(await evaluate(cdp, `(() => {
         const scene = window.__PHASER_GAME__.scene.getScene('GameScene');
@@ -452,6 +506,7 @@ async function captureViewport(chromePath, battlefieldId, viewport, outDir) {
     fs.writeFileSync(outPath, Buffer.from(finalShotBase64, 'base64'));
 
     const report = {
+      badgeMotion,
       file: fileName,
       cleanFile: cleanFileName,
       selectionFile: `${battlefieldId}-${viewport.width}x${viewport.height}-selection.png`,

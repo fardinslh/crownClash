@@ -1,11 +1,11 @@
 # Battlefield Art Pipeline (Blender → Runtime)
 
 Production caches fixed sprite filenames for 30 days. `GameScene.preload()`
-adds `?v=cartoon-meadow-v1.5` to ground, building, shared prop **and all marching-unit** requests.
+adds `?v=cartoon-meadow-v1.6` to ground, building, shared prop **and all marching-unit** requests.
 Bump that revision whenever this baked map kit changes, and update the preload
 regression test, so returning players receive matching terrain, buildings and troops.
 
-Deterministic 2.5D battlefield art pipeline, Art Bible v1.5: bright cartoon
+Deterministic 2.5D battlefield art pipeline, Art Bible v1.6: bright cartoon
 volumes, warm pale stone, natural terrain color masses and clustered foliage.
 The visual direction lives in
 [`ART_BIBLE.md`](../../ART_BIBLE.md) (sections 2–8, 10–15).
@@ -82,6 +82,10 @@ reference an unloaded texture.
   border clusters replace repeated mowing stripes and scattered tiny marks.
   Broad light variation comes from the grass material; translucent sun-pool discs
   are not layered over the terrain.
+  Version 1.6 uses vivid lime/emerald/golden grass palettes, cyan water, warm
+  sandstone paths and richer team roofs in the shared kit. Lighting, geometry,
+  texture dimensions and prop counts stay fixed; saturation is authored into
+  the source materials rather than added through runtime filters.
   Lush cover is baked in `_ground_scatter`: overlapping clover rosettes and dense
   short tufts fill available lawns, with taller clumps in the fringe. Green blades
   and leaves check road/socket clearance as well as shared reserved zones. Camp
@@ -301,3 +305,9 @@ or materials.
    enforces this.
 5. `apps/game/src/art/__tests__/BattlefieldArt.test.ts` picks the new mapping up
    automatically; extend it only for new texture keys or new pack shapes.
+
+Marching count pills plan a single relative offset against territory annotations
+and existing squad trajectories at spawn. They follow the projected squad anchor without
+per-frame candidate changes or stride bob. Edge clamping is continuous; board
+scale changes retain the relative attachment. `CC_QA_STABLE_BADGES=1` enables
+full-route motion traces in the isolated battlefield capture script.

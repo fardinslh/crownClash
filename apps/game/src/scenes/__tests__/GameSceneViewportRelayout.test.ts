@@ -583,7 +583,7 @@ describe('GameScene viewport relayout (map uses the live mobile height)', () => 
       const units = image.mock.calls.filter(([, path]) => path.includes('assets/units/'));
       expect(units, 'all leaders, followers and facings need a fresh revision').toHaveLength(16);
       for (const [, path] of units) {
-        expect(new URL(path, 'https://game.invalid/').searchParams.get('v')).toBe('cartoon-meadow-v1.5');
+        expect(new URL(path, 'https://game.invalid/').searchParams.get('v')).toBe('cartoon-meadow-v1.6');
       }
       for (const [key, path] of expectedAssets) {
         const calls = image.mock.calls.filter(([loadedKey]) => loadedKey === key);
@@ -591,7 +591,7 @@ describe('GameScene viewport relayout (map uses the live mobile height)', () => 
         const url = new URL(calls[0][1], 'https://game.invalid/');
         expect(url.pathname).toBe(`/${path}`);
         expect(url.searchParams.get('v'), `${key} must bypass the old immutable cache`)
-          .toBe('cartoon-meadow-v1.5');
+          .toBe('cartoon-meadow-v1.6');
       }
     },
   );

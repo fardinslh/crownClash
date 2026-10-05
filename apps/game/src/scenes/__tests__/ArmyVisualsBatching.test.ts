@@ -376,6 +376,32 @@ describe('Army Visuals Batching Optimization', () => {
     scene.create();
   });
 
+  it('keeps the number attached throughout a march past territory annotations', () => {
+    const internal = scene as any;
+    internal.reducedMotion = false;
+    const army = { id: 'steady_count', owner: 'player', sourceId: 'p_base',
+      targetId: 'n_center', units: 20, startX: 200, startY: 600,
+      targetX: 200, targetY: 200, progress: 0 };
+    internal.gameState.armies = [army];
+    const offsets: { x: number; y: number }[] = [];
+    for (let step = 0; step <= 200; step++) {
+      army.progress = step / 200;
+      internal.updateArmyVisuals(0.016);
+      const visual = internal.armyVisuals.get('player:steady_count');
+      expect(visual).toBeDefined();
+      offsets.push({ x: visual.badgeBg.x - visual.container.x,
+        y: visual.badgeBg.y - visual.container.y });
+      expect(visual.badgeText.x - visual.badgeBg.x).toBe(7);
+      expect(visual.badgeText.y).toBe(visual.badgeBg.y);
+    }
+    // This route remains within the visible band: even animation and nearby
+    // counts must not change its initial relative attachment.
+    for (const offset of offsets) {
+      expect(offset.x).toBeCloseTo(offsets[0].x, 6);
+      expect(offset.y).toBeCloseTo(offsets[0].y, 6);
+    }
+  });
+
   it('enlarges both ranks without adding members and keeps a compact icon badge', () => {
     const internal = scene as any;
     internal.reducedMotion = true;

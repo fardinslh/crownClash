@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { placeArmyBadge } from '../art/ArmyBadgeLayout.js';
+import { anchoredArmyBadge, planArmyBadgeOffset, type ArmyBadgeOffset, type ArmyBadgeRoute } from '../art/ArmyBadgeLayout.js';
 import type { Rect } from '../ui/HudLayout.js';
 import {
   BattlefieldId,
@@ -230,7 +230,7 @@ interface ArmyVisual {
   badgeBg: Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle;
   badgeText: Phaser.GameObjects.Text;
   badgeColor: number;
-  badgeOffsetY: number;
+  badgeOffset: ArmyBadgeOffset;
   followers: ArmyFollower[];
   rearOffset: { x: number; y: number };
   dustTimer: number;
@@ -401,7 +401,7 @@ export class GameScene extends Phaser.Scene {
   preload(): void {
     // Fixed asset filenames are cached for 30 days in production. Bump this
     // revision with baked map art changes so existing players load the new kit.
-    const mapArtPath = (path: string): string => `${path}?v=cartoon-meadow-v1.5`;
+    const mapArtPath = (path: string): string => `${path}?v=cartoon-meadow-v1.6`;
     // Track texture files that fail to load so the scene can substitute
     // procedural fallbacks instead of rendering broken sprites (the game must
     // never depend on the Blender source pipeline being present).
@@ -3835,6 +3835,27 @@ export class GameScene extends Phaser.Scene {
         container.add(elementsToAdd);
 
         const lastOffset = followerOffsets[followerOffsets.length - 1] ?? { x: 0, y: 0 };
+        const otherBadgeRoutes: ArmyBadgeRoute[] = [];
+        for (const otherArmy of armies) {
+          const otherVisual = this.armyVisuals.get(`${otherArmy.owner}:${otherArmy.id}`);
+          if (!otherVisual) continue;
+          const start = layout.project(otherArmy.startX, otherArmy.startY);
+          const end = layout.project(otherArmy.targetX, otherArmy.targetY);
+          const speed = (army.speed ?? 1) * (army.owner === 'player'
+            ? this.playerArmySpeedMultiplier : this.enemyArmySpeedMultiplier);
+          const otherSpeed = (otherArmy.speed ?? 1) * (otherArmy.owner === 'player'
+            ? this.playerArmySpeedMultiplier : this.enemyArmySpeedMultiplier);
+          const progressRate = otherSpeed / speed;
+          otherBadgeRoutes.push({ start: { x: start.u, y: start.v }, end: { x: end.u, y: end.v },
+            offset: { x: otherVisual.badgeOffset.x * scale, y: otherVisual.badgeOffset.y * scale },
+            width: otherVisual.badgeBg.displayWidth ?? otherVisual.badgeBg.width,
+            progressRate, progressOffset: otherArmy.progress - army.progress * progressRate });
+        }
+        const routeStart = layout.project(army.startX, army.startY);
+        const routeEnd = layout.project(army.targetX, army.targetY);
+        const badgeOffset = planArmyBadgeOffset({ x: routeStart.u, y: routeStart.v },
+          { x: routeEnd.u, y: routeEnd.v }, badgeY, badgeWidth + 14,
+          badgeBlockers, badgeBounds, otherBadgeRoutes);
         visual = {
           id: visualId,
           container,
@@ -3844,7 +3865,9 @@ export class GameScene extends Phaser.Scene {
           badgeBg,
           badgeText,
           badgeColor: roleStyle.color,
-          badgeOffsetY: badgeY,
+          // Reserve two extra digits; the 2v2 glyph is already in badgeWidth.
+          // Store in board-scale units so viewport relayout stays continuous.
+          badgeOffset: { x: badgeOffset.x / scale, y: badgeOffset.y / scale },
           followers,
           // Screen-space rear offset (already scaled) for the dust trail.
           rearOffset: { x: lastOffset.x * scale, y: lastOffset.y * scale },
@@ -3900,10 +3923,10 @@ export class GameScene extends Phaser.Scene {
       }
 
       const width = visual.badgeBg.displayWidth ?? visual.badgeBg.width;
-      const badgeRect = placeArmyBadge(anchor.u, anchor.v, visual.badgeOffsetY, width, badgeBlockers, badgeBounds);
+      const badgeRect = anchoredArmyBadge(anchor.u, anchor.v,
+        { x: visual.badgeOffset.x * scale, y: visual.badgeOffset.y * scale }, width, badgeBounds);
       visual.badgeBg.setPosition(badgeRect.x + width / 2, badgeRect.y + 9);
       visual.badgeText.setPosition(badgeRect.x + width / 2 + 7, badgeRect.y + 9);
-      badgeBlockers.push(badgeRect);
 
       if (!this.reducedMotion) {
         visual.phaseSeconds += deltaSeconds;

@@ -1,5 +1,5 @@
 # Crown Clash — Art Bible & Visual Direction
-**Version:** 1.5
+**Version:** 1.6
 **Target Platform:** Mobile WebViews (Bale, Eitaa, Telegram, Mobile Web)
 **Visual Style:** Stylized 2.5D (Blender renders → optimized 2D sprites at runtime)
 **Primary Goal:** Instant tactical readability, bright volumetric cartoon environments, and polished composition on compact mobile screens.
@@ -27,7 +27,15 @@ leaders and followers at `1.50×`, and both rendered and baked trees at `0.80×`
 The shared kit strengthens barracks corner turrets and shield, stable horseshoe,
 and chunky troop helmets, bodies and team-colored panels. Camera pitch, server
 coordinates, hit radii, travel rules, the `1.22` spacing and `6.2` plinth lift stay
-fixed. All map **and unit** requests use `cartoon-meadow-v1.5`.
+fixed.
+
+**v1.6:** vivid source palettes: sunlit lime royal lawns, emerald highlands,
+fresh palace greens and golden camp meadows. Cyan water, warm sandstone paths,
+pale building stone and saturated blue/red roofs retain distinct material values
+under the same lighting rig. Marching numbers choose one offset for their full
+route and follow the squad continuously, independent of stride animation; only
+viewport edges clamp their position. All map **and unit** requests use
+`cartoon-meadow-v1.6`.
 
 ## 1. Visual Pillars
 
@@ -39,7 +47,7 @@ fixed. All map **and unit** requests use `cartoon-meadow-v1.5`.
    128–160px; tiny masonry marks and high-frequency texture never replace shape.
    Soft contact shadows ground each object without dark halos.
 3. **High Color Contrast:**
-   Bright, saturated team accents against a calm green battlefield and pale stone.
+   Bright, saturated team accents against vivid green lawns and pale stone, with dark numeral pills.
    The existing dark HUD framing remains unchanged.
 4. **Strict Asset Cohesion:**
    Every visual asset—whether handcrafted or assisted by AI—must share the camera projection, lighting direction, controlled material palette, and edge language. Assets must never appear as if they were assembled from random asset stores.
@@ -413,15 +421,17 @@ texture memory separately.
   painter band to the baseline height on tall viewports, keeping its maximum
   below `83` without changing north/south ordering. Keep annotation positions
   absolute and update them during resize/capture, training dimming and cleanup.
-  Place marching badges clear of territory labels, role icons, commander cues
-  and other army counts, inside the HUD/guide bounds.
+  Choose a stable marching offset against territory labels, role icons and
+  commander cues along the full route; reserve separation against existing squad
+  trajectories at spawn.
+  Keep pills inside the HUD/guide bounds with continuous edge clamping.
 * Troops display at `1.50×` in both their initial pose and animated stride;
   formation offsets, shadows and bob amplitude follow that scale. Preserve all
   three facings, leader crest/cape, team colors and the existing three-follower cap.
   If a facing fails, use another loaded facing; if the whole troop pack fails,
   cache a 128px team-colored procedural leader/follower fallback.
 * Contrast: unit numerals and role badges stay legible over every terrain color;
-  muted prop palettes and broad foliage shapes preserve ownership emphasis. Props
+  broad foliage shapes and brighter team roofs preserve ownership emphasis. Props
   use their declared `ARENA_PROP_DISPLAY` alpha (0.9–1), not a second faded layer.
 * Verify at 375 × 667, 360 × 800, 390 × 844, and 430 × 932 before shipping a visual change;
   inspect empty state, marching armies, selection, drag, capture and tutorial.

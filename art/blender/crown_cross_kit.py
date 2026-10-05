@@ -14,8 +14,8 @@ import random
 import bpy
 
 TEAM_COLORS = {
-    'player': (0.04, 0.22, 0.62),
-    'enemy': (0.52, 0.06, 0.07),
+    'player': (0.025, 0.32, 0.95),
+    'enemy': (0.95, 0.035, 0.055),
     'neutral': (0.14, 0.20, 0.27),
 }
 
@@ -199,28 +199,28 @@ def contact_disc(make_material, radius, alpha, name='contact shadow'):
 _BUILDING_THEMES = {
     # Crown Cross: slate stone, pale trim, classic royal slate.
     'crown_cross': {
-        'wall': ((.48, .55, .59), .76), 'trim': ((.73, .76, .72), .65),
+        'wall': ((.65, .72, .76), .76), 'trim': ((.90, .91, .80), .65),
         'dark': ((.14, .22, .26), .86), 'wood': ((.32, .19, .08), .68),
         'plaster': ((.70, .59, .39), .76), 'hay': ((.80, .56, .13), .80),
         'iron': ((.20, .27, .31), .43), 'gold': ((.92, .58, .08), .30),
     },
     # Twin Passes: rough highland granite, pale schist, heavy oak.
     'twin_passes': {
-        'wall': ((.42, .49, .47), .82), 'trim': ((.69, .71, .59), .72),
+        'wall': ((.57, .68, .65), .82), 'trim': ((.83, .89, .74), .72),
         'dark': ((.13, .20, .18), .90), 'wood': ((.41, .25, .10), .72),
         'plaster': ((.67, .58, .40), .80), 'hay': ((.74, .55, .13), .84),
         'iron': ((.18, .24, .25), .48), 'gold': ((.85, .54, .10), .35),
     },
     # Royal Ring: cream limestone, pale marble, rich gold, polished iron.
     'royal_ring': {
-        'wall': ((.72, .62, .43), .68), 'trim': ((.95, .86, .65), .54),
+        'wall': ((.88, .73, .43), .68), 'trim': ((.95, .86, .65), .54),
         'dark': ((.26, .23, .18), .78), 'wood': ((.45, .29, .12), .65),
         'plaster': ((.82, .72, .49), .68), 'hay': ((.82, .62, .18), .80),
         'iron': ((.23, .28, .31), .35), 'gold': ((1.0, .68, .10), .25),
     },
     # Quad Citadel: dark war-camp timber, aged wood, canvas, matte iron.
     'quad_citadel': {
-        'wall': ((.50, .29, .12), .80), 'trim': ((.75, .52, .24), .70),
+        'wall': ((.66, .35, .09), .80), 'trim': ((.91, .64, .21), .70),
         'dark': ((.20, .13, .07), .88), 'wood': ((.37, .20, .08), .75),
         'plaster': ((.76, .65, .44), .80), 'hay': ((.86, .58, .14), .82),
         'iron': ((.18, .22, .23), .55), 'gold': ((.86, .53, .08), .35),
@@ -240,10 +240,10 @@ def bmats(owner, make_material, theme='crown_cross'):
     for key, (color, roughness) in palette.items():
         metallic = .60 if key == 'iron' else .55 if key == 'gold' else 0.0
         mats[key] = make_material(f'rtb_{short}_{key}', color, roughness, metallic=metallic)
-    building_team = tuple(min(channel * 1.30 + .025, 1.0) for channel in team)
+    building_team = tuple(min(channel * 1.08, 1.0) for channel in team)
     mats['roof'] = make_material(f'rtb_{short}_roof', building_team, .48)
     mats['roof_light'] = make_material(f'rtb_{short}_roof_light',
-                                      tuple(min(channel * 1.20 + .035, 1.0) for channel in building_team), .50)
+                                      tuple(min(channel * 1.20 + .015, 1.0) for channel in building_team), .50)
     mats['banner'] = make_material(f'rtb_{short}_banner', building_team, .76)
     return mats
 
@@ -281,14 +281,14 @@ def kmats(owner, make_material):
 
 
 def tmats(make_material):
-    """Flora and stone materials: muted naturals that sit on the dark slate."""
+    """Flora and stone materials: fresh emerald shadows and sunlit lime crowns."""
     return {
         'birch_bark': make_material('rtx_bark', (.81, .77, .61), .8),
         'bark_band': make_material('rtx_band', (.16, .15, .13), .85),
         'apple_bark': make_material('rtx_abark', (.35, .19, .07), .8),
-        'leaf_dark': make_material('rtx_leafd', (.12, .28, .07), .85),
-        'leaf': make_material('rtx_leaf', (.29, .48, .09), .85),
-        'leaf_light': make_material('rtx_leafl', (.47, .65, .16), .82),
+        'leaf_dark': make_material('rtx_leafd', (.045, .36, .045), .85),
+        'leaf': make_material('rtx_leaf', (.23, .66, .035), .85),
+        'leaf_light': make_material('rtx_leafl', (.48, .88, .065), .82),
         'apple': make_material('rtx_apple', (.85, .16, .035), .45),
         'stone': make_material('rtx_stone', (.45, .53, .54), .88),
     }
@@ -1214,14 +1214,14 @@ def _ground_identity(battlefield_id, make_material, terrain_z):
         worn = _flat_alpha('rgx_court', make_material, (.28, .37, .085), .12)
         _organic_patch('central worn lawn', 0, 38, 80, 94, .014, worn, 31)
     elif battlefield_id == 'twin_passes':
-        bank = make_material('rgx_bank', (.15, .20, .12), .92, use_gradient=False)
-        shallows = make_material('rgx_shallows', (.08, .32, .31), .5, use_gradient=False)
-        water = _noise_material('rgx_water', make_material, (.035, .23, .27), (.075, .37, .38),
+        bank = make_material('rgx_bank', (.22, .34, .14), .92, use_gradient=False)
+        shallows = make_material('rgx_shallows', (.035, .57, .52), .5, use_gradient=False)
+        water = _noise_material('rgx_water', make_material, (.015, .38, .49), (.025, .65, .73),
                                 .022, roughness=.3, detail=2.0)
         _river_ribbon('organic brook bank', 49.0, .012, bank)
         _river_ribbon('brook shallows', 43.0, .025, shallows)
         _river_ribbon('brook water', 37.0, .04, water)
-        stone = make_material('rgx_bridge', (.43, .39, .28), .8, use_gradient=False)
+        stone = make_material('rgx_bridge', (.73, .65, .43), .8, use_gradient=False)
         # Ground-level decking keeps marching sprites registered to the
         # canonical route; small stone parapets supply the diorama volume.
         for i in range(9):
@@ -1230,31 +1230,31 @@ def _ground_identity(battlefield_id, make_material, terrain_z):
             box('bridge parapet', (72.0, 2.2, 2.5), (0, 38 + side * 11, 1.27), stone, .7)
             for x in (-34, 34):
                 box('bridge end pier', (5, 5, 4), (x, 38 + side * 11, 2), stone, .8)
-        crag = make_material('rgx_crag', (.22, .29, .26), .9, use_gradient=False)
+        crag = make_material('rgx_crag', (.39, .49, .42), .9, use_gradient=False)
         for i, (x, y) in enumerate(((-154, 292), (153, 289), (-153, -270), (156, -265))):
             for j in range(3):
                 blob = ico('highland edge crag', 14.0 - j * 2, (x + (j - 1) * 10, y + j * 7, 3 + j),
                            crag, scale=(1.2, .9, .55), subdivisions=1)
                 _jitter(blob, random.Random(i * 19 + j))
     elif battlefield_id == 'royal_ring':
-        gravel = _noise_material('rgx_gravel', make_material, (.26, .25, .16), (.38, .35, .23),
+        gravel = _noise_material('rgx_gravel', make_material, (.52, .43, .22), (.73, .65, .37),
                                  .035, detail=2)
         _organic_patch('palace garden court', 0, 38, 93, 93, .014, gravel, 20)
-        hedge = make_material('rgx_hedge', (.065, .21, .04), .9, use_gradient=False)
-        hedge_top = make_material('rgx_hedge_top', (.12, .29, .055), .85, use_gradient=False)
+        hedge = make_material('rgx_hedge', (.025, .36, .025), .9, use_gradient=False)
+        hedge_top = make_material('rgx_hedge_top', (.09, .57, .035), .85, use_gradient=False)
         # Segments, gaps, trimmed tops and flower borders replace the torus.
         for i in range(16):
             a = i * math.tau / 16
             x, y = 80 * math.cos(a), 38 + 80 * math.sin(a)
             box('garden hedge segment', (23, 9, 5), (x, y, 2.6), hedge, 2.1, rot=(0, 0, a + math.pi / 2), bevel_segments=3)
             box('garden hedge new growth', (21, 7.5, 1.7), (x, y, 5.4), hedge_top, 1.6, rot=(0, 0, a + math.pi / 2), bevel_segments=3)
-        paver = make_material('rgx_garden_paver', (.47, .42, .3), .9, use_gradient=False)
+        paver = make_material('rgx_garden_paver', (.83, .73, .47), .9, use_gradient=False)
         # A low tiled garden motif is decorative, with no tower-like centre.
         for x in (-24, -8, 8, 24):
             for y in (14, 30, 46, 62):
                 box('courtyard inlaid stone', (14, 14, .16), (x, y, .11), paver, .8)
     elif battlefield_id == 'quad_citadel':
-        camp = _flat_alpha('rgx_camp', make_material, (.34, .27, .13), .30)
+        camp = _flat_alpha('rgx_camp', make_material, (.64, .40, .12), .30)
         for i, (x, y) in enumerate(((-88, 174), (88, 174), (-88, -102), (88, -102))):
             _organic_patch('trampled camp clearing', x, y, 81, 94, .018, camp, i + 16)
         for i, (x, y) in enumerate(((-152, 38), (152, 38))):
@@ -1458,13 +1458,13 @@ def _ground_bottom_fade(field, make_material):
 
 
 # Authored source colours under the canonical rig. Warm royal lawns,
-# cooler highland sage, palace greens and olive camp grass give each map
+# cooler highland emerald, palace greens and golden camp grass give each map
 # an identity without changing the authoritative palette/fallback data.
 GROUND_GRASS_PALETTES = {
-    'crown_cross': ((.105, .235, .035), (.17, .35, .065)),
-    'twin_passes': ((.055, .18, .10), (.105, .28, .15)),
-    'royal_ring': ((.07, .23, .045), (.14, .34, .075)),
-    'quad_citadel': ((.12, .21, .045), (.21, .32, .085)),
+    'crown_cross': ((.19, .48, .025), (.37, .72, .045)),
+    'twin_passes': ((.045, .38, .13), (.13, .62, .21)),
+    'royal_ring': ((.055, .43, .035), (.20, .69, .055)),
+    'quad_citadel': ((.26, .42, .035), (.48, .65, .075)),
 }
 
 
@@ -1554,8 +1554,8 @@ def _diorama_plinths(bf, make_material):
     point (boardProjection PLINTH_TOP_LIFT) and traces its ownership ring
     exactly on the plinth rim, so the plinth radius must mirror the client
     socket radius 1:1."""
-    mat = make_material('rgx_plinth', (.20, .225, .19), .92, use_gradient=False)
-    rim_mat = make_material('rgx_plinth_rim', (.34, .355, .27), .88, use_gradient=False)
+    mat = make_material('rgx_plinth', (.38, .41, .30), .92, use_gradient=False)
+    rim_mat = make_material('rgx_plinth_rim', (.62, .63, .44), .88, use_gradient=False)
     seam_mat = make_material('rgx_plinth_joint', (.15, .17, .14), .95, use_gradient=False)
     for territory in bf['territories']:
         x, y = _to_plane(territory['x'], territory['y'])
@@ -1638,18 +1638,18 @@ def ground_plate(battlefield_id, make_material):
 
     mats = {
         'road': _noise_material('rgx_road', make_material,
-                                (.29, .235, .135), (.40, .33, .20), .032, roughness=.9, detail=2),
+                                (.56, .36, .13), (.77, .57, .27), .032, roughness=.9, detail=2),
         'shoulder': _flat_alpha('rgx_shoulder', make_material,
-                                (.21, .21, .10), .20),
-        'paving': make_material('rgx_paving', (.40, .37, .25), .9, use_gradient=False),
+                                (.37, .36, .095), .20),
+        'paving': make_material('rgx_paving', (.76, .64, .38), .9, use_gradient=False),
         'ao': _flat_alpha('rgx_ao', make_material, (.03, .045, .025), .07),
-        'leaf': make_material('rgx_leaf', (.24, .43, .065), .85, use_gradient=False),
-        'leaf_dark': make_material('rgx_leafd', (.12, .29, .04), .85, use_gradient=False),
-        'leaf_tall': make_material('rgx_leaft', (.20, .37, .05), .85, use_gradient=False),
-        'clover': make_material('rgx_clover', (.16, .34, .075), .9, use_gradient=False),
-        'stone': make_material('rgx_stone', (.36, .35, .31), .9, use_gradient=False),
-        'flower_light': make_material('rgx_flowerl', (.92, .90, .80), .8, use_gradient=False),
-        'flower_dark': make_material('rgx_flowerd', (.95, .82, .35), .8, use_gradient=False),
+        'leaf': make_material('rgx_leaf', (.31, .72, .035), .85, use_gradient=False),
+        'leaf_dark': make_material('rgx_leafd', (.07, .43, .025), .85, use_gradient=False),
+        'leaf_tall': make_material('rgx_leaft', (.23, .63, .025), .85, use_gradient=False),
+        'clover': make_material('rgx_clover', (.13, .56, .055), .9, use_gradient=False),
+        'stone': make_material('rgx_stone', (.59, .59, .47), .9, use_gradient=False),
+        'flower_light': make_material('rgx_flowerl', (1.0, .95, .69), .8, use_gradient=False),
+        'flower_dark': make_material('rgx_flowerd', (1.0, .62, .035), .8, use_gradient=False),
     }
     if diorama:
         # Extruded slab skirt + raised stone plinths: the playfield itself
