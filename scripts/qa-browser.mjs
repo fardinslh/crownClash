@@ -33,6 +33,7 @@ export function classifyQaRequest(request, appUrl, missingAsset) {
   const staticPath = url.pathname === '/' || /\.(?:html|js|css|json|webp|png|svg|woff2?|ttf|ogg|mp3|wav)$/.test(url.pathname);
   if (!staticPath || /^\/(?:v2|api)\//.test(url.pathname)) return 'blocked';
   if (missingAsset === 'ground' && url.pathname.includes('/assets/grounds/')) return 'missing';
+  if (missingAsset === 'unit' && url.pathname.includes('/assets/units/')) return 'missing';
   if (missingAsset === 'building' && /\/assets\/territories\/[^/]+\/.*(?:citadel|outpost).*\.(?:webp|png)$/.test(url.pathname)) return 'missing';
   return 'allowed';
 }

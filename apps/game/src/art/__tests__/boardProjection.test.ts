@@ -121,6 +121,21 @@ describe('boardProjection diorama layouts', () => {
     expect(southProp).toBeLessThan(topTerritory);
   });
 
+  it('keeps every tall-phone body below annotations and selection without reversing painter order', () => {
+    for (const id of DIMETRIC_IDS) {
+      for (const height of [720, 866, 950, 1024]) {
+        const layout = createBoardLayout(id, height);
+        const north = layout.gameplayDepth('territory', 100);
+        for (const kind of ['territory', 'convoy', 'dust'] as const) {
+          const south = layout.gameplayDepth(kind, height - 40);
+          expect(south).toBeGreaterThan(north);
+          expect(south).toBeLessThan(83);
+          expect(south).toBeLessThan(layout.overlayDepth(45));
+        }
+      }
+    }
+  });
+
   it('projectInto reuses the caller buffer without allocation', () => {
     for (const id of DIMETRIC_IDS) {
       const layout = createBoardLayout(id, 720);

@@ -1,5 +1,5 @@
 # Crown Clash — Art Bible & Visual Direction
-**Version:** 1.4
+**Version:** 1.5
 **Target Platform:** Mobile WebViews (Bale, Eitaa, Telegram, Mobile Web)
 **Visual Style:** Stylized 2.5D (Blender renders → optimized 2D sprites at runtime)
 **Primary Goal:** Instant tactical readability, bright volumetric cartoon environments, and polished composition on compact mobile screens.
@@ -21,6 +21,13 @@ growth stays in the existing ground texture; tactical lanes and reserved feature
 remain clear and runtime prop counts stay capped at 24.
 
 ---
+
+**v1.5:** gameplay actors lead the composition: buildings display at `1.30×`,
+leaders and followers at `1.50×`, and both rendered and baked trees at `0.80×`.
+The shared kit strengthens barracks corner turrets and shield, stable horseshoe,
+and chunky troop helmets, bodies and team-colored panels. Camera pitch, server
+coordinates, hit radii, travel rules, the `1.22` spacing and `6.2` plinth lift stay
+fixed. All map **and unit** requests use `cartoon-meadow-v1.5`.
 
 ## 1. Visual Pillars
 
@@ -47,16 +54,25 @@ All 3D source assets rendered in Blender must use a **locked orthographic camera
 | :--- | :--- | :--- |
 | **Camera Type** | `Orthographic` | Eliminates perspective distortion across different screen positions. |
 | **Rotation (Euler)** | `X: 45.0°, Y: 0.0°, Z: 0.0°` | Straight-on dimetric (Clash Royale-style diorama): the camera sits due south of the subject at a 45° pitch, so every sprite grounds on the board exactly like the client's board projection (`apps/game/src/art/boardProjection.ts` — same pitch, yaw 0). |
-| **Orthographic Scale** | Default `6.0`; fixed per-builder crops | `CAMERA_FRAMING` keeps each building's established relative scale. |
+| **Orthographic Scale** | Default `6.0`; fixed per-builder crops | `arena-layout.json.buildingFraming` supplies the shared building crop and aim height to Blender and the client. |
 | **Clip Start / End** | `0.1m` / `100.0m` | Avoids Z-fighting or camera clipping. Ground diorama plates use a 300-unit stand-off with a 600-unit far clip (see `build_battlefield_scene.py` GROUND_DIORAMA_*). |
 
 ### Board Projection & Diorama Ground Plates
 
 The battlefield itself is authored in a **flat authoritative world space** (380×640 logical px, `battlefields.json`; server simulation, roads and hit radii are untouched). Every battlefield renders that world through an affine dimetric projection in `boardProjection.ts`:
 
-* `project(x, y)` first applies the shared `verticalSpacing = 1.22` to positions about world center `(200, 398)`, then projects at 45° pitch. Local circles/plinths keep `ry/rx = cos 45°`; buildings retain their existing size. Roads, marching positions and hit-test inversion follow the expanded placement. The extra spacing changes presentation, not server coordinates or travel duration.
+* `project(x, y)` first applies the shared `verticalSpacing = 1.22` to positions about world center `(200, 398)`, then projects at 45° pitch. Local circles/plinths keep `ry/rx = cos 45°`; building presentation uses the shared `1.30×` factor while socket sizes stay fixed. Roads, marching positions and hit-test inversion follow the expanded placement. The extra spacing changes presentation, not server coordinates or travel duration.
 * `unproject` reverses it for hit testing; `PLINTH_TOP_LIFT` anchors territory visuals on the raised plinth tops baked under every socket (6.2 world px — must track `DIORAMA_PLINTH_HEIGHT - DIORAMA_PLINTH_SINK + DIORAMA_PLINTH_LIP_RISE` in `crown_cross_kit.py`).
 * Every battlefield's ground plate (1140×2502 master, 760×1668 runtime WebP) uses the same centered rig (`GROUND_DIORAMA_AIM` = plane (0,0,0)). Blender reads `arena-layout.json` too, so expanded roads and plinths land under the projected sockets 1:1. River/bridge, garden court and camp geometry use the same expansion; foliage exclusions invert it back to authoritative logical coordinates. The established plate extent retains meadow fringe around the expanded playfield, filling tall phones while shorter ones crop symmetrically.
+* Fit the selected building image bounds, count/role annotations and the ground
+  slab into the visible band below the existing top HUD and above the bottom
+  guide. Balance those bounds on tall phones. Cap scale at the previous width
+  limit; this revision does not increase global zoom. Ground and actor anchors
+  share the resulting translation and scale, including after live resizing.
+* Keep a building's model-origin floor projection fixed when enlarging its image:
+  `newY = oldY - (newSize-oldSize) × aimHeight × cos(45°) / orthoScale`.
+  The shared baseline footprints and Blender crop/aim prevent floating or sinking
+  at the baked plinth. The outer transparent image edge is not the floor anchor.
 * Projection is selected by battlefield (`DIMETRIC_BATTLEFIELDS`), independently
   of texture loading. Missing/inactive plates use vector ground in the current
   projection; all four current maps stay dimetric. Future maps outside that set
@@ -197,13 +213,12 @@ so gameplay objects always stay on top.
   * Building masonry: `0.68 – 0.82`; timber: `0.65 – 0.75`.
   * Building roofs: `0.48 – 0.50`; cloth banners: `0.76`.
   * Building gold: roughness `0.25 – 0.35`, metallic `0.55`; iron:
-    roughness `0.35 – 0.55`, metallic `0.60`. Shared troop materials stay unchanged.
+    roughness `0.35 – 0.55`, metallic `0.60`. Troop steel uses roughness `0.55` / metallic `0.35`; gold uses metallic `0.25`. Broad blue/red cloth and shield faces remain visible from front, back and side.
 * **Beveling Mandatory:**
   * Building boxes use broad 3-segment chamfers capped at `0.09` model units
     (or 24% of the smallest dimension); rounded cylinders use
     `min(0.075, depth × 0.22, radius × 0.18)`. Building roof courses use
-    `0.055–0.065` bevels with 3 segments. Shared troop primitives keep their
-    existing narrower bevels; do not enlarge unit silhouettes as part of environment work.
+    `0.055–0.065` bevels with 3 segments. Troops keep narrower bevels on their now broader body, helmet and shield silhouettes; small surface details must not compete with the team-colored panels.
 * **Color Gradients:**
   * Standalone building, prop and troop sprites carry a vertical color gradient:
     darker at ground contact and brighter at upper peaks. Baked terrain and edge
@@ -332,12 +347,20 @@ preload and runtime optimization; `docs/art/README.md` lists commands.
   **ambiance only** and non-interactive. They are rendered sprites from the shared
   `environment` pack, bottom-anchored on the ground plane.
 * Small props (bush, grass, rock, pennant) stay under ~64 logical px tall; trees may
-  reach ~104px but are edge-only (x < 130 or x > 270 on the 400px field) so the
+  reach ~83px after the `0.80×` tree factor but are edge-only (x < 130 or x > 270 on the 400px field) so the
   contested middle stays readable.
 * Props are forbidden within `territory radius + 24px` (small props) to `+44px` (trees)
   of any territory center, and within 12–20px (per kind) of any road segment; placements
   are generated against the authoritative geometry
   (`scripts/generate-arena-props.mjs`) and re-validated by `BattlefieldArt.test.ts`.
+* Check visible prop alpha bounds against the enlarged building image (including
+  its `1.08×` selection feedback) and role/count space, with a 5px gap. The shared
+  `propVisibleBounds` stores normalized bounding boxes at alpha > 100; refresh it
+  from decoded runtime WebPs whenever prop silhouettes change. The generator
+  places large props first, preserves each map's existing kind/count list, and
+  fails if it cannot place them all. Do not quietly reduce the set.
+* Baked border tree clusters use the same `0.80×` factor. Grass, clover and bushes
+  retain their coverage; border tree sprites use `0.94` alpha for calmer contrast.
 * Art-only reserved features live in `art/arena-dressing-zones.json`, in logical
   world coordinates: Twin Passes river/banks `x 166–234, y 133–653`; Royal Ring
   court radius `108` around `(200, 360)`. Boundaries are inclusive; no prop anchor
@@ -369,7 +392,7 @@ preload and runtime optimization; `docs/art/README.md` lists commands.
 | Runtime territory sprite | WebP (alpha) or optimized PNG | 128 × 128 (tiers 1–2), 160 × 160 (tier 3) | linear filtering at runtime |
 | Runtime ground plate | WebP (alpha) | 760 × 1668 | unchanged projection and raised plinths; includes top/bottom scenery |
 | Runtime atlas (optional) | WebP atlas | ≤ 1024 × 1024 | only when it reduces requests without hurting maintainability |
-| Units | PNG | 128 × 128 | existing shared troop pack; leader/follower × player/enemy × front/back/side facings |
+| Units | PNG | 128 × 128 | chunky shared troop kit; leader/follower × player/enemy × front/back/side facings |
 
 Budgets (section 14): territory/prop sprites stay under 80KiB each; a full-field ground
 plate stays under 128KiB (one plate loads per match); territory sprites plus the
@@ -381,7 +404,22 @@ texture memory separately.
 * Ownership (team color + ring), type (role icon), and unit count must be readable
   on small phones, including 360 × 800 and 375 × 667, without zooming.
 * Minimum on-screen territory diameter: ~44 physical px at DPR 2 on a 360px viewport.
-* Unit badges: ≥ 38 × 22 logical px with ≥ 14px bold numerals.
+* Territory badges: ≥ 38 × 22 logical px with ≥ 14px bold numerals.
+* Marching badges keep their 18px height and original numeral size. Paint the
+  existing role glyph into the cached badge texture instead of repeating role
+  words; retain the `◆` commander cue in 2v2. No extra display object is added.
+* Territory annotations render above bodies at depth `84` (role icons `84.1`);
+  marching badges use `84.2`, below the unchanged HUD. Normalize the body
+  painter band to the baseline height on tall viewports, keeping its maximum
+  below `83` without changing north/south ordering. Keep annotation positions
+  absolute and update them during resize/capture, training dimming and cleanup.
+  Place marching badges clear of territory labels, role icons, commander cues
+  and other army counts, inside the HUD/guide bounds.
+* Troops display at `1.50×` in both their initial pose and animated stride;
+  formation offsets, shadows and bob amplitude follow that scale. Preserve all
+  three facings, leader crest/cape, team colors and the existing three-follower cap.
+  If a facing fails, use another loaded facing; if the whole troop pack fails,
+  cache a 128px team-colored procedural leader/follower fallback.
 * Contrast: unit numerals and role badges stay legible over every terrain color;
   muted prop palettes and broad foliage shapes preserve ownership emphasis. Props
   use their declared `ARENA_PROP_DISPLAY` alpha (0.9–1), not a second faded layer.

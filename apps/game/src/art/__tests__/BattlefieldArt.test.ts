@@ -9,6 +9,7 @@ import {
 } from '@crown-clash/game-core';
 import {
   ASSET_MANIFEST,
+  ARENA_PROP_DISPLAY,
   ARENA_DRESSING_ZONES,
   blenderMasterPath,
   battlefieldIdFromLaunchData,
@@ -30,6 +31,9 @@ import {
   toPhaserAssetPath,
   usesDedicatedSpritePack,
 } from '../BattlefieldArt.js';
+
+import arenaLayout from '../../../../../art/arena-layout.json' with { type: 'json' };
+import { createBoardLayout, projectLifted, PLINTH_TOP_LIFT } from '../boardProjection.js';
 
 const PUBLIC_DIR = path.resolve(__dirname, '../../../public');
 const REPO_ROOT = path.resolve(__dirname, '../../../../..');
@@ -355,6 +359,26 @@ describe('battlefield preload through the manifest', () => {
     expect(battlefieldIdFromLaunchData({ botMatch: { battlefieldId: 'nope' as BattlefieldId } })).toBe('crown_cross');
   });
 
+  it('ships readable troop facings at the existing dimensions and byte budget', () => {
+    for (const role of ['leader', 'follower']) {
+      for (const owner of ['player', 'enemy']) {
+        const base = `unit_${role}_${owner}`;
+        const images = ['front', 'back', 'side'].map((facing) => {
+          const file = path.join(PUBLIC_DIR, 'assets/units', `${base}_${facing}.png`);
+          expect(fs.existsSync(file), file).toBe(true);
+          const image = readRuntimeImageDimensions(file);
+          expect([image.width, image.height]).toEqual([128, 128]);
+          expect(image.bytes).toBeLessThan(80 * 1024);
+          return fs.readFileSync(file);
+        });
+        expect(images[0].equals(images[1])).toBe(false);
+        expect(images[0].equals(images[2])).toBe(false);
+        expect(images[1].equals(images[2])).toBe(false);
+        expect(fs.readFileSync(path.join(PUBLIC_DIR, 'assets/units', `${base}.png`)).equals(images[0])).toBe(true);
+      }
+    }
+  });
+
   it('keeps territory textures from different packs distinct in Phaser cache', () => {
     const key = 'citadel_player';
     const royal = runtimeTerritoryTextureKey('royal_ring', key);
@@ -365,13 +389,67 @@ describe('battlefield preload through the manifest', () => {
     expect(runtimeTerritoryTextureKey('royal_ring', 'citadel_enemy')).not.toBe(royal);
   });
 
+  it('enlarges buildings by 30% while preserving their projected model-origin floor', () => {
+    for (const id of DEDICATED_PACKS) {
+      const footprints = arenaLayout.buildingFootprints[id as keyof typeof arenaLayout.buildingFootprints]
+        ?? arenaLayout.buildingFootprints.default;
+      for (const territory of getBattlefield(id).territories) {
+        const top = territory.type === 'fortress' && territory.tier === 3 && territory.y <= 150;
+        const [oldSize, oldY] = top ? footprints.topCitadel : territory.tier === 3 ? footprints.tier3
+          : territory.tier === 2 ? footprints.tier2 : footprints.tier1;
+        const role = territory.tier === 3 ? 'citadel' : territory.tier === 2 ? 'keep'
+          : territory.type === 'fortress' ? 'outpost' : territory.type;
+        const [crop, aim] = arenaLayout.buildingFraming[role];
+        const art = territoryArtFootprint(id, territory);
+        expect(art.spriteSize).toBeCloseTo(oldSize * 1.3, 8);
+        // Independent projection of Blender's floor origin inside the crop.
+        const floorFraction = Math.cos(Math.PI / 4) * aim / crop;
+        expect(art.spriteY + art.spriteSize * floorFraction).toBeCloseTo(oldY + oldSize * floorFraction, 8);
+      }
+    }
+  });
+
+  it('keeps every prop silhouette away from enlarged buildings and their role indicators', () => {
+    for (const id of DEDICATED_PACKS) {
+      for (const height of [720, 950]) {
+        const layout = createBoardLayout(id, height);
+        const props = getArenaPropPositions(id);
+        expect(props.length).toBeGreaterThan(0);
+        for (const prop of props) {
+          const anchor = layout.project(prop.x, prop.y);
+          const size = ARENA_PROP_DISPLAY[prop.kind].height * layout.scale;
+          const [left, top, right, bottom] = arenaLayout.propVisibleBounds[prop.kind];
+          const p = { left: anchor.u + (left - .5) * size, right: anchor.u + (right - .5) * size,
+            top: anchor.v + (top - 1) * size, bottom: anchor.v + (bottom - 1) * size };
+          for (const territory of getBattlefield(id).territories) {
+            const art = territoryArtFootprint(id, territory);
+            const base = projectLifted(layout, territory.x, territory.y, PLINTH_TOP_LIFT);
+            const center = base.v + art.spriteY * layout.scale;
+            const half = art.spriteSize * layout.scale * .54;
+            const gap = 5 * layout.scale;
+            const t = { left: base.u - half - gap, right: base.u + half + gap,
+              top: center - half - gap,
+              bottom: Math.max(center + half, base.v + (art.roleIconY + 9) * layout.scale) + gap };
+            const overlaps = p.left < t.right && p.right > t.left && p.top < t.bottom && p.bottom > t.top;
+            expect(overlaps, `${id}: ${prop.kind} at ${prop.x},${prop.y} covers ${territory.id}`).toBe(false);
+          }
+        }
+      }
+    }
+  });
+
   it('keeps top citadels below the HUD while leaving hit areas unchanged', () => {
     for (const battlefieldId of DEDICATED_PACKS) {
       for (const territory of getBattlefield(battlefieldId).territories) {
         if (territory.tier !== 3 || territory.y > 150) continue;
         const art = territoryArtFootprint(battlefieldId, territory);
         expect(territory.y - art.ringRadius).toBeGreaterThanOrEqual(72);
-        expect(territory.y + art.spriteY - 2 - art.spriteSize / 2).toBeGreaterThanOrEqual(70);
+        for (const height of [720, 800, 866, 950]) {
+          const layout = createBoardLayout(battlefieldId, height);
+          const anchor = projectLifted(layout, territory.x, territory.y, PLINTH_TOP_LIFT);
+          expect(anchor.v + (art.spriteY - art.spriteSize * 0.54) * layout.scale)
+            .toBeGreaterThanOrEqual(76);
+        }
         expect(territoryHitAreaSize(territory.radius)).toBe(territory.radius * 2.5);
       }
     }

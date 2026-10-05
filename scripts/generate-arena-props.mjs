@@ -23,6 +23,32 @@ const dressingZones = JSON.parse(
   fs.readFileSync(path.join(repoRoot, 'art/arena-dressing-zones.json'), 'utf8')
 ).battlefields;
 
+const artLayout = JSON.parse(fs.readFileSync(path.join(repoRoot, 'art/arena-layout.json'), 'utf8'));
+const propSize = { tree_birch: 104 * artLayout.presentation.treeScale,
+  tree_apple: 100 * artLayout.presentation.treeScale, tree_pine: 100 * artLayout.presentation.treeScale,
+  pennant: 64, bush: 44, rock: 32, grass_tuft: 34 };
+const projectedY = (y) => (y - 398) * Math.SQRT1_2 * artLayout.verticalSpacing;
+
+function buildingBounds(battlefield, territory) {
+  const top = territory.type === 'fortress' && territory.tier === 3 && territory.y <= 150;
+  const footprints = artLayout.buildingFootprints[battlefield.id] ?? artLayout.buildingFootprints.default;
+  const [oldSize, oldY] = top ? footprints.topCitadel : footprints[`tier${territory.tier}`];
+  const role = territory.tier === 3 ? 'citadel' : territory.tier === 2 ? 'keep'
+    : territory.type === 'fortress' ? 'outpost' : territory.type;
+  const [ortho, aim] = artLayout.buildingFraming[role];
+  const size = oldSize * artLayout.presentation.buildingScale;
+  const groundY = projectedY(territory.y) - 6.2 * Math.SQRT1_2;
+  const y = groundY + oldY
+    - (size - oldSize) * aim * Math.SQRT1_2 / ortho;
+  const quad = battlefield.id === 'quad_citadel';
+  const badgeY = quad ? territory.tier === 3 ? top ? 13 : 18 : territory.tier === 2 ? 18 : 14
+    : territory.tier === 3 ? 25 : territory.tier === 2 ? 21 : 17;
+  const iconY = quad && territory.tier === 3 ? badgeY : badgeY + 21;
+  // Include selected-building growth; full image bounds are conservative.
+  return { left: territory.x - size * .54 - 5, right: territory.x + size * .54 + 5,
+    top: y - size * .54 - 5, bottom: Math.max(y + size * .54, groundY + iconY + 9) + 5 };
+}
+
 // Deterministic wish lists per battlefield: kind pools tuned per map theme.
 // Grass-heavy on purpose: the meadow ground reads alive with scattered tufts.
 const WISH_LISTS = {
@@ -94,6 +120,14 @@ function generate(battlefield) {
         return false;
       }
     }
+    const size = propSize[kind];
+    const py = projectedY(y);
+    const [left, top, right, bottom] = artLayout.propVisibleBounds[kind];
+    for (const territory of territories) {
+      const bounds = buildingBounds(battlefield, territory);
+      if (x + (right - .5) * size > bounds.left && x + (left - .5) * size < bounds.right &&
+          py + (bottom - 1) * size > bounds.top && py + (top - 1) * size < bounds.bottom) return false;
+    }
     for (const road of roads) {
       if (distancePointToSegment(x, y, road.a.x, road.a.y, road.b.x, road.b.y) < CLEARANCE[kind].road) {
         return false;
@@ -129,7 +163,8 @@ function generate(battlefield) {
     [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
   }
 
-  for (const kind of wish) {
+  // Reserve the scarce tree/pennant clearings before placing small tufts.
+  for (const kind of [...wish].sort((a, b) => propSize[b] - propSize[a])) {
     for (const candidate of candidates) {
       if (fits(kind, candidate.x, candidate.y)) {
         placed.push({ kind, x: candidate.x, y: candidate.y });
@@ -137,6 +172,7 @@ function generate(battlefield) {
       }
     }
   }
+  if (placed.length !== wish.length) throw new Error(`${battlefield.id}: only ${placed.length}/${wish.length} props fit`);
   return placed;
 }
 

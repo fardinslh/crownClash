@@ -43,7 +43,7 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 const APP_URL = process.env.CC_QA_APP_URL || 'http://localhost:3000/?benchmark_mode=1';
 const MISSING_ASSET = process.env.CC_QA_MISSING_ASSET;
 const EXPECT_FALLBACK = process.env.CC_QA_EXPECT_FALLBACK === '1';
-if (EXPECT_FALLBACK && !['ground', 'building'].includes(MISSING_ASSET)) throw new Error('Fallback verification requires CC_QA_MISSING_ASSET=ground or building');
+if (EXPECT_FALLBACK && !['ground', 'building', 'unit'].includes(MISSING_ASSET)) throw new Error('Fallback verification requires CC_QA_MISSING_ASSET=ground, building or unit');
 const VIEWPORTS = [
   { width: 375, height: 667, dpr: 2 },
   { width: 360, height: 800, dpr: 2 },
@@ -311,6 +311,8 @@ async function captureViewport(chromePath, battlefieldId, viewport, outDir) {
       if (!state.missing.length) throw new Error('Expected asset failure was not exercised');
       if (MISSING_ASSET === 'ground') {
         if (state.groundLoaded || !state.missing.every(key => key.startsWith('cc_ground_'))) throw new Error('Missing ground did not use the vector fallback');
+      } else if (MISSING_ASSET === 'unit') {
+        if (state.missing.length !== 16 || !state.missing.every(key => key.startsWith('unit_'))) throw new Error('Missing units did not exercise the complete shared unit pack');
       } else {
         if (!state.textureKeys.some(key => key.startsWith('cc_fallback_')) || !state.missing.every(key => key.includes('citadel') || key.includes('outpost'))) throw new Error('Missing buildings did not use procedural fallbacks');
       }
@@ -354,6 +356,9 @@ async function captureViewport(chromePath, battlefieldId, viewport, outDir) {
         cleanFieldCaptureMatchesCanvasRender: cleanComparison,
         consoleErrors,
       };
+      if (process.env.CC_QA_TRAINING_ACTIONS === '1') {
+        report.trainingActions = await captureTrainingActions(cdp, viewport, outDir);
+      }
       await networkIsolation.assertHealthy();
       console.log(`[capture] ${cleanFileName}: ${JSON.stringify(report)}`);
       return report;
@@ -428,6 +433,18 @@ async function captureViewport(chromePath, battlefieldId, viewport, outDir) {
     if (!marchingTeams.includes('player') || !marchingTeams.includes('enemy')) {
       throw new Error(`army capture has no visible march for both teams: ${JSON.stringify(marchingTeams)}`);
     }
+    let unitFallbackKeys = null;
+    if (EXPECT_FALLBACK && MISSING_ASSET === 'unit') {
+      unitFallbackKeys = JSON.parse(await evaluate(cdp, `(() => {
+        const scene = window.__PHASER_GAME__.scene.getScene('GameScene');
+        return JSON.stringify([...scene.armyVisuals.values()].flatMap(visual =>
+          [visual.leaderSprite, ...visual.followers.map(follower => follower.sprite)].map(image => ({key:image.texture.key, loaded:scene.textures.exists(image.texture.key)}))));
+      })()`));
+      if (!unitFallbackKeys.length || !unitFallbackKeys.every(({key, loaded}) => loaded && key.startsWith('cc_fallback_unit_')) ||
+          !['leader_player', 'leader_enemy', 'follower_player', 'follower_enemy'].every(suffix => unitFallbackKeys.some(({key}) => key.endsWith(suffix)))) {
+        throw new Error(`Missing troops did not render leader/follower fallbacks for both teams: ${JSON.stringify(unitFallbackKeys)}`);
+      }
+    }
 
     const finalShotBase64 = await captureScreenshot(cdp);
     const fileName = `${battlefieldId}-${viewport.width}x${viewport.height}-armies.png`;
@@ -440,6 +457,7 @@ async function captureViewport(chromePath, battlefieldId, viewport, outDir) {
       selectionFile: `${battlefieldId}-${viewport.width}x${viewport.height}-selection.png`,
       dragFile: `${battlefieldId}-${viewport.width}x${viewport.height}-drag.png`,
       verifiedGesture: { sourceId: gesture.sourceId, targetId: gesture.targetId, cancelled: true },
+      unitFallbackKeys,
       viewport,
       metrics: m,
       packFetches: state.packFetches,
@@ -467,6 +485,43 @@ async function captureScreenshot(cdp) {
   // No clip, from the surface: exactly the emulated viewport at DPR 2.
   const res = await cdp.send('Page.captureScreenshot', { format: 'png', fromSurface: true });
   return res.data;
+}
+
+async function captureTrainingActions(cdp, viewport, outDir) {
+  await evaluate(cdp, `(() => { window.__PHASER_GAME__.scene.resume('GameScene'); return true; })()`);
+  const gesture = await evaluate(cdp, `(() => {
+    const scene=window.__PHASER_GAME__.scene.getScene('GameScene');
+    const ts=Object.values(scene.gameState.territories);
+    const source=ts.filter(t=>t.owner==='player').sort((a,b)=>b.units-a.units)[0];
+    const target=ts.filter(t=>t.owner==='neutral').sort((a,b)=>Math.hypot(a.x-source.x,a.y-source.y)-Math.hypot(b.x-source.x,b.y-source.y))[0];
+    if (!source || !target) throw new Error('Training requires owned source and neutral target');
+    const rect=scene.sys.game.canvas.getBoundingClientRect();
+    const point=t=>{const p=scene.boardLayout.project(t.x,t.y),q=scene.cameras.main.matrix.transformPoint(p.u,p.v);
+      return {x:rect.left+q.x*rect.width/scene.sys.game.canvas.width,y:rect.top+q.y*rect.height/scene.sys.game.canvas.height};};
+    return {sourceId:source.id,targetId:target.id,source:point(source),target:point(target)};
+  })()`);
+  const files={};
+  const save=async state=>{
+    const file=`training-${viewport.width}x${viewport.height}-${state}.png`;
+    fs.writeFileSync(path.join(outDir,file),Buffer.from(await captureScreenshot(cdp),'base64'));
+    files[state]=file;
+  };
+  await cdp.send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...gesture.source});
+  await sleep(100);
+  if (!await evaluate(cdp,`window.__PHASER_GAME__.scene.getScene('GameScene').selectedSourceIds.includes('${gesture.sourceId}')`)) throw new Error('Training real pointer selection failed');
+  await save('selection');
+  await cdp.send('Input.dispatchMouseEvent',{type:'mouseMoved',button:'left',buttons:1,...gesture.target});
+  await sleep(100);
+  if (!await evaluate(cdp,`(() => {const s=window.__PHASER_GAME__.scene.getScene('GameScene');return s.hoveredTargetId==='${gesture.targetId}' && s.dragBadgeContainer.visible;})()`)) throw new Error('Training real pointer drag failed');
+  await save('drag');
+  await cdp.send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...gesture.target});
+  await sleep(550);
+  const result=await evaluate(cdp,`(() => {const s=window.__PHASER_GAME__.scene.getScene('GameScene');return {
+    step:s.trainingController.currentStep?.id, armyCount:s.armyVisuals.size,
+    keys:[...s.armyVisuals.values()].flatMap(v=>[v.leaderSprite,...v.followers.map(f=>f.sprite)].map(i=>i.texture.key))};})()`);
+  if (result.step!=='preview_result' || result.armyCount<1 || !result.keys.length || !result.keys.every(k=>k.startsWith('unit_'))) throw new Error('Training dispatch/step/marching sprites failed: '+JSON.stringify(result));
+  await save('armies');
+  return {gesture,files,...result};
 }
 
 async function rendererSnapshot(cdp) {

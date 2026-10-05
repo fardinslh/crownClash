@@ -49,6 +49,7 @@ import json
 import math
 import os
 import sys
+from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Art Bible constants (single source of truth mirrored from ART_BIBLE.md)
@@ -1831,27 +1832,11 @@ ASSET_COLLECTION = {
 # (ortho_scale, aim_height). The camera and aim move together vertically, so
 # the Art Bible view direction is unchanged; only the crop differs so each
 # silhouette fills its runtime tier.
+_ART_LAYOUT = json.loads((Path(__file__).resolve().parents[1] / 'arena-layout.json').read_text())
 CAMERA_FRAMING = {
-    "build_cross_citadel": (5.15, 1.10),
-    "build_cross_keep": (4.35, 0.85),
-    "build_cross_outpost": (4.6, 1.30),
-    "build_cross_barracks": (4.25, 0.70),
-    "build_cross_stable": (4.25, 0.70),
-    "build_highland_citadel": (5.15, 1.10),
-    "build_highland_keep": (4.35, 0.85),
-    "build_highland_outpost": (4.6, 1.30),
-    "build_highland_barracks": (4.25, 0.70),
-    "build_highland_stable": (4.25, 0.70),
-    "build_palace_citadel": (5.15, 1.10),
-    "build_palace_keep": (4.35, 0.85),
-    "build_palace_outpost": (4.6, 1.30),
-    "build_palace_barracks": (4.25, 0.70),
-    "build_palace_stable": (4.25, 0.70),
-    "build_warcamp_citadel": (5.15, 1.10),
-    "build_warcamp_keep": (4.35, 0.85),
-    "build_warcamp_outpost": (4.6, 1.30),
-    "build_warcamp_barracks": (4.25, 0.70),
-    "build_warcamp_stable": (4.25, 0.70),
+    **{f"build_{theme}_{role}": tuple(values)
+       for theme in ('cross', 'highland', 'palace', 'warcamp')
+       for role, values in _ART_LAYOUT['buildingFraming'].items()},
     "build_prop_tree_birch": (4.40, 1.95),
     "build_prop_tree_apple": (4.00, 1.60),
     "build_prop_tree_pine": (4.20, 1.80),

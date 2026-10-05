@@ -2,6 +2,7 @@ import type { BattlefieldId, Territory } from '@crown-clash/game-core';
 import { normalizeBattlefieldId } from '@crown-clash/game-core';
 import { THEME } from '../theme.js';
 import rawAssetManifest from '../../../../art/asset-manifest.json' with { type: 'json' };
+import arenaLayout from '../../../../art/arena-layout.json' with { type: 'json' };
 import rawDressingZones from '../../../../art/arena-dressing-zones.json' with { type: 'json' };
 
 /**
@@ -24,6 +25,9 @@ import rawDressingZones from '../../../../art/arena-dressing-zones.json' with { 
  * `apps/server-nakama/battlefields.json`; nothing in this module moves or
  * resizes gameplay objects.
  */
+
+/** Shared with the controlled Blender kit; presentation never changes combat. */
+export const ARENA_PRESENTATION = Object.freeze(arenaLayout.presentation);
 
 export type TerritoryTextureKey =
   | 'citadel_player'
@@ -363,7 +367,6 @@ export function territoryArtFootprint(battlefieldId: BattlefieldId, territory: T
   roleIconY: number;
 } {
   const quad = battlefieldId === 'quad_citadel';
-  const crown = battlefieldId === 'crown_cross';
   const topCitadel = territory.type === 'fortress' && territory.tier === 3 && territory.y <= 150;
   // Quad Citadel's base/corner centers are only sqrt(3400) px apart. These
   // radii leave visible air between their sockets without altering geometry.
@@ -377,20 +380,25 @@ export function territoryArtFootprint(battlefieldId: BattlefieldId, territory: T
   const badgeY = quad
     ? territory.tier === 3 ? topCitadel ? 13 : 18 : territory.tier === 2 ? 18 : 14
     : territory.tier === 3 ? 25 : territory.tier === 2 ? 21 : 17;
+  const footprints = arenaLayout.buildingFootprints[battlefieldId as keyof typeof arenaLayout.buildingFootprints]
+    ?? arenaLayout.buildingFootprints.default;
+  const [previousSize, previousY] = topCitadel ? footprints.topCitadel
+    : territory.tier === 3 ? footprints.tier3 : territory.tier === 2 ? footprints.tier2 : footprints.tier1;
+  const role = territory.tier === 3 ? 'citadel' : territory.tier === 2 ? 'keep'
+    : territory.type === 'fortress' ? 'outpost' : territory.type;
+  const [orthoScale, aimHeight] = arenaLayout.buildingFraming[role];
+  const spriteSize = previousSize * ARENA_PRESENTATION.buildingScale;
+  // The Blender ground-origin projects aimHeight*cos(45°)/orthoScale
+  // below the image center. Keep that exact point fixed when enlarging.
+  const spriteY = previousY - (spriteSize - previousSize) * aimHeight * Math.SQRT1_2 / orthoScale;
   return {
     socketRadius,
     plateRadius: socketRadius - 3,
     ringRadius: socketRadius,
     shadowWidth: socketRadius * 2,
     shadowHeight: socketRadius * 0.75,
-    // Building sprites: sized for presence but compact enough that adjacent
-    // fortresses keep clear air between their silhouettes on every phone —
-    // the board layout scales together at every viewport, so the separation
-    // reads identically from 360px to 430px wide screens.
-    spriteSize: crown ? topCitadel ? 72 : territory.tier === 3 ? 86 : territory.tier === 2 ? 76 : 64 : quad
-      ? territory.tier === 3 ? 58 : territory.tier === 2 ? 68 : 44
-      : topCitadel ? 74 : territory.tier === 3 ? 92 : territory.tier === 2 ? 80 : 64,
-    spriteY: crown ? topCitadel ? 2 : -15 : topCitadel ? 6 : quad ? -5 : -8,
+    spriteSize,
+    spriteY,
     badgeY,
     sharedCueX: territory.x < 200 ? -33 : 33,
     sharedCueY: badgeY,
@@ -428,6 +436,34 @@ export function resolveTerritoryTextureKey(territory: Territory): string {
 interface TextureRegistry {
   exists(key: string): boolean;
   addCanvas(key: string, canvas: HTMLCanvasElement): unknown;
+}
+
+/** Team-readable last resort when every facing of a troop fails to load. */
+export function createProceduralUnitFallbackTexture(textures: TextureRegistry | undefined, base: string): string {
+  if (!textures || typeof textures.addCanvas !== 'function' || typeof document === 'undefined') return base;
+  const key = `cc_fallback_${base}`;
+  if (textures.exists(key)) return key;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  if (!ctx || typeof ctx.fillRect !== 'function') return base;
+  const team = base.endsWith('player') ? '#328ee6' : '#ed4848';
+  ctx.fillStyle = '#52667d';
+  ctx.fillRect(45, 72, 15, 28);
+  ctx.fillRect(68, 72, 15, 28);
+  ctx.fillStyle = '#d4e0ed';
+  ctx.fillRect(42, 48, 44, 36);
+  ctx.beginPath();
+  ctx.arc(64, 37, 21, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#293c51';
+  ctx.fillRect(49, 34, 30, 5);
+  ctx.fillStyle = team;
+  ctx.fillRect(54, 55, 20, 31);
+  ctx.fillRect(29, 60, 24, 29);
+  if (base.includes('leader')) ctx.fillRect(60, 12, 8, 15);
+  textures.addCanvas(key, canvas);
+  return key;
 }
 
 /**
@@ -555,9 +591,9 @@ export interface ArenaProp {
 export const ARENA_PROP_DISPLAY: Readonly<
   Record<ArenaPropKind, { readonly height: number; readonly alpha: number }>
 > = Object.freeze({
-  tree_birch: { height: 104, alpha: 1 },
-  tree_apple: { height: 100, alpha: 1 },
-  tree_pine: { height: 100, alpha: 1 },
+  tree_birch: { height: 104 * ARENA_PRESENTATION.treeScale, alpha: 0.94 },
+  tree_apple: { height: 100 * ARENA_PRESENTATION.treeScale, alpha: 0.94 },
+  tree_pine: { height: 100 * ARENA_PRESENTATION.treeScale, alpha: 0.94 },
   bush: { height: 44, alpha: 1 },
   grass_tuft: { height: 34, alpha: 0.9 },
   rock: { height: 32, alpha: 1 },
@@ -577,108 +613,108 @@ export function getArenaPropPositions(battlefieldId: BattlefieldId): readonly Ar
     if (battlefieldId === 'crown_cross') {
       return Object.freeze([
         { x: 42, y: 158, kind: 'tree_birch' },
-        { x: 283, y: 319, kind: 'bush' },
-        { x: 94, y: 539, kind: 'grass_tuft' },
-        { x: 298, y: 616, kind: 'grass_tuft' },
-        { x: 295, y: 160, kind: 'tree_apple' },
-        { x: 183, y: 445, kind: 'rock' },
-        { x: 219, y: 422, kind: 'grass_tuft' },
-        { x: 147, y: 518, kind: 'pennant' },
-        { x: 149, y: 242, kind: 'bush' },
-        { x: 354, y: 566, kind: 'tree_birch' },
-        { x: 140, y: 133, kind: 'grass_tuft' },
-        { x: 365, y: 610, kind: 'tree_apple' },
-        { x: 65, y: 412, kind: 'grass_tuft' },
-        { x: 232, y: 455, kind: 'rock' },
-        { x: 182, y: 203, kind: 'pennant' },
-        { x: 246, y: 195, kind: 'bush' },
-        { x: 182, y: 473, kind: 'grass_tuft' },
+        { x: 295, y: 160, kind: 'tree_birch' },
         { x: 105, y: 628, kind: 'tree_birch' },
-        { x: 122, y: 554, kind: 'grass_tuft' },
-        { x: 58, y: 562, kind: 'tree_apple' },
-        { x: 252, y: 473, kind: 'rock' },
+        { x: 109, y: 116, kind: 'tree_apple' },
+        { x: 340, y: 106, kind: 'tree_apple' },
+        { x: 109, y: 161, kind: 'tree_apple' },
+        { x: 298, y: 616, kind: 'pennant' },
+        { x: 147, y: 518, kind: 'pennant' },
+        { x: 186, y: 456, kind: 'bush' },
+        { x: 149, y: 242, kind: 'bush' },
+        { x: 365, y: 610, kind: 'bush' },
         { x: 178, y: 274, kind: 'bush' },
-        { x: 106, y: 285, kind: 'grass_tuft' },
-        { x: 126, y: 168, kind: 'grass_tuft' },
+        { x: 232, y: 455, kind: 'grass_tuft' },
+        { x: 182, y: 203, kind: 'grass_tuft' },
+        { x: 252, y: 473, kind: 'grass_tuft' },
+        { x: 268, y: 337, kind: 'grass_tuft' },
+        { x: 315, y: 583, kind: 'grass_tuft' },
+        { x: 260, y: 250, kind: 'grass_tuft' },
+        { x: 228, y: 211, kind: 'grass_tuft' },
+        { x: 228, y: 256, kind: 'grass_tuft' },
+        { x: 260, y: 115, kind: 'grass_tuft' },
+        { x: 354, y: 566, kind: 'rock' },
+        { x: 336, y: 618, kind: 'rock' },
+        { x: 44, y: 602, kind: 'rock' },
       ] as readonly ArenaProp[]);
     }
     if (battlefieldId === 'twin_passes') {
       return Object.freeze([
-        { x: 79, y: 602, kind: 'tree_pine' },
-        { x: 289, y: 287, kind: 'rock' },
-        { x: 36, y: 285, kind: 'grass_tuft' },
-        { x: 322, y: 293, kind: 'bush' },
-        { x: 273, y: 148, kind: 'tree_pine' },
-        { x: 276, y: 429, kind: 'grass_tuft' },
-        { x: 359, y: 242, kind: 'grass_tuft' },
-        { x: 155, y: 430, kind: 'pennant' },
-        { x: 49, y: 458, kind: 'rock' },
+        { x: 281, y: 150, kind: 'tree_pine' },
         { x: 58, y: 157, kind: 'tree_pine' },
-        { x: 43, y: 220, kind: 'bush' },
-        { x: 331, y: 447, kind: 'grass_tuft' },
-        { x: 351, y: 555, kind: 'tree_pine' },
-        { x: 147, y: 338, kind: 'grass_tuft' },
-        { x: 247, y: 437, kind: 'pennant' },
-        { x: 123, y: 616, kind: 'rock' },
-        { x: 37, y: 392, kind: 'bush' },
-        { x: 365, y: 430, kind: 'grass_tuft' },
-        { x: 150, y: 259, kind: 'bush' },
-        { x: 287, y: 608, kind: 'tree_pine' },
-        { x: 101, y: 564, kind: 'grass_tuft' },
-        { x: 57, y: 545, kind: 'grass_tuft' },
+        { x: 59, y: 629, kind: 'tree_pine' },
+        { x: 120, y: 115, kind: 'tree_pine' },
+        { x: 354, y: 161, kind: 'tree_pine' },
+        { x: 36, y: 285, kind: 'pennant' },
+        { x: 359, y: 242, kind: 'pennant' },
+        { x: 287, y: 608, kind: 'bush' },
+        { x: 361, y: 591, kind: 'bush' },
+        { x: 165, y: 286, kind: 'bush' },
+        { x: 59, y: 584, kind: 'bush' },
+        { x: 155, y: 430, kind: 'grass_tuft' },
+        { x: 43, y: 220, kind: 'grass_tuft' },
+        { x: 156, y: 402, kind: 'grass_tuft' },
+        { x: 123, y: 616, kind: 'grass_tuft' },
+        { x: 119, y: 593, kind: 'grass_tuft' },
+        { x: 163, y: 472, kind: 'grass_tuft' },
+        { x: 245, y: 313, kind: 'grass_tuft' },
+        { x: 357, y: 203, kind: 'grass_tuft' },
+        { x: 101, y: 159, kind: 'rock' },
+        { x: 36, y: 105, kind: 'rock' },
+        { x: 165, y: 241, kind: 'rock' },
       ] as readonly ArenaProp[]);
     }
     if (battlefieldId === 'royal_ring') {
       return Object.freeze([
         { x: 340, y: 151, kind: 'tree_apple' },
-        { x: 217, y: 518, kind: 'bush' },
-        { x: 45, y: 214, kind: 'grass_tuft' },
-        { x: 44, y: 602, kind: 'grass_tuft' },
-        { x: 192, y: 194, kind: 'bush' },
+        { x: 45, y: 214, kind: 'tree_apple' },
+        { x: 44, y: 602, kind: 'tree_apple' },
         { x: 364, y: 233, kind: 'pennant' },
-        { x: 260, y: 115, kind: 'grass_tuft' },
-        { x: 308, y: 598, kind: 'tree_apple' },
-        { x: 340, y: 511, kind: 'bush' },
         { x: 95, y: 106, kind: 'pennant' },
-        { x: 368, y: 346, kind: 'rock' },
-        { x: 113, y: 265, kind: 'grass_tuft' },
-        { x: 135, y: 592, kind: 'bush' },
-        { x: 71, y: 150, kind: 'tree_apple' },
-        { x: 158, y: 256, kind: 'grass_tuft' },
-        { x: 73, y: 499, kind: 'grass_tuft' },
-        { x: 112, y: 563, kind: 'pennant' },
-        { x: 183, y: 490, kind: 'bush' },
+        { x: 338, y: 607, kind: 'pennant' },
+        { x: 308, y: 598, kind: 'bush' },
+        { x: 340, y: 511, kind: 'bush' },
+        { x: 71, y: 150, kind: 'bush' },
+        { x: 32, y: 131, kind: 'bush' },
+        { x: 45, y: 529, kind: 'bush' },
+        { x: 217, y: 518, kind: 'grass_tuft' },
+        { x: 217, y: 203, kind: 'grass_tuft' },
+        { x: 274, y: 620, kind: 'grass_tuft' },
+        { x: 183, y: 490, kind: 'grass_tuft' },
         { x: 220, y: 484, kind: 'grass_tuft' },
-        { x: 79, y: 602, kind: 'rock' },
-        { x: 63, y: 193, kind: 'grass_tuft' },
-        { x: 32, y: 131, kind: 'grass_tuft' },
+        { x: 359, y: 557, kind: 'grass_tuft' },
+        { x: 130, y: 106, kind: 'grass_tuft' },
+        { x: 322, y: 113, kind: 'grass_tuft' },
+        { x: 39, y: 161, kind: 'grass_tuft' },
+        { x: 108, y: 139, kind: 'rock' },
+        { x: 186, y: 231, kind: 'rock' },
       ] as readonly ArenaProp[]);
     }
     if (battlefieldId === 'quad_citadel') {
       return Object.freeze([
-        { x: 282, y: 302, kind: 'grass_tuft' },
-        { x: 46, y: 276, kind: 'bush' },
-        { x: 340, y: 376, kind: 'rock' },
+        { x: 340, y: 376, kind: 'tree_pine' },
         { x: 50, y: 340, kind: 'tree_pine' },
-        { x: 65, y: 457, kind: 'grass_tuft' },
-        { x: 352, y: 257, kind: 'grass_tuft' },
-        { x: 155, y: 205, kind: 'rock' },
-        { x: 359, y: 332, kind: 'pennant' },
+        { x: 359, y: 332, kind: 'tree_pine' },
+        { x: 155, y: 205, kind: 'pennant' },
+        { x: 46, y: 276, kind: 'bush' },
         { x: 37, y: 437, kind: 'bush' },
-        { x: 182, y: 293, kind: 'grass_tuft' },
-        { x: 284, y: 386, kind: 'tree_pine' },
-        { x: 184, y: 197, kind: 'rock' },
+        { x: 182, y: 293, kind: 'bush' },
+        { x: 284, y: 386, kind: 'bush' },
+        { x: 65, y: 457, kind: 'grass_tuft' },
+        { x: 184, y: 197, kind: 'grass_tuft' },
         { x: 130, y: 421, kind: 'grass_tuft' },
         { x: 210, y: 448, kind: 'grass_tuft' },
-        { x: 344, y: 485, kind: 'bush' },
         { x: 231, y: 528, kind: 'grass_tuft' },
-        { x: 122, y: 329, kind: 'tree_pine' },
+        { x: 344, y: 485, kind: 'grass_tuft' },
         { x: 184, y: 152, kind: 'grass_tuft' },
-        { x: 65, y: 412, kind: 'rock' },
-        { x: 360, y: 394, kind: 'grass_tuft' },
-        { x: 233, y: 202, kind: 'bush' },
-        { x: 205, y: 277, kind: 'grass_tuft' },
+        { x: 65, y: 412, kind: 'grass_tuft' },
+        { x: 128, y: 337, kind: 'grass_tuft' },
+        { x: 233, y: 202, kind: 'grass_tuft' },
         { x: 340, y: 286, kind: 'grass_tuft' },
+        { x: 149, y: 557, kind: 'rock' },
+        { x: 172, y: 491, kind: 'rock' },
+        { x: 176, y: 555, kind: 'rock' },
+        { x: 225, y: 610, kind: 'rock' },
       ] as readonly ArenaProp[]);
     }
   return [];

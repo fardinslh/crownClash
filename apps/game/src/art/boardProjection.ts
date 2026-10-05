@@ -1,4 +1,5 @@
-import type { BattlefieldId } from '@crown-clash/game-core';
+import { getBattlefield, type BattlefieldId } from '@crown-clash/game-core';
+import { territoryArtFootprint } from './BattlefieldArt.js';
 import arenaLayout from '../../../../art/arena-layout.json' with { type: 'json' };
 
 /**
@@ -89,8 +90,8 @@ const LEGACY_DEPTH: Readonly<Record<GameplayDepthKind, number>> = Object.freeze(
 });
 
 /**
- * Painter's depth band for the diorama board: 10 + 0.1 * screenY.
- * screenY in [76, 720] yields depths in [17.6, 82] — above the board layers
+ * Painter's depth band for the diorama board: 10 + 0.1 * normalizedY.
+ * Normalize tall viewports onto [76, 720], yielding depths in [17.6, 82] — above the board layers
  * (0..3), below every overlay (83+) and the HUD (89+).
  */
 const DEPTH_BASE = 10;
@@ -291,11 +292,34 @@ function createDimetricLayout(battlefieldId: BattlefieldId, visibleHeight: numbe
   const projectedPlaneHeight = BOARD_WORLD_HEIGHT * BOARD_FORESHORTEN * BOARD_VERTICAL_SPACING;
   const contentHeight = projectedPlaneHeight + CONTENT_HEADROOM + CONTENT_SKIRT;
   // Fill the band but never exceed the width cap (portrait first).
-  const scale = Math.min(SCALE_MAX, Math.max(1, bandHeight / contentHeight));
-  const projectedHeight = projectedPlaneHeight * scale;
-  const topMargin = (bandHeight - (projectedHeight + CONTENT_HEADROOM + CONTENT_SKIRT)) / 2;
-  const planeTopV = BAND_TOP + topMargin + CONTENT_HEADROOM;
-  const originY = planeTopV + projectedHeight / 2;
+  let scale = Math.min(SCALE_MAX, Math.max(1, bandHeight / contentHeight));
+  const territories = getBattlefield(battlefieldId).territories;
+  const extents = territories.map((territory) => {
+    const art = territoryArtFootprint(battlefieldId, territory);
+    const centerY = (territory.y - BOARD_WORLD_CENTER_Y) * BOARD_FORESHORTEN * BOARD_VERTICAL_SPACING
+      - PLINTH_TOP_LIFT * BOARD_FORESHORTEN;
+    return {
+      top: centerY + art.spriteY - art.spriteSize * 0.54,
+      bottom: centerY + Math.max(art.spriteY + art.spriteSize * 0.54,
+        art.badgeY + 12, art.roleIconY + 9),
+    };
+  });
+  const contentTop = Math.min(-projectedPlaneHeight / 2 - CONTENT_HEADROOM,
+    ...extents.map((bounds) => bounds.top));
+  const contentBottom = Math.max(projectedPlaneHeight / 2 + CONTENT_SKIRT,
+    ...extents.map((bounds) => bounds.bottom));
+  const fittedScale = Math.min(scale, (bandHeight - 16) / (contentBottom - contentTop));
+  scale = fittedScale;
+  // Balance the actual gameplay silhouettes, rather than the empty meadow
+  // fringe. The board image and every anchor share this translated origin.
+  const desiredOriginY = BAND_TOP + bandHeight / 2 - (contentTop + contentBottom) * scale / 2;
+  const imageHalfHeight = BOARD_WORLD_WIDTH * scale * GROUND_IMAGE_ASPECT / 2;
+  const minOriginY = Math.max(BAND_TOP + 8 - contentTop * scale,
+    visibleHeight - BAND_BOTTOM_MARGIN - imageHalfHeight);
+  const maxOriginY = Math.min(visibleHeight - BAND_BOTTOM_MARGIN - 8 - contentBottom * scale,
+    BAND_TOP + imageHalfHeight);
+  const originY = minOriginY <= maxOriginY
+    ? Math.max(minOriginY, Math.min(maxOriginY, desiredOriginY)) : desiredOriginY;
 
   const layout: BoardLayout = {
     battlefieldId,
@@ -325,16 +349,14 @@ function createDimetricLayout(battlefieldId: BattlefieldId, visibleHeight: numbe
       return scale * BOARD_FORESHORTEN;
     },
     gameplayDepth(kind, screenY) {
-      // Environment props frame the board BEHIND every territory platform:
-      // their curated placements (BattlefieldArt) only clear the territory
-      // RADII, while the rendered building sprites tower far wider/taller,
-      // so a south-side tree interleaved through the painter band would cover
-      // its tower. Props keep the flat legacy depth below the whole territory
-      // band; territory/convoy/dust still sort by screen Y (painter's).
+      // Props frame the board below the gameplay band. Normalize the same
+      // painter ordering to the baseline height so bodies on tall phones
+      // cannot rise above the fixed annotation/selection/HUD depths.
       if (kind === 'prop') {
         return LEGACY_DEPTH.prop;
       }
-      return DEPTH_BASE + screenY * DEPTH_PER_SCREEN_Y;
+      const normalizedY = BAND_TOP + (screenY - BAND_TOP) * (720 - BAND_TOP) / (visibleHeight - BAND_TOP);
+      return DEPTH_BASE + normalizedY * DEPTH_PER_SCREEN_Y;
     },
     overlayDepth(legacyDepth) {
       const mapped = OVERLAY_DEPTH_MAP[legacyDepth];

@@ -1,4 +1,6 @@
 import Phaser from 'phaser';
+import { placeArmyBadge } from '../art/ArmyBadgeLayout.js';
+import type { Rect } from '../ui/HudLayout.js';
 import {
   BattlefieldId,
   BotMatchTicket,
@@ -54,11 +56,13 @@ import {
 } from '../tutorial/TutorialStatus.js';
 import { dismissStartupLoadingShell } from '../ui/StartupLoadingShell.js';
 import {
+  ARENA_PRESENTATION,
   ARENA_PROP_DISPLAY,
   arenaPropTextureKey,
   ArenaPropKind,
   battlefieldIdFromLaunchData,
   createProceduralTerritoryFallbackTexture,
+  createProceduralUnitFallbackTexture,
   drawSocketRimLight,
   getArenaGroundSprite,
   getArenaPropPositions,
@@ -150,7 +154,7 @@ import {
   twoVTwoRematchButtonLabel,
 } from '../pvp/TwoVTwoResultViewModel.js';
 import { createBattlefieldDecorations, createBattlefieldTerrainLayers } from '../ui/BattlefieldArenaLayout.js';
-import { drawTowerRoleIcon } from '../ui/TowerRoleIcon.js';
+import { computeTowerRoleIconGeometry, drawTowerRoleIcon } from '../ui/TowerRoleIcon.js';
 import {
   computeMarchStride,
   createStrideMetrics,
@@ -186,6 +190,7 @@ interface TerritoryVisual {
   container: Phaser.GameObjects.Container;
   sprite: Phaser.GameObjects.Image;
   basePlate: Phaser.GameObjects.Ellipse;
+  groundShadow?: Phaser.GameObjects.Ellipse | null;
   ring: Phaser.GameObjects.Ellipse;
   /**
    * Unit-count badge: a rounded pill Image (cc_tbadge_* canvas texture) when
@@ -225,12 +230,13 @@ interface ArmyVisual {
   badgeBg: Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle;
   badgeText: Phaser.GameObjects.Text;
   badgeColor: number;
+  badgeOffsetY: number;
   followers: ArmyFollower[];
   rearOffset: { x: number; y: number };
   dustTimer: number;
   dustInterval: number;
   dustColor: number;
-  roleLabel: string;
+  roleType: TerritoryType;
   phaseSeconds: number;
 }
 
@@ -395,7 +401,7 @@ export class GameScene extends Phaser.Scene {
   preload(): void {
     // Fixed asset filenames are cached for 30 days in production. Bump this
     // revision with baked map art changes so existing players load the new kit.
-    const mapArtPath = (path: string): string => `${path}?v=cartoon-meadow-v1.4`;
+    const mapArtPath = (path: string): string => `${path}?v=cartoon-meadow-v1.5`;
     // Track texture files that fail to load so the scene can substitute
     // procedural fallbacks instead of rendering broken sprites (the game must
     // never depend on the Blender source pipeline being present).
@@ -439,9 +445,9 @@ export class GameScene extends Phaser.Scene {
     // the no-suffix name as the fallback texture).
     for (const base of UNIT_SPRITE_BASES) {
       for (const facing of UNIT_SPRITE_FACINGS) {
-        this.load.image(`${base}_${facing}`, `assets/units/${base}_${facing}.png`);
+        this.load.image(`${base}_${facing}`, mapArtPath(`assets/units/${base}_${facing}.png`));
       }
-      this.load.image(base, `assets/units/${base}.png`);
+      this.load.image(base, mapArtPath(`assets/units/${base}.png`));
     }
   }
 
@@ -827,7 +833,9 @@ export class GameScene extends Phaser.Scene {
       for (const [id, vis] of this.territoryVisuals) {
         const owner = this.gameState.territories[id]?.owner;
         const bright = isTrainingTerritoryBright(id, owner, spotlightIds);
-        vis.container.setAlpha(bright ? 1 : TRAINING_DIM_ALPHA);
+        for (const object of [vis.container, vis.unitBadge, vis.unitText, vis.typeIcon, ...(vis.sharedCue ? [vis.sharedCue] : [])]) {
+          object.setAlpha(bright ? 1 : TRAINING_DIM_ALPHA);
+        }
       }
     };
     apply();
@@ -838,7 +846,9 @@ export class GameScene extends Phaser.Scene {
   private clearTrainingDimming(): void {
     this.trainingDimmingToken += 1;
     for (const vis of this.territoryVisuals.values()) {
-      vis.container.setAlpha(1);
+      for (const object of [vis.container, vis.unitBadge, vis.unitText, vis.typeIcon, ...(vis.sharedCue ? [vis.sharedCue] : [])]) {
+        object.setAlpha(1);
+      }
     }
   }
 
@@ -991,10 +1001,9 @@ export class GameScene extends Phaser.Scene {
     this.arenaVisuals = [];
     this.createArenaBackground();
 
-    // Territory platforms only reposition: their baked sizes come from the
-    // layout scale (identity 1 / diorama capped at SCALE_MAX), which does
-    // not change with height — no rebuild, no tween restart, no hit-area
-    // loss. Depths follow the painter's band at the new screen Y.
+    // Refit the existing platforms and bodies to the visible band. Preserve
+    // their interactive objects and hit areas; restart only the idle float
+    // at the new local scale. Depths follow the painter band at the new Y.
     const layout = this.boardLayout;
     const onBakedPlinth = this.hasGroundPlate && layout.isDimetric;
     for (const [id, vis] of this.territoryVisuals.entries()) {
@@ -1005,6 +1014,23 @@ export class GameScene extends Phaser.Scene {
         : layout.project(territory.x, territory.y);
       vis.container.setPosition(anchor.u, anchor.v);
       vis.container.setDepth(layout.gameplayDepth('territory', anchor.v));
+      const art = territoryArtFootprint(this.battlefieldId, territory);
+      const scale = layout.scale;
+      const verticalScale = layout.verticalScale();
+      vis.basePlate.setPosition(0, 4 * verticalScale).setSize(art.plateRadius * 2 * scale, art.plateRadius * 2 * verticalScale);
+      vis.ring.setPosition(0, 4 * verticalScale).setSize(art.ringRadius * 2 * scale, art.ringRadius * 2 * verticalScale);
+      vis.groundShadow?.setPosition(0, territory.radius * .5 * verticalScale)
+        .setSize(art.shadowWidth * scale, art.shadowHeight * verticalScale);
+      this.tweens.killTweensOf(vis.sprite);
+      vis.sprite.setPosition(0, art.spriteY * scale).setDisplaySize(art.spriteSize * scale, art.spriteSize * scale);
+      if (!this.reducedMotion) {
+        this.tweens.add({ targets: vis.sprite, y: (art.spriteY - 2) * scale,
+          duration: 1500, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+      }
+      vis.unitBadge.setPosition(anchor.u, anchor.v + art.badgeY * scale);
+      vis.unitText.setPosition(anchor.u, anchor.v + art.badgeY * scale);
+      vis.typeIcon.setPosition(anchor.u + art.roleIconX * scale, anchor.v + art.badgeY * scale + (art.roleIconY - art.badgeY));
+      vis.sharedCue?.setPosition(anchor.u + art.sharedCueX * scale, anchor.v + art.sharedCueY * scale);
     }
     // Active selection rings re-anchor to their sockets.
     for (const [id, ring] of this.selectionRings.entries()) {
@@ -1711,7 +1737,7 @@ export class GameScene extends Phaser.Scene {
       const roleIconSize = 16;
       const typeIcon = this.add.graphics();
       drawTowerRoleIcon(typeIcon, territory.type, -roleIconSize / 2, -roleIconSize / 2, roleIconSize);
-      typeIcon.setPosition(art.roleIconX * scale, art.roleIconY * scale);
+      typeIcon.setPosition(art.roleIconX * scale, art.badgeY * scale + (art.roleIconY - art.badgeY));
 
       // 2v2 shared-territory cue: every tier-3 fortress is a team-shared
       // base (either teammate may dispatch from it). Glyph + banner copy —
@@ -1736,11 +1762,11 @@ export class GameScene extends Phaser.Scene {
         ring,
         basePlate,
         sprite,
-        unitBadge,
-        unitText,
-        typeIcon,
-        ...(sharedCue ? [sharedCue] : []),
       ]);
+
+      for (const annotation of [unitBadge, unitText, typeIcon, ...(sharedCue ? [sharedCue] : [])]) {
+        annotation.setPosition(anchor.u + annotation.x, anchor.v + annotation.y).setDepth(annotation === typeIcon ? 84.1 : 84);
+      }
 
       // Make interactive for touch / click (hit area unchanged from legacy)
       container.setSize(territoryHitAreaSize(territory.radius), territoryHitAreaSize(territory.radius));
@@ -1757,6 +1783,7 @@ export class GameScene extends Phaser.Scene {
         container,
         sprite,
         basePlate,
+        groundShadow,
         ring,
         unitBadge,
         unitBadgeBaseScale,
@@ -3485,12 +3512,12 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private getOrCreateBadgeTexture(strokeColor: number, width: number): string | null {
+  private getOrCreateBadgeTexture(strokeColor: number, width: number, roleType: TerritoryType): string | null {
     if (!this.textures || typeof this.textures.exists !== 'function') return null;
     if (typeof document === 'undefined' || !document.createElement) return null;
 
     const colorHex = strokeColor.toString(16).padStart(6, '0');
-    const key = `cc_badge_${colorHex}_${width}`;
+    const key = `cc_badge_${colorHex}_${roleType}_${width}`;
     if (this.textures.exists(key)) return key;
 
     try {
@@ -3518,6 +3545,28 @@ export class GameScene extends Phaser.Scene {
       ctx.fill();
       ctx.stroke();
 
+      // Reuse the territory role icon inside the cached badge: no extra
+      // display object or Shape-pipeline switch per marching army.
+      for (const shape of computeTowerRoleIconGeometry(roleType, 3, 3, 12).shapes) {
+        ctx.beginPath();
+        if (shape.kind === 'polygon') {
+          ctx.fillStyle = `#${shape.fillColor.toString(16).padStart(6, '0')}`;
+          shape.points.forEach((point, index) => index === 0
+            ? ctx.moveTo(point.x, point.y) : ctx.lineTo(point.x, point.y));
+          ctx.closePath();
+          ctx.fill();
+        } else if (shape.kind === 'circle') {
+          ctx.fillStyle = `#${shape.fillColor.toString(16).padStart(6, '0')}`;
+          ctx.arc(shape.cx, shape.cy, shape.radius, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.strokeStyle = `#${shape.strokeColor.toString(16).padStart(6, '0')}`;
+          ctx.lineWidth = shape.strokeWidth;
+          ctx.moveTo(shape.x1, shape.y1);
+          ctx.lineTo(shape.x2, shape.y2);
+          ctx.stroke();
+        }
+      }
       this.textures.addCanvas(key, canvas);
       return key;
     } catch (err) {
@@ -3566,6 +3615,19 @@ export class GameScene extends Phaser.Scene {
     // board layout (identity layouts project 1:1).
     const layout = this.boardLayout;
     const scale = layout.scale;
+    const unitScale = ARENA_PRESENTATION.unitScale;
+    const badgeBlockers: Rect[] = [];
+    for (const territory of this.territoryVisuals.values()) {
+      const badge = territory.unitBadge;
+      const width = badge.displayWidth ?? badge.width;
+      badgeBlockers.push({ x: badge.x - width / 2 - 2, y: badge.y - 13, width: width + 4, height: 26 });
+      badgeBlockers.push({ x: territory.typeIcon.x - 10, y: territory.typeIcon.y - 10, width: 20, height: 20 });
+      if (territory.sharedCue) {
+        badgeBlockers.push({ x: territory.sharedCue.x - 10, y: territory.sharedCue.y - 10, width: 20, height: 20 });
+      }
+    }
+    const badgeBounds = { x: 10, y: 84, width: 380, height: getSceneViewport(this).visibleHeight - 140 };
+
     const verticalScale = layout.verticalScale();
     for (const army of armies) {
       const currentX = Phaser.Math.Linear(army.startX, army.targetX, army.progress);
@@ -3611,7 +3673,10 @@ export class GameScene extends Phaser.Scene {
           const facing =
             Math.abs(cos) >= Math.abs(sin) ? 'side' : sin > 0 ? 'front' : 'back';
           const key = `${roleBase}_${facing}`;
-          return this.textures?.exists(key) ? key : roleBase;
+          for (const candidate of [key, roleBase, `${roleBase}_front`, `${roleBase}_back`, `${roleBase}_side`]) {
+            if (this.textures?.exists(candidate)) return candidate;
+          }
+          return createProceduralUnitFallbackTexture(this.textures, roleBase);
         };
 
         // Determine follower formation based on army size
@@ -3636,6 +3701,11 @@ export class GameScene extends Phaser.Scene {
             y: -38 * sin + 9 * perpY,
             delay: 150,
           });
+        }
+
+        for (const offset of followerOffsets) {
+          offset.x *= unitScale;
+          offset.y *= unitScale;
         }
 
         let speedLines: Phaser.GameObjects.Graphics | undefined;
@@ -3678,15 +3748,15 @@ export class GameScene extends Phaser.Scene {
           const followerY = f.y * scale;
           const shadow = hasShadowTexture
             ? this.add
-                .image(followerX, followerY + 7 * scale, 'cc_army_shadow')
-                .setDisplaySize(13 * scale, 6 * scale)
+                .image(followerX, followerY + 7 * unitScale * scale, 'cc_army_shadow')
+                .setDisplaySize(13 * unitScale * scale, 6 * unitScale * scale)
                 .setTint(0x000000)
                 .setAlpha(0.32)
-            : this.add.ellipse(followerX, followerY + 7 * scale, 13 * scale, 6 * scale, 0x000000, 0.32);
+            : this.add.ellipse(followerX, followerY + 7 * unitScale * scale, 13 * unitScale * scale, 6 * unitScale * scale, 0x000000, 0.32);
 
           const sprite = this.add
             .image(followerX, followerY, followerTexture)
-            .setScale(0.19 * scale)
+            .setScale(0.19 * unitScale * scale)
             .setFlipX(isFacingLeft);
 
           followers.push({
@@ -3701,30 +3771,30 @@ export class GameScene extends Phaser.Scene {
         // 3. Commander / Leader Unit
         const leaderShadow = hasShadowTexture
           ? this.add
-              .image(0, 9 * scale, 'cc_army_shadow')
-              .setDisplaySize(18 * scale, 7 * scale)
+              .image(0, 9 * unitScale * scale, 'cc_army_shadow')
+              .setDisplaySize(18 * unitScale * scale, 7 * unitScale * scale)
               .setTint(0x000000)
               .setAlpha(0.38)
-          : this.add.ellipse(0, 9 * scale, 18 * scale, 7 * scale, 0x000000, 0.38);
+          : this.add.ellipse(0, 9 * unitScale * scale, 18 * unitScale * scale, 7 * unitScale * scale, 0x000000, 0.38);
 
         const leaderTexture = pickUnitTexture('leader');
         const leaderSprite = this.add
           .image(0, 0, leaderTexture)
-          .setScale(0.25 * scale)
+          .setScale(0.25 * unitScale * scale)
           .setFlipX(isFacingLeft);
 
         // 4. High-contrast Troop Count Pill Badge. In 2v2 the marching
         // army is attributed to its dispatching slot via the shape glyph
         // parsed from the server army id (predictions use my own slot).
         // Put the label ahead of downward marches so it does not cover the rear rank.
-        const badgeY = (this.battlefieldId === 'crown_cross' ? sin > 0.15 ? 24 : -23 : -19) * scale;
+        const badgeY = (sin > 0.15 ? 34 : -33) * scale;
         const slotAttribution2v2 = this.twoVTwoArmyShape(army);
         const initialUnits = slotAttribution2v2
-          ? `${slotAttribution2v2} ${roleStyle.label} ${army.units}`
-          : `${roleStyle.label} ${army.units}`;
-        const badgeWidth = Math.max(42, initialUnits.length * 7 + 14);
+          ? `${slotAttribution2v2} ${army.units}`
+          : `${army.units}`;
+        const badgeWidth = Math.max(42, initialUnits.length * 7 + 28);
 
-        const badgeKey = this.getOrCreateBadgeTexture(roleStyle.color, badgeWidth);
+        const badgeKey = this.getOrCreateBadgeTexture(roleStyle.color, badgeWidth, sourceType);
         let badgeBg: Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle;
         if (badgeKey && this.textures?.exists(badgeKey)) {
           badgeBg = this.add.image(0, badgeY, badgeKey).setDisplaySize(badgeWidth, 18);
@@ -3734,7 +3804,7 @@ export class GameScene extends Phaser.Scene {
             .setStrokeStyle(1.5, roleStyle.color, 1);
         }
 
-        const badgeText = createText(this, 0, badgeY, initialUnits, {
+        const badgeText = createText(this, 7, badgeY, initialUnits, {
             fontFamily: FONT_FAMILY,
             fontSize: '12px',
             fontStyle: 'bold',
@@ -3759,8 +3829,8 @@ export class GameScene extends Phaser.Scene {
         if (speedLines) elementsToAdd.push(speedLines);
         for (const f of followers) elementsToAdd.push(f.sprite);
         elementsToAdd.push(leaderSprite);
-        elementsToAdd.push(badgeBg);
-        elementsToAdd.push(badgeText);
+        badgeBg.setDepth(84.2);
+        badgeText.setDepth(84.2);
 
         container.add(elementsToAdd);
 
@@ -3774,13 +3844,14 @@ export class GameScene extends Phaser.Scene {
           badgeBg,
           badgeText,
           badgeColor: roleStyle.color,
+          badgeOffsetY: badgeY,
           followers,
           // Screen-space rear offset (already scaled) for the dust trail.
           rearOffset: { x: lastOffset.x * scale, y: lastOffset.y * scale },
           dustTimer: 0.05,
           dustInterval: sourceType === 'stable' ? 0.09 : sourceType === 'barracks' ? 0.14 : 0.18,
           dustColor: roleStyle.color,
-          roleLabel: roleStyle.label,
+          roleType: sourceType,
           phaseSeconds: 0,
         };
         this.armyVisuals.set(visualId, visual);
@@ -3799,15 +3870,15 @@ export class GameScene extends Phaser.Scene {
         visual.container.setDepth(layout.gameplayDepth('convoy', anchor.v));
         const slotAttribution2v2 = this.twoVTwoArmyShape(army);
         const unitsStr = slotAttribution2v2
-          ? `${slotAttribution2v2} ${visual.roleLabel} ${army.units}`
-          : `${visual.roleLabel} ${army.units}`;
+          ? `${slotAttribution2v2} ${army.units}`
+          : `${army.units}`;
         if (visual.badgeText.text !== unitsStr) {
           visual.badgeText.setText(unitsStr);
-          const newWidth = Math.max(42, unitsStr.length * 7 + 14);
+          const newWidth = Math.max(42, unitsStr.length * 7 + 28);
           if (visual.badgeBg instanceof Phaser.GameObjects.Rectangle) {
             visual.badgeBg.setSize(newWidth, 18);
           } else {
-            const newKey = this.getOrCreateBadgeTexture(visual.badgeColor, newWidth);
+            const newKey = this.getOrCreateBadgeTexture(visual.badgeColor, newWidth, visual.roleType);
             if (newKey && visual.badgeBg.texture?.key !== newKey) {
               visual.badgeBg.setTexture(newKey);
               visual.badgeBg.setDisplaySize(newWidth, 18);
@@ -3828,18 +3899,24 @@ export class GameScene extends Phaser.Scene {
         }
       }
 
+      const width = visual.badgeBg.displayWidth ?? visual.badgeBg.width;
+      const badgeRect = placeArmyBadge(anchor.u, anchor.v, visual.badgeOffsetY, width, badgeBlockers, badgeBounds);
+      visual.badgeBg.setPosition(badgeRect.x + width / 2, badgeRect.y + 9);
+      visual.badgeText.setPosition(badgeRect.x + width / 2 + 7, badgeRect.y + 9);
+      badgeBlockers.push(badgeRect);
+
       if (!this.reducedMotion) {
         visual.phaseSeconds += deltaSeconds;
         const leaderStride = computeMarchStride(visual.phaseSeconds, 0, this.sharedStrideMetrics);
-        visual.leaderSprite.y = leaderStride.leaderY;
-        visual.leaderSprite.setScale(leaderStride.leaderScaleX * scale, leaderStride.leaderScaleY * scale);
+        visual.leaderSprite.y = leaderStride.leaderY * unitScale * scale;
+        visual.leaderSprite.setScale(leaderStride.leaderScaleX * unitScale * scale, leaderStride.leaderScaleY * unitScale * scale);
 
         const followerCount = visual.followers.length;
         for (let fIdx = 0; fIdx < followerCount; fIdx++) {
           const f = visual.followers[fIdx];
           const fStride = computeMarchStride(visual.phaseSeconds, f.delaySeconds, this.sharedStrideMetrics);
-          f.sprite.y = f.relY + fStride.followerYOffset;
-          f.sprite.setScale(fStride.followerScaleX * scale, fStride.followerScaleY * scale);
+          f.sprite.y = f.relY + fStride.followerYOffset * unitScale * scale;
+          f.sprite.setScale(fStride.followerScaleX * unitScale * scale, fStride.followerScaleY * unitScale * scale);
         }
       }
     }
@@ -5076,6 +5153,10 @@ export class GameScene extends Phaser.Scene {
   private destroyBattlefieldVisuals(): void {
     for (const vis of this.territoryVisuals.values()) {
       this.tweens.killTweensOf([vis.container, vis.ring, vis.typeIcon, vis.unitBadge]);
+      vis.unitBadge.destroy();
+      vis.unitText.destroy();
+      vis.typeIcon.destroy();
+      vis.sharedCue?.destroy();
       vis.container.destroy();
     }
     this.territoryVisuals.clear();
@@ -5905,6 +5986,10 @@ export class GameScene extends Phaser.Scene {
     this.armyVisuals.clear();
     for (const vis of this.territoryVisuals.values()) {
       this.tweens.killTweensOf([vis.container, vis.ring, vis.typeIcon, vis.unitBadge]);
+      vis.unitBadge.destroy();
+      vis.unitText.destroy();
+      vis.typeIcon.destroy();
+      vis.sharedCue?.destroy();
       vis.container.destroy();
     }
     this.territoryVisuals.clear();

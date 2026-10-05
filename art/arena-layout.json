@@ -1,4 +1,131 @@
 {
   "version": 1,
-  "verticalSpacing": 1.22
+  "verticalSpacing": 1.22,
+  "presentation": {
+    "buildingScale": 1.3,
+    "unitScale": 1.5,
+    "treeScale": 0.8
+  },
+  "buildingFraming": {
+    "citadel": [
+      5.15,
+      1.1
+    ],
+    "keep": [
+      4.35,
+      0.85
+    ],
+    "outpost": [
+      4.6,
+      1.3
+    ],
+    "barracks": [
+      4.25,
+      0.7
+    ],
+    "stable": [
+      4.25,
+      0.7
+    ]
+  },
+  "buildingFootprints": {
+    "default": {
+      "tier1": [
+        64,
+        -8
+      ],
+      "tier2": [
+        80,
+        -8
+      ],
+      "tier3": [
+        92,
+        -8
+      ],
+      "topCitadel": [
+        74,
+        6
+      ]
+    },
+    "crown_cross": {
+      "tier1": [
+        64,
+        -15
+      ],
+      "tier2": [
+        76,
+        -15
+      ],
+      "tier3": [
+        86,
+        -15
+      ],
+      "topCitadel": [
+        72,
+        2
+      ]
+    },
+    "quad_citadel": {
+      "tier1": [
+        44,
+        -5
+      ],
+      "tier2": [
+        68,
+        -5
+      ],
+      "tier3": [
+        58,
+        -5
+      ],
+      "topCitadel": [
+        58,
+        6
+      ]
+    }
+  },
+  "propVisibleBounds": {
+    "tree_birch": [
+      0.21875,
+      0.125,
+      0.796875,
+      0.835938
+    ],
+    "tree_apple": [
+      0.179688,
+      0.117188,
+      0.828125,
+      0.8125
+    ],
+    "tree_pine": [
+      0.296875,
+      0.234375,
+      0.703125,
+      0.828125
+    ],
+    "bush": [
+      0.197917,
+      0.291667,
+      0.802083,
+      0.760417
+    ],
+    "grass_tuft": [
+      0.390625,
+      0.3125,
+      0.59375,
+      0.703125
+    ],
+    "rock": [
+      0.234375,
+      0.3125,
+      0.859375,
+      0.703125
+    ],
+    "pennant": [
+      0.416667,
+      0.333333,
+      0.65625,
+      0.71875
+    ]
+  }
 }

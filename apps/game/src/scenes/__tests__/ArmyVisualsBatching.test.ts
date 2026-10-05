@@ -49,7 +49,7 @@ const { MockScene, MockGameObject, MockGraphics, MockContainer, MockVector2, Moc
     setScale(x = 1, y = x) { this.scaleX = x; this.scaleY = y; return this; }
     setTint(color: number) { this.tint = color; return this; }
     setTexture(key: string) { this.texture.key = key; return this; }
-    setFlipX(_flip: boolean) { return this; }
+    setFlipX(flip: boolean) { (this as any).flipX = flip; return this; }
     setInteractive(_config?: any) { return this; }
     disableInteractive() { return this; }
     on(_event: string, _fn: Function) { return this; }
@@ -343,11 +343,15 @@ describe('Army Visuals Batching Optimization', () => {
               getContext: () => ({
                 createRadialGradient: () => ({ addColorStop: vi.fn() }),
                 beginPath: vi.fn(),
+                moveTo: vi.fn(),
+                lineTo: vi.fn(),
+                closePath: vi.fn(),
                 ellipse: vi.fn(),
                 arc: vi.fn(),
                 roundRect: vi.fn(),
                 rect: vi.fn(),
                 fill: vi.fn(),
+                fillRect: vi.fn(),
                 stroke: vi.fn(),
                 scale: vi.fn(),
                 measureText: (text: string) => ({ width: (text || '').length * 8 }),
@@ -370,6 +374,101 @@ describe('Army Visuals Batching Optimization', () => {
       },
     };
     scene.create();
+  });
+
+  it('enlarges both ranks without adding members and keeps a compact icon badge', () => {
+    const internal = scene as any;
+    internal.reducedMotion = true;
+    internal.gameState.armies = [{ id: 'readable_army', owner: 'player', sourceId: 'p_base',
+      targetId: 'n_center', units: 20, startX: 200, startY: 600,
+      targetX: 200, targetY: 400, progress: 0.2 }];
+    internal.updateArmyVisuals(0.016);
+    const visual = internal.armyVisuals.get('player:readable_army');
+    expect(visual).toBeDefined();
+    expect(visual.leaderSprite.scaleX / internal.boardLayout.scale).toBeCloseTo(0.375);
+    expect(visual.followers).toHaveLength(3);
+    for (const follower of visual.followers) {
+      expect(follower.sprite.scaleX / internal.boardLayout.scale).toBeCloseTo(0.285);
+    }
+    expect(visual.badgeText.text).toBe('20');
+    expect(visual.badgeBg.texture.key).toContain('_fortress_');
+    expect(visual.badgeBg.height).toBe(18);
+    internal.reducedMotion = false;
+    internal.updateArmyVisuals(0.016);
+    expect(visual.leaderSprite.scaleX / internal.boardLayout.scale).toBeGreaterThan(0.33);
+    for (const follower of visual.followers) {
+      expect(follower.sprite.scaleX / internal.boardLayout.scale).toBeGreaterThan(0.24);
+    }
+    expect(Math.hypot(visual.rearOffset.x, visual.rearOffset.y) / internal.boardLayout.scale)
+      .toBeCloseTo(45);
+  });
+
+  it.each([
+    [0, 100, 'front', false], [0, -100, 'back', false],
+    [100, 0, 'side', false], [-100, 0, 'side', true],
+  ] as const)('keeps the correct facing for heading %s,%s after enlargement', (dx, dy, facing, flip) => {
+    const internal = scene as any;
+    internal.reducedMotion = true;
+    for (const role of ['leader', 'follower']) {
+      for (const loadedFacing of ['front', 'back', 'side']) {
+        scene.textures.addCanvas(`unit_${role}_player_${loadedFacing}`, document.createElement('canvas'));
+      }
+    }
+    internal.gameState.armies = [{ id: 'heading', owner: 'player', sourceId: 'p_base', targetId: 'n_center',
+      units: 8, startX: 200, startY: 400, targetX: 200 + dx, targetY: 400 + dy, progress: .2 }];
+    internal.updateArmyVisuals(.016);
+    const visual = internal.armyVisuals.get('player:heading');
+    expect(visual).toBeDefined();
+    expect(visual.leaderSprite.texture.key).toBe(`unit_leader_player_${facing}`);
+    expect(visual.leaderSprite.flipX).toBe(flip);
+    for (const member of visual.followers) {
+      expect(member.sprite.texture.key).toBe(`unit_follower_player_${facing}`);
+      expect(member.sprite.flipX).toBe(flip);
+    }
+  });
+
+  it('retains 2v2 slot attribution when the badge replaces role words with an icon', () => {
+    const internal = scene as any;
+    internal.live2v2 = { badges: [{ isYou: true, shape: '◆' }] };
+    internal.gameState.armies = [{ id: 'pred_readable_slot', owner: 'player', sourceId: 'p_base',
+      targetId: 'n_center', units: 8, startX: 200, startY: 600, targetX: 200, targetY: 400, progress: .2 }];
+    internal.updateArmyVisuals(.016);
+    const visual = internal.armyVisuals.get('player:pred_readable_slot');
+    expect(visual).toBeDefined();
+    expect(visual.badgeText.text).toBe('◆ 8');
+    internal.gameState.armies[0].units = 120;
+    internal.updateArmyVisuals(.016);
+    expect(visual.badgeText.text).toBe('◆ 120');
+    expect(visual.badgeBg.texture.key).toContain('_fortress_');
+  });
+
+  it.each(['fortress', 'barracks', 'stable'] as const)('actually paints the %s role into the cached badge', (role) => {
+    const context = { beginPath: vi.fn(), roundRect: vi.fn(), rect: vi.fn(), fill: vi.fn(), stroke: vi.fn(),
+      scale: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), closePath: vi.fn(), arc: vi.fn() };
+    const canvas = { width: 0, height: 0, getContext: () => context };
+    const spy = vi.spyOn(document, 'createElement').mockReturnValue(canvas as unknown as HTMLCanvasElement);
+    try {
+      const key = (scene as any).getOrCreateBadgeTexture(TERRITORY_TYPE_PRESENTATION[role].color, 63, role);
+      expect(key).not.toBeNull();
+      expect(scene.textures.exists(key)).toBe(true);
+      if (role === 'barracks') expect(context.arc).toHaveBeenCalled();
+      else expect(context.lineTo).toHaveBeenCalled();
+      expect(context.fill.mock.calls.length + context.stroke.mock.calls.length).toBeGreaterThan(2);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('uses another loaded troop facing when the requested facing and legacy image are missing', () => {
+    const internal = scene as any;
+    for (const role of ['leader', 'follower']) scene.textures.addCanvas(`unit_${role}_player_side`, document.createElement('canvas'));
+    internal.gameState.armies = [{ id: 'missing_facing', owner: 'player', sourceId: 'p_base', targetId: 'n_center',
+      units: 8, startX: 200, startY: 600, targetX: 200, targetY: 400, progress: .2 }];
+    internal.updateArmyVisuals(.016);
+    const visual = internal.armyVisuals.get('player:missing_facing');
+    expect(visual).toBeDefined();
+    expect(visual.leaderSprite.texture.key).toBe('unit_leader_player_side');
+    for (const member of visual.followers) expect(member.sprite.texture.key).toBe('unit_follower_player_side');
   });
 
   it('generates shared army visual textures during scene initialization', () => {
@@ -493,11 +592,12 @@ describe('Army Visuals Batching Optimization', () => {
     }
     expect(children[spriteOffset + armyVisual.followers.length]).toBe(armyVisual.leaderSprite);
 
-    // Badge bg then badge text
-    expect(children[children.length - 2]).toBe(armyVisual.badgeBg);
-    expect(children[children.length - 2].kind).toBe('Image');
-    expect(children[children.length - 1]).toBe(armyVisual.badgeText);
-    expect(children[children.length - 1].kind).toBe('Text');
+    // Both labels live above the entire painter band, so a neighboring
+    // building or soldier can never cover the count. No objects were added.
+    expect(children).not.toContain(armyVisual.badgeBg);
+    expect(children).not.toContain(armyVisual.badgeText);
+    expect(armyVisual.badgeBg.depth).toBeGreaterThan(armyVisual.container.depth);
+    expect(armyVisual.badgeText.depth).toBeGreaterThan(armyVisual.container.depth);
   });
 
   it('updates badge texture when army units count changes', () => {

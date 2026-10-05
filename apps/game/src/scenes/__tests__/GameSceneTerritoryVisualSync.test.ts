@@ -666,10 +666,11 @@ describe('GameScene Tower Role Icons', () => {
     const types = new Set<string>();
     for (const [id, vis] of visuals) {
       expect(vis.typeIcon, `typeIcon defined for ${id}`).toBeDefined();
-      expect(vis.typeIcon.parentContainer, `icon in container for ${id}`).toBe(vis.container);
+      expect(vis.typeIcon.parentContainer, `icon stays above world sprites for ${id}`).toBeNull();
+      expect(vis.typeIcon.depth).toBeGreaterThan(vis.container.depth);
       expect(vis.typeIcon.commands.length, `icon drawn for ${id}`).toBeGreaterThan(0);
       // Centered horizontally and positioned beneath the unit badge.
-      expect(vis.typeIcon.x, `icon x centered for ${id}`).toBe(0);
+      expect(vis.typeIcon.x, `icon x centered for ${id}`).toBeCloseTo(vis.container.x, 6);
       // Badge is 22px tall, so its bottom edge is unitBadge.y + 11. The 16px
       // icon spans typeIcon.y - 8 .. typeIcon.y + 8 and must clear the badge
       // bottom by at least 2 logical px (no badge overlap).

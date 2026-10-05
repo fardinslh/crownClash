@@ -1,11 +1,11 @@
 """Crown Cross stylized miniature model kit (Blender).
 
 Chunky medieval silhouettes with broad bevels, readable heraldry, layered team
-roofs, warm stone and sculpted foliage. The troop model retains its established
-materials and geometry. Consumed by
+roofs, warm stone and sculpted foliage. The troop model uses broad cartoon proportions and
+clear team cloth panels. Consumed by
 art/blender/build_battlefield_scene.py (crown_cross territory sprites and the
 shared environment prop pack) and tools/blender/generate_units.py (the four
-shared troop sprites), all rendered through the canonical Art Bible rig.
+shared troop bases, three facings each), all rendered through the canonical Art Bible rig.
 Requires Blender's bpy; the scene builder imports it lazily.
 """
 import math
@@ -155,7 +155,8 @@ def heater_shield(name, loc, size, face_mat, rim_mat):
         return ob
 
     slab(name + '_rim', 1.12, .05 * size / .5, rim_mat, .012)
-    slab(name + '_face', 1.0, .04 * size / .5, face_mat, .0)
+    # Put the colored face in front of the extruded metal rim.
+    slab(name + '_face', 1.0, .04 * size / .5, face_mat, -.045 * size / .5)
     sphere(name + '_boss', .07 * size / .5, (x, y - .05, z + .02 * size), rim_mat,
            scale=(1.0, .6, 1.0))
 
@@ -269,13 +270,13 @@ def _palisade_ring(m, rx, ry, count, z=.30, height=.62, log_r=.07):
 
 def kmats(owner, make_material):
     """Troop materials: polished steel, dyed cloth, oiled leather."""
-    team = TEAM_COLORS[owner]
+    team = {'player': (.055, .36, .90), 'enemy': (.90, .09, .09)}[owner]
     return {
-        'steel': make_material('rkx_steel', (.52, .56, .62), .38, metallic=.9),
-        'steel_dark': make_material('rkx_steel_dark', (.30, .33, .38), .5, metallic=.8),
+        'steel': make_material('rkx_steel', (.65, .72, .81), .55, metallic=.35),
+        'steel_dark': make_material('rkx_steel_dark', (.29, .38, .49), .65, metallic=.25),
         'cloth': make_material('rkx_cloth', team, .85),
         'leather': make_material('rkx_leather', (.16, .10, .07), .75),
-        'gold': make_material('rkx_gold', (.62, .44, .15), .35, metallic=.9),
+        'gold': make_material('rkx_gold', (.95, .65, .16), .5, metallic=.25),
     }
 
 
@@ -586,10 +587,11 @@ def barracks(m, make_material, theme='crown_cross'):
                     (sx * 1.05, -.70, .98), m['trim'])
         _chunky_box('garrison battlement', (.31, .38, .33),
                     (sx * 1.05, -.70, 1.69), m['trim'])
-    _chunky_box('garrison chimney', (.36, .37, .52), (.81, .45, 2.08), m['wall'])
-    _chunky_box('garrison chimney cap', (.46, .47, .14), (.81, .45, 2.39), m['trim'])
+    for sx in (-1, 1):
+        _chunky_cyl('garrison corner turret', .25, .57, (sx * 1.05, -.70, 1.80), m['wall'], 8)
+        _chunky_cyl('garrison turret crown', .30, .15, (sx * 1.05, -.70, 2.13), m['trim'], 8)
     _toy_gate(m, 0, -.84, .37, width=.57, height=.72)
-    heater_shield('large garrison shield', (.70, -.91, 1.07), .48, m['banner'], m['gold'])
+    heater_shield('large garrison shield', (0, -.95, 1.29), .62, m['banner'], m['gold'])
     _toy_window(m, -.68, -.84, 1.03, width=.18, height=.28)
     _theme_signature(m, theme, 1.24)
 
@@ -615,14 +617,14 @@ def stable(m, make_material, theme='crown_cross'):
     # Thick U-shaped heraldic horseshoe on the front gable; no tiny lettering.
     curve = bpy.data.curves.new('gold horseshoe', 'CURVE')
     curve.dimensions = '3D'
-    curve.bevel_depth = .065
+    curve.bevel_depth = .09
     curve.bevel_resolution = 3
     spline = curve.splines.new('POLY')
     spline.points.add(16)
     for i in range(17):
         angle = math.pi * (.15 + 1.70 * i / 16)
-        spline.points[i].co = (.16 * math.sin(angle), -1.035,
-                              1.82 + .16 * math.cos(angle), 1)
+        spline.points[i].co = (.25 * math.sin(angle), -1.055,
+                              1.83 + .25 * math.cos(angle), 1)
     emblem = bpy.data.objects.new('gold horseshoe', curve)
     bpy.context.collection.objects.link(emblem)
     curve.materials.append(m['gold'])
@@ -639,54 +641,35 @@ def stable(m, make_material, theme='crown_cross'):
 # ---------------------------------------------------------------------------
 
 def knight(m, leader):
-    # Legs in a marching stance (right foot forward, -Y is the march heading).
-    for foot_x, foot_y in ((-.10, .04), (.10, -.20)):
-        box('foot', (.11, .19, .08), (foot_x, foot_y, .05), m['leather'], .012)
-    box('greave L', (.10, .11, .34), (-.10, .04, .30), m['steel_dark'], .015)
-    box('greave R', (.10, .11, .34), (.10, -.20, .30), m['steel_dark'], .015)
-    sphere('knee L', .065, (-.10, .04, .52), m['steel'])
-    sphere('knee R', .065, (.10, -.20, .52), m['steel'])
-    box('cuisse L', (.12, .12, .30), (-.10, .04, .74), m['steel_dark'], .015)
-    box('cuisse R', (.12, .12, .30), (.10, -.20, .74), m['steel_dark'], .015)
-    # Fauld lames over the hips.
-    for r, z in ((.21, .98), (.19, 1.05), (.17, 1.12)):
-        cyl('fauld lame', r, .05, (0, -.04, z), m['steel'], 14)
-    # Breastplate and plackart.
-    breast = cyl('breastplate', .205, .40, (0, -.02, 1.33), m['steel'], 14)
-    breast.scale = (1.0, .82, 1.0)
-    bpy.ops.object.transform_apply(location=True, rotation=False, scale=True)
-    box('plackart', (.27, .22, .16), (0, -.06, 1.13), m['steel_dark'], .015)
-    # Tabard panel and leader cape in team cloth.
-    tabard = box('tabard', (.24, .045, .58), (0, -.225, 1.10), m['cloth'], .01)
-    tabard.rotation_euler = (.10, 0, 0)
+    """Broad toy knight: large helmet, short limbs and readable team panels."""
+    for sx, fy in ((-1, .04), (1, -.16)):
+        box('broad boot', (.20, .28, .13), (sx * .15, fy, .075), m['leather'], .035)
+        box('short greave', (.19, .20, .38), (sx * .15, fy, .32), m['steel_dark'], .045)
+        sphere('round knee', .12, (sx * .15, fy, .54), m['steel'])
+    box('armoured hips', (.53, .35, .25), (0, -.035, .68), m['steel_dark'], .06)
+    box('broad breastplate', (.59, .39, .50), (0, -.025, 1.01), m['steel'], .10)
+    box('team tabard', (.36, .06, .59), (0, -.245, .90), m['cloth'], .025)
+    box('team back panel', (.38, .06, .43), (0, .21, .98), m['cloth'], .025)
+    cyl('team helmet collar', .265, .085, (0, -.025, 1.32), m['cloth'], 16)
     if leader:
-        cape = box('cape', (.28, .04, .60), (0, .21, 1.10), m['cloth'], .01)
-        cape.rotation_euler = (-.22, 0, 0)
-    # Arms: sword arm forward-low on +X, shield arm reaching to -X.
-    for sx in (1, -1):
-        shoulder_x = .215 * sx
-        sphere('pauldron', .105, (shoulder_x, -.01, 1.44), m['steel'], scale=(1.0, .8, .85))
-        upper = cyl('upper arm', .055, .20, (shoulder_x + .02 * sx, -.05, 1.30), m['steel_dark'], 8)
-        upper.rotation_euler = (.35 * sx, 0, .25 * sx)
-        forearm = cyl('forearm', .048, .22, (shoulder_x + .045 * sx, -.14, 1.12), m['steel_dark'], 8)
-        forearm.rotation_euler = (.55 * sx, 0, .12 * sx)
-        box('gauntlet', (.085, .10, .10), (shoulder_x + .05 * sx, -.20, 1.00), m['steel'], .012)
-    # Helm: cylindrical greathelm with dome, visor slit and leader crest.
-    cyl('helm', .135, .24, (0, -.03, 1.66), m['steel'], 14)
-    sphere('helm dome', .135, (0, -.03, 1.78), m['steel'], scale=(1.0, 1.0, .75))
-    box('visor slit', (.17, .05, .035), (0, -.175, 1.70), m['leather'], .006)
-    box('visor plate', (.13, .03, .06), (0, -.165, 1.63), m['steel_dark'], .006)
+        cape = box('leader cape', (.48, .06, .68), (0, .25, .94), m['cloth'], .035)
+        cape.rotation_euler = (-.16, 0, 0)
+        box('gold tabard belt', (.41, .075, .065), (0, -.25, .83), m['gold'], .015)
+    for sx in (-1, 1):
+        sphere('large pauldron', .175, (sx * .32, -.01, 1.13), m['steel'], scale=(1, .85, .85))
+        box('short forearm', (.17, .22, .30), (sx * .36, -.12, .92), m['steel_dark'], .04)
+        box('broad gauntlet', (.19, .21, .17), (sx * .36, -.22, .75), m['steel'], .045)
+    cyl('large helmet', .255, .34, (0, -.025, 1.48), m['steel'], 16, smooth=True)
+    sphere('helmet dome', .255, (0, -.025, 1.64), m['steel'], scale=(1, 1, .60))
+    box('broad dark visor', (.34, .065, .07), (0, -.276, 1.52), m['leather'], .014)
+    box('helmet nose guard', (.055, .07, .19), (0, -.284, 1.45), m['gold'] if leader else m['steel_dark'], .016)
     if leader:
-        box('crest fin A', (.02, .22, .12), (0, -.05, 1.86), m['cloth'], .008)
-        box('crest fin B', (.02, .14, .09), (0, .09, 1.90), m['cloth'], .008, rot=(-.35, 0, 0))
-    # Sword held low on the +X side.
-    blade = box('blade', (.035, .018, .52), (.30, -.24, .92), m['steel'], .006)
+        box('broad team crest', (.10, .31, .16), (0, -.04, 1.81), m['cloth'], .035)
+    blade = box('broad sword', (.08, .035, .57), (.43, -.23, .84), m['steel'], .013)
     blade.rotation_euler = (-.12, 0, 0)
-    box('crossguard', (.15, .04, .03), (.30, -.24, .66), m['gold'], .008)
-    cyl('grip', .022, .12, (.30, -.24, .58), m['leather'], 8)
-    sphere('pommel', .035, (.30, -.24, .50), m['gold'])
-    # Heater shield on the -X side, facing the camera.
-    heater_shield('knight shield', (-.31, -.19, .86), .52, m['cloth'], m['gold'])
+    box('sword guard', (.22, .07, .065), (.43, -.23, .56), m['gold'], .016)
+    cyl('sword grip', .045, .14, (.43, -.23, .46), m['leather'], 10)
+    heater_shield('broad team shield', (-.40, -.25, .83), .70, m['cloth'], m['gold'])
 
 
 # ---------------------------------------------------------------------------
@@ -1615,6 +1598,7 @@ def _ground_edge_gardens(battlefield_id, bf, make_material, terrain_z, roads):
         (-169, 103, 8), (168, -49, 8),
     )
     for index, (x, y, scale) in enumerate(positions):
+        scale *= _ARENA_LAYOUT['presentation']['treeScale']
         if any(math.hypot(x - _to_plane(t['x'], t['y'])[0], y - _to_plane(t['x'], t['y'])[1])
                < _socket_radius(bf, t) + scale * 2.1 for t in bf['territories']):
             continue

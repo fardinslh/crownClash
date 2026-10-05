@@ -14,12 +14,16 @@ test('isolated QA allows loopback static assets while rejecting account and exte
   assert.throws(() => assertLocalQaUrl('https://game.example/'), /loopback/);
 });
 
-test('asset negative controls only remove the requested ground or building class', () => {
+test('asset negative controls only remove the requested ground, building or unit class', () => {
   const ground = request('http://127.0.0.1:4173/assets/grounds/crown_cross.webp');
   const building = request('http://127.0.0.1:4173/assets/territories/crown_cross/citadel_player.webp');
   assert.equal(classifyQaRequest(ground, appUrl, 'ground'), 'missing');
   assert.equal(classifyQaRequest(building, appUrl, 'building'), 'missing');
   assert.equal(classifyQaRequest(building, appUrl, 'ground'), 'allowed');
+  const unit = request('http://127.0.0.1:4173/assets/units/unit_leader_player_front.png?v=cartoon-meadow-v1.5');
+  assert.equal(classifyQaRequest(unit, appUrl, 'unit'), 'missing');
+  assert.equal(classifyQaRequest(unit, appUrl, 'building'), 'allowed');
+  assert.equal(classifyQaRequest(building, appUrl, 'unit'), 'allowed');
 });
 
 test('CDP interception fulfills blocked requests locally and propagates interception failures', async () => {

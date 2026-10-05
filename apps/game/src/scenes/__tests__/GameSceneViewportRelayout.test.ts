@@ -498,6 +498,7 @@ import { BrowserPlatformAdapter } from '@crown-clash/platform';
 import { BOARD_VERTICAL_SPACING, createBoardLayout, PLINTH_TOP_LIFT, projectLifted } from '../../art/boardProjection.js';
 import { arenaPropTextureKey, getArenaGroundSprite, getArenaPropPositions,
   listEnvironmentPropSpritePaths, listRuntimeSpritePaths, runtimeTerritoryTextureKey,
+  territoryArtFootprint,
   type ArenaPropKind } from '../../art/BattlefieldArt.js';
 import { THEME } from '../../theme.js';
 import type { BattlefieldId, Territory } from '@crown-clash/game-core';
@@ -579,13 +580,18 @@ describe('GameScene viewport relayout (map uses the live mobile height)', () => 
         ...props.map(([key, path]) => [arenaPropTextureKey(key as ArenaPropKind), path]),
         [ground!.textureKey, ground!.path],
       ];
+      const units = image.mock.calls.filter(([, path]) => path.includes('assets/units/'));
+      expect(units, 'all leaders, followers and facings need a fresh revision').toHaveLength(16);
+      for (const [, path] of units) {
+        expect(new URL(path, 'https://game.invalid/').searchParams.get('v')).toBe('cartoon-meadow-v1.5');
+      }
       for (const [key, path] of expectedAssets) {
         const calls = image.mock.calls.filter(([loadedKey]) => loadedKey === key);
         expect(calls, `preload must load ${key} exactly once`).toHaveLength(1);
         const url = new URL(calls[0][1], 'https://game.invalid/');
         expect(url.pathname).toBe(`/${path}`);
         expect(url.searchParams.get('v'), `${key} must bypass the old immutable cache`)
-          .toBe('cartoon-meadow-v1.4');
+          .toBe('cartoon-meadow-v1.5');
       }
     },
   );
@@ -711,6 +717,9 @@ describe('GameScene viewport relayout (map uses the live mobile height)', () => 
           basePlate: InstanceType<typeof MockGameObject>;
           ring: InstanceType<typeof MockGameObject>;
           sprite: InstanceType<typeof MockGameObject>;
+          unitBadge: InstanceType<typeof MockGameObject>;
+          unitText: InstanceType<typeof MockGameObject>;
+          typeIcon: InstanceType<typeof MockGameObject>;
         }>;
         selectionRings: Map<string, InstanceType<typeof MockGameObject>>;
         highlightSelectedTerritory(id: string): void;
@@ -741,6 +750,21 @@ describe('GameScene viewport relayout (map uses the live mobile height)', () => 
           expect(visual, 'resize must preserve existing interactive territory objects').toBe(initialVisuals.get(id));
           expect(visual.container.x).toBeCloseTo(lifted.u, 6);
           expect(visual.container.y).toBeCloseTo(lifted.v, 6);
+          const art = territoryArtFootprint(battlefieldId, territory);
+          expect(visual.sprite.width).toBeCloseTo(art.spriteSize * layout.scale, 6);
+          expect(visual.sprite.height).toBeCloseTo(art.spriteSize * layout.scale, 6);
+          expect(visual.sprite.y).toBeCloseTo((art.spriteY - 2) * layout.scale, 6);
+          expect(visual.unitBadge.parentContainer).toBeNull();
+          expect(visual.unitBadge.x).toBeCloseTo(lifted.u, 6);
+          expect(visual.unitBadge.y).toBeCloseTo(lifted.v + art.badgeY * layout.scale, 6);
+          expect(visual.unitText.x).toBeCloseTo(visual.unitBadge.x, 6);
+          expect(visual.unitText.y).toBeCloseTo(visual.unitBadge.y, 6);
+          if (art.roleIconX === 0) {
+            expect(visual.typeIcon.y - 8).toBeGreaterThanOrEqual(visual.unitBadge.y + 13);
+          } else {
+            expect(Math.abs(visual.typeIcon.x - visual.unitBadge.x)).toBeGreaterThan(25);
+          }
+          expect(visual.unitBadge.depth).toBeGreaterThan(visual.container.depth);
           expect(visual.basePlate.fillAlpha).toBe(0);
           expect(visual.basePlate.strokeAlpha).toBe(0);
           expect(visual.ring.strokeWidth).toBe(2);
@@ -778,6 +802,11 @@ describe('GameScene viewport relayout (map uses the live mobile height)', () => 
       vi.advanceTimersByTime(250);
       verifyPresentation(720);
       scene.events.emit('shutdown');
+      for (const visual of initialVisuals.values()) {
+        expect(visual.unitBadge.destroyed).toBe(true);
+        expect(visual.unitText.destroyed).toBe(true);
+        expect(visual.typeIcon.destroyed).toBe(true);
+      }
     },
   );
 

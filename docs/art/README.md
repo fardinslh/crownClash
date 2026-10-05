@@ -1,11 +1,11 @@
 # Battlefield Art Pipeline (Blender → Runtime)
 
 Production caches fixed sprite filenames for 30 days. `GameScene.preload()`
-adds `?v=cartoon-meadow-v1.4` to ground, building and shared prop requests.
+adds `?v=cartoon-meadow-v1.5` to ground, building, shared prop **and all marching-unit** requests.
 Bump that revision whenever this baked map kit changes, and update the preload
-regression test, so returning players receive matching terrain and buildings.
+regression test, so returning players receive matching terrain, buildings and troops.
 
-Deterministic 2.5D battlefield art pipeline, Art Bible v1.4: bright cartoon
+Deterministic 2.5D battlefield art pipeline, Art Bible v1.5: bright cartoon
 volumes, warm pale stone, natural terrain color masses and clustered foliage.
 The visual direction lives in
 [`ART_BIBLE.md`](../../ART_BIBLE.md) (sections 2–8, 10–15).
@@ -74,8 +74,7 @@ reference an unloaded texture.
   rig as the buildings. `1140×2502` RGBA PNG masters become `760×1668` WebP runtime
   plates. The authoritative `380×640` logical tactical rect retains its exact roads
   and sockets. [`art/arena-layout.json`](../../art/arena-layout.json) expands Y
-  positions by `1.22` about `(200, 398)` before projection, leaving sprite sizes,
-  plinth radii/lift and travel times unchanged. Blender uses the same factor for
+  positions by `1.22` about `(200, 398)` before projection, leaving plinth radii/lift and travel times unchanged. Blender uses the same factor for
   roads/sockets and authored river/bridge, garden and camp geometry. Client
   `unproject` and baked dressing exclusions invert the spacing for correct logical
   hit tests and reserved zones. Composed meadow fringe fills tall phones. Natural
@@ -117,6 +116,32 @@ Blender master names (e.g. `tier3_player_crag_hq.png`) live only under
 `citadel_player.webp`) live only under `apps/game/public/assets/` and are the only
 files Phaser loads.
 
+## Actor presence and shared presentation contracts
+
+`art/arena-layout.json` shares `presentation` (building `1.30`, troop `1.50`, tree
+`0.80`), baseline `buildingFootprints` and `buildingFraming` with the renderer,
+client and placement generator. Building image centers compensate for the locked
+camera aim so their model-origin floor stays fixed when enlarged. Runtime textures
+remain 128/160px; neither server geometry nor touch targets change. Camera fitting
+includes enlarged selected buildings and existing ground extent, caps the previous
+width zoom, and centers the active field between the unchanged HUD and guide.
+
+The knight kit uses a broad helmet, compact limbs/body, visible cloth and shield,
+and a leader crest/cape. Both initial display and stride scale multiply by `1.50`;
+formation spacing, contact shadows and bobbing follow. Counts stay the same size,
+with the existing role glyph painted into the cached badge instead of role words.
+Existing territory/army annotations render above bodies and update their absolute
+positions on resize and ownership changes; cleanup and training dimming include
+these annotations. This adds no display objects or normal-path texture pixels.
+
+Trees in the ground render and runtime prop layer share `0.80`; grass/clover cover
+stays intact. `propVisibleBounds` records normalized alpha > 100 bounds measured
+from the runtime WebPs (decode with `dwebp`, inspect with `png_coverage.py`). The
+placement generator excludes enlarged selected building images and their role
+markers as well as all existing road/socket/feature rules. It preserves every
+existing kind/count and throws if the full set cannot fit. Refresh those bounds
+when a prop silhouette changes, then regenerate and run the asset tests.
+
 ## QA tooling
 
 ### Screenshot capture (single-viewport proof)
@@ -131,6 +156,9 @@ asserts at capture time that `window.innerWidth`, `window.innerHeight`, and
 single intended viewport, starts the scene through the `__PHASER_GAME__` QA hook,
 waits until the battlefield's pack is actually fetched with no texture load
 errors, then captures with `Page.captureScreenshot` (no clip, `fromSurface: true`).
+With `CC_QA_TRAINING_ACTIONS=1`, training additionally captures real pointer
+selection, drag and release, asserting that the first step advances and troops
+actually march. The default keeps the clean initial teaching frame.
 Finally it compares the capture against Phaser's own renderer snapshot of the
 same scene — a stitched or duplicated capture would disagree with the canvas
 render, so a low mean difference proves exactly one viewport was captured.
@@ -159,12 +187,12 @@ accepting a visual change.
 
 ```bash
 # Pixel stats per master/runtime asset; pass two files for a pairwise diff:
-blender --background --factory-startup --python tools/blender/analyze_masters.py -- \
+blender --background --factory-startup --python-exit-code 1 --python tools/blender/analyze_masters.py -- \
   art/blender/renders/twin_passes/tier3_player_crag_hq.png \
   art/blender/renders/twin_passes/tier3_enemy_crag_hq.png
 
 # Screenshot color census (supplemental):
-blender --background --factory-startup --python tools/blender/analyze_screenshot.py -- \
+blender --background --factory-startup --python-exit-code 1 --python tools/blender/analyze_screenshot.py -- \
   qa-artifacts/art-twin-passes/twin_passes-360x800.png
 ```
 
@@ -180,7 +208,7 @@ dispatch armies with `scene.executeQaDispatch(...)`, and check
 # player/enemy × front/back/side facings (knight model from
 # art/blender/crown_cross_kit.py, canonical rig, downscaled to 128px PNGs;
 # front also ships under the legacy no-suffix names).
-blender --background --factory-startup --python tools/blender/generate_units.py
+blender --background --factory-startup --python-exit-code 1 --python tools/blender/generate_units.py
 
 # 1. Render a pack's master kit (deterministic; verified with Blender 5.2.2 LTS,
 #    works with any recent Blender incl. 4.x). The kit comes from the manifest
@@ -215,13 +243,16 @@ Useful single-asset and authoring invocations:
 
 ```bash
 # One manifest sprite (validation happens before Blender is required):
-blender --background --factory-startup --python art/blender/build_battlefield_scene.py -- \
+blender --background --factory-startup --python-exit-code 1 --python art/blender/build_battlefield_scene.py -- \
   --pack twin_passes --asset tier3_player_crag_hq --output art/blender/renders/single
 
 # Quick quality check with fewer samples; --opaque disables film transparency:
-blender --background --factory-startup --python art/blender/build_battlefield_scene.py -- \
+blender --background --factory-startup --python-exit-code 1 --python art/blender/build_battlefield_scene.py -- \
   --pack twin_passes --samples 16 --opaque --output /tmp/cc-preview
 ```
+
+The render wrapper passes `--python-exit-code 1`: a Python render error must
+return nonzero so optimization cannot silently consume stale masters.
 
 ## Determinism
 
@@ -249,7 +280,11 @@ or materials.
   and uncompressed texture memory; compressed byte budgets do not bound GPU memory.
 - If a texture file is missing or fails to load, GameScene falls back to a procedural
   texture (`createProceduralTerritoryFallbackTexture`); the game must never render
-  broken/black sprites.
+  broken/black sprites. Ground failure uses the vector board; marching units try
+  another loaded facing, then a cached 128px team-colored procedural fallback.
+  `CC_QA_MISSING_ASSET=ground|building|unit CC_QA_EXPECT_FALLBACK=1` on the capture
+  script exercises real HTTP failures in an isolated browser. Unit verification
+  dispatches both teams and asserts visible leader/follower fallback textures.
 
 ## Adding another battlefield
 

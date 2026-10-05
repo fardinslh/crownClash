@@ -49,6 +49,6 @@ mkdir -p "${OUT_DIR}"
 echo "[render_battlefield] using Blender: ${BLENDER}"
 echo "[render_battlefield] pack=${BATTLEFIELD} output=${OUT_DIR}"
 
-exec "${BLENDER}" --background --factory-startup \
+exec "${BLENDER}" --background --factory-startup --python-exit-code 1 \
   --python "${REPO_ROOT}/art/blender/build_battlefield_scene.py" -- \
   --pack "${BATTLEFIELD}" --output "${OUT_DIR}" "$@"
