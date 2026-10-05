@@ -15,44 +15,26 @@ coverage/
 .turbo/
 .idea/
 .vscode/
-qa-artifacts/chrome-*/
-qa-artifacts/**/*.trace.json
-qa-artifacts/traces/
-qa-artifacts/**/*.cpuprofile
+
+# Generated QA captures, benchmark output and disposable browser profiles.
+# Existing tracked reports remain available in Git.
+qa-artifacts/
+
+# Graphify dated backups, extraction caches and internal learning state.
 graphify-out/20??-??-??/
-graphify-out/cache/ast/
-scenarios.json
-qa-artifacts/bot-parity/
-qa-artifacts/art-milestone/
-qa-artifacts/art-twin-passes/
-qa-artifacts/art-royal-ring/
-qa-artifacts/art-crown-cross-*/
-# Session-local composition-pass visual QA captures (review evidence, kept local)
-qa-artifacts/art-composition-pass/
-# Graphify internal learning/memory state (never commit)
+graphify-out/cache/
 graphify-out/memory/
 graphify-out/reflections/
 graphify-out/.graphify_learning.json
 graphify-out/.graphify_python
 graphify-out/.vocab.txt
-# Blender generated output: render caches, temp files, and raw masters
+scenarios.json
+
+# Generated Blender output and Python caches; keep source scripts and assets.
 art/blender/renders/
-art/blender/__pycache__/
 tools/blender/tmp/
-
-# 2v2 Phase 5 visual QA captures (session-local)
-qa-artifacts/2v2-phase5/
-
-# Ground-plate and themed-fortress visual QA captures (session-local)
-qa-artifacts/art-grounds/
-qa-artifacts/art-realism-final/
-qa-artifacts/art-realism-probe/
-qa-artifacts/art-ugly-diagnosis/
-
-# War-depth fortress visual QA captures (session-local)
-qa-artifacts/art-depth/
-
-# Local before/after map review images and benchmark evidence
-qa-artifacts/art-premium-refresh/
-qa-artifacts/art-spacing-refresh/
-qa-artifacts/art-greenery-refresh/
+__pycache__/
+*.py[cod]
+*.blend1
+*.blend2
+*.bak
