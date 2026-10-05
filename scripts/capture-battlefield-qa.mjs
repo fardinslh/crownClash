@@ -24,6 +24,8 @@
 // The special id "training" captures the guided training battle's first
 // step (clean field, spotlight + instruction visible) instead of an
 // ordinary bot match — the same launch data MenuScene uses on first play.
+// CC_QA_TRAINING_ACTIONS=1 also exercises a real drag; add
+// CC_QA_TRAINING_COMPLETION=1 for bounded save/retry and scene-transition QA.
 //
 // Primary review artifacts are the CLEAN captures (`-clean.png`: no armies,
 // no transient combat labels). The `-armies.png` captures keep the marching
@@ -359,6 +361,9 @@ async function captureViewport(chromePath, battlefieldId, viewport, outDir) {
       if (process.env.CC_QA_TRAINING_ACTIONS === '1') {
         report.trainingActions = await captureTrainingActions(cdp, viewport, outDir);
       }
+      if (process.env.CC_QA_TRAINING_COMPLETION === '1') {
+        report.trainingCompletion = await captureTrainingCompletion(cdp, viewport, outDir);
+      }
       await networkIsolation.assertHealthy();
       console.log(`[capture] ${cleanFileName}: ${JSON.stringify(report)}`);
       return report;
@@ -577,6 +582,119 @@ async function captureTrainingActions(cdp, viewport, outDir) {
   if (result.step!=='preview_result' || result.armyCount<1 || !result.keys.length || !result.keys.every(k=>k.startsWith('unit_'))) throw new Error('Training dispatch/step/marching sprites failed: '+JSON.stringify(result));
   await save('armies');
   return {gesture,files,...result};
+}
+
+// Real Phaser transitions/input, with an isolated API double. No production
+// account is touched. Controller hooks accelerate the remaining guided actions.
+async function captureTrainingCompletion(cdp, viewport, outDir) {
+  const read = () => evaluate(cdp, `(() => {
+    const g=window.__PHASER_GAME__,s=g.scene.getScene('GameScene'),o=s.trainingOverlay;
+    return {frame:g.loop.frame,active:s.scene.isActive(),training:s.trainingMode,
+      elapsed:s.gameState.elapsedTimeSeconds,
+      matchId:s.activeMatchId,completed:s.careerManager.isTutorialCompleted(),
+      retry:!!o?.retryButton?.input?.enabled,subtitle:o?.celebrationSubtitle?.text,
+      progress:localStorage.getItem('crown_clash_training_progress_'+s.platform.getUser().id),
+      saveAttempts:window.__trainingQa.saveAttempts,starts:window.__trainingQa.starts,
+      menu:g.scene.isActive('MenuScene')};
+  })()`);
+  const wait = async (predicate, label, timeout = 3000) => {
+    const deadline = Date.now() + timeout;
+    do {
+      const state = await read();
+      if (predicate(state)) return state;
+      await sleep(100);
+    } while (Date.now() < deadline);
+    throw new Error(`Training completion ${label} failed: ${JSON.stringify(await read())}`);
+  };
+  const save = async name => {
+    const file=`training-${viewport.width}x${viewport.height}-${name}.png`;
+    fs.writeFileSync(path.join(outDir,file),Buffer.from(await captureScreenshot(cdp),'base64'));
+    return file;
+  };
+  await evaluate(cdp, `(() => {
+    const g=window.__PHASER_GAME__,s=g.scene.getScene('GameScene'),m=s.careerManager;
+    // SceneManager.start does not stop the menu as ScenePlugin.start does.
+    // Stop the explicitly launched QA menu so a pre-existing menu cannot
+    // satisfy the later timeout/return assertion.
+    g.scene.stop('MenuScene');
+    const q=window.__trainingQa={saveAttempts:0,starts:0};
+    m.remoteConnected=true;
+    m.career={...m.getCareer(),tutorialCompleted:false};
+    m.remoteApi={
+      completeTutorial:()=>{q.saveAttempts++;return q.saveAttempts===1
+        ?new Promise(resolve=>{q.finishOldSave=()=>resolve({...m.getCareer(),tutorialCompleted:true});})
+        :Promise.resolve({...m.getCareer(),tutorialCompleted:true});},
+      startBotMatch:()=>{q.starts++;return Promise.resolve({matchId:'qa_after_training',battlefieldId:'crown_cross'});}
+    };
+    g.scene.resume('GameScene');
+    const c=s.trainingController;
+    c.onDispatch(['p_base'],'n_bot_left');c.onPreviewShown();c.onTimerTick(2.6);
+    c.onCapture('n_bot_left',true);c.onTimerTick(1.6);
+    c.onDispatch(['p_base','n_bot_left'],'n_center');c.onCapture('e_base',true);
+    if(!c.isCompleted)throw new Error('Guided finale did not complete');
+    return true;
+  })()`);
+  const saving = await read();
+  if (saving.progress!=='5' || saving.completed || saving.subtitle!=='TRAINING COMPLETE — SAVING…' || saving.saveAttempts!==1) {
+    throw new Error('Training saving prerequisites failed: '+JSON.stringify(saving));
+  }
+  const savingFile=await save('saving');
+  const retry=await wait(s=>s.retry,'save timeout retry',17_000);
+  if(retry.completed || retry.starts!==0 || retry.progress!=='5' || retry.frame<=saving.frame || retry.elapsed!==saving.elapsed) {
+    throw new Error('Training timeout must remain responsive and fail closed: '+JSON.stringify(retry));
+  }
+  const retryFile=await save('retry');
+  await evaluate(cdp,'window.__trainingQa.finishOldSave()');
+  await sleep(200);
+  const late=await read();
+  if(!late.retry || late.starts!==0 || late.progress!=='5' || late.elapsed!==saving.elapsed) throw new Error('Expired save navigated or lost progress');
+  const point=await evaluate(cdp, `(() => {
+    const s=window.__PHASER_GAME__.scene.getScene('GameScene'),p=s.trainingOverlay.retryButton;
+    const rect=s.sys.game.canvas.getBoundingClientRect();
+    const q=s.cameras.main.matrix.transformPoint(p.x,p.y);
+    return {x:rect.left+q.x*rect.width/s.sys.game.canvas.width,y:rect.top+q.y*rect.height/s.sys.game.canvas.height};
+  })()`);
+  await cdp.send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...point});
+  await cdp.send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...point});
+  const battle=await wait(s=>s.active&&!s.training&&s.matchId==='qa_after_training','retry transition');
+  if(!battle.completed || battle.progress!==null || battle.saveAttempts!==2 || battle.starts!==1) {
+    throw new Error('Retry did not confirm and start exactly one match: '+JSON.stringify(battle));
+  }
+  await sleep(300);
+  if((await read()).frame<=battle.frame) throw new Error('Phaser frame loop stopped after training restart');
+  const source=await evaluate(cdp, `(() => {
+    const s=window.__PHASER_GAME__.scene.getScene('GameScene'),t=s.gameState.territories.p_base;
+    const p=s.boardLayout.project(t.x,t.y),q=s.cameras.main.matrix.transformPoint(p.u,p.v);
+    const r=s.sys.game.canvas.getBoundingClientRect();
+    return {x:r.left+q.x*r.width/s.sys.game.canvas.width,y:r.top+q.y*r.height/s.sys.game.canvas.height};
+  })()`);
+  await cdp.send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...source});
+  await sleep(100);
+  if(!await evaluate(cdp,"window.__PHASER_GAME__.scene.getScene('GameScene').selectedSourceIds.includes('p_base')")) {
+    throw new Error('First battle input stopped after training restart');
+  }
+  await cdp.send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...source});
+  const battleFile=await save('first-battle');
+
+  let matchTimeout=null;
+  if(viewport.width===375) {
+    await evaluate(cdp, `(() => {
+      const g=window.__PHASER_GAME__,m=g.scene.getScene('GameScene').careerManager;
+      m.remoteApi.startBotMatch=()=>new Promise(resolve=>{window.__trainingQa.finishOldMatch=()=>resolve({matchId:'qa_late',battlefieldId:'crown_cross'});});
+      g.scene.start('GameScene',{source:'menu',mode:'bot',training:true});return true;
+    })()`);
+    await wait(s=>s.active&&s.training,'second training start');
+    await evaluate(cdp,"window.__PHASER_GAME__.scene.getScene('GameScene').handleTrainingCompleted()");
+    await wait(s=>s.subtitle==='TRAINING COMPLETE — STARTING BATTLE…','confirmed save subtitle');
+    const menu=await wait(s=>s.menu&&!s.active&&!s.training,'first match timeout menu',17_000);
+    if(!menu.completed || menu.progress!==null) throw new Error('Match timeout lost confirmed training');
+    await evaluate(cdp,'window.__trainingQa.finishOldMatch()');
+    await sleep(300);
+    const after=await read();
+    if(!after.menu || after.active || after.frame<=menu.frame) throw new Error('Late match left the menu or stopped rendering');
+    matchTimeout={...after,file:await save('match-timeout-menu')};
+  }
+  return {saving,retry,late,battle,files:{savingFile,retryFile,battleFile},matchTimeout};
 }
 
 async function rendererSnapshot(cdp) {

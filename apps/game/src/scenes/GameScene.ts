@@ -38,6 +38,7 @@ import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { CareerManager } from '../career/CareerManager.js';
 import { TrainingOverlayUI } from './trainingOverlay.js';
 import { TutorialController } from '../tutorial/TutorialController.js';
+import { waitForTrainingRequest } from '../tutorial/trainingRequest.js';
 import {
   applyTrainingSandbox,
   isTrainingTerritoryBright,
@@ -382,6 +383,7 @@ export class GameScene extends Phaser.Scene {
   private trainingController?: TutorialController;
   private trainingOverlay?: TrainingOverlayUI;
   private trainingCompletionPending = false;
+  private trainingRequest?: AbortController;
 
   // Platform Adapter
   private platform!: PlatformAdapter;
@@ -864,23 +866,32 @@ export class GameScene extends Phaser.Scene {
   private handleTrainingCompleted(): void {
     if (this.trainingCompletionPending || this.isExiting) return;
     this.trainingCompletionPending = true;
+    const request = new AbortController();
+    this.trainingRequest?.abort();
+    this.trainingRequest = request;
     const playerId = this.platform.getUser().id;
+    // Persist before sending: a stalled request or reload must not lose
+    // the five performed actions. This is progress, never completion.
+    saveTrainingProgress(playerId, TRAINING_ACTIONS_COMPLETE);
     this.clearTrainingDimming();
     this.trainingOverlay?.showVictoryCelebration();
     sounds.playVictory();
     this.platform.hapticNotification('success');
-    void this.careerManager
-      .completeTutorialRemote(this.platform)
+    void waitForTrainingRequest(
+      this.careerManager.completeTutorialRemote(this.platform), request.signal,
+    )
       .then(() => {
+        if (request.signal.aborted || this.trainingRequest !== request || this.isExiting) return;
         // Confirmed server success — only now clear the local progress and
         // emit the completion analytics. Both are exactly-once across
         // retries: no failure path ever reaches this branch.
         clearTrainingProgress(playerId);
         trackEvent({ name: 'tutorial_completed' });
-        if (this.isExiting) return;
-        this.startFirstRealMatch();
+        this.trainingOverlay?.showStartingMatch();
+        this.startFirstRealMatch(request);
       })
       .catch((error: unknown) => {
+        if (request.signal.aborted || this.trainingRequest !== request || this.isExiting) return;
         console.warn('[GameScene] Tutorial completion save failed (retryable):', error);
         this.trainingCompletionPending = false;
         // The guided actions are already performed: persist the
@@ -899,16 +910,19 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** Launches the first ordinary bot match after a saved tutorial. */
-  private startFirstRealMatch(): void {
-    void this.careerManager
-      .startBotMatch(this.platform)
+  private startFirstRealMatch(request: AbortController): void {
+    void waitForTrainingRequest(
+      this.careerManager.startBotMatch(this.platform), request.signal,
+    )
       .then((botMatch) => {
+        if (request.signal.aborted || this.trainingRequest !== request || this.isExiting) return;
         if (!this.scene.isActive()) return;
         sounds.playDispatch();
         this.platform.hapticImpact('medium');
         this.scene.start('GameScene', { source: 'menu', botMatch });
       })
       .catch((error: unknown) => {
+        if (request.signal.aborted || this.trainingRequest !== request || this.isExiting) return;
         console.warn('[GameScene] First bot match start failed, returning to menu:', error);
         if (!this.scene.isActive()) return;
         // The tutorial IS complete (server-saved); the menu no longer
@@ -2813,11 +2827,11 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.gameState.status === 'playing' && !this.liveMode) {
-      // Training freezes the battle only while the fresh first instruction
-      // is unread (and while the completion save is in flight); a resumed
-      // tutorial plays under live conditions.
+      // The completed sandbox stays still during saving and retries; a
+      // failed request must not reset the field and erase the retry button.
       const trainingPaused =
-        this.trainingController?.shouldPauseSimulation === true || this.trainingCompletionPending;
+        this.trainingController?.shouldPauseSimulation === true ||
+        this.trainingController?.isCompleted === true || this.trainingCompletionPending;
       if (!this.matchMenuController?.isPaused() && !trainingPaused) {
         this.stepBotMatch(deltaSeconds);
 
@@ -5986,6 +6000,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private cleanup(): void {
+    this.trainingRequest?.abort();
+    this.trainingRequest = undefined;
     this.platform.hideBackButton();
     if (this.viewportRelayoutTimer !== null) {
       clearTimeout(this.viewportRelayoutTimer);

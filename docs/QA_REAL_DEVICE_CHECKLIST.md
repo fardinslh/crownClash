@@ -83,6 +83,36 @@ When configuring the mini app in Bale Bot Father / Developer Console, provide th
 
 ## 4. Adverse Network Verification
 
+### Tutorial completion and first match
+
+After capturing the training enemy base, completion must be confirmed by the
+server. The client waits at most 15 seconds per phase, including reconnects:
+
+- Save unavailable: the bottom strip offers **COULD NOT SAVE — TAP TO RETRY**.
+  Performed actions survive a reload; completion stays locked until confirmed.
+- Save confirmed: the subtitle changes to **STARTING BATTLE**. If the first
+  match request fails or exceeds 15 seconds, return to the menu with training
+  completed. A late response must not pull the player out of the menu.
+- Successful retry: enter one ordinary match, retain working touch controls
+  and keep rendering. Do not settle or reward the training sandbox.
+
+Isolated desktop verification against a local production build:
+
+```bash
+node scripts/serve-dist.mjs 4173
+# In another terminal:
+CC_QA_APP_URL='http://127.0.0.1:4173/?benchmark_mode=1' \
+CC_QA_TRAINING_ACTIONS=1 CC_QA_TRAINING_COMPLETION=1 \
+node scripts/capture-battlefield-qa.mjs training qa-artifacts/tutorial-completion
+```
+
+This runs four mobile viewport sizes using real Phaser, browser input and
+15-second deadlines. Only the API is replaced with an isolated double;
+controller hooks accelerate the remaining guided actions after the first drag.
+It does not prove production account persistence or physical Android/WebView
+behavior. Repeat the finale, airplane-mode retry, relaunch and first-match
+transition on a physical device separately.
+
 Execute the following network stress tests on the physical device:
 
 | Scenario | Procedure | Expected Behavior | Pass/Fail |

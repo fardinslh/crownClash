@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { TRAINING_REQUEST_TIMEOUT_MS } from '../../tutorial/trainingRequest.js';
 
 const { MockScene, MockGameObject, MockGraphics, MockContainer, storage } = vi.hoisted(() => {
   const storage = new Map<string, string>();
@@ -699,6 +700,7 @@ describe('First-launch training integration', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     delete (globalThis as any).document;
   });
 
@@ -706,7 +708,7 @@ describe('First-launch training integration', () => {
     completeTutorial: () => Promise<PlayerCareer>;
     startBotMatch?: () => Promise<BotMatchTicket>;
   }): CareerApi => ({
-    login: async () => createDefaultCareer('training_player'),
+    login: async () => ({ ...createDefaultCareer('training_player'), tutorialCompleted: false }),
     completeTutorial: behavior.completeTutorial,
     getCareer: async () => createDefaultCareer('training_player'),
     getLedger: async () => [],
@@ -727,10 +729,10 @@ describe('First-launch training integration', () => {
 
   async function bootTrainingScene(
     api: CareerApi,
-    platformId = 'training_player'
+    platformId?: string
   ): Promise<GameScene> {
     const platform = new BrowserPlatformAdapter();
-    const manager = CareerManager.getInstance(platformId);
+    const manager = CareerManager.getInstance(platformId ?? platform.getUser().id);
     await manager.connect(platform, api);
     const scene = new GameScene();
     scene.registry.set('platform', platform);
@@ -837,6 +839,94 @@ describe('First-launch training integration', () => {
     expect(trackedNames()).not.toContain('match_end');
     expect(trackedNames()).not.toContain('match_reward_received');
     expect(trackedNames()).not.toContain('reward_granted');
+  });
+
+  it('unanswered completion is bounded, preserves performed actions, and offers a working retry', async () => {
+    vi.useFakeTimers();
+    let finishLate!: (career: PlayerCareer) => void;
+    const completed = { ...createDefaultCareer('training_player'), tutorialCompleted: true };
+    const completeTutorial = vi.fn()
+      .mockImplementationOnce(() => new Promise<PlayerCareer>(resolve => { finishLate = resolve; }))
+      .mockResolvedValue(completed);
+    const startBotMatch = vi.fn().mockResolvedValue({ matchId: 'bot_after_training', battlefieldId: 'crown_cross' });
+    const scene = await bootTrainingScene(makeTrainingApi({ completeTutorial, startBotMatch }));
+    const s = scene as any;
+    const key = `crown_clash_training_progress_${s.platform.getUser().id}`;
+    performGuidedActions(scene);
+    await flushMicrotasks();
+    expect(storage.get(key)).toBe('5');
+    expect(s.trainingOverlay.celebrationSubtitle.text).toContain('SAVING');
+    await vi.advanceTimersByTimeAsync(TRAINING_REQUEST_TIMEOUT_MS - 1);
+    expect(s.trainingCompletionPending).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(s.trainingCompletionPending).toBe(false);
+    expect(s.trainingOverlay.retryButton.interactive).toBe(true);
+    expect(s.careerManager.getCareer().tutorialCompleted).toBe(false);
+    expect(startBotMatch).not.toHaveBeenCalled();
+    expect(trackedNames()).not.toContain('tutorial_completed');
+    const step = vi.spyOn(s, 'stepBotMatch');
+    scene.update(16_000, 1000);
+    expect(step).not.toHaveBeenCalled();
+    expect(s.trainingOverlay.retryButton.interactive).toBe(true);
+
+    // An old response may update authoritative career state, but cannot
+    // navigate, clear resume progress or emit completion for an expired UI attempt.
+    finishLate(completed);
+    await flushMicrotasks();
+    expect(storage.get(key)).toBe('5');
+    expect(startBotMatch).not.toHaveBeenCalled();
+    expect(trackedNames()).not.toContain('tutorial_completed');
+    s.trainingOverlay.retryButton.emit('pointerdown');
+    await flushMicrotasks();
+    expect(completeTutorial).toHaveBeenCalledTimes(2);
+    expect(startBotMatch).toHaveBeenCalledTimes(1);
+    expect(storage.has(key)).toBe(false);
+    expect(trackedNames().filter(name => name === 'tutorial_completed')).toHaveLength(1);
+    expect(s.scene.start).toHaveBeenCalledWith('GameScene', {
+      source: 'menu', botMatch: { matchId: 'bot_after_training', battlefieldId: 'crown_cross' },
+    });
+  });
+
+  it('unanswered first match returns to the menu with server-confirmed training intact', async () => {
+    vi.useFakeTimers();
+    const scene = await bootTrainingScene(makeTrainingApi({
+      completeTutorial: async () => ({ ...createDefaultCareer('training_player'), tutorialCompleted: true }),
+      startBotMatch: () => new Promise(() => {}),
+    }));
+    const s = scene as any;
+    performGuidedActions(scene);
+    await flushMicrotasks();
+    expect(s.trainingOverlay.celebrationSubtitle.text).toContain('STARTING BATTLE');
+    expect(s.careerManager.getCareer().tutorialCompleted).toBe(true);
+    expect(trackedNames().filter(name => name === 'tutorial_completed')).toHaveLength(1);
+    expect(s.scene.start).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(TRAINING_REQUEST_TIMEOUT_MS);
+    expect(s.scene.start).toHaveBeenCalledWith('MenuScene');
+    expect(s.careerManager.getCareer().tutorialCompleted).toBe(true);
+    expect(s.trainingOverlay.retryButton).toBeUndefined();
+  });
+
+  it('shutdown cancels completion waiting and ignores a late response after the scene is reused', async () => {
+    vi.useFakeTimers();
+    let finishLate!: (career: PlayerCareer) => void;
+    const scene = await bootTrainingScene(makeTrainingApi({
+      completeTutorial: () => new Promise(resolve => { finishLate = resolve; }),
+    }));
+    const s = scene as any;
+    performGuidedActions(scene);
+    await flushMicrotasks();
+    const request = s.trainingRequest;
+    expect(request).toBeInstanceOf(AbortController);
+    s.cleanup();
+    expect(request.signal.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+    s.isExiting = false;
+    s.trainingRequest = new AbortController();
+    finishLate({ ...createDefaultCareer('training_player'), tutorialCompleted: true });
+    await flushMicrotasks();
+    expect(s.scene.start).not.toHaveBeenCalled();
+    expect(trackedNames()).not.toContain('tutorial_completed');
+    expect(storage.get(`crown_clash_training_progress_${s.platform.getUser().id}`)).toBe('5');
   });
 
   it('reload after a failed save: training resumes straight into the save flow without repeating any action', async () => {

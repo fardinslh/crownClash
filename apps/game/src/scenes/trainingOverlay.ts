@@ -592,6 +592,11 @@ export class TrainingOverlayUI {
     );
   }
 
+  showStartingMatch(): void {
+    if (this.destroyed) return;
+    this.celebrationSubtitle?.setText('TRAINING COMPLETE — STARTING BATTLE…');
+  }
+
   /** Light one-shot confetti burst from the banner (skipped when reduced). */
   private spawnConfetti(): void {
     if (this.destroyed || this.isReducedMotion()) return;
