@@ -46,46 +46,7 @@ export function evaluateAiMove(
     const targets = territoryList.filter((t) => t.id !== source.id);
 
     for (const target of targets) {
-      const dist = Math.hypot(target.x - source.x, target.y - source.y);
-      const distancePenalty = dist * 0.06;
-
-      let score = 0;
-
-      if (target.owner !== aiTeam) {
-        // Hostile territory (Neutral or Player)
-        const defenseStrength = getTerritoryDefenseStrength(target);
-        const canCapture = dispatchAmount > defenseStrength;
-        const unitAdvantage = dispatchAmount - defenseStrength;
-        const typeValue = target.type === 'barracks' ? 18 : target.type === 'stable' ? 14 : 10;
-
-        if (target.owner === 'player') {
-          // Priority on capturing player holdings or contesting them
-          if (canCapture) {
-            score = 110 + typeValue + unitAdvantage * 3 - distancePenalty;
-          } else {
-            score = 25 - target.units - distancePenalty;
-          }
-        } else {
-          // Neutral territory
-          if (canCapture) {
-            score = 65 + typeValue + (12 - defenseStrength) * 2 - distancePenalty;
-            // High strategic value for the Crown Keep (center) or high-tier fortress
-            if (target.id === 'n_center' || (target.tier >= 2 && target.type === 'fortress')) {
-              score += 35;
-            }
-          } else {
-            // Avoid suicide attacks on high-density neutral keeps
-            score = -50;
-          }
-        }
-      } else {
-        // Friendly reinforcement
-        if (target.units < 8 && source.units >= 16) {
-          score = 35 + (15 - target.units) * 1.5 - distancePenalty;
-        } else {
-          score = -20;
-        }
-      }
+      const score = scoreAiDispatch(source, target, aiTeam);
 
       if (score > bestScore) {
         bestScore = score;
@@ -98,4 +59,51 @@ export function evaluateAiMove(
   }
 
   return bestScore > AI_SCORE_EPSILON ? bestMove : null;
+}
+
+/** Shared scoring; the production evaluator retains its original iteration and ties. */
+export function scoreAiDispatch(source: Territory, target: Territory, aiTeam: 'player' | 'enemy'): number {
+  const dispatchAmount = calculateDispatchUnits(source.units, 0.5);
+  const dist = Math.hypot(target.x - source.x, target.y - source.y);
+  const distancePenalty = dist * 0.06;
+
+  let score = 0;
+
+  if (target.owner !== aiTeam) {
+    // Hostile territory (Neutral or Player)
+    const defenseStrength = getTerritoryDefenseStrength(target);
+    const canCapture = dispatchAmount > defenseStrength;
+    const unitAdvantage = dispatchAmount - defenseStrength;
+    const typeValue = target.type === 'barracks' ? 18 : target.type === 'stable' ? 14 : 10;
+
+    if (target.owner !== 'neutral') {
+      // Priority on capturing player holdings or contesting them
+      if (canCapture) {
+        score = 110 + typeValue + unitAdvantage * 3 - distancePenalty;
+      } else {
+        score = 25 - target.units - distancePenalty;
+      }
+    } else {
+      // Neutral territory
+      if (canCapture) {
+        score = 65 + typeValue + (12 - defenseStrength) * 2 - distancePenalty;
+        // High strategic value for the Crown Keep (center) or high-tier fortress
+        if (target.id === 'n_center' || (target.tier >= 2 && target.type === 'fortress')) {
+          score += 35;
+        }
+      } else {
+        // Avoid suicide attacks on high-density neutral keeps
+        score = -50;
+      }
+    }
+  } else {
+    // Friendly reinforcement
+    if (target.units < 8 && source.units >= 16) {
+      score = 35 + (15 - target.units) * 1.5 - distancePenalty;
+    } else {
+      score = -20;
+    }
+  }
+
+  return score;
 }

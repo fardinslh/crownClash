@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import type { GameplayLabController } from '../gameplay-lab/GameplayLabController.js';
 import type { GameplayLabUI } from '../gameplay-lab/GameplayLabUI.js';
 import type { GameplayLabLaunch } from '../gameplay-lab/GameplayLabScene.js';
+import { GameplayLabTap } from '../gameplay-lab/GameplayLabTap.js';
 import { anchoredArmyBadge, planArmyBadgeOffset, type ArmyBadgeOffset, type ArmyBadgeRoute } from '../art/ArmyBadgeLayout.js';
 import type { Rect } from '../ui/HudLayout.js';
 import {
@@ -348,6 +349,7 @@ export class GameScene extends Phaser.Scene {
   private labTargets?: Phaser.GameObjects.Graphics;
   private labCountdowns = new Map<string, Phaser.GameObjects.Text>();
   private labPageHide?: () => void;
+  private labTap = new GameplayLabTap();
   private careerManager!: CareerManager;
   private careerSubscription?: () => void;
   private playerArmySpeedMultiplier = 1;
@@ -1863,7 +1865,7 @@ export class GameScene extends Phaser.Scene {
   private createHud(): void {
     if (this.lab) {
       this.labUi = this.labLaunch!.createUi();
-      this.labUi.match(this.lab.battle.variant, () => this.finishLabMatch(true));
+      this.labUi.match(this.lab.variant, () => this.finishLabMatch(true), (id) => this.upgradeLabTerritory(id));
       this.labTargets = this.add.graphics().setDepth(this.boardLayout.overlayDepth(49));
       return;
     }
@@ -2373,6 +2375,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+      if (this.lab) { const point = this.labPointerCss(pointer); this.labTap.move(point.x, point.y); }
       if (this.isExiting || this.matchMenuController?.isOpen() || this.selectedSourceIds.length === 0) {
         return;
       }
@@ -2442,21 +2445,49 @@ export class GameScene extends Phaser.Scene {
       this.renderDragTrajectory(pointer);
     });
 
-    this.input.on('pointerup', () => {
+    this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
       if (this.isExiting || this.matchMenuController?.isOpen()) {
+        this.labTap.cancel();
         this.cancelDragSelection();
         return;
       }
+      const point = this.lab ? this.labPointerCss(pointer) : undefined;
+      const inspect = point ? this.labTap.finish(point.x, point.y, performance.now(), this.selectedSourceIds.length > 1 || Boolean(this.hoveredTargetId)) : undefined;
       this.handlePointerRelease();
+      if (inspect && this.lab && !this.resultPending) {
+        this.labUi?.inspect(inspect);
+        this.labUi?.update(this.gameState);
+      }
     });
   }
 
-  private startDragFromTerritory(territoryId: string, _pointer?: Phaser.Input.Pointer): void {
+  private labPointerCss(pointer: Phaser.Input.Pointer): { x: number; y: number } {
+    const bounds = this.game.canvas.getBoundingClientRect();
+    return { x: pointer.x * bounds.width / this.game.canvas.width, y: pointer.y * bounds.height / this.game.canvas.height };
+  }
+
+  private upgradeLabTerritory(id: string): void {
+    if (!this.lab || this.resultPending || this.selectedSourceIds.length || this.matchMenuController?.isOpen()) return;
+    if (!this.lab.battle.upgrade(id)) return;
+    this.gameState = this.lab.battle.state;
+    this.markTerritoriesDirty(); this.updateTerritoryVisuals();
+    const territory = this.gameState.territories[id];
+    const anchor = this.projectSocketPoint(territory.x, territory.y);
+    this.spawnFloatingText(anchor.u, anchor.v - 30, '-12 · PROD +50%', '#34d399');
+    sounds.playReinforce(); this.platform.hapticImpact('light');
+    this.labUi?.update(this.gameState);
+  }
+
+  private startDragFromTerritory(territoryId: string, pointer?: Phaser.Input.Pointer): void {
     if (this.isExiting || this.matchMenuController?.isOpen() || this.gameState.status !== 'playing') return;
 
     const territory = this.gameState.territories[territoryId];
     if (!territory) return;
 
+    if (this.lab && pointer) {
+      const point = this.labPointerCss(pointer);
+      this.labTap.begin(territory.id, point.x, point.y, performance.now());
+    }
     if (territory.owner === 'player' && territory.units > 1) {
       this.selectedSourceIds = [territoryId];
       this.lastHoveredFriendlyId = null;
@@ -4080,7 +4111,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateHud(): void {
-    if (this.lab) { this.labUi?.update(this.gameState); return; }
+    if (this.lab) { this.labUi?.update(this.gameState, this.selectedSourceIds.length > 0, this.resultPending); return; }
     // 1. Timer & Dynamic Tension Loop
     const remaining = Math.max(0, this.gameState.timeLimitSeconds - this.gameState.elapsedTimeSeconds);
     const roundedSecs = Math.floor(remaining);
@@ -6102,6 +6133,7 @@ export class GameScene extends Phaser.Scene {
     if (this.lab && this.lab.trial.battle.result === 'playing') this.lab.finish(true);
     if (this.labPageHide) window.removeEventListener('pagehide', this.labPageHide);
     this.labPageHide = undefined;
+    this.labTap.cancel();
     this.labUi?.destroy();
     this.labUi = undefined;
     this.labTargets = undefined;

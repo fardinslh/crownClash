@@ -1,8 +1,8 @@
 import Phaser from 'phaser';
 import { dismissStartupLoadingShell } from '../ui/StartupLoadingShell.js';
-import { GameplayLabController, GameplayLabStore, isGameplayLabRequested } from './GameplayLabController.js';
+import { GameplayLabController, GameplayLabStore, isGameplayLabRequested, type LabTrial } from './GameplayLabController.js';
 import { GameplayLabUI } from './GameplayLabUI.js';
-import type { GameplayLabVariant } from '@crown-clash/game-core';
+import type { EngagementVariant } from '@crown-clash/game-core';
 
 export interface GameplayLabLaunch {
   controller: GameplayLabController;
@@ -11,10 +11,10 @@ export interface GameplayLabLaunch {
   exit(): void;
 }
 
-export function createGameplayLabLaunch(store: GameplayLabStore, participant: number, variant: GameplayLabVariant, retryOf?: string): GameplayLabLaunch {
-  const controller = new GameplayLabController(store, participant, variant, retryOf);
+export function createGameplayLabLaunch(store: GameplayLabStore, participant: number, variant: EngagementVariant, retryOf?: string, kind: LabTrial['kind'] = 'practice'): GameplayLabLaunch {
+  const controller = new GameplayLabController(store, participant, variant, retryOf, kind);
   return { controller, createUi: () => new GameplayLabUI(), exit: exitGameplayLab,
-    retry: () => createGameplayLabLaunch(store, participant, variant, controller.trial.id) };
+    retry: () => createGameplayLabLaunch(store, participant, variant, controller.trial.id, 'optional') };
 }
 
 export function exitGameplayLab(): void {
@@ -34,8 +34,8 @@ export class GameplayLabScene extends Phaser.Scene {
       this.registry.set('gameplayLabStore', store);
     }
     const ui = new GameplayLabUI();
-    ui.selection(store, (participant, variant) => this.scene.start('GameScene', {
-      gameplayLab: createGameplayLabLaunch(store!, participant, variant),
+    ui.selection(store, (participant, variant, kind, retryOf) => this.scene.start('GameScene', {
+      gameplayLab: createGameplayLabLaunch(store!, participant, variant, retryOf, kind),
     }), exitGameplayLab);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => ui.destroy());
     dismissStartupLoadingShell();

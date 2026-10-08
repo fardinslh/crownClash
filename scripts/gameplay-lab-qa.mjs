@@ -67,102 +67,155 @@ async function run(width, height) {
       console.log(`PASS ${width}x${height}: production ignores gameplay_lab=1`);
       return;
     }
-    await wait(`Boolean(document.querySelector('#lab-roads'))`);
-    assert.equal(await evaluate(`document.querySelector('#loading-shell')?.style.display === 'none' || !document.querySelector('#loading-shell')`), true);
+    const scene = `window.__PHASER_GAME__.scene.getScene('GameScene')`;
+    const store=`window.__PHASER_GAME__.registry.get('gameplayLabStore')`;
+    const preReloadEvidence=[];
+    const variants = ['capture_recovery','capture_recovery_targets','capture_recovery_tactical','capture_recovery_upgrade'];
+    await wait(`Boolean(document.querySelector('#lab-pilot'))`);
+    await evaluate(`localStorage.setItem('crown_clash_gameplay_lab_v2','preserved-v2')`);
     await shot('selection');
-    await evaluate(`document.querySelector('#lab-roads').click()`);
-    await wait(`Boolean(document.querySelector('#lab-quit') && window.__PHASER_GAME__.scene.getScene('GameScene').lab)`);
-    await pause(500);
-    await evaluate(`(() => {const s=window.__PHASER_GAME__.scene.getScene('GameScene');s.scene.pause();s.gameState.territories.n_bot_right.owner='player';s.gameState.territories.n_bot_right.units=40;s.updateTerritoryVisuals();})()`);
+    const click = async (selector) => {
+      const point = await evaluate(`(() => { const b=document.querySelector(${JSON.stringify(selector)});if(!b||b.disabled)throw Error('Unavailable button '+${JSON.stringify(selector)});b.scrollIntoView({block:'center'});const r=b.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+      await cdp.send('Input.dispatchTouchEvent', {type:'touchStart',touchPoints:[point]});
+      await pause(40);
+      await cdp.send('Input.dispatchTouchEvent', {type:'touchEnd',touchPoints:[]});
+      await pause(100);
+    };
     const point = async (id) => evaluate(`(() => {
-      const g=window.__PHASER_GAME__, s=g.scene.getScene('GameScene'), v=s.territoryVisuals.get(${JSON.stringify(id)}).container;
-      const c=s.cameras.main, b=g.canvas.getBoundingClientRect();
-      const p=c.matrixCombined.transformPoint(v.x,v.y);
+      const g=window.__PHASER_GAME__,s=${scene},v=s.territoryVisuals.get(${JSON.stringify(id)}).container;
+      const b=g.canvas.getBoundingClientRect(),p=s.cameras.main.matrixCombined.transformPoint(v.x,v.y);
       return {x:b.left+p.x*b.width/g.canvas.width,y:b.top+p.y*b.height/g.canvas.height};
     })()`);
-    const source = await point('p_base'), secondSource = await point('n_bot_right'), target = await point('n_bot_left');
-    // Resume for real pointer input, then pause again to keep screenshots reproducible.
-    await evaluate(`window.__PHASER_GAME__.scene.getScene('GameScene').scene.resume();void 0`);
-    await pause(100);
-    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [source] });
-    await pause(60);
-    await wait(`window.__PHASER_GAME__.scene.getScene('GameScene').selectedSourceIds.includes('p_base')`);
-    await shot('roads-targets');
-    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [secondSource] });
-    await pause(60);
-    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [target] });
-    await pause(60);
-    assert.equal(await evaluate(`window.__PHASER_GAME__.scene.getScene('GameScene').hoveredTargetId`), 'n_bot_left');
-    assert.deepEqual(await evaluate(`window.__PHASER_GAME__.scene.getScene('GameScene').selectedSourceIds`), ['p_base', 'n_bot_right']);
-    assert.ok(await evaluate(`window.__PHASER_GAME__.scene.getScene('GameScene').dragBadgeText.text.endsWith('(2 bases)')`), 'preview must include both sources');
-    await shot('roads-preview');
-    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-    await wait(`window.__PHASER_GAME__.scene.getScene('GameScene').lab.battle.record.actions.some(a=>a.owner==='player'&&a.targetId==='n_bot_left')`);
-    if (process.env.CC_LAB_QA_NEGATIVE_CONTROL === 'roads') {
-      await evaluate(`(() => {const s=window.__PHASER_GAME__.scene.getScene('GameScene');s.lab.battle.state.rules.roadSpeedMultiplier=1;s.lab.battle.dispatch(['p_base'],'n_bot_left');})()`);
+    const tap = async (p) => {
+      await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[p]});await pause(40);
+      await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await pause(100);
+    };
+    const rate = async () => evaluate(`document.querySelector('#lab-repetition').value='2';document.querySelector('#lab-early').value='3';document.querySelector('#lab-unfair').value='2';document.querySelector('#lab-rate').click()`);
+    const finish = async () => {
+      const result = await evaluate(`(() => {const s=${scene};s.scene.pause();let frames=0;while(s.gameState.status==='playing'&&frames<1000)s.update(++frames*250,250);return {status:s.gameState.status,result:s.lab.trial.battle.result,pending:s.resultPending};})()`);
+      assert.ok(['victory','defeat','draw'].includes(result.status),'real simulation must finish');
+      assert.equal(result.result,result.status);assert.equal(result.pending,true);
+      await wait(`Boolean(document.querySelector('#lab-rate'))`);return result;
+    };
+    for (const [index,variant] of variants.entries()) {
+      await click(`#lab-${variant}`);await wait(`Boolean(document.querySelector('#lab-quit'))`);await pause(250);
+      await tap(await point('p_base'));
+      assert.equal(await evaluate(`document.querySelector('#lab-inspector').hidden`),false,'short touch must inspect');
+      assert.equal(await evaluate(`${scene}.lab.battle.record.actions.filter(a=>a.owner==='player').length`),0,'tap must not attack');
+      assert.match(await evaluate(`document.querySelector('#lab-inspect').textContent`),/PROD .*DEF .*SPD/);
+      await shot(`${'CDEF'[index]}-inspect`);
+      await tap(await point('n_bot_right'));
+      assert.match(await evaluate(`document.querySelector('#lab-inspect').textContent`),/neutral/);
+      if(index===1)assert.match(await evaluate(`document.querySelector('#lab-inspect').textContent`),/PROD 0.90\/s/);
+      await tap(await point('e_base'));
+      assert.match(await evaluate(`document.querySelector('#lab-inspect').textContent`),/enemy/);
+      await tap(await point('p_base'));
+      if (index===3) {
+        await evaluate(`${scene}.scene.pause();void 0`);
+        const before=await evaluate(`${scene}.gameState.territories.p_base.units`);
+        assert.ok(await evaluate(`document.querySelector('#lab-upgrade').getBoundingClientRect().height>=46`));
+        await click('#lab-upgrade');
+        assert.equal(await evaluate(`${scene}.gameState.territories.p_base.units`),before-12,'actual touch must pay the exact cost');
+        assert.equal(await evaluate(`${scene}.gameState.productionUpgrades.p_base`),true);
+        assert.equal(await evaluate(`document.querySelector('#lab-upgrade').disabled`),true);
+        const production=await evaluate(`document.querySelector('#lab-inspect').textContent`);assert.match(production,/PROD 1.80\/s/);
+        await shot('F-upgrade');
+        await evaluate(`(() => {const s=${scene};s.gameState.territories.p_base.owner='enemy';s.labUi.update(s.gameState);})()`);
+        assert.equal(await evaluate(`document.querySelector('#lab-upgrade').hidden`),true,'ownership loss hides the owned-base action immediately');
+        assert.match(await evaluate(`document.querySelector('#lab-inspect').textContent`),/enemy/);
+        await evaluate(`${scene}.gameState.territories.p_base.owner='player';${scene}.labUi.update(${scene}.gameState)`);
+        await evaluate(`${scene}.scene.resume();void 0`);
+      } else assert.equal(await evaluate(`Boolean(document.querySelector('#lab-upgrade'))`),false);
+      // Controlled two-source fixture verifies real pointer selection, without claiming it is a human match.
+      await evaluate(`(() => {const s=${scene};s.gameState.territories.p_base.units=40;s.gameState.territories.n_bot_right.owner='player';s.gameState.territories.n_bot_right.units=40;s.updateTerritoryVisuals();})()`);
+      const source=await point('p_base'),second=await point('n_bot_right'),target=await point('n_bot_left');
+      await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[source]});await pause(40);
+      if(index===3)assert.equal(await evaluate(`document.querySelector('#lab-upgrade').disabled`),true,'upgrade disabled while dragging');
+      await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[second]});await pause(40);
+      await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[target]});await pause(40);
+      assert.deepEqual(await evaluate(`${scene}.selectedSourceIds`),['p_base','n_bot_right']);
+      assert.equal(await evaluate(`${scene}.hoveredTargetId`),'n_bot_left');
+      await shot(`${'CDEF'[index]}-drag`);
+      await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await pause(80);
+      assert.equal(await evaluate(`${scene}.lab.battle.record.actions.filter(a=>a.type==='dispatch'&&a.owner==='player'&&a.targetId==='n_bot_left').length`),2);
+      await shot(`${'CDEF'[index]}-match`);
+      if(index===0){
+        const countdown=await evaluate(`(() => {const s=${scene};s.scene.pause();while(s.lab.battle.state.territories.n_bot_left.owner!=='player'&&s.lab.battle.tick<250)s.lab.battle.step();s.gameState=s.lab.battle.state;s.updateTerritoryVisuals();s.updateLabIndicators();return s.labCountdowns.get('n_bot_left')?.text;})()`);
+        assert.equal(countdown,'PROD 50%\n3.0s');await shot('C-capture-recovery');
+      }
+      await click('#lab-quit');await wait(`Boolean(document.querySelector('#lab-rate'))`);await rate();
+      if(index===3){await click('#lab-retry');await wait(`Boolean(document.querySelector('#lab-quit'))`);
+        assert.equal(await evaluate(`${scene}.lab.trial.kind`),'optional');await click('#lab-quit');}
+      await click('#lab-choose');await wait(`Boolean(document.querySelector('#lab-pilot'))`);
     }
-    const roads = await evaluate(`(() => {const s=window.__PHASER_GAME__.scene.getScene('GameScene'),b=s.lab.battle;
-      s.scene.pause();const a=b.state.armies.filter(a=>a.owner==='player'&&a.targetId==='n_bot_left');
-      return {sources:a.map(a=>a.sourceId),bonus:a.filter(a=>a.sourceId==='p_base').at(-1)?.speed/(1/Math.max(1,Math.hypot(115,125)/140)),
-        remote:b.dispatch(['p_base'],'e_base').armies.length};})()`);
-    assert.deepEqual(roads.sources.slice(0, 2), ['p_base', 'n_bot_right'], 'touch multi-attack must dispatch both sources');
-    assert.ok(Math.abs(roads.bonus - 1.25) < 1e-12, 'direct road must grant 25% speed bonus');
-    assert.equal(roads.remote, 1, 'non-adjacent dispatch must remain available');
-    await evaluate(`document.querySelector('#lab-quit').click()`);
-    await wait(`Boolean(document.querySelector('#lab-retry'))`);
-    await evaluate(`document.querySelector('#lab-repetition').value='2';document.querySelector('#lab-early').value='3';document.querySelector('#lab-rate').click()`);
-    await shot('result');
-    assert.equal(await evaluate(`window.__PHASER_GAME__.scene.getScene('GameScene').lab.trial.ratings.repetition`), 2);
-    await evaluate(`document.querySelector('#lab-retry').click()`);
-    await wait(`Boolean(document.querySelector('#lab-quit'))`);
-    assert.equal(await evaluate(`window.__PHASER_GAME__.scene.getScene('GameScene').resultPending`), false);
-    assert.ok(await evaluate(`Boolean(window.__PHASER_GAME__.scene.getScene('GameScene').lab.trial.retryOf)`));
-    await evaluate(`document.querySelector('#lab-quit').click();document.querySelector('#lab-choose').click()`);
-    await wait(`Boolean(document.querySelector('#lab-capture_recovery'))`);
-    await evaluate(`document.querySelector('#lab-capture_recovery').click()`);
-    await wait(`Boolean(document.querySelector('#lab-quit'))`);
-    await pause(800);
-    await evaluate(`(() => {const s=window.__PHASER_GAME__.scene.getScene('GameScene');s.scene.pause();const r=s.lab.battle.dispatch(['p_base'],'n_bot_left');if(r.armies.length!==1)throw Error('missing capture dispatch');while(s.lab.battle.state.territories.n_bot_left.owner!=='player'&&s.lab.battle.tick<200)s.lab.battle.step();s.gameState=s.lab.battle.state;s.updateTerritoryVisuals();s.updateLabIndicators();})()`);
-    const capture = await evaluate(`(() => {const s=window.__PHASER_GAME__.scene.getScene('GameScene');return {owner:s.gameState.territories.n_bot_left.owner,text:s.labCountdowns.get('n_bot_left')?.text};})()`);
-    assert.equal(capture.owner, 'player'); assert.equal(capture.text, 'PROD 50%\n3.0s');
-    await shot('capture-countdown');
-    await evaluate(`(() => {const s=window.__PHASER_GAME__.scene.getScene('GameScene');for(let i=0;i<75;i++)s.lab.battle.step();s.gameState=s.lab.battle.state;s.updateTerritoryVisuals();s.updateLabIndicators();})()`);
-    assert.equal(await evaluate(`window.__PHASER_GAME__.scene.getScene('GameScene').labCountdowns.get('n_bot_left').text`), 'PROD 75%\n1.5s');
-    await shot('capture-recovery');
-    // Finish through the scene's real update path so automatic terminal UI and
-    // persistence are verified without assigning a synthetic match result.
-    const terminal = await evaluate(`(() => {
-      const s=window.__PHASER_GAME__.scene.getScene('GameScene');
-      let frames=0;
-      while(s.gameState.status==='playing' && frames<1000)s.update(++frames*250,250);
-      return {status:s.gameState.status,result:s.lab.trial.battle.result,pending:s.resultPending,frames};
-    })()`);
-    assert.ok(['victory','defeat','draw'].includes(terminal.status), 'scene must reach a real terminal result');
-    assert.equal(terminal.result, terminal.status, 'persisted result must match the battle');
-    assert.equal(terminal.pending, true, 'automatic finish must freeze the match');
-    await wait(`Boolean(document.querySelector('#lab-retry'))`);
-    await shot('automatic-result');
-    const importFile = path.join(out, `${width}x${height}-import.json`);
-    fs.writeFileSync(importFile, await evaluate(`window.__PHASER_GAME__.scene.getScene('GameScene').lab.store.exportJson()`));
-    await evaluate(`document.querySelector('#lab-choose').click()`);
-    await wait(`Boolean(document.querySelector('#lab-import-file'))`);
-    await cdp.send('DOM.enable');
-    const dom = await cdp.send('DOM.getDocument');
-    const input = await cdp.send('DOM.querySelector', { nodeId: dom.root.nodeId, selector: '#lab-import-file' });
-    assert.ok(input.nodeId, 'import file input must exist');
-    await cdp.send('DOM.setFileInputFiles', { nodeId: input.nodeId, files: [importFile] });
+    const fixtureEvidence=await evaluate(`${store}.data.trials`);
+    assert.equal(fixtureEvidence.filter(t=>t.kind==='practice').length,4);
+    // Controlled state fixtures are not importable engine histories or pilot data.
+    await evaluate(`${store}.data.trials=[];${store}.save()`);
+    // Eight unmodified main matches through the scene's real terminal and persistence path.
+    for(let i=0;i<8;i++){
+      await click('#lab-pilot');await wait(`Boolean(document.querySelector('#lab-quit'))`);
+      assert.equal(await evaluate(`${scene}.lab.trial.pilotIndex`),i);
+      await finish();await rate();
+      if(i>=4){
+        assert.ok(await evaluate(`Boolean(document.querySelector('#lab-continue')&&document.querySelector('#lab-optional'))`));
+        const choices=await evaluate(`['#lab-continue','#lab-optional'].map(id=>{const b=document.querySelector(id),r=b.getBoundingClientRect();return {width:r.width,height:r.height,background:getComputedStyle(b).backgroundColor};})`);
+        assert.deepEqual(choices[0],choices[1],'offer choices have equal visual weight');
+        await shot(`offer-${i}`);
+        if(i===4){
+          preReloadEvidence.push(await evaluate(`window.__labQa`));
+          await cdp.send('Page.reload');
+          await wait(`Boolean(document.querySelector('#lab-optional')&&document.querySelector('#lab-pilot'))`);
+          assert.equal(await evaluate(`document.querySelector('#lab-pilot').disabled`),true,'reload must preserve the unanswered offer');
+          await click('#lab-optional');await wait(`Boolean(document.querySelector('#lab-quit'))`);
+          assert.equal(await evaluate(`${scene}.lab.trial.kind`),'optional');await click('#lab-quit');await click('#lab-choose');}
+        else await click('#lab-continue');
+      }else await click('#lab-choose');
+      await wait(`Boolean(document.querySelector('#lab-pilot'))`);
+    }
+    await evaluate(`document.querySelector('#lab-preference').value='capture_recovery_upgrade';document.querySelector('#lab-reflection').value='Test fixture: invest earlier';document.querySelector('#lab-feedback').click()`);
+    const importFile=path.join(out,`${width}x${height}-import.json`);
+    fs.writeFileSync(importFile,await evaluate(`${store}.exportJson()`));
+    await click('#lab-export');
+    await cdp.send('DOM.enable');const dom=await cdp.send('DOM.getDocument');
+    const input=await cdp.send('DOM.querySelector',{nodeId:dom.root.nodeId,selector:'#lab-import-file'});
+    assert.ok(input.nodeId);await cdp.send('DOM.setFileInputFiles',{nodeId:input.nodeId,files:[importFile]});
     await wait(`document.querySelector('#lab-status').textContent.startsWith('Data jam shod')`);
-    const evidence = await evaluate(`({events:window.__labQa.events,writes:window.__labQa.writes,data:JSON.parse(localStorage.getItem('crown_clash_gameplay_lab_v2'))})`);
-    assert.deepEqual(evidence.events, [], 'lab must emit no production analytics');
-    assert.ok(evidence.writes.includes('crown_clash_gameplay_lab_v2'), 'lab persistence must actually run');
-    assert.deepEqual(evidence.writes.filter((key) => /career|ledger|daily|league/.test(key)), [], 'career data must not be written');
-    assert.equal(evidence.data.trials.length, 3);
-    assert.equal(evidence.data.trials[2].battle.result, terminal.status);
-    assert.equal(evidence.data.trials[2].events[1].name, 'end');
-    await network.assertHealthy(); assert.deepEqual(network.blocked, [], 'lab must not request external services');
-    assert.deepEqual(errors, [], 'browser must have no runtime errors');
-    fs.writeFileSync(path.join(out, `${width}x${height}-evidence.json`), JSON.stringify({ ...evidence, blocked: network.blocked }, null, 2));
-    console.log(`PASS ${width}x${height}: touch multi-attack, road speed bonus, production recovery, automatic result, retry, import, isolated storage and analytics`);
+    assert.equal(await evaluate(`localStorage.getItem('crown_clash_gameplay_lab_v2')`),'preserved-v2');
+    // Browser CPU throttling is applied to the actual E evaluator, using shared-engine state.
+    await cdp.send('Emulation.setCPUThrottlingRate',{rate:4});
+    const performanceEvidence=await evaluate(`(async()=>{
+      const core=await import('/@fs'+${JSON.stringify(path.resolve('packages/game-core/src/index.ts'))});
+      const b=new core.GameplayLabBattle('capture_recovery_tactical',false);
+      for(const [i,t] of Object.values(b.state.territories).entries()){t.owner=i%2?'player':'enemy';t.units=40;}
+      const sources=Object.values(b.state.territories);
+      for(let i=0;i<18;i++){const from=sources[i%sources.length],to=sources[(i+4)%sources.length];
+        const d=core.dispatchArmy(from,to,from.owner,.5,()=> 'perf_'+i,1,b.state);
+        if(d.army)b.state.armies.push({...d.army,progress:0});}
+      // Long travel exercises all 250 ticks; there are no speculative commands.
+      for(const a of b.state.armies)a.speed=.18;
+      const defense=structuredClone(b.state);
+      defense.armies.forEach((a,i)=>{a.speed=.35+(i%4)*.15;a.units=i%3?18:50;});
+      const cases=[b.state,defense];
+      for(let i=0;i<30;i++)core.evaluateTacticalLabMove(cases[i%2],{});
+      const times=[];for(let i=0;i<120;i++){const start=performance.now();core.evaluateTacticalLabMove(cases[i%2],{});times.push(performance.now()-start);}
+      if(${JSON.stringify(process.env.CC_LAB_QA_NEGATIVE_CONTROL==='performance')})times.push(60,60,60,60,60,60,60,60);
+      times.sort((a,b)=>a-b);return {rate:4,samples:times.length,armies:b.state.armies.length,p95:times[Math.ceil(times.length*.95)-1],max:times.at(-1)};
+    })()`);
+    assert.ok(performanceEvidence.armies===18,'performance fixture must actually exercise army forecasting');
+    assert.ok(performanceEvidence.p95<16,`AI p95 must be <16ms: ${JSON.stringify(performanceEvidence)}`);
+    assert.ok(performanceEvidence.max<=50,`no AI decision may exceed 50ms: ${JSON.stringify(performanceEvidence)}`);
+    await cdp.send('Emulation.setCPUThrottlingRate',{rate:1});
+    const evidence=await evaluate(`({events:window.__labQa.events,writes:window.__labQa.writes,data:JSON.parse(localStorage.getItem('crown_clash_gameplay_lab_v3'))})`);
+    evidence.events=[...preReloadEvidence.flatMap(e=>e.events),...evidence.events];
+    evidence.writes=[...preReloadEvidence.flatMap(e=>e.writes),...evidence.writes];
+    assert.deepEqual(evidence.events,[]);assert.ok(evidence.writes.includes('crown_clash_gameplay_lab_v3'));
+    assert.deepEqual(evidence.writes.filter(key=>/career|ledger|daily|league/.test(key)),[]);
+    assert.equal(evidence.data.trials.filter(t=>t.kind==='main').length,8);
+    assert.equal(evidence.data.offers.length,4);assert.equal(evidence.data.offers.filter(o=>o.decision==='replay').length,1);
+    await network.assertHealthy();assert.deepEqual(network.blocked,[]);assert.deepEqual(errors,[]);
+    fs.writeFileSync(path.join(out,`${width}x${height}-evidence.json`),JSON.stringify({...evidence,fixtureEvidence,performance:performanceEvidence,blocked:network.blocked},null,2));
+    console.log(`PASS ${width}x${height}: four variants, real touch, upgrade, main quota, offers, retry, automatic result, import/export, isolated storage/analytics; AI ${JSON.stringify(performanceEvidence)}`);
   } finally {
     ws?.close(); chrome.kill();
     await pause(300); fs.rmSync(profile, { recursive: true, force: true });

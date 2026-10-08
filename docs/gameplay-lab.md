@@ -1,90 +1,104 @@
-# Gameplay Lab
+# آزمایش engagement روی پایهٔ C — نسخهٔ ۳
 
-Prototype-e local baraye moghayese-ye A (mabna), B (bonus-e jadde) va C (recovery-e tolid).
-Voroodi faghat dar development faal-e. Match-ha login, settlement, reward,
-rank, daily progress ya event-e analytics-e production nadaran.
+این Lab فقط در development و با `?gameplay_lab=1` فعال است. هدف، آماده کردن پایلوت «یک دست دیگر» است؛ انتشار gameplay اصلی و سنجش retention در این مرحله انجام نمی‌شوند. مسیر Lab به login، settlement، reward، career و analytics تولیدی وصل نیست. فایل نقشهٔ مشترک سرور تغییر نکرده است.
 
-## Ejra
+## اجرا
 
 ```sh
 npm --workspace=apps/game run dev -- --host 0.0.0.0
 ```
 
-Dar browser `http://localhost:3000/?gameplay_lab=1` ro baz kon.
-Baraye mobile az IP-e local-e computer ba hamin port va query estefade kon.
-Har do taraf ba 20 niroo va modifier-e 1, rooye `crown_cross` bazi mikonan.
+آدرس روی کامپیوتر: `http://localhost:3000/?gameplay_lab=1`. برای گوشی، IP محلی کامپیوتر را جایگزین localhost کنید.
 
-- A: ghavanin-e alan.
-- B: hamle va reinforcement be har hadaf azad-e. Source-e vasl ba jadde-ye
-  mostaghim, 25% sorat-e bishtar dare; masiryabi-e khodkar nadarim. Dar multi-select,
-  hame-ye source-ha ersal mikonan va bonus baraye har masir joda hesab mishe.
-  Highlight neshan-e bonus-e jadde-st. Bot ham hamin bonus ro migire.
-- C: pas az fath-e neutral ya doshman, tolid az hamoon tick ba 50% shoroo mishe
-  va khatti, tey 150 tick-e 20ms (3s), be 100% mires-e. Recapture dar recovery,
-  deadline ro reset nemikone. Fath pas az takmil-e recovery, recovery-e jadid
-  misaze. Reinforcement reset nemikone. Defa va ersal azad-an. Progress-e
-  tolid-e malek-e ghabli montaghel nemishe. Label darsad va zaman-e baghimande ro neshon mide.
+هر چهار نسخه روی `crown_cross` با ۲۰ نیرو، ارسال ۵۰٪، سقف ۹۰ ثانیه و تصمیم بات هر ۱٫۸ ثانیه اجرا می‌شوند. پس از تصرف، تولید از ۵۰٪ طی ۱۵۰ tick بیست‌میلی‌ثانیه‌ای به ۱۰۰٪ می‌رسد. تصرف مجدد در recovery، مهلت را تمدید نمی‌کند. ضرایب نوع ساختمان حفظ شده‌اند.
 
-Bonus-e 25%, tolid-e aval-e 50% va recovery-e 150 tick dar `gameplay-rules.ts`
-taarif shodan. In adad-ha baraye prototype-an va bayad ba playtest sanjide beshan.
+| نسخه | تغییر مستقل | مشکل بازیکن / فرضیه | معیار / کوچک‌ترین اعتبارسنجی |
+|---|---|---|---|
+| C | قوانین recovery و بات فعلی | مرجع آزمایش | دو match اصلی و پیشنهاد replay |
+| D | هزینه و تولید هدف‌ها | انتخاب هدف ممکن است تکراری باشد؛ تصرف ارزان در برابر تولید بیشتر | replay اختیاری، انتخاب‌های آغازین؛ فقط override محلی نقشه |
+| E | پیش‌بینی و دفاع تاکتیکی | بات ممکن است حمله‌های آشکار را نادیده بگیرد؛ بازیکن ناچار به تغییر برنامه شود | replay و احساس انصاف؛ فقط evaluator مخصوص Lab |
+| F | ارتقای تولید با نیرو | تصمیم میان قدرت فوری و سود آینده کم است | replay و زمان ارتقا؛ فقط یک ارتقا در هر دورهٔ مالکیت |
 
-## Playtest-e 6 nafar
+این تغییرها اکنون آزمایش می‌شوند چون C بهترین پایهٔ فعلی بوده، ولی هنوز شاهدی برای افزایش engagement نداریم. سیستم اقتصاد، قهرمان و multiplayer جدید اضافه نشده است.
 
-Har nafar yek shomare-ye 1 ta 6 entekhab kone. Tartib-e pishnahadi baraye
-har shomare dar safhe hast: har noskhe do bar, ba tartib-e charkheshi.
-Ba'd az har match, emtiaz-e tekrar va maloom shodan-e zoodhangam-e natije
-ro az 1 (kam) ta 5 (ziyad) sabt kone. Dar akhar, noskhe-ye tarjihi ro entekhab kone.
+تنظیمات مشترک و چهار profile در `packages/game-core/src/gameplay-lab-config.ts` قرار دارند. اعداد طی یک دورهٔ playtest ثابت می‌مانند؛ تغییر قواعد یا اعداد برای دورهٔ بعد نیازمند نسخهٔ جدید داده است.
 
-Retry-e ekhtiari jodagane sabt mishe; jozv-e 6 match-e asli hesab nemishe.
-Quit ham sabt mishe va bayad match-e asli dobare anjam beshe.
-Preference faghat pas az takmil-e match-ha dar tahlil estefade mishe.
+### D: هدف‌ها
 
-Data dar `crown_clash_gameplay_lab_v2` zakhire mishe va ba Export JSON khorooji
-migire. Export shamel action-ha-ye har do taraf, capture-ha, snapshot-e har
-saniye, natije, quit, retry, rating va gozaresh-e pilot-e.
-Schema va rules version-e in azmayesh 2-e. Data-ye version-e 1 dar key-e ghabli
-hefz mishe, vali load/import nemishe ta ghavanin-e motefavet moghayese nashan.
-Dar chand device, JSON-ha ro ba shomare-ye yekta-ye bazikon jam kon va ba
-Import JSON dar safhe-ye entekhab import kon. Trial-ha ba ID edgham mishan;
-import-e dobare tedad-e match ro ziyad nemikone. Baraye trial ya preference-e
-tekrar-shode, file-ye akhar estefade mishe. JSON-e namotabar rad mishe;
-owner, niroo, capture, snapshot va tartib-e tick-ha ham validate mishan.
-Ba Export JSON, gozaresh-e data-ye jam-shode ro migiri.
+| پایگاه | نیروی اولیهٔ خنثی | تولید پایه در ثانیه |
+|---|---:|---:|
+| `n_bot_left`, `n_top_right` | ۹ | ۱٫۴ |
+| `n_bot_right`, `n_top_left` | ۶ | ۰٫۹ |
+| `n_mid_left`, `n_mid_right` | ۱۲ | ۱٫۱ |
+| `n_center` | ۱۶ | ۱٫۴ |
 
-Gate-e pilot: hadeaghal 4 az 6 nafar B ya C ro tarjih bedan va median-e
-har do rating dar do match-e asli-e har nafar az A bishtar nashe. Ta data-ye
-hame-ye nafarat takmil nashe, report hich candidate-i moarefi nemikone.
-Taghyir-e lead va faghed-e capture boodan faghat proxy-an; retention ro sabet nemikonan.
+نوع، موقعیت و ظرفیت حفظ شده‌اند. مثلاً ضریب ۱٫۲۵ پادگان همچنان روی نرخ پایه ضرب می‌شود.
 
-## Verification
+### E: بات تاکتیکی
+
+Evaluator همان state و accumulator فعلی را با موتور مشترک، بدون فرمان آینده، تا پنج ثانیه جلو می‌برد. زودترین تهدید تصرف اولویت دارد. نزدیک‌ترین منبعی انتخاب می‌شود که ۵۰٪ نیرویش کسری دفاع و دو نیروی ذخیره را پوشش دهد و پیش از حمله برسد. منابعی که با ارسال آسیب‌پذیر می‌شوند کنار گذاشته می‌شوند. در نبود دفاع قابل اجرا، امتیازدهی فعلی استفاده می‌شود؛ حملهٔ تکراری به هدفی که forecast نشان می‌دهد با نیروهای در راه تصرف خواهد شد، حذف می‌شود. تساوی‌ها با ID شکسته می‌شوند. نیرو، تولید، سرعت و تعداد فرمان بات با بازیکن برابر است.
+
+### F: سرمایه‌گذاری
+
+ارتقا ۱۲ نیرو هزینه دارد؛ حداقل ۱۳ نیرو لازم است و یک مدافع می‌ماند. تولید فوراً ۱٫۵ برابر می‌شود و با ضریب recovery و نوع ساختمان ضرب می‌شود. سرعت، دفاع و ظرفیت تغییر نمی‌کنند. هر پایگاه در هر دورهٔ مالکیت فقط یک بار ارتقا می‌یابد؛ capture ارتقا را پاک می‌کند. درخواست نامعتبر یا تکراری اثر ندارد.
+
+بات با حداقل ۲۴ نیرو، نبود حملهٔ دشمن در پنج ثانیه و زمان باقی‌ماندهٔ حداقل دو برابر payback، کوتاه‌ترین سرمایه‌گذاری را انتخاب می‌کند. محاسبهٔ payback، recovery باقی‌مانده را هم لحاظ می‌کند. ارتقا جای همان فرمان نوبت را می‌گیرد.
+
+Tap حداکثر ۲۵۰ms با بیشترین جابه‌جایی کمتر از ۱۰ پیکسل CSS، اطلاعات تولید مؤثر، دفاع و سرعت را نشان می‌دهد. Drag و multi-select فرمان حمله‌اند. فقط در F و روی پایگاه خودی، دکمهٔ حداقل ۴۶px «۱۲ نیرو → تولید +۵۰٪» نمایش داده می‌شود. هنگام drag، پایان بازی، کمبود نیرو یا ارتقای قبلی غیرفعال است. هزینه و افزایش تولید بازخورد عددی، صدا و درخواست haptic سبک دارند. با تغییر مالکیت، پنل همان frame به‌روز می‌شود.
+
+## اجرای پایلوت
+
+شش نفر، هر نفر دو match اصلی از هر نسخه: جمعاً ۴۸ match اصلی. شمارهٔ هر نفر باید روی همهٔ دستگاه‌ها یکتا و ثابت باشد.
+
+| نفر | دور اول | دور دوم |
+|---|---|---|
+| ۱ | CDEF | FEDC |
+| ۲ | DEFC | CFED |
+| ۳ | EFCD | DCFE |
+| ۴ | FCDE | EDCF |
+| ۵ | CFED | DEFC |
+| ۶ | DCFE | EFCD |
+
+برای سهمیه فقط دکمهٔ «Match-e asli-e ba’d» را بزنید. چهار دکمهٔ نسخه‌ها practice هستند. پس از چهار match می‌توان استراحت کرد. Quit ثبت می‌شود و سهمیه را جلو نمی‌برد. Retry همیشه optional است.
+
+بعد از هر match اصلی، هر سه امتیاز منفی را از ۱ تا ۵ ثبت کنید: تکراری بودن، زود معلوم شدن نتیجه و ناعادلانه بودن. پس از دومین match اصلی هر نسخه، دو انتخاب با وزن بصری برابر نمایش داده می‌شوند: ادامهٔ تست و یک دست دیگر. پیشنهاد و اولین پاسخ هر نفر/نسخه ذخیره می‌شوند. بازی optional سهمیه و معیار اصلی را زیاد نمی‌کند. Rating یا offer بی‌پاسخ بعد از برگشت به صفحهٔ انتخاب یا reload قابل تکمیل است.
+
+پس از هشت match، نسخهٔ ترجیحی و یک تصمیمی که در دست بعد عوض می‌کنید ثبت کنید. دادهٔ همهٔ نفرات را با Export JSON جمع کنید و در صفحهٔ انتخاب Import کنید.
+
+### داده و معیار تصمیم
+
+Schema و rules هر دو ۳ هستند. ذخیره فقط در `crown_clash_gameplay_lab_v3` انجام می‌شود. دادهٔ v2 حفظ می‌شود و load/import/merge نمی‌شود. وارد کردن مجدد همان export، تعداد trial و offer را افزایش نمی‌دهد. دادهٔ ناسازگار، فرمان غیرقابل اجرا، snapshot خلاف replay، سهمیهٔ تکراری و offer متناقض رد می‌شوند و دادهٔ موجود حفظ می‌شود. پاسخ ثبت‌شدهٔ offer با import دیگری قابل عوض کردن نیست.
+
+Export شامل فرمان‌های `dispatch` و `upgrade` هر دو طرف، tick، captureها، snapshotهای یک‌ثانیه‌ای، نتیجه و مدت، نوع trial، retry، ratingها، پیشنهاد/پاسخ replay، ترجیح، reflection و report است. Replay بات را دوباره تصمیم‌گیری نمی‌کند؛ دقیقاً فرمان‌های ثبت‌شده را اجرا می‌کند. Snapshot هر tick پیش از فرمان‌های همان tick گرفته می‌شود تا replay یکسان بماند.
+
+معیار اصلی تعداد نفراتی است که در اولین پیشنهاد همان نسخه، replay را انتخاب کردند. معیارهای کمکی سه rating منفی، quit، نتیجه و مدت‌اند. انتخاب‌های آغازین، reinforcement، counterattack و زمان/تعداد ارتقا شواهد تاکتیکی‌اند؛ engagement را اثبات نمی‌کنند. تعریف عملیاتی counterattack در گزارش، حمله به پایگاهی است که همین مالک در پنج ثانیهٔ اخیر از دست داده است.
+
+تا هر شش نفر هشت match معتبر، تمام ratingها، چهار پاسخ offer، ترجیح و reflection را ثبت نکنند، report هیچ نامزدی اعلام نمی‌کند. پس از تکمیل، یک نسخه باید حداقل چهار ترجیح، حداقل دو انتخاب replay بیشتر از C و median هر سه rating منفی حداکثر برابر C داشته باشد. این پایلوت اثبات retention نیست؛ ترکیب تغییرهای موفق موضوع آزمایش بعدی است.
+
+## اعتبارسنجی
 
 ```sh
 npm test
 npm run typecheck
 npm run build
 CROSS_ENGINE_GO_MODE=host npm run test:parity
+CROSS_ENGINE_GO_MODE=host npm run test:parity:2v2
 npm run test:gameplay-lab
 npm run test:qa:gameplay-lab
+node scripts/serve-dist.mjs 4173
+CC_QA_EXPECT_PRODUCTION=1 CC_QA_APP_URL='http://127.0.0.1:4173/?gameplay_lab=1' npm run test:qa:gameplay-lab
 ```
 
-QA-e browser be dev server va Chrome niaz dare. Touch-e multi-attack, retry,
-natije-ye khodkar va import/export ro dar 360x640 va 390x844 check mikone.
-Profile-ha dar temporary
-directory-an; screenshots va evidence dar `qa-artifacts/gameplay-lab`-an.
-Simulation 54 match ba rush, expansion va counterattack va jabejayi-e
-taraf-ha ejra mikone. Har match bayad ba replay state-e daghighan yeksan bede.
+QA به dev server و Chrome نیاز دارد. از رویدادهای واقعی touch از طریق CDP در ۳۶۰×۶۴۰ و ۳۹۰×۸۴۴ استفاده می‌کند. چهار نسخه، tap خودی/خنثی/دشمن، drag، multi-select، ارتقا، recovery، نتیجهٔ خودکار، هشت match اصلی، offer، retry و import/export بررسی می‌شوند. fixtureهای کنترل‌شدهٔ pointer پیش از import کنار گذاشته می‌شوند؛ export آزمون import از matchهای واقعی موتور ساخته می‌شود. این داده‌ها playtest انسانی نیستند.
 
-## Natije-ye simulation-e rules version 2
+AI با CPU throttling واقعی ۴×، ۱۲۰ تصمیم پس از warmup و forecast دارای ارتش‌های در راه اندازه‌گیری می‌شود. شرط پذیرش p95 کمتر از ۱۶ms و max حداکثر ۵۰ms است. کنترل منفی benchmark:
 
-| Noskhe | Match | Match-e ta time limit | Miyangin-e capture |
-|---|---:|---:|---:|
-| A | 18 | 4 | 22.5 |
-| B | 18 | 9 | 20.7 |
-| C | 18 | 4 | 22.4 |
+```sh
+CC_LAB_QA_NEGATIVE_CONTROL=performance npm run test:qa:gameplay-lab
+```
 
-Dar in policy-ha, hich match-i 30 saniye-ye akhar ro bedoon capture nagozarond.
-B bishtar be time limit resid; in yek risk baraye kesh omadane match-e.
-Counterattack dar B, 9 az 12 appearance ro bord; in neshane-ye risk-e balance-e,
-na saboot-e strategy-e ghaleb dar bazi-e ensani.
-In data-ye scripted-e, na playtest-e ensani. Pilot-e 6 nafar hanooz anjam nashode.
-Ghavanin-e server baraye rollout-e in prototype taghyir nakardan.
+این فرمان باید به علت تزریق زمان ۶۰ms شکست بخورد. Profile مرورگر در پوشهٔ موقت ساخته و پاک می‌شود. Screenshot، evidence و simulation در `qa-artifacts/gameplay-lab` تولید می‌شوند و وارد Git نمی‌شوند.
+
+Simulation علاوه بر rush، expansion و counterattack، بات واقعی هر نسخه را هم به‌عنوان policy اجرا می‌کند؛ جای طرف‌ها و ترتیب فرمان‌ها عوض می‌شوند. در F هر policy با و بدون شرط سرمایه‌گذاری اجرا می‌شود: ۲۲۴ match، شامل ۳۲ برای C/D/E و ۱۲۸ برای F. در همهٔ matchها state، accumulator و record باید دقیقاً با replay برابر باشند.
+
+گزارش اجرای این مرحله در [gameplay-lab-validation.md](gameplay-lab-validation.md) است. آزمایش روی گوشی فیزیکی و WebView پیام‌رسان، و پایلوت انسانی شش‌نفره، هنوز باید انجام شوند.

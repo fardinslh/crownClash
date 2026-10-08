@@ -309,7 +309,7 @@ vi.mock('../../audio/SoundEffects.js', () => ({
 
 vi.mock('../../gameplay-lab/GameplayLabUI.js', () => ({
   GameplayLabUI: class {
-    match = vi.fn(); update = vi.fn(); result = vi.fn(); destroy = vi.fn();
+    match = vi.fn(); update = vi.fn(); result = vi.fn(); destroy = vi.fn(); inspect = vi.fn();
   },
 }));
 
@@ -1031,7 +1031,7 @@ describe('Gameplay lab scene isolation', () => {
     const platform = new BrowserPlatformAdapter();
     const careerAccess = vi.spyOn(CareerManager, 'getInstance');
     const store = new GameplayLabStore(window.localStorage);
-    const launch = createGameplayLabLaunch(store, 1, 'roads');
+    const launch = createGameplayLabLaunch(store, 1, 'capture_recovery');
     const scene = new GameScene();
     scene.registry.set('platform', platform);
     scene.scene.settings.data = { gameplayLab: launch } as any;
@@ -1060,14 +1060,14 @@ describe('Gameplay lab scene isolation', () => {
     expect(trackEvent).not.toHaveBeenCalled();
     expect(trackTerminalMatchEvent).not.toHaveBeenCalled();
     expect([...storage.keys()].filter((key) => /career|ledger|daily|league/.test(key))).toEqual([]);
-    expect(storage.has('crown_clash_gameplay_lab_v2')).toBe(true);
+    expect(storage.has('crown_clash_gameplay_lab_v3')).toBe(true);
     (scene as any).cleanup();
   });
 });
 
 it('lab preview and multi-attack include sources with and without a direct road', () => {
   const store = new GameplayLabStore();
-  const launch = createGameplayLabLaunch(store, 1, 'roads');
+  const launch = createGameplayLabLaunch(store, 1, 'capture_recovery');
   const scene = new GameScene();
   scene.registry.set('platform', new BrowserPlatformAdapter());
   scene.scene.settings.data = { gameplayLab: launch } as any;
@@ -1081,9 +1081,32 @@ it('lab preview and multi-attack include sources with and without a direct road'
   expect(s.dragBadgeText.text).toBe('⚔ 30 (WIN +22) (2 bases)');
   s.handlePointerRelease();
   expect(launch.controller.battle.record.actions).toEqual([
-    { tick: 0, owner: 'player', sourceId: 'p_base', targetId: 'n_bot_left' },
-    { tick: 0, owner: 'player', sourceId: 'n_bot_right', targetId: 'n_bot_left' },
+    { type: 'dispatch', reinforcement: false, counterattack: false, tick: 0, owner: 'player', sourceId: 'p_base', targetId: 'n_bot_left' },
+    { type: 'dispatch', reinforcement: false, counterattack: false, tick: 0, owner: 'player', sourceId: 'n_bot_right', targetId: 'n_bot_left' },
   ]);
   expect(s.gameState.territories.n_bot_right.units).toBe(20);
+  s.cleanup();
+});
+
+it.each(['player', 'neutral', 'enemy'])('lab tap survives object-before-scene pointerdown for a %s base', (owner) => {
+  vi.clearAllMocks();
+  const launch = createGameplayLabLaunch(new GameplayLabStore(), 1, 'capture_recovery_upgrade');
+  const scene = new GameScene();
+  scene.registry.set('platform', new BrowserPlatformAdapter());
+  scene.scene.settings.data = { gameplayLab: launch } as any;
+  scene.create();
+  const s = scene as any;
+  s.game = { canvas: { width: 400, height: 720, getBoundingClientRect: () => ({ width: 360, height: 640 }) } };
+  const territory = s.gameState.territories.p_base;
+  territory.owner = owner;
+  vi.spyOn(s, 'getTerritoryUnderPointer').mockReturnValue(territory);
+  const pointer = { x: 100, y: 100 };
+  // Phaser emits the object event first. For friendly bases this starts selection,
+  // so the scene event returns early; inspection must already have been armed.
+  s.territoryVisuals.get('p_base').container.emit('pointerdown', pointer);
+  for (const [event, handler] of s.input.on.mock.calls) if (event === 'pointerdown') handler(pointer);
+  for (const [event, handler] of s.input.on.mock.calls) if (event === 'pointerup') handler(pointer);
+  expect(s.labUi.inspect).toHaveBeenCalledWith('p_base');
+  expect(launch.controller.battle.record.actions).toEqual([]);
   s.cleanup();
 });

@@ -1,13 +1,15 @@
 import { getBattlefield, type BattlefieldId } from './battlefields.js';
+import { LAB_COMMON_CONFIG, LAB_VARIANT_CONFIG, isEngagementVariant } from './gameplay-lab-config.js';
 
-export type GameplayLabVariant = 'baseline' | 'roads' | 'capture_recovery';
+export type GameplayLabVariant = 'baseline' | 'roads' | 'capture_recovery' | 'capture_recovery_targets' | 'capture_recovery_tactical' | 'capture_recovery_upgrade';
 
-export const LAB_RULES_VERSION = 2 as const;
+export const LAB_RULES_VERSION = 3 as const;
 
 export interface GameplayRules {
   readonly roadSpeedMultiplier: number;
   readonly captureProductionRecoveryTicks: number;
   readonly captureInitialProductionMultiplier: number;
+  readonly productionUpgrade?: { readonly cost: number; readonly multiplier: number };
 }
 
 export interface DispatchContext {
@@ -17,10 +19,12 @@ export interface DispatchContext {
 
 export function gameplayLabRules(variant: GameplayLabVariant): GameplayRules | undefined {
   if (variant === 'baseline') return undefined;
+  const profile = isEngagementVariant(variant) ? LAB_VARIANT_CONFIG[variant] : undefined;
   return {
     roadSpeedMultiplier: variant === 'roads' ? 1.25 : 1,
-    captureProductionRecoveryTicks: variant === 'capture_recovery' ? 150 : 0,
-    captureInitialProductionMultiplier: variant === 'capture_recovery' ? 0.5 : 1,
+    captureProductionRecoveryTicks: profile ? LAB_COMMON_CONFIG.captureProductionRecoveryTicks : 0,
+    captureInitialProductionMultiplier: profile ? LAB_COMMON_CONFIG.captureInitialProductionMultiplier : 1,
+    ...(profile?.upgrade ? { productionUpgrade: profile.upgrade } : {}),
   };
 }
 
