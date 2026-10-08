@@ -42,16 +42,21 @@ const loadGameFonts = async (): Promise<void> => {
   await Promise.race([loads, timeout]);
 };
 
-const startApp = (): void => {
+const startApp = async (): Promise<void> => {
   platform.ready();
 
-  const api = getSharedGameApiClient();
-  const analyticsSink = new AnalyticsSink({
-    flush: (events) => api.trackEvents(events),
-    shouldFlush: () => api.isAuthenticated(),
-  });
-  analyticsSink.start();
-  trackSessionStart();
+  const labRequested = import.meta.env.DEV && new URLSearchParams(window.location.search).get('gameplay_lab') === '1';
+  const labScenes = labRequested ? [(await import('./gameplay-lab/GameplayLabScene.js')).GameplayLabScene] : [];
+
+  if (!labRequested) {
+    const api = getSharedGameApiClient();
+    const analyticsSink = new AnalyticsSink({
+      flush: (events) => api.trackEvents(events),
+      shouldFlush: () => api.isAuthenticated(),
+    });
+    analyticsSink.start();
+    trackSessionStart();
+  }
 
   // Render the canvas at a higher internal resolution than the 400x720
   // logical coordinate system to avoid blurriness on high-DPI screens.
@@ -81,7 +86,7 @@ const startApp = (): void => {
       createContainer: true,
     },
     backgroundColor: '#070b14',
-    scene: [MenuScene, GameScene, KingdomScene, DailyScene, LeagueScene, CommanderScene],
+    scene: [...labScenes, MenuScene, GameScene, KingdomScene, DailyScene, LeagueScene, CommanderScene],
     render: {
       antialias: true,
       antialiasGL: true,
@@ -129,6 +134,6 @@ void platform.initialize()
   })
   .finally(() => {
     void loadGameFonts().finally(() => {
-      startApp();
+      void startApp();
     });
   });

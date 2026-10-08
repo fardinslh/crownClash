@@ -5,6 +5,15 @@ import { assertLocalQaUrl, classifyQaRequest, isolateQaRequests } from '../../sc
 const appUrl = 'http://127.0.0.1:4173/?benchmark_mode=1';
 const request = (url, method = 'GET') => ({ url, method });
 
+test('Vite module access is opt-in and still rejects API and external requests', () => {
+  for (const route of ['/@vite/client', '/src/main.ts', '/@fs/project/packages/game-core/src/index.ts']) {
+    assert.equal(classifyQaRequest(request(`http://127.0.0.1:4173${route}`), appUrl), 'blocked');
+    assert.equal(classifyQaRequest(request(`http://127.0.0.1:4173${route}`), appUrl, undefined, true), 'allowed');
+  }
+  assert.equal(classifyQaRequest(request('http://127.0.0.1:4173/api/player.ts'), appUrl, undefined, true), 'blocked');
+  assert.equal(classifyQaRequest(request('https://example.com/src/main.ts'), appUrl, undefined, true), 'blocked');
+});
+
 test('isolated QA allows loopback static assets while rejecting account and external requests', () => {
   assert.equal(classifyQaRequest(request('http://127.0.0.1:4173/assets/index.js'), appUrl), 'allowed');
   assert.equal(classifyQaRequest(request('http://127.0.0.1:7350/v2/account/authenticate/custom', 'POST'), appUrl), 'blocked');

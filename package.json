@@ -23,6 +23,8 @@
     "test:symmetry": "python3 tools/verify_battlefield_symmetry.py",
     "test:stress": "node test/scripts/bot_parity_stress.mjs",
     "test:audit": "node test/scripts/numerical_audit.mjs",
+    "test:gameplay-lab": "npm --workspace=packages/game-core run build && node scripts/simulate-gameplay-lab.mjs",
+    "test:qa:gameplay-lab": "node scripts/gameplay-lab-qa.mjs",
     "typecheck": "npm --workspace=packages/game-core run typecheck && npm --workspace=packages/platform run typecheck && npm --workspace=apps/game run typecheck"
   },
   "devDependencies": {

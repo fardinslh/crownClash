@@ -26,11 +26,12 @@ export function assertLocalQaUrl(appUrl) {
   return url;
 }
 
-export function classifyQaRequest(request, appUrl, missingAsset) {
+export function classifyQaRequest(request, appUrl, missingAsset, allowViteModules = false) {
   const app = assertLocalQaUrl(appUrl);
   const url = new URL(request.url);
   if (url.origin !== app.origin || request.method !== 'GET') return 'blocked';
-  const staticPath = url.pathname === '/' || /\.(?:html|js|css|json|webp|png|svg|woff2?|ttf|ogg|mp3|wav)$/.test(url.pathname);
+  const devModule = allowViteModules && (url.pathname === '/@vite/client' || url.pathname.startsWith('/@id/') || /\.(?:ts|mjs)$/.test(url.pathname));
+  const staticPath = devModule || url.pathname === '/' || /\.(?:html|js|css|json|webp|png|svg|woff2?|ttf|ogg|mp3|wav)$/.test(url.pathname);
   if (!staticPath || /^\/(?:v2|api)\//.test(url.pathname)) return 'blocked';
   if (missingAsset === 'ground' && url.pathname.includes('/assets/grounds/')) return 'missing';
   if (missingAsset === 'unit' && url.pathname.includes('/assets/units/')) return 'missing';
@@ -39,14 +40,14 @@ export function classifyQaRequest(request, appUrl, missingAsset) {
 }
 
 /** Allows only static requests to the loopback app, including when a build embeds a production API URL. */
-export async function isolateQaRequests(cdp, appUrl, { missingAsset } = {}) {
+export async function isolateQaRequests(cdp, appUrl, { missingAsset, allowViteModules = false } = {}) {
   assertLocalQaUrl(appUrl);
   const pending = new Set();
   const failures = [];
   const blocked = [];
   cdp.on('Fetch.requestPaused', (event) => {
     const task = (async () => {
-      const action = classifyQaRequest(event.request, appUrl, missingAsset);
+      const action = classifyQaRequest(event.request, appUrl, missingAsset, allowViteModules);
       if (action === 'allowed') {
         await cdp.send('Fetch.continueRequest', { requestId: event.requestId });
       } else {

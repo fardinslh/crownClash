@@ -1,5 +1,6 @@
 import { MarchingArmy, Team, Territory } from './types.js';
 import { getTerritoryArmySpeedMultiplier } from './territory-types.js';
+import { getDispatchRoadSpeedMultiplier, type DispatchContext } from './gameplay-rules.js';
 
 export interface DispatchResult {
   success: boolean;
@@ -36,7 +37,8 @@ export function dispatchArmy(
   expectedOwner: Team,
   dispatchRatio: number = 0.5,
   armyIdGenerator: () => string = () => `army_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-  travelSpeedMultiplier: number = 1
+  travelSpeedMultiplier: number = 1,
+  context?: DispatchContext
 ): DispatchResult {
   if (source.id === target.id) {
     return { success: false, reason: 'Cannot dispatch to the same territory' };
@@ -61,10 +63,11 @@ export function dispatchArmy(
   const safeSpeedMultiplier =
     Number.isFinite(travelSpeedMultiplier) && travelSpeedMultiplier > 0 ? travelSpeedMultiplier : 1;
   const sourceSpeedMultiplier = getTerritoryArmySpeedMultiplier(source.type);
+  const roadSpeedMultiplier = getDispatchRoadSpeedMultiplier(source.id, target.id, context);
   const durationSeconds = Math.max(
     1.0,
     distance / (BASE_ARMY_TRAVEL_SPEED * safeSpeedMultiplier * sourceSpeedMultiplier)
-  );
+  ) / roadSpeedMultiplier;
   const speed = 1 / durationSeconds; // progress increase per second
 
   const army: MarchingArmy = {
@@ -97,7 +100,9 @@ export function dispatchMultipleArmies(
   target: Territory,
   expectedOwner: Team,
   dispatchRatio: number = 0.5,
-  travelSpeedMultiplier: number = 1
+  travelSpeedMultiplier: number = 1,
+  context?: DispatchContext,
+  armyIdGenerator?: () => string
 ): MultiDispatchResult {
   const successes: DispatchResult[] = [];
   const armies: MarchingArmy[] = [];
@@ -111,8 +116,9 @@ export function dispatchMultipleArmies(
       target,
       expectedOwner,
       dispatchRatio,
-      undefined,
-      travelSpeedMultiplier
+      armyIdGenerator,
+      travelSpeedMultiplier,
+      context
     );
     if (res.success && res.army && res.sourceTerritory) {
       successes.push(res);

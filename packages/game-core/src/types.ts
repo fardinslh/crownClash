@@ -66,6 +66,10 @@ export interface MatchStats {
 }
 
 export interface GameState {
+  /** Present only in opt-in local experiments. */
+  rules?: import('./gameplay-rules.js').GameplayRules;
+  simulationTick?: number;
+  productionReadyTicks?: Record<string, number>;
   battlefieldId?: import('./battlefields.js').BattlefieldId;
   territories: Record<string, Territory>;
   armies: MarchingArmy[];

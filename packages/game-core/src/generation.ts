@@ -29,7 +29,8 @@ export interface GenerationUpdateResult {
 export function tickUnitGeneration(
   territories: Record<string, Territory>,
   accumulators: Record<string, number>,
-  deltaSeconds: number
+  deltaSeconds: number,
+  productionMultipliers?: Readonly<Record<string, number>>
 ): GenerationUpdateResult {
   const updatedTerritories: Record<string, Territory> = {};
   const updatedAccumulators: Record<string, number> = { ...accumulators };
@@ -53,7 +54,7 @@ export function tickUnitGeneration(
     }
 
     const productionRate =
-      territory.productionRate * getTerritoryProductionMultiplier(territory.type);
+      territory.productionRate * getTerritoryProductionMultiplier(territory.type) * (productionMultipliers?.[id] ?? 1);
     const rawAcc = (updatedAccumulators[id] ?? 0) + productionRate * deltaSeconds;
     const nearestInteger = Math.round(rawAcc);
     const currentAcc =

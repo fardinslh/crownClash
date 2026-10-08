@@ -307,7 +307,15 @@ vi.mock('../../audio/SoundEffects.js', () => ({
   sounds: new Proxy({}, { get: () => () => false }),
 }));
 
+vi.mock('../../gameplay-lab/GameplayLabUI.js', () => ({
+  GameplayLabUI: class {
+    match = vi.fn(); update = vi.fn(); result = vi.fn(); destroy = vi.fn();
+  },
+}));
+
 import { GameScene } from '../GameScene.js';
+import { GameplayLabStore } from '../../gameplay-lab/GameplayLabController.js';
+import { createGameplayLabLaunch } from '../../gameplay-lab/GameplayLabScene.js';
 import { CareerManager } from '../../career/CareerManager.js';
 import { BrowserPlatformAdapter } from '@crown-clash/platform';
 import {
@@ -1013,4 +1021,69 @@ describe('First-launch training integration', () => {
     expect(trackTerminalMatchEvent).not.toHaveBeenCalled();
     expect((scene as any).careerManager.getCareer().matchesPlayed).toBe(0);
   });
+});
+
+describe('Gameplay lab scene isolation', () => {
+  beforeEach(() => { storage.clear(); vi.clearAllMocks(); (CareerManager as any).instance = null; });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it.each(['victory', 'defeat', 'draw', 'quit'] as const)('boots and handles %s without career, rewards, login or production analytics', async (status) => {
+    const platform = new BrowserPlatformAdapter();
+    const careerAccess = vi.spyOn(CareerManager, 'getInstance');
+    const store = new GameplayLabStore(window.localStorage);
+    const launch = createGameplayLabLaunch(store, 1, 'roads');
+    const scene = new GameScene();
+    scene.registry.set('platform', platform);
+    scene.scene.settings.data = { gameplayLab: launch } as any;
+    scene.create();
+    expect((scene as any).lab).toBe(launch.controller);
+    expect((scene as any).gameState.territories.p_base.units).toBe(20);
+    expect((scene as any).gameState.territories.e_base.units).toBe(20);
+    expect((scene as any).playerArmySpeedMultiplier).toBe(1);
+    (scene as any).selectedSourceIds = ['p_base'];
+    (scene as any).hoveredTargetId = 'n_bot_left';
+    (scene as any).handlePointerRelease();
+    expect(launch.controller.battle.record.actions).toHaveLength(1);
+    scene.update(20, 20);
+    expect(launch.controller.battle.tick).toBe(1);
+    if (status === 'quit') (scene as any).finishLabMatch(true);
+    else {
+      launch.controller.battle.state.status = status;
+      launch.controller.battle.record.result = status;
+      (scene as any).endMatch();
+    }
+    await (scene as any).finalizeMatch();
+    expect(store.data.trials).toHaveLength(1);
+    expect(store.data.trials[0].battle.result).toBe(status);
+    expect((scene as any).labUi.result).toHaveBeenCalledTimes(1);
+    expect(careerAccess).not.toHaveBeenCalled();
+    expect(trackEvent).not.toHaveBeenCalled();
+    expect(trackTerminalMatchEvent).not.toHaveBeenCalled();
+    expect([...storage.keys()].filter((key) => /career|ledger|daily|league/.test(key))).toEqual([]);
+    expect(storage.has('crown_clash_gameplay_lab_v2')).toBe(true);
+    (scene as any).cleanup();
+  });
+});
+
+it('lab preview and multi-attack include sources with and without a direct road', () => {
+  const store = new GameplayLabStore();
+  const launch = createGameplayLabLaunch(store, 1, 'roads');
+  const scene = new GameScene();
+  scene.registry.set('platform', new BrowserPlatformAdapter());
+  scene.scene.settings.data = { gameplayLab: launch } as any;
+  scene.create();
+  const s = scene as any;
+  s.gameState.territories.n_bot_right.owner = 'player';
+  s.gameState.territories.n_bot_right.units = 40;
+  s.selectedSourceIds = ['p_base', 'n_bot_right'];
+  s.hoveredTargetId = 'n_bot_left';
+  s.renderDragTrajectory({ positionToCamera: (_camera: unknown, point: any) => point.set(100, 100) });
+  expect(s.dragBadgeText.text).toBe('⚔ 30 (WIN +22) (2 bases)');
+  s.handlePointerRelease();
+  expect(launch.controller.battle.record.actions).toEqual([
+    { tick: 0, owner: 'player', sourceId: 'p_base', targetId: 'n_bot_left' },
+    { tick: 0, owner: 'player', sourceId: 'n_bot_right', targetId: 'n_bot_left' },
+  ]);
+  expect(s.gameState.territories.n_bot_right.units).toBe(20);
+  s.cleanup();
 });
