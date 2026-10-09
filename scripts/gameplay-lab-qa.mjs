@@ -6,7 +6,7 @@ import { CdpClient, pickFreeCdpPort, waitForWebSocketOpen } from './cdp-client.m
 import { createQaProfile, findQaChrome, isolateQaRequests } from './qa-browser.mjs';
 
 const appUrl = process.env.CC_QA_APP_URL ?? 'http://127.0.0.1:3000/?gameplay_lab=1';
-const out = path.resolve('qa-artifacts/gameplay-lab');
+const out = path.resolve('qa-artifacts/gameplay-C');
 fs.mkdirSync(out, { recursive: true });
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -70,9 +70,10 @@ async function run(width, height) {
     const scene = `window.__PHASER_GAME__.scene.getScene('GameScene')`;
     const store=`window.__PHASER_GAME__.registry.get('gameplayLabStore')`;
     const preReloadEvidence=[];
-    const variants = ['capture_recovery','capture_recovery_targets','capture_recovery_tactical','capture_recovery_upgrade'];
+    const variants = ['capture_recovery'];
     await wait(`Boolean(document.querySelector('#lab-pilot'))`);
-    await evaluate(`localStorage.setItem('crown_clash_gameplay_lab_v2','preserved-v2')`);
+    await evaluate(`localStorage.setItem('crown_clash_gameplay_lab_v2','preserved-v2');localStorage.setItem('crown_clash_gameplay_lab_v3','preserved-v3')`);
+    assert.equal(await evaluate(`document.querySelectorAll('[id^=lab-capture_recovery]').length`),1,'only C is selectable');
     await shot('selection');
     const click = async (selector) => {
       const point = await evaluate(`(() => { const b=document.querySelector(${JSON.stringify(selector)});if(!b||b.disabled)throw Error('Unavailable button '+${JSON.stringify(selector)});b.scrollIntoView({block:'center'});const r=b.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
@@ -106,31 +107,14 @@ async function run(width, height) {
       await shot(`${'CDEF'[index]}-inspect`);
       await tap(await point('n_bot_right'));
       assert.match(await evaluate(`document.querySelector('#lab-inspect').textContent`),/neutral/);
-      if(index===1)assert.match(await evaluate(`document.querySelector('#lab-inspect').textContent`),/PROD 0.90\/s/);
       await tap(await point('e_base'));
       assert.match(await evaluate(`document.querySelector('#lab-inspect').textContent`),/enemy/);
       await tap(await point('p_base'));
-      if (index===3) {
-        await evaluate(`${scene}.scene.pause();void 0`);
-        const before=await evaluate(`${scene}.gameState.territories.p_base.units`);
-        assert.ok(await evaluate(`document.querySelector('#lab-upgrade').getBoundingClientRect().height>=46`));
-        await click('#lab-upgrade');
-        assert.equal(await evaluate(`${scene}.gameState.territories.p_base.units`),before-12,'actual touch must pay the exact cost');
-        assert.equal(await evaluate(`${scene}.gameState.productionUpgrades.p_base`),true);
-        assert.equal(await evaluate(`document.querySelector('#lab-upgrade').disabled`),true);
-        const production=await evaluate(`document.querySelector('#lab-inspect').textContent`);assert.match(production,/PROD 1.80\/s/);
-        await shot('F-upgrade');
-        await evaluate(`(() => {const s=${scene};s.gameState.territories.p_base.owner='enemy';s.labUi.update(s.gameState);})()`);
-        assert.equal(await evaluate(`document.querySelector('#lab-upgrade').hidden`),true,'ownership loss hides the owned-base action immediately');
-        assert.match(await evaluate(`document.querySelector('#lab-inspect').textContent`),/enemy/);
-        await evaluate(`${scene}.gameState.territories.p_base.owner='player';${scene}.labUi.update(${scene}.gameState)`);
-        await evaluate(`${scene}.scene.resume();void 0`);
-      } else assert.equal(await evaluate(`Boolean(document.querySelector('#lab-upgrade'))`),false);
+      assert.equal(await evaluate(`Boolean(document.querySelector('#lab-upgrade'))`),false);
       // Controlled two-source fixture verifies real pointer selection, without claiming it is a human match.
       await evaluate(`(() => {const s=${scene};s.gameState.territories.p_base.units=40;s.gameState.territories.n_bot_right.owner='player';s.gameState.territories.n_bot_right.units=40;s.updateTerritoryVisuals();})()`);
       const source=await point('p_base'),second=await point('n_bot_right'),target=await point('n_bot_left');
       await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[source]});await pause(40);
-      if(index===3)assert.equal(await evaluate(`document.querySelector('#lab-upgrade').disabled`),true,'upgrade disabled while dragging');
       await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[second]});await pause(40);
       await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[target]});await pause(40);
       assert.deepEqual(await evaluate(`${scene}.selectedSourceIds`),['p_base','n_bot_right']);
@@ -144,25 +128,25 @@ async function run(width, height) {
         assert.equal(countdown,'PROD 50%\n3.0s');await shot('C-capture-recovery');
       }
       await click('#lab-quit');await wait(`Boolean(document.querySelector('#lab-rate'))`);await rate();
-      if(index===3){await click('#lab-retry');await wait(`Boolean(document.querySelector('#lab-quit'))`);
+      if(index===0){await click('#lab-retry');await wait(`Boolean(document.querySelector('#lab-quit'))`);
         assert.equal(await evaluate(`${scene}.lab.trial.kind`),'optional');await click('#lab-quit');}
       await click('#lab-choose');await wait(`Boolean(document.querySelector('#lab-pilot'))`);
     }
     const fixtureEvidence=await evaluate(`${store}.data.trials`);
-    assert.equal(fixtureEvidence.filter(t=>t.kind==='practice').length,4);
+    assert.equal(fixtureEvidence.filter(t=>t.kind==='practice').length,1);
     // Controlled state fixtures are not importable engine histories or pilot data.
     await evaluate(`${store}.data.trials=[];${store}.save()`);
-    // Eight unmodified main matches through the scene's real terminal and persistence path.
-    for(let i=0;i<8;i++){
+    // Two unmodified main matches through the scene's real terminal and persistence path.
+    for(let i=0;i<2;i++){
       await click('#lab-pilot');await wait(`Boolean(document.querySelector('#lab-quit'))`);
       assert.equal(await evaluate(`${scene}.lab.trial.pilotIndex`),i);
       await finish();await rate();
-      if(i>=4){
+      if(i===1){
         assert.ok(await evaluate(`Boolean(document.querySelector('#lab-continue')&&document.querySelector('#lab-optional'))`));
         const choices=await evaluate(`['#lab-continue','#lab-optional'].map(id=>{const b=document.querySelector(id),r=b.getBoundingClientRect();return {width:r.width,height:r.height,background:getComputedStyle(b).backgroundColor};})`);
         assert.deepEqual(choices[0],choices[1],'offer choices have equal visual weight');
         await shot(`offer-${i}`);
-        if(i===4){
+        if(i===1){
           preReloadEvidence.push(await evaluate(`window.__labQa`));
           await cdp.send('Page.reload');
           await wait(`Boolean(document.querySelector('#lab-optional')&&document.querySelector('#lab-pilot'))`);
@@ -173,7 +157,7 @@ async function run(width, height) {
       }else await click('#lab-choose');
       await wait(`Boolean(document.querySelector('#lab-pilot'))`);
     }
-    await evaluate(`document.querySelector('#lab-preference').value='capture_recovery_upgrade';document.querySelector('#lab-reflection').value='Test fixture: invest earlier';document.querySelector('#lab-feedback').click()`);
+    await evaluate(`document.querySelector('#lab-reflection').value='Test fixture: attack earlier';document.querySelector('#lab-feedback').click()`);
     const importFile=path.join(out,`${width}x${height}-import.json`);
     fs.writeFileSync(importFile,await evaluate(`${store}.exportJson()`));
     await click('#lab-export');
@@ -182,40 +166,43 @@ async function run(width, height) {
     assert.ok(input.nodeId);await cdp.send('DOM.setFileInputFiles',{nodeId:input.nodeId,files:[importFile]});
     await wait(`document.querySelector('#lab-status').textContent.startsWith('Data jam shod')`);
     assert.equal(await evaluate(`localStorage.getItem('crown_clash_gameplay_lab_v2')`),'preserved-v2');
-    // Browser CPU throttling is applied to the actual E evaluator, using shared-engine state.
+    assert.equal(await evaluate(`localStorage.getItem('crown_clash_gameplay_lab_v3')`),'preserved-v3');
+    // Measure the retained production bot under actual browser CPU throttling.
     await cdp.send('Emulation.setCPUThrottlingRate',{rate:4});
     const performanceEvidence=await evaluate(`(async()=>{
       const core=await import('/@fs'+${JSON.stringify(path.resolve('packages/game-core/src/index.ts'))});
-      const b=new core.GameplayLabBattle('capture_recovery_tactical',false);
-      for(const [i,t] of Object.values(b.state.territories).entries()){t.owner=i%2?'player':'enemy';t.units=40;}
+      const b=new core.GameplayLabBattle('capture_recovery',false);
+      for(const [i,t] of Object.values(b.state.territories).entries()){t.owner=i%2?'player':'enemy';t.units=i%2?6:80;}
       const sources=Object.values(b.state.territories);
       for(let i=0;i<18;i++){const from=sources[i%sources.length],to=sources[(i+4)%sources.length];
         const d=core.dispatchArmy(from,to,from.owner,.5,()=> 'perf_'+i,1,b.state);
         if(d.army)b.state.armies.push({...d.army,progress:0});}
-      // Long travel exercises all 250 ticks; there are no speculative commands.
+      // In-flight armies remain in the fixture; C scores the current territories.
       for(const a of b.state.armies)a.speed=.18;
       const defense=structuredClone(b.state);
       defense.armies.forEach((a,i)=>{a.speed=.35+(i%4)*.15;a.units=i%3?18:50;});
       const cases=[b.state,defense];
-      for(let i=0;i<30;i++)core.evaluateTacticalLabMove(cases[i%2],{});
-      const times=[];for(let i=0;i<120;i++){const start=performance.now();core.evaluateTacticalLabMove(cases[i%2],{});times.push(performance.now()-start);}
+      const moves=cases.map(state=>core.evaluateAiMove(state.territories,'enemy',8));
+      if(moves.some(move=>!move))throw Error('Performance fixture must produce actual bot decisions');
+      for(let i=0;i<30;i++)core.evaluateAiMove(cases[i%2].territories,'enemy',8);
+      const times=[];for(let i=0;i<120;i++){const start=performance.now();core.evaluateAiMove(cases[i%2].territories,'enemy',8);times.push(performance.now()-start);}
       if(${JSON.stringify(process.env.CC_LAB_QA_NEGATIVE_CONTROL==='performance')})times.push(60,60,60,60,60,60,60,60);
-      times.sort((a,b)=>a-b);return {rate:4,samples:times.length,armies:b.state.armies.length,p95:times[Math.ceil(times.length*.95)-1],max:times.at(-1)};
+      times.sort((a,b)=>a-b);return {rate:4,samples:times.length,moves,armies:b.state.armies.length,p95:times[Math.ceil(times.length*.95)-1],max:times.at(-1)};
     })()`);
-    assert.ok(performanceEvidence.armies===18,'performance fixture must actually exercise army forecasting');
+    assert.ok(performanceEvidence.armies===18,'performance fixture must actually include in-flight armies');
     assert.ok(performanceEvidence.p95<16,`AI p95 must be <16ms: ${JSON.stringify(performanceEvidence)}`);
     assert.ok(performanceEvidence.max<=50,`no AI decision may exceed 50ms: ${JSON.stringify(performanceEvidence)}`);
     await cdp.send('Emulation.setCPUThrottlingRate',{rate:1});
-    const evidence=await evaluate(`({events:window.__labQa.events,writes:window.__labQa.writes,data:JSON.parse(localStorage.getItem('crown_clash_gameplay_lab_v3'))})`);
+    const evidence=await evaluate(`({events:window.__labQa.events,writes:window.__labQa.writes,data:JSON.parse(localStorage.getItem('crown_clash_gameplay_lab_v4'))})`);
     evidence.events=[...preReloadEvidence.flatMap(e=>e.events),...evidence.events];
     evidence.writes=[...preReloadEvidence.flatMap(e=>e.writes),...evidence.writes];
-    assert.deepEqual(evidence.events,[]);assert.ok(evidence.writes.includes('crown_clash_gameplay_lab_v3'));
+    assert.deepEqual(evidence.events,[]);assert.ok(evidence.writes.includes('crown_clash_gameplay_lab_v4'));
     assert.deepEqual(evidence.writes.filter(key=>/career|ledger|daily|league/.test(key)),[]);
-    assert.equal(evidence.data.trials.filter(t=>t.kind==='main').length,8);
-    assert.equal(evidence.data.offers.length,4);assert.equal(evidence.data.offers.filter(o=>o.decision==='replay').length,1);
+    assert.equal(evidence.data.trials.filter(t=>t.kind==='main').length,2);
+    assert.equal(evidence.data.offers.length,1);assert.equal(evidence.data.offers.filter(o=>o.decision==='replay').length,1);
     await network.assertHealthy();assert.deepEqual(network.blocked,[]);assert.deepEqual(errors,[]);
     fs.writeFileSync(path.join(out,`${width}x${height}-evidence.json`),JSON.stringify({...evidence,fixtureEvidence,performance:performanceEvidence,blocked:network.blocked},null,2));
-    console.log(`PASS ${width}x${height}: four variants, real touch, upgrade, main quota, offers, retry, automatic result, import/export, isolated storage/analytics; AI ${JSON.stringify(performanceEvidence)}`);
+    console.log(`PASS ${width}x${height}: C only, real touch, main quota, offers, retry, automatic result, import/export, isolated storage/analytics; AI ${JSON.stringify(performanceEvidence)}`);
   } finally {
     ws?.close(); chrome.kill();
     await pause(300); fs.rmSync(profile, { recursive: true, force: true });

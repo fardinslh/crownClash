@@ -2,27 +2,22 @@ import { dispatchMultipleArmies, type MultiDispatchResult } from './dispatch.js'
 import { evaluateAiMove } from './ai.js';
 import { createInitialGameState, stepSimulation, type StepResult } from './simulation.js';
 import { LAB_RULES_VERSION, gameplayLabRules, type GameplayLabVariant } from './gameplay-rules.js';
-import { LAB_AI_INTERVAL_TICKS, LAB_COMMON_CONFIG, LAB_VARIANT_CONFIG, isEngagementVariant, LAB_TICK_SECONDS } from './gameplay-lab-config.js';
-import { chooseLabProductionUpgrade, evaluateTacticalLabMove } from './gameplay-lab-ai.js';
+import { LAB_AI_INTERVAL_TICKS, LAB_COMMON_CONFIG, isEngagementVariant, LAB_TICK_SECONDS } from './gameplay-lab-config.js';
 import type { CombatResult, GameState, Team } from './types.js';
 export { LAB_TICK_SECONDS, LAB_AI_INTERVAL_TICKS } from './gameplay-lab-config.js';
 interface LabCommandClock {
     tick: number;
     owner: Exclude<Team, 'neutral'>;
 }
-export type LabAction = LabCommandClock & ({
+export type LabAction = LabCommandClock & {
     type: 'dispatch';
     sourceId: string;
     targetId: string;
     reinforcement: boolean;
     counterattack: boolean;
-} | {
-    type: 'upgrade';
-    territoryId: string;
-});
+};
 export interface LabSnapshot {
     tick: number;
-    productionUpgrades: Record<string, true>;
     territories: Record<string, {
         owner: Team;
         units: number;
@@ -55,11 +50,6 @@ export class GameplayLabBattle {
         for (const territory of Object.values(this.state.territories))
             if (territory.owner !== 'neutral')
                 territory.units = LAB_COMMON_CONFIG.startingUnits;
-        const targets = isEngagementVariant(variant) ? LAB_VARIANT_CONFIG[variant].targets : undefined;
-        if (targets)
-            for (const [id, [units, productionRate]] of Object.entries(targets)) {
-                Object.assign(this.state.territories[id], { units, productionRate });
-            }
         this.record = { rulesVersion: LAB_RULES_VERSION, variant, actions: [], captures: [], snapshots: [], result: 'playing', durationSeconds: 0, lastLeadChangeSeconds: 0 };
         this.snapshot();
     }
@@ -83,16 +73,6 @@ export class GameplayLabBattle {
         }
         return result;
     }
-    upgrade(territoryId: string, owner: 'player' | 'enemy' = 'player'): boolean {
-        const config = this.state.rules?.productionUpgrade, territory = this.state.territories[territoryId];
-        if (!config || !territory || (owner !== 'player' && owner !== 'enemy') || territory.owner !== owner || this.state.status !== 'playing' ||
-            territory.units <= config.cost || this.state.productionUpgrades?.[territoryId])
-            return false;
-        territory.units -= config.cost;
-        this.state.productionUpgrades = { ...this.state.productionUpgrades, [territoryId]: true };
-        this.record.actions.push({ type: 'upgrade', tick: this.tick, owner, territoryId });
-        return true;
-    }
     step(): StepResult {
         if (this.state.status !== 'playing')
             return { state: this.state, accumulators: this.accumulators, resolvedArrivals: [] };
@@ -108,14 +88,8 @@ export class GameplayLabBattle {
         if (this.tick % 50 === 0 || this.state.status !== 'playing')
             this.snapshot();
         if (this.automaticBot && this.state.status === 'playing' && this.tick % LAB_AI_INTERVAL_TICKS === 0) {
-            const upgrade = chooseLabProductionUpgrade(this.state);
-            if (upgrade)
-                this.upgrade(upgrade, 'enemy');
-            else {
-                const move = isEngagementVariant(this.variant) && LAB_VARIANT_CONFIG[this.variant].bot === 'tactical' ? evaluateTacticalLabMove(this.state, this.accumulators) : evaluateAiMove(this.state.territories, 'enemy', 8);
-                if (move)
-                    this.dispatch([move.fromId], move.toId, 'enemy');
-            }
+            const move = evaluateAiMove(this.state.territories, 'enemy', 8);
+            if (move) this.dispatch([move.fromId], move.toId, 'enemy');
         }
         this.record.durationSeconds = this.tick * LAB_TICK_SECONDS;
         this.record.result = this.state.status;
@@ -130,7 +104,6 @@ export class GameplayLabBattle {
     }
     private snapshot(): void {
         this.record.snapshots.push({ tick: this.tick,
-            productionUpgrades: { ...this.state.productionUpgrades },
             territories: Object.fromEntries(Object.values(this.state.territories).map((t) => [t.id, { owner: t.owner, units: t.units }])),
             armies: this.state.armies.map(({ id, sourceId, targetId, owner, units, progress }) => ({ id, sourceId, targetId, owner, units, progress })) });
         const all = Object.values(this.state.territories);
@@ -145,7 +118,7 @@ export class GameplayLabBattle {
 export function replayGameplayLab(record: LabBattleRecord): GameplayLabBattle {
     if (record.rulesVersion !== LAB_RULES_VERSION)
         throw new Error('incompatible_lab_rules_version');
-    if (!['baseline', 'roads', 'capture_recovery', 'capture_recovery_targets', 'capture_recovery_tactical', 'capture_recovery_upgrade'].includes(record.variant) ||
+    if (!isEngagementVariant(record.variant) ||
         !Number.isFinite(record.durationSeconds) || record.durationSeconds < 0 || record.durationSeconds > 91 ||
         Math.abs(Math.round(record.durationSeconds / LAB_TICK_SECONDS) * LAB_TICK_SECONDS - record.durationSeconds) > 1e-9)
         throw new Error('invalid_lab_replay_result');
@@ -155,8 +128,7 @@ export function replayGameplayLab(record: LabBattleRecord): GameplayLabBattle {
             throw new Error('invalid_lab_action_tick');
         while (battle.tick < action.tick && battle.state.status === 'playing')
             battle.step();
-        if (battle.tick !== action.tick || (action.type === 'upgrade' ? !battle.upgrade(action.territoryId, action.owner) :
-            action.type !== 'dispatch' || battle.dispatch([action.sourceId], action.targetId, action.owner).armies.length !== 1)) {
+        if (battle.tick !== action.tick || (action.type !== 'dispatch' || battle.dispatch([action.sourceId], action.targetId, action.owner).armies.length !== 1)) {
             throw new Error('invalid_lab_replay_action');
         }
     }

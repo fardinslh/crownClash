@@ -7,7 +7,6 @@ import { anchoredArmyBadge, planArmyBadgeOffset, type ArmyBadgeOffset, type Army
 import type { Rect } from '../ui/HudLayout.js';
 import {
   getCaptureProductionMultiplier,
-  isDirectRoadConnection,
   BattlefieldId,
   BotMatchTicket,
   calculateDispatchUnits,
@@ -346,7 +345,6 @@ export class GameScene extends Phaser.Scene {
   private lab?: GameplayLabController;
   private labLaunch?: GameplayLabLaunch;
   private labUi?: GameplayLabUI;
-  private labTargets?: Phaser.GameObjects.Graphics;
   private labCountdowns = new Map<string, Phaser.GameObjects.Text>();
   private labPageHide?: () => void;
   private labTap = new GameplayLabTap();
@@ -1865,8 +1863,7 @@ export class GameScene extends Phaser.Scene {
   private createHud(): void {
     if (this.lab) {
       this.labUi = this.labLaunch!.createUi();
-      this.labUi.match(this.lab.variant, () => this.finishLabMatch(true), (id) => this.upgradeLabTerritory(id));
-      this.labTargets = this.add.graphics().setDepth(this.boardLayout.overlayDepth(49));
+      this.labUi.match(this.lab.variant, () => this.finishLabMatch(true));
       return;
     }
     const { visibleWidth, visibleHeight, scrollX } = getSceneViewport(this);
@@ -2464,18 +2461,6 @@ export class GameScene extends Phaser.Scene {
   private labPointerCss(pointer: Phaser.Input.Pointer): { x: number; y: number } {
     const bounds = this.game.canvas.getBoundingClientRect();
     return { x: pointer.x * bounds.width / this.game.canvas.width, y: pointer.y * bounds.height / this.game.canvas.height };
-  }
-
-  private upgradeLabTerritory(id: string): void {
-    if (!this.lab || this.resultPending || this.selectedSourceIds.length || this.matchMenuController?.isOpen()) return;
-    if (!this.lab.battle.upgrade(id)) return;
-    this.gameState = this.lab.battle.state;
-    this.markTerritoriesDirty(); this.updateTerritoryVisuals();
-    const territory = this.gameState.territories[id];
-    const anchor = this.projectSocketPoint(territory.x, territory.y);
-    this.spawnFloatingText(anchor.u, anchor.v - 30, '-12 · PROD +50%', '#34d399');
-    sounds.playReinforce(); this.platform.hapticImpact('light');
-    this.labUi?.update(this.gameState);
   }
 
   private startDragFromTerritory(territoryId: string, pointer?: Phaser.Input.Pointer): void {
@@ -4079,17 +4064,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateLabIndicators(): void {
-    this.labTargets?.clear();
-    if ((this.gameState.rules?.roadSpeedMultiplier ?? 1) > 1 && this.selectedSourceIds.length) {
-      for (const territory of Object.values(this.gameState.territories)) {
-        if (this.selectedSourceIds.includes(territory.id) || !this.selectedSourceIds.some((id) =>
-          isDirectRoadConnection(id, territory.id, this.gameState))) continue;
-        const anchor = this.projectSocketPoint(territory.x, territory.y);
-        this.labTargets?.lineStyle(2, territory.owner === 'player' ? 0x34d399 : 0xf6c85c, 0.95);
-        this.labTargets?.strokeEllipse(anchor.u, anchor.v, (territory.radius + 10) * this.boardLayout.scale * 2,
-          (territory.radius + 10) * this.boardLayout.verticalScale() * 2);
-      }
-    }
     for (const territory of Object.values(this.gameState.territories)) {
       const remaining = Math.max(0, (this.gameState.productionReadyTicks?.[territory.id] ?? 0) - (this.gameState.simulationTick ?? 0));
       let label = this.labCountdowns.get(territory.id);
@@ -6136,7 +6110,6 @@ export class GameScene extends Phaser.Scene {
     this.labTap.cancel();
     this.labUi?.destroy();
     this.labUi = undefined;
-    this.labTargets = undefined;
     this.labCountdowns.clear();
     this.lab = undefined;
     this.labLaunch = undefined;

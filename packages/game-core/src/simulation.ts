@@ -33,7 +33,6 @@ export function createInitialGameState(options: number | InitialGameOptions = DE
   return {
     ...(typeof options !== 'number' && options.rules ? {
       rules: options.rules, simulationTick: 0, productionReadyTicks: {},
-      ...(options.rules.productionUpgrade ? { productionUpgrades: {} } : {}),
     } : {}),
     battlefieldId,
     territories: createDefaultTerritories(playerModifiers, enemyModifiers, battlefieldId),
@@ -77,7 +76,6 @@ export function stepSimulation(
   const recoveryEnabled = (currentState.rules?.captureProductionRecoveryTicks ?? 0) > 0;
   const nextTick = (currentState.simulationTick ?? 0) + 1;
   const readyTicks = recoveryEnabled ? { ...currentState.productionReadyTicks } : undefined;
-  const upgrades = currentState.rules?.productionUpgrade ? { ...currentState.productionUpgrades } : undefined;
   const generationAccumulators = recoveryEnabled ? { ...accumulators } : accumulators;
   const territories: Record<string, Territory> = {};
   for (const [id, t] of Object.entries(currentState.territories)) {
@@ -102,7 +100,6 @@ export function stepSimulation(
         resolvedArrivals.push(combat);
 
         if (combat.captured) {
-          if (upgrades) delete upgrades[target.id];
           const recovery = currentState.rules?.captureProductionRecoveryTicks ?? 0;
           if (recovery > 0) {
             // Ownership changes cannot extend a recovery already in progress.
@@ -125,9 +122,8 @@ export function stepSimulation(
   }
 
   // 2. Tick passive unit generation for owned territories
-  const productionMultipliers = readyTicks || upgrades ? Object.fromEntries(Object.keys(territories).map((id) =>
-    [id, getCaptureProductionMultiplier(currentState.rules, nextTick, readyTicks?.[id]) *
-      (upgrades?.[id] ? currentState.rules!.productionUpgrade!.multiplier : 1)])) : undefined;
+  const productionMultipliers = readyTicks ? Object.fromEntries(Object.entries(readyTicks).map(([id, readyTick]) =>
+    [id, getCaptureProductionMultiplier(currentState.rules, nextTick, readyTick)])) : undefined;
   const genResult = tickUnitGeneration(territories, generationAccumulators, deltaSeconds, productionMultipliers);
 
   // 3. Check win / loss status
@@ -163,7 +159,6 @@ export function stepSimulation(
   return {
     state: {
       ...(experimental ? { rules: currentState.rules, simulationTick: nextTick, productionReadyTicks: readyTicks ?? {} } : {}),
-      ...(upgrades ? { productionUpgrades: upgrades } : {}),
       battlefieldId: currentState.battlefieldId,
       territories: genResult.territories,
       armies: remainingArmies,

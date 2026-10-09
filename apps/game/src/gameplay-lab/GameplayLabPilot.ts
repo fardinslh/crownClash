@@ -1,18 +1,10 @@
 import { ENGAGEMENT_VARIANTS, type EngagementVariant, type LabBattleRecord } from '@crown-clash/game-core';
-export const LAB_STORAGE_KEY = 'crown_clash_gameplay_lab_v3';
-export const LAB_NAMES: Record<EngagementVariant, string> = {
-    capture_recovery: 'C · Recovery', capture_recovery_targets: 'D · Hadaf',
-    capture_recovery_tactical: 'E · Tactical', capture_recovery_upgrade: 'F · Investment',
-};
-const [C, D, E, F] = ENGAGEMENT_VARIANTS;
-export const LAB_ORDERS: readonly (readonly EngagementVariant[])[] = [
-    [C, D, E, F], [D, E, F, C], [E, F, C, D], [F, C, D, E], [C, F, E, D], [D, C, F, E],
-];
+export const LAB_STORAGE_KEY = 'crown_clash_gameplay_lab_v4';
+export const LAB_NAMES: Record<EngagementVariant, string> = { capture_recovery: 'C · Recovery' };
+export const LAB_MAIN_MATCHES_PER_PARTICIPANT = 2;
 export function pilotOrder(participant: number): EngagementVariant[] {
-    const first = LAB_ORDERS[participant - 1];
-    if (!first)
-        throw new Error('invalid_lab_participant');
-    return [...first, ...[...first].reverse()];
+    if (!Number.isInteger(participant) || participant < 1 || participant > 6) throw new Error('invalid_lab_participant');
+    return ['capture_recovery', 'capture_recovery'];
 }
 export interface LabRatings {
     repetition: number;
@@ -39,9 +31,8 @@ export interface LabReplayOffer {
     decision?: 'replay' | 'continue';
 }
 export interface LabData {
-    schemaVersion: 3;
+    schemaVersion: 4;
     trials: LabTrial[];
-    preferences: Record<string, EngagementVariant>;
     reflections: Record<string, string>;
     offers: LabReplayOffer[];
 }
@@ -79,9 +70,6 @@ export function labReport(data: LabData) {
             medianUnfair: median(rated.map((t) => t.ratings!.unfair)),
             medianDurationSeconds: median(main.map((t) => t.battle.durationSeconds)),
             wins: main.filter((t) => t.battle.result === 'victory').length,
-            upgrades: trials.flatMap((t) => t.battle.actions).filter((a) => a.type === 'upgrade').length,
-            upgradeTimings: trials.flatMap((t) => t.battle.actions.flatMap((a) => a.type === 'upgrade'
-                ? [{ trialId: t.id, kind: t.kind, owner: a.owner, territoryId: a.territoryId, seconds: a.tick * 0.02 }] : [])),
             openings: [...new Set(main.map((t) => t.battle.actions.filter((a) => a.type === 'dispatch' && a.owner === 'player').slice(0, 3)
                     .map((a) => a.type === 'dispatch' ? `${a.sourceId}>${a.targetId}` : '').join('|')))].filter(Boolean),
             dispatches: dispatches.length,
@@ -92,12 +80,8 @@ export function labReport(data: LabData) {
     });
     const complete = Array.from({ length: 6 }, (_, i) => i + 1).every((p) => {
         const main = successfulMainTrials(data, p);
-        return main.length === 8 && main.every((t) => t.ratings) && Boolean(data.preferences[p]) && Boolean(data.reflections[p]?.trim()) &&
+        return main.length === LAB_MAIN_MATCHES_PER_PARTICIPANT && main.every((t) => t.ratings) && Boolean(data.reflections[p]?.trim()) &&
             ENGAGEMENT_VARIANTS.every((v) => data.offers.some((o) => o.participant === p && o.variant === v && o.decision));
     });
-    const baseline = variants[0];
-    const candidates = complete ? variants.slice(1).filter((v) => Object.values(data.preferences).filter((p) => p === v.variant).length >= 4 && v.replayParticipants >= baseline.replayParticipants + 2 &&
-        v.medianRepetition! <= baseline.medianRepetition! && v.medianEarlyDecided! <= baseline.medianEarlyDecided! && v.medianUnfair! <= baseline.medianUnfair!)
-        .map((v) => v.variant) : [];
-    return { complete, candidates, variants, note: 'Six-person pilot only; voluntary replay is not proof of retention.' };
+    return { complete, candidates: [] as EngagementVariant[], variants, note: 'C only; no comparison or retention winner can be inferred.' };
 }

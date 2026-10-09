@@ -1,5 +1,5 @@
 import { ENGAGEMENT_VARIANTS, LAB_RULES_VERSION, LAB_TICK_SECONDS, getBattlefield, replayGameplayLab, type LabBattleRecord } from '@crown-clash/game-core';
-import { pilotOrder, successfulMainTrials, type LabData } from './GameplayLabPilot.js';
+import { LAB_MAIN_MATCHES_PER_PARTICIPANT, pilotOrder, successfulMainTrials, type LabData } from './GameplayLabPilot.js';
 const labVariants = new Set<unknown>(ENGAGEMENT_VARIANTS);
 const labTerritories = new Set(getBattlefield('crown_cross').territories.map((t) => t.id));
 const objectValid = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -31,13 +31,13 @@ function battleValid(value: unknown): value is LabBattleRecord {
     const endTick = Math.round(value.durationSeconds / LAB_TICK_SECONDS);
     if (Math.abs(endTick * LAB_TICK_SECONDS - value.durationSeconds) > 1e-9)
         return false;
-    return timelineValid(value.actions, endTick, (a) => ownerValid(a.owner) && (a.type === 'dispatch' ? territoryValid(a.sourceId) && territoryValid(a.targetId) && a.sourceId !== a.targetId && typeof a.reinforcement === 'boolean' && typeof a.counterattack === 'boolean' : a.type === 'upgrade' && value.variant === 'capture_recovery_upgrade' && territoryValid(a.territoryId))) &&
+    return timelineValid(value.actions, endTick, (a) => ownerValid(a.owner) && a.type === 'dispatch' && territoryValid(a.sourceId) && territoryValid(a.targetId) && a.sourceId !== a.targetId && typeof a.reinforcement === 'boolean' && typeof a.counterattack === 'boolean') &&
         timelineValid(value.captures, endTick, ({ arrival: a }) => objectValid(a) && territoryValid(a.targetId) &&
             ownerValid(a.attackerOwner) && teamValid(a.previousOwner) && a.newOwner === a.attackerOwner && a.previousOwner !== a.newOwner &&
             unitsValid(a.previousUnits) && unitsValid(a.incomingUnits) && a.incomingUnits > 0 && unitsValid(a.remainingUnits) && a.remainingUnits > 0 &&
             a.captured === true && a.reinforced === false) &&
         Array.isArray(value.snapshots) && value.snapshots.length > 0 && value.snapshots[0]?.tick === 0 &&
-        value.snapshots.at(-1)?.tick === endTick && timelineValid(value.snapshots, endTick, (s) => objectValid(s.productionUpgrades) && Object.entries(s.productionUpgrades).every(([id, upgraded]) => territoryValid(id) && upgraded === true && value.variant === 'capture_recovery_upgrade') &&
+        value.snapshots.at(-1)?.tick === endTick && timelineValid(value.snapshots, endTick, (s) =>
         objectValid(s.territories) && Object.keys(s.territories).length === labTerritories.size &&
         Object.entries(s.territories).every(([id, t]) => territoryValid(id) && objectValid(t) && teamValid(t.owner) && unitsValid(t.units)) &&
         Array.isArray(s.armies) && s.armies.every((a: unknown) => objectValid(a) && textValid(a.id) &&
@@ -49,12 +49,10 @@ export function readLabData(json: string): LabData {
     const ids = new Set<string>();
     const slots = new Set<string>();
     const checkedBattles = new Set<string>();
-    if (!objectValid(data) || data.schemaVersion !== 3 || !Array.isArray(data.trials) || !objectValid(data.preferences) ||
-        !Object.entries(data.preferences).every(([id, variant]) => participantValid(Number(id)) && String(Number(id)) === id && labVariants.has(variant)))
-        throw new Error('invalid_lab_data');
+    if (!objectValid(data) || data.schemaVersion !== 4 || !Array.isArray(data.trials)) throw new Error('invalid_lab_data');
     for (const trial of data.trials) {
         if (!objectValid(trial) || !textValid(trial.id) || ids.has(trial.id) || !participantValid(trial.participant) || !battleValid(trial.battle) || !['main', 'practice', 'optional'].includes(String(trial.kind)) ||
-            (trial.kind === 'main' ? !unitsValid(trial.pilotIndex) || trial.pilotIndex >= 8 || pilotOrder(trial.participant)[trial.pilotIndex] !== trial.battle.variant || trial.retryOf !== undefined : trial.pilotIndex !== undefined) ||
+            (trial.kind === 'main' ? !unitsValid(trial.pilotIndex) || trial.pilotIndex >= LAB_MAIN_MATCHES_PER_PARTICIPANT || pilotOrder(trial.participant)[trial.pilotIndex] !== trial.battle.variant || trial.retryOf !== undefined : trial.pilotIndex !== undefined) ||
             (trial.retryOf !== undefined && (!textValid(trial.retryOf) || trial.retryOf === trial.id)) ||
             !Array.isArray(trial.events) || trial.events[0]?.name !== 'start' || trial.events[0]?.tick !== 0 ||
             trial.events[1]?.name !== (trial.battle.result === 'quit' ? 'quit' : 'end') ||

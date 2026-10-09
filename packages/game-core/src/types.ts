@@ -70,7 +70,6 @@ export interface GameState {
   rules?: import('./gameplay-rules.js').GameplayRules;
   simulationTick?: number;
   productionReadyTicks?: Record<string, number>;
-  productionUpgrades?: Record<string, true>;
   battlefieldId?: import('./battlefields.js').BattlefieldId;
   territories: Record<string, Territory>;
   armies: MarchingArmy[];

@@ -1,4 +1,4 @@
-import { GameplayLabBattle, type EngagementVariant, type LabBattleRecord } from '@crown-clash/game-core';
+import { GameplayLabBattle, type LabBattleRecord } from '@crown-clash/game-core';
 import { describe, expect, it } from 'vitest';
 import { GameplayLabController, GameplayLabStore, LAB_STORAGE_KEY, isGameplayLabRequested, labReport } from './GameplayLabController.js';
 
@@ -55,13 +55,13 @@ describe('isolated gameplay lab', () => {
   });
 
   it('preserves the previous experiment and rejects its exports or mislabeled rule versions', () => {
-    const oldJson = '{"schemaVersion":1,"trials":[],"preferences":{"1":"roads"}}';
-    const storage = new Map([['crown_clash_gameplay_lab_v1', oldJson], ['crown_clash_gameplay_lab_v2', '{"schemaVersion":2}']]);
+    const oldJson = '{"schemaVersion":3,"trials":[],"preferences":{"1":"capture_recovery"}}';
+    const storage = new Map([['crown_clash_gameplay_lab_v3', oldJson], ['crown_clash_gameplay_lab_v2', '{"schemaVersion":2}']]);
     const store = new GameplayLabStore({ getItem: (key) => storage.get(key) ?? null,
       setItem: (key, value) => storage.set(key, value) });
-    expect(store.data.trials).toEqual([]); expect(store.data.preferences).toEqual({});
+    expect(store.data.trials).toEqual([]); expect(store.data.reflections).toEqual({});
     const c = new GameplayLabController(store, 1, 'capture_recovery'); c.finish(true);
-    expect(storage.get('crown_clash_gameplay_lab_v1')).toBe(oldJson);
+    expect(storage.get('crown_clash_gameplay_lab_v3')).toBe(oldJson);
     expect(storage.has(LAB_STORAGE_KEY)).toBe(true);
     expect(storage.get('crown_clash_gameplay_lab_v2')).toBe('{"schemaVersion":2}');
     expect(() => store.importJson('{"schemaVersion":2}')).toThrow('invalid_lab_data');
@@ -85,7 +85,7 @@ describe('isolated gameplay lab', () => {
     ['unknown action territory', (t: any) => { t.battle.actions[0].targetId = 'missing'; }],
     ['lead change after match', (t: any) => { t.battle.lastLeadChangeSeconds = 5; }],
     ['invalid retry reference', (t: any) => { t.retryOf = 0; }],
-    ['invalid preferences object', (_t: any, data: any) => { data.preferences = []; }],
+    ['invalid reflections object', (_t: any, data: any) => { data.reflections = []; }],
   ])('rejects %s without changing existing data', (_name, mutate) => {
     const store = new GameplayLabStore();
     const controller = new GameplayLabController(store, 1, 'capture_recovery');
@@ -101,107 +101,71 @@ describe('isolated gameplay lab', () => {
     expect(store.exportJson()).toBe(before);
   });
 
-  it('qualifies only with 48 main matches, 24 answered offers, preference and reflection', () => {
-    const store = completePilot();
-    expect(labReport(store.data)).toMatchObject({ complete: true, candidates: ['capture_recovery_targets'] });
-    expect(store.data.trials).toHaveLength(48);
-    expect(store.data.offers).toHaveLength(24);
-    const report = labReport(store.data);
-    expect(report.variants[1].replayParticipants).toBe(4);
-    delete store.data.trials[0].ratings;
-    expect(labReport(store.data)).toMatchObject({ complete: false, candidates: [] });
-  });
-
-  it('requires all three negative ratings, enough replay improvement and a complete reflection', () => {
+  it('C is the only retained version and completion never asserts a comparison winner', () => {
     const store=completePilot();
-    store.data.trials.find(t=>t.battle.variant==='capture_recovery_targets')!.ratings!.unfair=5;
-    for(const t of store.data.trials.filter(t=>t.battle.variant==='capture_recovery_targets'))t.ratings!.unfair=5;
-    expect(labReport(store.data).candidates).toEqual([]);
-    for(const t of store.data.trials)t.ratings!.unfair=2;
-    for(const o of store.data.offers.filter(o=>o.variant==='capture_recovery'))o.decision='replay';
-    expect(labReport(store.data).candidates).toEqual([]);
-    delete store.data.reflections[1];expect(labReport(store.data).complete).toBe(false);
+    expect(store.data.trials).toHaveLength(12);expect(store.data.offers).toHaveLength(6);
+    expect(labReport(store.data)).toMatchObject({complete:true,candidates:[]});
+    expect(labReport(store.data).variants).toHaveLength(1);
+    expect(labReport(store.data).variants[0]).toMatchObject({variant:'capture_recovery',mainMatches:12,replayParticipants:4});
+    delete store.data.trials[0].ratings;
+    expect(labReport(store.data)).toMatchObject({complete:false,candidates:[]});
   });
-
-  it('quit, practice and optional matches never advance the prescribed pilot', () => {
+  it('quit, practice and optional replay do not advance main quota',()=>{
     const store=new GameplayLabStore();
-    const quit=new GameplayLabController(store,1,'capture_recovery',undefined,'main');quit.finish(true);
-    expect(store.nextVariant()).toBe('capture_recovery');
-    const practice=new GameplayLabController(store,1,'capture_recovery_targets');practice.finish(true);
-    const optional=new GameplayLabController(store,1,'capture_recovery',quit.trial.id,'optional');optional.finish(true);
+    const c=new GameplayLabController(store,1,'capture_recovery',undefined,'main');c.finish(true);
+    const practice=new GameplayLabController(store,1,'capture_recovery');practice.finish(true);
+    const optional=new GameplayLabController(store,1,'capture_recovery',practice.trial.id,'optional');optional.finish(true);
     expect(store.nextVariant()).toBe('capture_recovery');expect(store.data.offers).toEqual([]);
-    expect(()=>new GameplayLabController(store,1,'capture_recovery_targets',undefined,'main')).toThrow('invalid_lab_pilot_start');
-    const main=new GameplayLabController(store,1,'capture_recovery',undefined,'main');
-    main.battle.state.status='victory';main.battle.record.result='victory';main.finish();
+    const main=completeMain(store,1);
     expect(store.pendingRating()).toBe(main.trial);
-    expect(()=>new GameplayLabController(store,1,'capture_recovery_targets',undefined,'main')).toThrow('invalid_lab_pilot_start');
-    main.rate({repetition:2,earlyDecided:2,unfair:2});
-    expect(store.nextVariant()).toBe('capture_recovery_targets');
+    expect(()=>new GameplayLabController(store,1,'capture_recovery',undefined,'main')).toThrow('invalid_lab_pilot_start');
+    main.rate({repetition:2,earlyDecided:2,unfair:2});expect(store.nextVariant()).toBe('capture_recovery');
   });
-
-  it('resumes missing ratings and unanswered offers after reload, and preserves the first answer during import', () => {
+  it('restores missing ratings and unanswered offers, keeping the first answer during import',()=>{
     const storage=new Map<string,string>();
-    const adapter={getItem:(key:string)=>storage.get(key)??null,setItem:(key:string,value:string)=>{storage.set(key,value);}};
+    const adapter={getItem:(k:string)=>storage.get(k)??null,setItem:(k:string,v:string)=>{storage.set(k,v);}};
     let store=new GameplayLabStore(adapter);
-    for(let index=0;index<5;index++){
-      const variant=store.nextVariant()!, c=new GameplayLabController(store,1,variant,undefined,'main');
-      const record=completedBattle(variant);Object.assign(c.battle.record,structuredClone(record));
-      c.battle.tick=Math.round(record.durationSeconds/.02);c.battle.state.status=record.result as 'victory'|'defeat'|'draw';c.finish();
-      if(index<4)c.rate({repetition:2,earlyDecided:2,unfair:2});
-    }
-    store=new GameplayLabStore(adapter);
-    expect(store.pendingRating()?.pilotIndex).toBe(4);expect(store.pendingOffer()).toBeUndefined();
+    completeMain(store,1).rate({repetition:2,earlyDecided:2,unfair:2});completeMain(store,1);
+    store=new GameplayLabStore(adapter);expect(store.pendingRating()?.pilotIndex).toBe(1);
     store.rateTrial(store.pendingRating()!,{repetition:2,earlyDecided:2,unfair:2});
-    store=new GameplayLabStore(adapter);
-    expect(store.pendingOffer()).toMatchObject({participant:1,variant:'capture_recovery_upgrade'});
-    expect(()=>new GameplayLabController(store,1,store.nextVariant()!,undefined,'main')).toThrow('invalid_lab_pilot_start');
+    store=new GameplayLabStore(adapter);expect(store.pendingOffer()).toMatchObject({participant:1,variant:'capture_recovery'});
+    expect(()=>new GameplayLabController(store,1,'capture_recovery',undefined,'main')).toThrow('invalid_lab_pilot_start');
     store.respondOffer(store.pendingOffer()!,'continue');
-    const before=store.exportJson(), conflicting=JSON.parse(before);
-    conflicting.offers[0].decision='replay';
-    conflicting.trials[4].events.find((e:any)=>e.name==='offer_continue').name='offer_replay';
-    expect(()=>store.importJson(JSON.stringify(conflicting))).toThrow('conflicting_lab_offer');
-    expect(store.exportJson()).toBe(before);
+    const before=store.exportJson(),bad=JSON.parse(before);bad.offers[0].decision='replay';
+    bad.trials[1].events.find((e:any)=>e.name==='offer_continue').name='offer_replay';
+    expect(()=>store.importJson(JSON.stringify(bad))).toThrow('conflicting_lab_offer');expect(store.exportJson()).toBe(before);
   });
-
-  it('offers once, persists unanswered offers, excludes optional replay and merges a full pilot idempotently', () => {
-    const source=completePilot();
-    const trial=source.data.trials.find(t=>t.participant===1&&t.pilotIndex===4)!;
-    const offer=source.data.offers.find(o=>o.trialId===trial.id)!;
+  it('offers once and imports completed C data idempotently',()=>{
+    const source=completePilot(),trial=source.data.trials[1],offer=source.data.offers[0];
     expect(()=>source.respondOffer(offer,'continue')).toThrow('invalid_lab_offer');
-    source.rateTrial(trial,{repetition:2,earlyDecided:2,unfair:2});expect(source.data.offers).toHaveLength(24);
-    const extra=new GameplayLabController(source,1,trial.battle.variant as EngagementVariant,trial.id,'optional');extra.finish(true);
-    const destination=new GameplayLabStore();destination.importJson(source.exportJson());destination.importJson(source.exportJson());
-    expect(destination.data.trials).toHaveLength(49);expect(destination.data.offers).toHaveLength(24);
-    expect(labReport(destination.data).variants.reduce((sum,v)=>sum+v.mainMatches,0)).toBe(48);
-    const before=destination.exportJson(), bad=JSON.parse(before);bad.offers.push(bad.offers[0]);
-    expect(()=>destination.importJson(JSON.stringify(bad))).toThrow('invalid_lab_data');expect(destination.exportJson()).toBe(before);
+    source.rateTrial(trial,{repetition:2,earlyDecided:2,unfair:2});expect(source.data.offers).toHaveLength(6);
+    new GameplayLabController(source,1,'capture_recovery',trial.id,'optional').finish(true);
+    const dest=new GameplayLabStore();dest.importJson(source.exportJson());dest.importJson(source.exportJson());
+    expect(dest.data.trials).toHaveLength(13);expect(dest.data.offers).toHaveLength(6);
+    expect(labReport(dest.data).variants[0].mainMatches).toBe(12);
+    const before=dest.exportJson(),bad=JSON.parse(before);bad.offers.push(bad.offers[0]);
+    expect(()=>dest.importJson(JSON.stringify(bad))).toThrow('invalid_lab_data');expect(dest.exportJson()).toBe(before);
+  });
+  it.each(['baseline','roads','capture_recovery_targets','capture_recovery_tactical','capture_recovery_upgrade'])('rejects retired %s without losing C records',(variant)=>{
+    const store=new GameplayLabStore();new GameplayLabController(store,1,'capture_recovery').finish(true);
+    const before=store.exportJson(),bad=JSON.parse(before);bad.trials[0].battle.variant=variant;
+    expect(()=>store.importJson(JSON.stringify(bad))).toThrow('invalid_lab_data');expect(store.exportJson()).toBe(before);
+    expect(()=>new GameplayLabController(store,1,variant as any)).toThrow('invalid_lab_variant');
   });
 });
 
-function completePilot(): GameplayLabStore {
+let completedRecord: LabBattleRecord | undefined;
+function completeMain(store:GameplayLabStore,participant:number):GameplayLabController{
+  if(!completedRecord){const b=new GameplayLabBattle('capture_recovery');while(b.state.status==='playing')b.step();completedRecord=b.record;}
+  const c=new GameplayLabController(store,participant,'capture_recovery',undefined,'main');
+  Object.assign(c.battle.record,structuredClone(completedRecord));c.battle.tick=Math.round(completedRecord.durationSeconds/.02);
+  c.battle.state.status=completedRecord.result as 'victory'|'defeat'|'draw';c.finish();return c;
+}
+function completePilot():GameplayLabStore{
   const store=new GameplayLabStore();
   for(let participant=1;participant<=6;participant++){
-    for(let index=0;index<8;index++){
-      const variant=store.nextVariant(participant)!;
-      const c=new GameplayLabController(store,participant,variant,undefined,'main');
-      const record = completedBattle(variant);
-      Object.assign(c.battle.record, structuredClone(record));
-      c.battle.tick = Math.round(record.durationSeconds / .02);
-      c.battle.state.status = record.result as 'victory' | 'defeat' | 'draw';
-      c.finish();
-      c.rate({repetition:variant==='capture_recovery_targets'?2:3,earlyDecided:3,unfair:2});
-      const offer=store.pendingOffer(participant);
-      if(offer)store.respondOffer(offer,variant==='capture_recovery_targets'&&participant<=4?'replay':'continue');
-    }
-    store.data.preferences[participant]=participant<=4?'capture_recovery_targets':'capture_recovery';
-    store.data.reflections[participant]='Keep troops for a counterattack.';
+    for(let i=0;i<2;i++)completeMain(store,participant).rate({repetition:2,earlyDecided:2,unfair:2});
+    store.respondOffer(store.pendingOffer(participant)!,participant<=4?'replay':'continue');store.data.reflections[participant]='Keep troops for a counterattack.';
   }
   return store;
-}
-
-const completedRecords = new Map<EngagementVariant,LabBattleRecord>();
-function completedBattle(variant: EngagementVariant): LabBattleRecord {
-  let record=completedRecords.get(variant);
-  if(!record){const b=new GameplayLabBattle(variant);while(b.state.status==='playing')b.step();record=b.record;completedRecords.set(variant,record);}
-  return record;
 }

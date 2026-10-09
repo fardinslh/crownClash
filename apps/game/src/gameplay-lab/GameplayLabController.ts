@@ -10,7 +10,7 @@ const ratingsValid = (ratings: LabRatings) => [ratings.repetition, ratings.early
 /** Local experiment persistence only: no career, API or production analytics dependencies. */
 export class GameplayLabStore {
     participant = 1;
-    data: LabData = { schemaVersion: 3, trials: [], preferences: {}, reflections: {}, offers: [] };
+    data: LabData = { schemaVersion: 4, trials: [], reflections: {}, offers: [] };
     error = '';
     constructor(private readonly storage?: LabStorage) {
         if (!storage) {
@@ -55,8 +55,8 @@ export class GameplayLabStore {
                 throw new Error('conflicting_lab_offer');
             offers.set(key, offer);
         }
-        const candidate: LabData = { schemaVersion: 3, trials: [...merged.values()], offers: [...offers.values()],
-            preferences: { ...this.data.preferences, ...imported.preferences }, reflections: { ...this.data.reflections, ...imported.reflections } };
+        const candidate: LabData = { schemaVersion: 4, trials: [...merged.values()], offers: [...offers.values()],
+            reflections: { ...this.data.reflections, ...imported.reflections } };
         this.data = readLabData(JSON.stringify(candidate));
         this.save();
     }

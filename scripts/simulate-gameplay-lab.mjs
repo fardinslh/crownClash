@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { GameplayLabBattle, replayGameplayLab, LAB_RULES_VERSION, calculateDispatchUnits,
-  getTerritoryDefenseStrength, ENGAGEMENT_VARIANTS, chooseLabProductionUpgrade, evaluateTacticalLabMove, scoreAiDispatch } from '../packages/game-core/dist/packages/game-core/src/index.js';
+  getTerritoryDefenseStrength, ENGAGEMENT_VARIANTS, scoreAiDispatch } from '../packages/game-core/dist/packages/game-core/src/index.js';
 
 const policies = ['rush', 'expansion', 'counterattack', 'lab_bot'];
 const variants = ENGAGEMENT_VARIANTS;
@@ -10,7 +10,6 @@ const variants = ENGAGEMENT_VARIANTS;
 function choose(battle, owner, policy) {
   const state = battle.state;
   if (policy === 'lab_bot') {
-    if (battle.variant === 'capture_recovery_tactical') return evaluateTacticalLabMove(state, battle.accumulators, owner);
     let best=null,score=1e-9;
     for(const source of Object.values(state.territories)) if(source.owner===owner&&source.units>=8)
       for(const target of Object.values(state.territories)) if(source.id!==target.id){
@@ -46,7 +45,7 @@ function choose(battle, owner, policy) {
 
 const matches = [];
 for (const variant of variants) {
-  const options = policies.flatMap(policy => (variant === 'capture_recovery_upgrade' ? [false, true] : [false]).map(invest => ({ policy, invest })));
+  const options = policies.map(policy => ({ policy }));
   for (const left of options) for (const right of options) for (const swapped of [false, true]) {
     const player = swapped ? right : left, enemy = swapped ? left : right;
     const playerPolicy = player.policy, enemyPolicy = enemy.policy;
@@ -55,9 +54,6 @@ for (const variant of variants) {
       if (battle.tick % 90 === 0) {
         // Both policies receive the same cadence; swap both positions and dispatch order.
         for (const owner of swapped ? ['enemy', 'player'] : ['player', 'enemy']) {
-          const option = owner === 'player' ? player : enemy;
-          const upgrade = option.invest ? chooseLabProductionUpgrade(battle.state, owner) : null;
-          if (upgrade) { assert.equal(battle.upgrade(upgrade, owner), true); continue; }
           const move = choose(battle, owner, owner === 'player' ? playerPolicy : enemyPolicy);
           if (move) assert.equal(battle.dispatch([move.fromId], move.toId, owner).armies.length, 1, 'policy must dispatch a legal army');
         }
@@ -70,32 +66,31 @@ for (const variant of variants) {
     assert.deepEqual(replay.accumulators, battle.accumulators, 'production fractions must replay exactly');
     assert.deepEqual(replay.record, battle.record, 'commands and snapshots must replay exactly');
     const lastCapture = battle.record.captures.at(-1)?.tick ?? 0;
-    matches.push({ variant, playerPolicy, enemyPolicy, playerInvest: player.invest, enemyInvest: enemy.invest, upgrades: battle.record.actions.filter(a => a.type === 'upgrade').length, swapped, result: battle.state.status,
+    matches.push({ variant, playerPolicy, enemyPolicy, swapped, result: battle.state.status,
       durationSeconds: battle.record.durationSeconds, captures: battle.record.captures.length,
       actions: battle.record.actions.length, lastLeadChangeSeconds: battle.record.lastLeadChangeSeconds,
       secondsSinceLastCapture: (battle.tick - lastCapture) * .02 });
   }
 }
-const report = { schemaVersion: 3, rulesVersion: LAB_RULES_VERSION, matches,
+const report = { schemaVersion: 4, rulesVersion: LAB_RULES_VERSION, matches,
   variants: variants.map((variant) => {
     const group = matches.filter((m) => m.variant === variant);
-    const options = policies.flatMap(policy => (variant === 'capture_recovery_upgrade' ? [false, true] : [false]).map(invest => ({ policy, invest })));
+    const options = policies.map(policy => ({ policy }));
     return { variant, matches: group.length,
       timeouts: group.filter((m) => m.durationSeconds >= 90).length,
       averageCaptures: group.reduce((sum, m) => sum + m.captures, 0) / group.length,
       lateCaptureIdleMatches: group.filter((m) => m.secondsSinceLastCapture >= 30).length,
-      upgrades: group.reduce((sum,m) => sum + m.upgrades, 0),
-      policyResults: options.map(({policy,invest}) => {
+      policyResults: options.map(({policy}) => {
         const appearances = group.flatMap((m) => [
-          ...(m.playerPolicy === policy && m.playerInvest === invest ? [m.result === 'victory' ? 'win' : m.result === 'defeat' ? 'loss' : 'draw'] : []),
-          ...(m.enemyPolicy === policy && m.enemyInvest === invest ? [m.result === 'defeat' ? 'win' : m.result === 'victory' ? 'loss' : 'draw'] : []),
+          ...(m.playerPolicy === policy ? [m.result === 'victory' ? 'win' : m.result === 'defeat' ? 'loss' : 'draw'] : []),
+          ...(m.enemyPolicy === policy ? [m.result === 'defeat' ? 'win' : m.result === 'victory' ? 'loss' : 'draw'] : []),
         ]);
-        return { policy, invest, appearances: appearances.length, wins: appearances.filter((r) => r === 'win').length,
+        return { policy, appearances: appearances.length, wins: appearances.filter((r) => r === 'win').length,
           losses: appearances.filter((r) => r === 'loss').length, draws: appearances.filter((r) => r === 'draw').length };
       }),
     };
   }), note: 'Scripted policies identify balance risks. Capture inactivity and lead changes are proxies, not proof of boredom or retention.' };
-const output = path.resolve(process.argv[2] ?? 'qa-artifacts/gameplay-lab/simulation.json');
+const output = path.resolve(process.argv[2] ?? 'qa-artifacts/gameplay-C/simulation.json');
 fs.mkdirSync(path.dirname(output), { recursive: true });
 fs.writeFileSync(output, JSON.stringify(report, null, 2));
 console.log(JSON.stringify({ matches: matches.length, variants: report.variants, output }, null, 2));

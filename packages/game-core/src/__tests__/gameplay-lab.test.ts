@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GameplayLabBattle, replayGameplayLab } from '../gameplay-lab.js';
-import { LAB_RULES_VERSION, gameplayLabRules, getCaptureProductionMultiplier, isDirectRoadConnection } from '../gameplay-rules.js';
+import { LAB_RULES_VERSION, gameplayLabRules, getCaptureProductionMultiplier } from '../gameplay-rules.js';
 import { createInitialGameState, stepSimulation } from '../simulation.js';
 import { dispatchArmy, dispatchMultipleArmies } from '../dispatch.js';
 import { evaluateAiMove } from '../ai.js';
@@ -18,18 +18,15 @@ describe('gameplay lab rules', () => {
     expect(() => stepSimulation(state, {}, 0.04)).toThrow('gameplay_rules_require_fixed_20ms_tick');
     expect(() => stepSimulation(state, {}, NaN)).toThrow('gameplay_rules_require_fixed_20ms_tick');
   });
-  it.each(['player', 'enemy'] as const)('applies a direct-road speed bonus for %s without restricting attacks or reinforcement', (owner) => {
-    const state = createInitialGameState({ rules: gameplayLabRules('roads') });
+  it.each(['player', 'enemy'] as const)('keeps normal speeds for %s without restricting attacks or reinforcement', (owner) => {
+    const state = createInitialGameState({ rules: gameplayLabRules('capture_recovery') });
     const source = state.territories[owner === 'player' ? 'p_base' : 'e_base'];
     const connected = state.territories[owner === 'player' ? 'n_bot_left' : 'n_top_right'];
     const remote = state.territories[owner === 'player' ? 'e_base' : 'p_base'];
-    expect(isDirectRoadConnection(source.id, connected.id, state)).toBe(true);
-    expect(isDirectRoadConnection(connected.id, source.id, state)).toBe(true);
-    expect(isDirectRoadConnection(source.id, remote.id, state)).toBe(false);
     const base = dispatchArmy(source, connected, owner);
     const boosted = dispatchArmy(source, connected, owner, 0.5, undefined, 1, state);
     expect(base.success).toBe(true); expect(boosted.success).toBe(true);
-    expect(boosted.army!.speed).toBeCloseTo(base.army!.speed * 1.25, 12);
+    expect(boosted.army!.speed).toBeCloseTo(base.army!.speed, 12);
     expect(boosted.army!.units).toBe(base.army!.units);
     for (const targetOwner of ['neutral', 'player', 'enemy'] as const) {
       const target = { ...remote, owner: targetOwner };
@@ -41,8 +38,8 @@ describe('gameplay lab rules', () => {
     expect(dispatchArmy({ ...source, owner: 'neutral' }, connected, owner, 0.5, undefined, 1, state).success).toBe(false);
   });
 
-  it('dispatches every selected source and only boosts the sources with a road', () => {
-    const state = createInitialGameState({ rules: gameplayLabRules('roads') });
+  it('dispatches every selected source at normal travel speeds', () => {
+    const state = createInitialGameState({ rules: gameplayLabRules('capture_recovery') });
     state.territories.n_bot_right.owner = 'player'; state.territories.n_bot_right.units = 40;
     const sources = [state.territories.p_base, state.territories.n_bot_right];
     const target = state.territories.n_bot_left;
@@ -51,12 +48,12 @@ describe('gameplay lab rules', () => {
     expect(result.armies.map((a) => [a.sourceId, a.units])).toEqual([['p_base', 10], ['n_bot_right', 20]]);
     expect(result.totalUnitsDispatched).toBe(30);
     expect(Object.keys(result.updatedSources)).toEqual(['p_base', 'n_bot_right']);
-    expect(result.armies[0].speed).toBeCloseTo(dispatchArmy(sources[0], target, 'player').army!.speed * 1.25, 12);
+    expect(result.armies[0].speed).toBeCloseTo(dispatchArmy(sources[0], target, 'player').army!.speed, 12);
     expect(result.armies[1].speed).toBe(dispatchArmy(sources[1], target, 'player').army!.speed);
   });
 
   it('lets the bot dispatch directly from rear holdings using its existing scoring', () => {
-    const battle = new GameplayLabBattle('roads');
+    const battle = new GameplayLabBattle('capture_recovery');
     for (const t of Object.values(battle.state.territories)) { t.owner = 'enemy'; t.units = 12; }
     battle.state.territories.e_base.units = 80;
     battle.state.territories.p_base.owner = 'player'; battle.state.territories.p_base.units = 1;
@@ -137,12 +134,12 @@ describe('gameplay lab rules', () => {
   });
 
   it('rejects replay records from an incompatible experiment', () => {
-    const battle = new GameplayLabBattle('baseline'); battle.quit();
+    const battle = new GameplayLabBattle('capture_recovery'); battle.quit();
     expect(battle.record.rulesVersion).toBe(LAB_RULES_VERSION);
     expect(() => replayGameplayLab({ ...battle.record, rulesVersion: 1 } as unknown as typeof battle.record)).toThrow('incompatible_lab_rules_version');
   });
 
-  it.each(['baseline', 'roads', 'capture_recovery'] as const)('replays %s actions to the exact same state', (variant) => {
+  it.each(['capture_recovery'] as const)('replays %s actions to the exact same state', (variant) => {
     const battle = new GameplayLabBattle(variant);
     expect(battle.dispatch(['p_base'], 'n_bot_left').armies).toHaveLength(1);
     for (let i = 0; i < 600; i++) battle.step();
@@ -155,9 +152,9 @@ describe('gameplay lab rules', () => {
     expect(replay.record.snapshots).toEqual(battle.record.snapshots);
   });
 
-  it('baseline is identical to the existing fixed-clock bot simulation', () => {
-    const lab = new GameplayLabBattle('baseline');
-    let state = createInitialGameState();
+  it('C uses the existing bot decisions with the same fixed-clock command cadence', () => {
+    const lab = new GameplayLabBattle('capture_recovery');
+    let state = createInitialGameState({ rules: gameplayLabRules('capture_recovery') });
     let accumulators = {};
     let aiIndex = 0;
     const opening = dispatchArmy(state.territories.p_base, state.territories.n_bot_left, 'player', 0.5, () => 'pvp_player_0');

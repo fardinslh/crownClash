@@ -1060,12 +1060,12 @@ describe('Gameplay lab scene isolation', () => {
     expect(trackEvent).not.toHaveBeenCalled();
     expect(trackTerminalMatchEvent).not.toHaveBeenCalled();
     expect([...storage.keys()].filter((key) => /career|ledger|daily|league/.test(key))).toEqual([]);
-    expect(storage.has('crown_clash_gameplay_lab_v3')).toBe(true);
+    expect(storage.has('crown_clash_gameplay_lab_v4')).toBe(true);
     (scene as any).cleanup();
   });
 });
 
-it('lab preview and multi-attack include sources with and without a direct road', () => {
+it('C preview and multi-attack include every selected source', () => {
   const store = new GameplayLabStore();
   const launch = createGameplayLabLaunch(store, 1, 'capture_recovery');
   const scene = new GameScene();
@@ -1090,7 +1090,7 @@ it('lab preview and multi-attack include sources with and without a direct road'
 
 it.each(['player', 'neutral', 'enemy'])('lab tap survives object-before-scene pointerdown for a %s base', (owner) => {
   vi.clearAllMocks();
-  const launch = createGameplayLabLaunch(new GameplayLabStore(), 1, 'capture_recovery_upgrade');
+  const launch = createGameplayLabLaunch(new GameplayLabStore(), 1, 'capture_recovery');
   const scene = new GameScene();
   scene.registry.set('platform', new BrowserPlatformAdapter());
   scene.scene.settings.data = { gameplayLab: launch } as any;
