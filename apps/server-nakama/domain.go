@@ -641,6 +641,14 @@ func DefaultModifiers() PlayerUpgradeModifiers {
 	return PlayerUpgradeModifiers{StartingUnits: 20, ProductionRateMultiplier: 1, ArmySpeedMultiplier: 1}
 }
 
+const CurrentGameplayRulesVersion = 2
+const captureRecoveryMs int64 = 3000
+
+func captureProductionMultiplier(elapsed float64, readyAtMs int64) float64 {
+	remaining := math.Max(0, float64(readyAtMs)-math.Round(elapsed*1000))
+	return 1 - 0.5*math.Min(1, remaining/float64(captureRecoveryMs))
+}
+
 func CreateInitialGameState(player, enemy PlayerUpgradeModifiers) GameState {
 	return CreateInitialGameStateForBattlefield(player, enemy, "crown_cross")
 }
@@ -652,7 +660,7 @@ func CreateInitialGameStateForBattlefield(player, enemy PlayerUpgradeModifiers, 
 	return GameState{
 		BattlefieldID: battlefieldID, Territories: CreateTerritoriesForBattlefield(player, enemy, battlefieldID), Armies: []MarchingArmy{},
 		Status: "playing", TimeLimitSeconds: PvpTimeLimitSeconds,
-		Stats: MatchStats{},
+		Stats: MatchStats{}, GameplayRulesVersion: CurrentGameplayRulesVersion,
 	}
 }
 
@@ -775,7 +783,11 @@ func tickGeneration(state *GameState, accumulators map[string]float64, delta flo
 			next[id] = 0
 			continue
 		}
-		raw := accumulators[id] + territory.ProductionRate*territoryProductionMultiplier(territory.Type)*delta
+		multiplier := 1.0
+		if state.GameplayRulesVersion == CurrentGameplayRulesVersion {
+			multiplier = captureProductionMultiplier(state.ElapsedTimeSeconds, state.ProductionReadyAtMs[id])
+		}
+		raw := accumulators[id] + territory.ProductionRate*territoryProductionMultiplier(territory.Type)*multiplier*delta
 		var current float64
 		if nearest := math.Round(raw); math.Abs(raw-nearest) < productionAccumulatorEpsilon {
 			current = nearest
@@ -799,7 +811,22 @@ func stepSimulation(state GameState, accumulators map[string]float64, delta floa
 	if state.Status != "playing" {
 		return state, accumulators
 	}
+	if state.GameplayRulesVersion == CurrentGameplayRulesVersion {
+		readyTimes := make(map[string]int64, len(state.ProductionReadyAtMs))
+		for id, readyAt := range state.ProductionReadyAtMs {
+			readyTimes[id] = readyAt
+		}
+		state.ProductionReadyAtMs = readyTimes
+		nextAccumulators := make(map[string]float64, len(accumulators))
+		for id, value := range accumulators {
+			nextAccumulators[id] = value
+		}
+		accumulators = nextAccumulators
+	}
 	state.ElapsedTimeSeconds += delta
+	if state.GameplayRulesVersion == CurrentGameplayRulesVersion {
+		state.ElapsedTimeSeconds = math.Round(state.ElapsedTimeSeconds*1e9) / 1e9
+	}
 	state.Stats.MatchDurationSeconds = state.ElapsedTimeSeconds
 	remaining := make([]MarchingArmy, 0, len(state.Armies))
 	for _, army := range state.Armies {
@@ -812,6 +839,14 @@ func stepSimulation(state GameState, accumulators map[string]float64, delta floa
 				target.Units = combat.remaining
 				state.Territories[army.TargetID] = target
 				if combat.captured {
+					if state.GameplayRulesVersion == CurrentGameplayRulesVersion {
+						nowMs := int64(math.Round(state.ElapsedTimeSeconds * 1000))
+						if state.ProductionReadyAtMs[target.ID] <= nowMs {
+							state.ProductionReadyAtMs[target.ID] = nowMs + captureRecoveryMs
+						}
+						accumulators[target.ID] = 0
+					}
+
 					if combat.newOwner == TeamPlayer {
 						state.Stats.TerritoriesCapturedByPlayer++
 					} else if combat.newOwner == TeamEnemy {
@@ -949,6 +984,14 @@ func SimulateBotBattleOnBattlefield(actions []PvpAction, player PlayerUpgradeMod
 }
 
 func simulateBattle(actions []PvpAction, player, enemy PlayerUpgradeModifiers, battlefieldID string) (GameState, PvpBattleSummary, error) {
+	return simulateBattleWithRules(actions, player, enemy, battlefieldID, CurrentGameplayRulesVersion)
+}
+
+func simulateBattleWithRules(actions []PvpAction, player, enemy PlayerUpgradeModifiers, battlefieldID string, rulesVersion int) (GameState, PvpBattleSummary, error) {
+	if rulesVersion != 1 && rulesVersion != CurrentGameplayRulesVersion {
+		return GameState{}, PvpBattleSummary{}, errors.New("unsupported_gameplay_rules_version")
+	}
+
 	if len(actions) > MaxPvpActions {
 		return GameState{}, PvpBattleSummary{}, ErrPvpTooManyActions
 	}
@@ -963,12 +1006,27 @@ func simulateBattle(actions []PvpAction, player, enemy PlayerUpgradeModifiers, b
 		previousTime = action.AtSeconds
 	}
 	state := CreateInitialGameStateForBattlefield(player, enemy, battlefieldID)
+	state.GameplayRulesVersion = rulesVersion
 	accumulators := map[string]float64{}
 	currentTime := 0.0
+	currentTick := 0
+	clockEpsilon := 0.0
+	if rulesVersion == CurrentGameplayRulesVersion {
+		clockEpsilon = 1e-9
+	}
 	nextAITick := PvpAITickSeconds
 	aiActionIndex := 0
 	actionsProcessed := 0
 	stepTo := func(timestamp float64) {
+		if rulesVersion == CurrentGameplayRulesVersion {
+			targetTick := int(math.Floor(timestamp/PvpSimulationTick + 1e-9))
+			for state.Status == "playing" && currentTick < targetTick {
+				state, accumulators = stepSimulation(state, accumulators, PvpSimulationTick)
+				currentTick++
+			}
+			currentTime = float64(currentTick) * PvpSimulationTick
+			return
+		}
 		for state.Status == "playing" && currentTime+PvpSimulationTick <= timestamp+1e-9 {
 			state, accumulators = stepSimulation(state, accumulators, PvpSimulationTick)
 			currentTime += PvpSimulationTick
@@ -994,7 +1052,7 @@ func simulateBattle(actions []PvpAction, player, enemy PlayerUpgradeModifiers, b
 		}
 	}
 	for _, action := range actions {
-		for state.Status == "playing" && nextAITick <= action.AtSeconds {
+		for state.Status == "playing" && nextAITick <= action.AtSeconds+clockEpsilon {
 			stepTo(nextAITick)
 			executeAI()
 			nextAITick += PvpAITickSeconds
@@ -1011,7 +1069,7 @@ func simulateBattle(actions []PvpAction, player, enemy PlayerUpgradeModifiers, b
 		}
 		actionsProcessed++
 	}
-	for state.Status == "playing" && nextAITick <= PvpTimeLimitSeconds {
+	for state.Status == "playing" && nextAITick <= PvpTimeLimitSeconds+clockEpsilon {
 		stepTo(nextAITick)
 		executeAI()
 		nextAITick += PvpAITickSeconds

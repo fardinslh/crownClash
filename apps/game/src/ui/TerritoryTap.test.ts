@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
-import { GameplayLabTap } from './GameplayLabTap.js';
+import { TerritoryTap } from './TerritoryTap.js';
 it('accepts a short CSS-pixel tap and rejects movement, long press, dispatch and stale release', () => {
-    const tap = new GameplayLabTap();
+    const tap = new TerritoryTap();
     tap.begin('p_base', 10, 10, 0);
     expect(tap.finish(19.9, 10, 250, false)).toBe('p_base');
     tap.begin('p_base', 10, 10, 0);

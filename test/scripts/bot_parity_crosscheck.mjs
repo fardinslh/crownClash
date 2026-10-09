@@ -17,6 +17,7 @@
  * Usage: node test/scripts/bot_parity_crosscheck.mjs [--keep-artifacts]
  */
 
+import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -330,6 +331,10 @@ function compareCheckpoint(scenarioId, index, tsCheckpoint, goCheckpoint, drifts
     throw new Error(`[${scenarioId}] status divergence at ${location}: client=${tsCheckpoint.status} server=${goCheckpoint.status}`);
   }
   compareFloat('elapsed', tsCheckpoint.elapsed, goCheckpoint.elapsed, drifts, scenarioId, location);
+  assert.equal(tsCheckpoint.gameplayRulesVersion, 2, 'client must use C');
+  assert.equal(goCheckpoint.gameplayRulesVersion, 2, 'server must use C');
+  assert.ok(tsCheckpoint.productionReadyAtMs && goCheckpoint.productionReadyAtMs, 'both engines must expose recovery deadlines');
+  assert.deepEqual(tsCheckpoint.productionReadyAtMs, goCheckpoint.productionReadyAtMs, `[${scenarioId}] recovery deadlines at ${location}`);
 
   const territoryIds = new Set([...Object.keys(tsCheckpoint.territories), ...Object.keys(goCheckpoint.territories)]);
   for (const id of territoryIds) {

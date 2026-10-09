@@ -1,3 +1,4 @@
+import { GAMEPLAY_RULES_VERSION, type GameplayRulesVersion } from './gameplay-rules.js';
 import type { MatchMode, Team, TerritoryType } from './types.js';
 
 export type BattlefieldId = 'crown_cross' | 'twin_passes' | 'royal_ring' | 'quad_citadel';
@@ -42,6 +43,7 @@ export interface BattlefieldDefinition {
 }
 
 export interface BotMatchTicket {
+  readonly gameplayRulesVersion?: GameplayRulesVersion;
   readonly matchId: string;
   readonly battlefieldId: BattlefieldId;
 }
@@ -86,6 +88,7 @@ export function createLocalBotMatchTicket(now = Date.now()): BotMatchTicket {
   const oneVOneBattlefields = BATTLEFIELDS.filter((battlefield) => battlefield.mode === '1v1');
   const index = Math.floor(Math.random() * oneVOneBattlefields.length);
   return {
+    gameplayRulesVersion: GAMEPLAY_RULES_VERSION,
     matchId: `local_${now}_${Math.random().toString(36).slice(2, 10)}`,
     battlefieldId: oneVOneBattlefields[index]?.id ?? DEFAULT_BATTLEFIELD_ID,
   };

@@ -22,8 +22,8 @@ import (
 )
 
 type parityTerritoryState struct {
-	Owner         Team    `json:"owner"`
-	Units         int     `json:"units"`
+	Owner          Team    `json:"owner"`
+	Units          int     `json:"units"`
 	ProductionRate float64 `json:"productionRate"`
 }
 
@@ -38,13 +38,15 @@ type parityArmyState struct {
 }
 
 type parityCheckpoint struct {
-	Kind         string                          `json:"kind"`
-	At           float64                         `json:"at"`
-	Status       string                          `json:"status"`
-	Elapsed      float64                         `json:"elapsed"`
-	Territories  map[string]parityTerritoryState `json:"territories"`
-	Armies       []parityArmyState               `json:"armies"`
-	Accumulators map[string]float64              `json:"accumulators"`
+	GameplayRulesVersion int                             `json:"gameplayRulesVersion"`
+	ProductionReadyAtMs  map[string]int64                `json:"productionReadyAtMs"`
+	Kind                 string                          `json:"kind"`
+	At                   float64                         `json:"at"`
+	Status               string                          `json:"status"`
+	Elapsed              float64                         `json:"elapsed"`
+	Territories          map[string]parityTerritoryState `json:"territories"`
+	Armies               []parityArmyState               `json:"armies"`
+	Accumulators         map[string]float64              `json:"accumulators"`
 }
 
 type parityScenario struct {
@@ -81,7 +83,12 @@ func captureParityCheckpoint(checkpoints *[]parityCheckpoint, kind string, at fl
 	for key, value := range accumulators {
 		accumulatorsCopy[key] = value
 	}
+	readyCopy := make(map[string]int64, len(state.ProductionReadyAtMs))
+	for id, ready := range state.ProductionReadyAtMs {
+		readyCopy[id] = ready
+	}
 	*checkpoints = append(*checkpoints, parityCheckpoint{
+		GameplayRulesVersion: state.GameplayRulesVersion, ProductionReadyAtMs: readyCopy,
 		Kind: kind, At: at, Status: state.Status, Elapsed: state.ElapsedTimeSeconds,
 		Territories: territories, Armies: armies, Accumulators: accumulatorsCopy,
 	})
@@ -95,25 +102,20 @@ func simulateBattleWithCheckpoints(actions []PvpAction, player, enemy PlayerUpgr
 	state := CreateInitialGameStateForBattlefield(player, enemy, battlefieldID)
 	accumulators := map[string]float64{}
 	currentTime := 0.0
+	currentTick := 0
 	nextAITick := PvpAITickSeconds
 	aiActionIndex := 0
 	actionsProcessed := 0
 
 	stepTo := func(timestamp float64) {
-		for state.Status == "playing" && currentTime+PvpSimulationTick <= timestamp+1e-9 {
+		targetTick := int(math.Floor(timestamp/PvpSimulationTick + 1e-9))
+		for state.Status == "playing" && currentTick < targetTick {
 			state, accumulators = stepSimulation(state, accumulators, PvpSimulationTick)
-			currentTime += PvpSimulationTick
-		}
-		remainder := timestamp - currentTime
-		if state.Status == "playing" && remainder > 0 {
-			state, accumulators = stepSimulation(state, accumulators, remainder)
-		}
-		clockCorrection := timestamp - state.ElapsedTimeSeconds
-		if state.Status == "playing" && clockCorrection > 0 {
-			state, accumulators = stepSimulation(state, accumulators, clockCorrection)
+			currentTick++
 		}
 		currentTime = timestamp
 	}
+
 	executeAI := func() {
 		if state.Status != "playing" {
 			return
@@ -126,7 +128,7 @@ func simulateBattleWithCheckpoints(actions []PvpAction, player, enemy PlayerUpgr
 	}
 
 	for _, action := range actions {
-		for state.Status == "playing" && nextAITick <= action.AtSeconds {
+		for state.Status == "playing" && nextAITick <= action.AtSeconds+1e-9 {
 			stepTo(nextAITick)
 			executeAI()
 			captureParityCheckpoint(&checkpoints, "ai_tick", nextAITick, state, accumulators)
@@ -146,7 +148,7 @@ func simulateBattleWithCheckpoints(actions []PvpAction, player, enemy PlayerUpgr
 		actionsProcessed++
 		captureParityCheckpoint(&checkpoints, "player_action", action.AtSeconds, state, accumulators)
 	}
-	for state.Status == "playing" && nextAITick <= PvpTimeLimitSeconds {
+	for state.Status == "playing" && nextAITick <= PvpTimeLimitSeconds+1e-9 {
 		stepTo(nextAITick)
 		executeAI()
 		captureParityCheckpoint(&checkpoints, "ai_tick", nextAITick, state, accumulators)

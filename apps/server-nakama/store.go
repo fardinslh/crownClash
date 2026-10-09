@@ -51,13 +51,14 @@ func (s *Store) CreateBotMatch(ctx context.Context, userID string) (BotMatchTick
 		return BotMatchTicket{}, err
 	}
 	ticket := BotMatchTicket{
-		MatchID:       "bot_" + hex.EncodeToString(randomBytes[1:]),
-		BattlefieldID: battlefieldIDs[int(randomBytes[0])%len(battlefieldIDs)],
+		GameplayRulesVersion: CurrentGameplayRulesVersion,
+		MatchID:              "bot_" + hex.EncodeToString(randomBytes[1:]),
+		BattlefieldID:        battlefieldIDs[int(randomBytes[0])%len(battlefieldIDs)],
 	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO bot_matches (match_id, player_id, battlefield_id)
-		VALUES ($1, $2, $3)
-	`, ticket.MatchID, userID, ticket.BattlefieldID)
+		INSERT INTO bot_matches (match_id, player_id, battlefield_id, gameplay_rules_version)
+		VALUES ($1, $2, $3, $4)
+	`, ticket.MatchID, userID, ticket.BattlefieldID, ticket.GameplayRulesVersion)
 	if err != nil {
 		return BotMatchTicket{}, err
 	}
@@ -341,10 +342,11 @@ func (s *Store) SettleMatchVerified(ctx context.Context, userID, matchID string,
 
 	var battlefieldID string
 	var ticketOwner string
+	var rulesVersion int
 	ticketErr := tx.QueryRowContext(ctx, `
-		SELECT player_id, battlefield_id
+		SELECT player_id, battlefield_id, gameplay_rules_version
 		FROM bot_matches WHERE match_id = $1 FOR UPDATE
-	`, matchID).Scan(&ticketOwner, &battlefieldID)
+	`, matchID).Scan(&ticketOwner, &battlefieldID, &rulesVersion)
 	if errors.Is(ticketErr, sql.ErrNoRows) {
 		return MatchSettlement{}, nil, ErrBotMatchNotFound
 	}
@@ -371,7 +373,7 @@ func (s *Store) SettleMatchVerified(ctx context.Context, userID, matchID string,
 	}
 
 	modifiers := UpgradeModifiers(career)
-	_, summary, err := SimulateBotBattleOnBattlefield(actions, modifiers, battlefieldID)
+	_, summary, err := simulateBattleWithRules(actions, modifiers, DefaultModifiers(), battlefieldID, rulesVersion)
 	if err != nil {
 		return MatchSettlement{}, nil, err
 	}

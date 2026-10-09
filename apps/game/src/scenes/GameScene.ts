@@ -1,12 +1,12 @@
 import Phaser from 'phaser';
-import type { GameplayLabController } from '../gameplay-lab/GameplayLabController.js';
-import type { GameplayLabUI } from '../gameplay-lab/GameplayLabUI.js';
-import type { GameplayLabLaunch } from '../gameplay-lab/GameplayLabScene.js';
-import { GameplayLabTap } from '../gameplay-lab/GameplayLabTap.js';
+import { TerritoryTap } from '../ui/TerritoryTap.js';
 import { anchoredArmyBadge, planArmyBadgeOffset, type ArmyBadgeOffset, type ArmyBadgeRoute } from '../art/ArmyBadgeLayout.js';
 import type { Rect } from '../ui/HudLayout.js';
 import {
   getCaptureProductionMultiplier,
+  getTerritoryProductionMultiplier,
+  getTerritoryDefenseMultiplier,
+  getTerritoryArmySpeedMultiplier,
   BattlefieldId,
   BotMatchTicket,
   calculateDispatchUnits,
@@ -342,12 +342,12 @@ export class GameScene extends Phaser.Scene {
   private dominanceBarStartX = 25;
 
   // Career & Economy
-  private lab?: GameplayLabController;
-  private labLaunch?: GameplayLabLaunch;
-  private labUi?: GameplayLabUI;
-  private labCountdowns = new Map<string, Phaser.GameObjects.Text>();
-  private labPageHide?: () => void;
-  private labTap = new GameplayLabTap();
+  private territoryTap = new TerritoryTap();
+  private captureCountdowns = new Map<string, Phaser.GameObjects.Text>();
+  private inspectionId?: string;
+  private inspector?: Phaser.GameObjects.Container;
+  private inspectorText?: Phaser.GameObjects.Text;
+  private botGameplayRulesVersion: 1 | 2 = 2;
   private careerManager!: CareerManager;
   private careerSubscription?: () => void;
   private playerArmySpeedMultiplier = 1;
@@ -485,7 +485,6 @@ export class GameScene extends Phaser.Scene {
     this.platform = (this.registry.get('platform') as PlatformAdapter) || createPlatformAdapter();
     const user = this.platform.getUser();
     const launchData = this.scene.settings.data as {
-      gameplayLab?: GameplayLabLaunch;
       source?: 'menu' | 'rematch';
       mode?: 'bot' | 'live';
       training?: boolean;
@@ -495,9 +494,8 @@ export class GameScene extends Phaser.Scene {
       botMatch?: BotMatchTicket;
       career?: PlayerCareer;
     } | undefined;
-    this.labLaunch = import.meta.env.DEV && launchData?.gameplayLab && launchData.mode !== 'live' ? launchData.gameplayLab : undefined;
-    this.lab = this.labLaunch?.controller;
-    if (!this.lab) this.careerManager = CareerManager.getInstance(user.id);
+    this.careerManager = CareerManager.getInstance(user.id);
+    this.botGameplayRulesVersion = launchData?.botMatch ? (launchData.botMatch.gameplayRulesVersion ?? 1) : 2;
     this.liveMode = launchData?.mode === 'live';
     // A guided training battle is a client-local bot match: no server
     // ticket, no settlement, no rewards. Completion is reported by this
@@ -529,10 +527,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     if (!this.liveMode && !launchData?.botMatch) {
-      if (this.lab) {
-        this.activeMatchId = this.lab.trial.id;
-        this.battlefieldId = 'crown_cross';
-      } else if (this.trainingMode) {
+      if (this.trainingMode) {
         // Local-only training ticket: never settled, never rewarded, and
         // invisible to the server's bot-match gating.
         const trainingTicket = createTrainingTicket();
@@ -573,7 +568,7 @@ export class GameScene extends Phaser.Scene {
       this.platform.hideBackButton();
       this.cleanup();
     });
-    this.backendConnectPromise = !this.liveMode && !this.lab
+    this.backendConnectPromise = !this.liveMode
       ? this.careerManager
           .connect(this.platform)
           .then(() => undefined)
@@ -581,12 +576,7 @@ export class GameScene extends Phaser.Scene {
             console.warn('[GameScene] Backend unavailable, using local career cache:', error);
           })
       : Promise.resolve();
-    if (this.lab) {
-      this.gameState = this.lab.battle.state;
-      this.playerArmySpeedMultiplier = this.enemyArmySpeedMultiplier = 1;
-      this.labPageHide = () => this.finishLabMatch(true);
-      window.addEventListener('pagehide', this.labPageHide);
-    } else this.createUpgradedMatchState(launchData?.career ?? this.careerManager.getCareer());
+    this.createUpgradedMatchState(launchData?.career ?? this.careerManager.getCareer());
     if (this.liveMode && launchData?.liveMatch2v2) {
       // 2v2: the server's per-slot projected state is authoritative.
       this.gameState = launchData.liveMatch2v2.state;
@@ -619,14 +609,13 @@ export class GameScene extends Phaser.Scene {
       // Training has no real match to quit: leaving it is a tutorial skip,
       // never a match_quit terminal event.
       trackQuit: (event) => {
-        if (this.trainingMode || this.lab) return false;
+        if (this.trainingMode) return false;
         return trackTerminalMatchEvent(event);
       },
       // Training is not a match: ordinary match_* menu navigation events
       // are remapped to the tutorial equivalents (or suppressed) so
       // analytics never reports a fake bot match around the tutorial.
       trackAnalytics: (event) => {
-        if (this.lab) return;
         if (this.trainingMode) {
           const tutorialEvent = remapTrainingMenuAnalytics(event);
           if (tutorialEvent) trackEvent(tutorialEvent);
@@ -645,16 +634,13 @@ export class GameScene extends Phaser.Scene {
     });
     this.platform.showBackButton(() => {
       if (this.isExiting) return;
-      if (this.lab && this.resultPending) { this.scene.start('GameplayLabScene'); return; }
       if (this.resultModalContainer || this.syncingModalContainer) {
         this.returnToMenu();
         return;
       }
       this.matchMenuController.handleBackButton();
     });
-    if (this.lab) {
-      // Lab observations stay local, outside production analytics.
-    } else if (this.trainingMode) {
+    if (this.trainingMode) {
       // Training is not a real match: no match_start analytics, no match
       // settlement, no rewards. Only the stable tutorial_* events fire.
       trackEvent({ name: 'tutorial_started' });
@@ -1027,6 +1013,11 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     this.lastAppliedViewport = { width: vp.visibleWidth, height: vp.visibleHeight };
+    // Recreate the information panel on the next tap at the new viewport width.
+    this.inspector?.destroy();
+    this.inspector = undefined;
+    this.inspectorText = undefined;
+    this.inspectionId = undefined;
     this.boardLayout = createBoardLayout(this.battlefieldId, vp.visibleHeight);
 
     // Static dressing is cheap to redraw once per settled viewport: destroy
@@ -1861,11 +1852,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createHud(): void {
-    if (this.lab) {
-      this.labUi = this.labLaunch!.createUi();
-      this.labUi.match(this.lab.variant, () => this.finishLabMatch(true));
-      return;
-    }
     const { visibleWidth, visibleHeight, scrollX } = getSceneViewport(this);
 
     // Compute player HUD label width for dynamic pill sizing
@@ -2372,7 +2358,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
-      if (this.lab) { const point = this.labPointerCss(pointer); this.labTap.move(point.x, point.y); }
+      const point = this.pointerCss(pointer); this.territoryTap.move(point.x, point.y);
       if (this.isExiting || this.matchMenuController?.isOpen() || this.selectedSourceIds.length === 0) {
         return;
       }
@@ -2444,21 +2430,18 @@ export class GameScene extends Phaser.Scene {
 
     this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
       if (this.isExiting || this.matchMenuController?.isOpen()) {
-        this.labTap.cancel();
+        this.territoryTap.cancel();
         this.cancelDragSelection();
         return;
       }
-      const point = this.lab ? this.labPointerCss(pointer) : undefined;
-      const inspect = point ? this.labTap.finish(point.x, point.y, performance.now(), this.selectedSourceIds.length > 1 || Boolean(this.hoveredTargetId)) : undefined;
+      const point = this.pointerCss(pointer);
+      const inspect = this.territoryTap.finish(point.x, point.y, performance.now(), this.selectedSourceIds.length > 1 || Boolean(this.hoveredTargetId));
       this.handlePointerRelease();
-      if (inspect && this.lab && !this.resultPending) {
-        this.labUi?.inspect(inspect);
-        this.labUi?.update(this.gameState);
-      }
+      if (inspect && !this.resultPending) this.showTerritoryInspection(inspect);
     });
   }
 
-  private labPointerCss(pointer: Phaser.Input.Pointer): { x: number; y: number } {
+  private pointerCss(pointer: Phaser.Input.Pointer): { x: number; y: number } {
     const bounds = this.game.canvas.getBoundingClientRect();
     return { x: pointer.x * bounds.width / this.game.canvas.width, y: pointer.y * bounds.height / this.game.canvas.height };
   }
@@ -2469,9 +2452,11 @@ export class GameScene extends Phaser.Scene {
     const territory = this.gameState.territories[territoryId];
     if (!territory) return;
 
-    if (this.lab && pointer) {
-      const point = this.labPointerCss(pointer);
-      this.labTap.begin(territory.id, point.x, point.y, performance.now());
+    this.inspector?.setVisible(false);
+    this.inspectionId = undefined;
+    if (!this.trainingMode && pointer) {
+      const point = this.pointerCss(pointer);
+      this.territoryTap.begin(territory.id, point.x, point.y, performance.now());
     }
     if (territory.owner === 'player' && territory.units > 1) {
       this.selectedSourceIds = [territoryId];
@@ -2567,13 +2552,6 @@ export class GameScene extends Phaser.Scene {
     }
 
     const target = this.hoveredTargetId ? this.gameState.territories[this.hoveredTargetId] : null;
-    if (target && this.lab) {
-      selectedTerritories = selectedTerritories.filter((t) => t.owner === 'player' && t.id !== target.id);
-      if (selectedTerritories.length === 0) {
-        this.dragBadgeContainer.setVisible(false);
-        return;
-      }
-    }
     // The whole gesture overlay draws in projected screen space: sources,
     // hovered targets and the free pointer all map through the board layout
     // (identity layouts project 1:1, so un-migrated maps render unchanged).
@@ -2800,16 +2778,7 @@ export class GameScene extends Phaser.Scene {
         .filter((t): t is Territory => Boolean(t));
 
       if (target && sources.length > 0) {
-        if (this.lab) {
-          const result = this.lab.battle.dispatch(sourceIds, targetId);
-          this.gameState = this.lab.battle.state;
-          if (result.armies.length > 0) {
-            this.markTerritoriesDirty();
-            this.updateTerritoryVisuals();
-            sounds.playDispatch();
-            this.platform.hapticImpact(result.armies.length > 1 ? 'heavy' : 'medium');
-          }
-        } else if (this.liveMode) {
+        if (this.liveMode) {
           if (this.is2v2InputBlocked()) return;
           try {
             const multiDispatch = dispatchMultipleArmies(
@@ -2890,7 +2859,7 @@ export class GameScene extends Phaser.Scene {
       this.trainingController.onTimerTick(deltaSeconds);
     }
 
-    if (this.gameState.status === 'playing' && !this.liveMode && !(this.lab && this.resultPending)) {
+    if (this.gameState.status === 'playing' && !this.liveMode) {
       // The completed sandbox stays still during saving and retries; a
       // failed request must not reset the field and erase the retry button.
       const trainingPaused =
@@ -2927,7 +2896,8 @@ export class GameScene extends Phaser.Scene {
 
     // 6. Update Visuals
     this.updateTerritoryVisuals();
-    if (this.lab) this.updateLabIndicators();
+    this.updateCaptureIndicators();
+    this.updateTerritoryInspection();
     if (!this.matchMenuController?.isPaused()) {
       this.updateArmyVisuals(deltaSeconds);
     }
@@ -2968,7 +2938,7 @@ export class GameScene extends Phaser.Scene {
       this.markTerritoriesDirty();
     }
     for (let index = 0; index < ticks && this.gameState.status === 'playing'; index++) {
-      const result = this.lab ? this.lab.battle.step() : stepSimulation(
+      const result = stepSimulation(
         this.gameState,
         this.accumulators,
         PVP_SIMULATION_TICK_SECONDS
@@ -2984,7 +2954,7 @@ export class GameScene extends Phaser.Scene {
         // Scripted training battle: the enemy never acts. Clash
         // Royale-style passive tutorial opponent — the player is the only
         // commander on the field.
-        if (this.trainingMode || this.lab) continue;
+        if (this.trainingMode) continue;
         this.executeAiTurn();
       }
     }
@@ -4049,43 +4019,59 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private finishLabMatch(quit = false): void {
-    if (!this.lab || this.resultPending) return;
-    this.resultPending = true;
-    this.lab.finish(quit);
-    sounds.stopBattleMusic();
-    this.cancelDragSelection();
-    this.input.enabled = false;
-    this.labUi?.result(this.lab, () => {
-      const lab = this.lab!;
-      lab.retry();
-      this.scene.restart({ gameplayLab: this.labLaunch!.retry() });
-    }, () => this.scene.start('GameplayLabScene'), () => this.labLaunch!.exit());
+  private showTerritoryInspection(id: string): void {
+    this.inspectionId = id;
+    if (!this.inspector) {
+      const { visibleWidth } = getSceneViewport(this);
+      const width = visibleWidth - 24;
+      this.inspector = this.add.container(0, 0).setDepth(100);
+      const background = this.add.rectangle(0, 0, width, 76, 0x0b1425, 0.97).setOrigin(0).setStrokeStyle(1, 0x415b85).setInteractive();
+      background.on('pointerdown', (_p: Phaser.Input.Pointer, _x: number, _y: number, event: Phaser.Types.Input.EventData) => event.stopPropagation());
+      this.inspectorText = createText(this, 12, 12, '', { fontSize: '12px', color: '#eef4ff', wordWrap: { width: width - 72 } });
+      const close = this.add.rectangle(width - 25, 25, 46, 46, 0x192b47).setInteractive({ useHandCursor: true });
+      close.on('pointerdown', (_p: Phaser.Input.Pointer, _x: number, _y: number, event: Phaser.Types.Input.EventData) => {
+        event.stopPropagation(); this.inspector?.setVisible(false); this.inspectionId = undefined;
+      });
+      const closeLabel = createText(this, width - 25, 25, '×', { fontSize: '22px', color: '#eef4ff' }).setOrigin(0.5);
+      this.inspector.add([background, this.inspectorText, close, closeLabel]);
+    }
+    this.inspector.setVisible(true);
+    this.updateTerritoryInspection();
   }
 
-  private updateLabIndicators(): void {
+  private updateTerritoryInspection(): void {
+    const territory = this.inspectionId ? this.gameState.territories[this.inspectionId] : undefined;
+    if (!territory || !this.inspectorText) return;
+    if (this.resultPending || this.matchMenuController?.isOpen()) { this.inspector?.setVisible(false); return; }
+    const { visibleHeight, scrollX } = getSceneViewport(this);
+    this.inspector?.setPosition(scrollX + 12, visibleHeight - 88);
+    const recovery = getCaptureProductionMultiplier(this.gameState.elapsedTimeSeconds, this.gameState.productionReadyAtMs?.[territory.id]);
+    const production = territory.productionRate * getTerritoryProductionMultiplier(territory.type) * recovery;
+    this.inspectorText.setText(`${territory.name} · ${territory.owner}
+PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territory.type)} · SPD ×${getTerritoryArmySpeedMultiplier(territory.type)}`);
+  }
+
+  private updateCaptureIndicators(): void {
     for (const territory of Object.values(this.gameState.territories)) {
-      const remaining = Math.max(0, (this.gameState.productionReadyTicks?.[territory.id] ?? 0) - (this.gameState.simulationTick ?? 0));
-      let label = this.labCountdowns.get(territory.id);
+      const remaining = Math.max(0, (this.gameState.productionReadyAtMs?.[territory.id] ?? 0) - Math.round(this.gameState.elapsedTimeSeconds * 1000));
+      let label = this.captureCountdowns.get(territory.id);
       if (remaining > 0) {
         if (!label) {
           label = createText(this, 0, 0, '', { fontSize: '11px', align: 'center', color: '#f6c85c', backgroundColor: '#0b1425', padding: { x: 5, y: 2 } })
             .setOrigin(0.5).setDepth(85);
-          this.labCountdowns.set(territory.id, label);
+          this.captureCountdowns.set(territory.id, label);
         }
         const anchor = this.projectSocketPoint(territory.x, territory.y);
         const art = territoryArtFootprint(this.battlefieldId, territory);
         const direction = territory.x < LOGICAL_WIDTH / 2 ? 1 : -1;
-        const productionPercent = Math.floor(getCaptureProductionMultiplier(this.gameState.rules,
-          this.gameState.simulationTick ?? 0, this.gameState.productionReadyTicks?.[territory.id]) * 100);
+        const productionPercent = Math.floor(getCaptureProductionMultiplier(this.gameState.elapsedTimeSeconds, this.gameState.productionReadyAtMs?.[territory.id]) * 100);
         label.setPosition(anchor.u + direction * (territory.radius + 38) * this.boardLayout.scale,
-          anchor.v + art.badgeY * this.boardLayout.scale).setText(`PROD ${productionPercent}%\n${(remaining * 0.02).toFixed(1)}s`).setVisible(true);
+          anchor.v + art.badgeY * this.boardLayout.scale).setText(`PROD ${productionPercent}%\n${(remaining / 1000).toFixed(1)}s`).setVisible(true);
       } else label?.setVisible(false);
     }
   }
 
   private updateHud(): void {
-    if (this.lab) { this.labUi?.update(this.gameState, this.selectedSourceIds.length > 0, this.resultPending); return; }
     // 1. Timer & Dynamic Tension Loop
     const remaining = Math.max(0, this.gameState.timeLimitSeconds - this.gameState.elapsedTimeSeconds);
     const roundedSecs = Math.floor(remaining);
@@ -4167,7 +4153,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   private endMatch(): void {
-    if (this.lab) { this.finishLabMatch(); return; }
     // Training battles never settle: no coins, trophies, missions, or
     // match settlement may ever originate from the guided battle.
     if (this.trainingMode) return;
@@ -4198,7 +4183,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   private async finalizeMatch(): Promise<void> {
-    if (this.lab) return;
     if (!canFinalizeBotSettlement({
       isStressMode: this.isStressMode,
       liveMode: this.liveMode,
@@ -4910,7 +4894,7 @@ export class GameScene extends Phaser.Scene {
     this.syncingModalContainer = undefined;
     this.matchMenuModalContainer?.destroy();
     this.matchMenuModalContainer = undefined;
-    this.scene.start(this.lab ? 'GameplayLabScene' : 'MenuScene');
+    this.scene.start('MenuScene');
   }
 
   private handleMatchMenuStateChange(state: MatchMenuState): void {
@@ -4927,7 +4911,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleMatchExitConfirmed(): void {
-    if (this.lab) { this.finishLabMatch(true); return; }
     this.matchMenuModalContainer?.destroy();
     this.matchMenuModalContainer = undefined;
     if (this.trainingMode) {
@@ -5278,6 +5261,7 @@ export class GameScene extends Phaser.Scene {
     this.enemyArmySpeedMultiplier = 1;
     this.gameState = createInitialGameState({
       playerModifiers: modifiers,
+      gameplayRulesVersion: this.botGameplayRulesVersion,
       battlefieldId: this.battlefieldId,
     });
     // Clash Royale-style sandbox: the training player is overpowered and
@@ -5292,6 +5276,12 @@ export class GameScene extends Phaser.Scene {
 
   /** Destroys every territory/army visual (scene restart or 2v2 rematch). */
   private destroyBattlefieldVisuals(): void {
+    for (const label of this.captureCountdowns.values()) label.destroy();
+    this.captureCountdowns.clear();
+    this.inspector?.destroy();
+    this.inspector = undefined;
+    this.inspectorText = undefined;
+    this.inspectionId = undefined;
     for (const vis of this.territoryVisuals.values()) {
       this.tweens.killTweensOf([vis.container, vis.ring, vis.typeIcon, vis.unitBadge]);
       vis.unitBadge.destroy();
@@ -6104,15 +6094,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private cleanup(): void {
-    if (this.lab && this.lab.trial.battle.result === 'playing') this.lab.finish(true);
-    if (this.labPageHide) window.removeEventListener('pagehide', this.labPageHide);
-    this.labPageHide = undefined;
-    this.labTap.cancel();
-    this.labUi?.destroy();
-    this.labUi = undefined;
-    this.labCountdowns.clear();
-    this.lab = undefined;
-    this.labLaunch = undefined;
+    this.territoryTap.cancel();
+    this.captureCountdowns.clear();
+    this.inspector?.destroy();
+    this.inspector = undefined;
+    this.inspectorText = undefined;
+    this.inspectionId = undefined;
     this.trainingRequest?.abort();
     this.trainingRequest = undefined;
     this.platform.hideBackButton();

@@ -297,6 +297,14 @@ ALTER TABLE players
   ADD COLUMN IF NOT EXISTS tutorial_completed BOOLEAN NOT NULL DEFAULT FALSE;
 `,
 	},
+	{
+		name: "013_capture_recovery_rules",
+		sql: `
+ALTER TABLE bot_matches
+  ADD COLUMN IF NOT EXISTS gameplay_rules_version INTEGER NOT NULL DEFAULT 1
+    CHECK (gameplay_rules_version IN (1, 2));
+`,
+	},
 }
 
 func RunMigrations(ctx context.Context, db *sql.DB) error {

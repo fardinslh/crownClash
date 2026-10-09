@@ -140,8 +140,9 @@ type PvpAction struct {
 }
 
 type BotMatchTicket struct {
-	MatchID       string `json:"matchId"`
-	BattlefieldID string `json:"battlefieldId"`
+	GameplayRulesVersion int    `json:"gameplayRulesVersion"`
+	MatchID              string `json:"matchId"`
+	BattlefieldID        string `json:"battlefieldId"`
 }
 
 type PvpDefenseSnapshot struct {
@@ -321,11 +322,13 @@ type MarchingArmy struct {
 }
 
 type GameState struct {
-	BattlefieldID      string               `json:"battlefieldId,omitempty"`
-	Territories        map[string]Territory `json:"territories"`
-	Armies             []MarchingArmy       `json:"armies"`
-	Status             string               `json:"status"`
-	ElapsedTimeSeconds float64              `json:"elapsedTimeSeconds"`
-	TimeLimitSeconds   float64              `json:"timeLimitSeconds"`
-	Stats              MatchStats           `json:"stats"`
+	BattlefieldID        string               `json:"battlefieldId,omitempty"`
+	Territories          map[string]Territory `json:"territories"`
+	Armies               []MarchingArmy       `json:"armies"`
+	Status               string               `json:"status"`
+	ElapsedTimeSeconds   float64              `json:"elapsedTimeSeconds"`
+	TimeLimitSeconds     float64              `json:"timeLimitSeconds"`
+	Stats                MatchStats           `json:"stats"`
+	GameplayRulesVersion int                  `json:"gameplayRulesVersion,omitempty"`
+	ProductionReadyAtMs  map[string]int64     `json:"productionReadyAtMs,omitempty"`
 }

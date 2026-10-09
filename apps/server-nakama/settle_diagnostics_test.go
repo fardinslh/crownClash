@@ -94,15 +94,19 @@ func newDiagStore(t *testing.T) (*Store, sqlmock.Sqlmock, *fakeNakama, *recordin
 
 // expectFreshSettlement wires sqlmock for one full fresh bot settlement of
 // diagMatchID on crown_cross with the given career row values.
-func expectFreshSettlement(t *testing.T, mock sqlmock.Sqlmock, userID string, careerRow *sqlmock.Rows) {
+func expectFreshSettlement(t *testing.T, mock sqlmock.Sqlmock, userID string, careerRow *sqlmock.Rows, ruleVersions ...int) {
 	t.Helper()
+	rulesVersion := CurrentGameplayRulesVersion
+	if len(ruleVersions) > 0 {
+		rulesVersion = ruleVersions[0]
+	}
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT settlement FROM match_settlements WHERE match_id = $1")).
 		WithArgs(diagMatchID).
 		WillReturnRows(sqlmock.NewRows([]string{"settlement"}))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT player_id, battlefield_id")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT player_id, battlefield_id, gameplay_rules_version")).
 		WithArgs(diagMatchID).
-		WillReturnRows(sqlmock.NewRows([]string{"player_id", "battlefield_id"}).AddRow(userID, "crown_cross"))
+		WillReturnRows(sqlmock.NewRows([]string{"player_id", "battlefield_id", "gameplay_rules_version"}).AddRow(userID, "crown_cross", rulesVersion))
 	mock.ExpectQuery(regexp.QuoteMeta("FROM players WHERE id = $1 FOR UPDATE")).
 		WithArgs(userID).
 		WillReturnRows(careerRow)
@@ -368,5 +372,26 @@ func TestClientStatusCannotInfluenceSettlementDirectly(t *testing.T) {
 	logBotStatusMismatch(logger, diagMatchID, "victory", "defeat", 3, nil)
 	if len(logger.sink.warnings) != 0 {
 		t.Fatalf("diagnostic helper must stay silent: %v", logger.sink.warnings)
+	}
+}
+
+func TestSettleMatchUsesPersistedLegacyRules(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	expectFreshSettlement(t, mock, "legacy_player", defaultCareerRow("legacy_player"), 1)
+	store := NewStore(db)
+	settlement, _, err := store.SettleMatchVerified(context.Background(), "legacy_player", diagMatchID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, expected, err := simulateBattleWithRules(nil, DefaultModifiers(), DefaultModifiers(), "crown_cross", 1)
+	if err != nil || settlement.Status != expected.Status || settlement.Stats != expected.Stats {
+		t.Fatal("settlement changed historical rules")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }

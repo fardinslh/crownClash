@@ -96,13 +96,14 @@ const (
 
 // TwoVTwoSimulationOptions mirrors TwoVTwoSimulationOptions (pvp2v2.ts).
 type TwoVTwoSimulationOptions struct {
-	Territories      map[string]Territory           `json:"territories"`
-	SpawnAssignments []TwoVTwoSpawnAssignment       `json:"spawnAssignments"`
-	ModifiersBySlot  map[int]PlayerUpgradeModifiers `json:"modifiersBySlot"`
-	TimeLimitSeconds float64                        `json:"timeLimitSeconds"`
-	BattlefieldID    string                         `json:"battlefieldId"`
-	Actions          []CanonicalTwoVTwoAction       `json:"actions"`
-	MaxActions       int                            `json:"maxActions,omitempty"`
+	Territories          map[string]Territory           `json:"territories"`
+	SpawnAssignments     []TwoVTwoSpawnAssignment       `json:"spawnAssignments"`
+	ModifiersBySlot      map[int]PlayerUpgradeModifiers `json:"modifiersBySlot"`
+	TimeLimitSeconds     float64                        `json:"timeLimitSeconds"`
+	BattlefieldID        string                         `json:"battlefieldId"`
+	Actions              []CanonicalTwoVTwoAction       `json:"actions"`
+	GameplayRulesVersion int                            `json:"gameplayRulesVersion,omitempty"`
+	MaxActions           int                            `json:"maxActions,omitempty"`
 }
 
 // TwoVTwoSimulationResult mirrors TwoVTwoSimulationResult (pvp2v2.ts), plus
@@ -132,13 +133,15 @@ type twoVTwoCheckpointArmy struct {
 }
 
 type twoVTwoCheckpoint struct {
-	Kind         string                                `json:"kind"`
-	At           float64                               `json:"at"`
-	Status       string                                `json:"status"`
-	Elapsed      float64                               `json:"elapsed"`
-	Territories  map[string]twoVTwoCheckpointTerritory `json:"territories"`
-	Armies       []twoVTwoCheckpointArmy               `json:"armies"`
-	Accumulators map[string]float64                    `json:"accumulators"`
+	GameplayRulesVersion int                                   `json:"gameplayRulesVersion"`
+	ProductionReadyAtMs  map[string]int64                      `json:"productionReadyAtMs"`
+	Kind                 string                                `json:"kind"`
+	At                   float64                               `json:"at"`
+	Status               string                                `json:"status"`
+	Elapsed              float64                               `json:"elapsed"`
+	Territories          map[string]twoVTwoCheckpointTerritory `json:"territories"`
+	Armies               []twoVTwoCheckpointArmy               `json:"armies"`
+	Accumulators         map[string]float64                    `json:"accumulators"`
 }
 
 // CreateInitial2v2GameState mirrors createInitial2v2GameState (init2v2.ts):
@@ -184,13 +187,14 @@ func CreateInitial2v2GameState(territories map[string]Territory, spawnAssignment
 		timeLimitSeconds = PvpTimeLimitSeconds
 	}
 	return GameState{
-		BattlefieldID:      battlefieldID,
-		Territories:        cloned,
-		Armies:             []MarchingArmy{},
-		Status:             "playing",
-		ElapsedTimeSeconds: 0,
-		TimeLimitSeconds:   timeLimitSeconds,
-		Stats:              MatchStats{},
+		BattlefieldID:        battlefieldID,
+		Territories:          cloned,
+		Armies:               []MarchingArmy{},
+		Status:               "playing",
+		ElapsedTimeSeconds:   0,
+		TimeLimitSeconds:     timeLimitSeconds,
+		Stats:                MatchStats{},
+		GameplayRulesVersion: CurrentGameplayRulesVersion,
 	}, nil
 }
 
@@ -268,6 +272,15 @@ func Simulate2v2Battle(options TwoVTwoSimulationOptions) (TwoVTwoSimulationResul
 	)
 	if err != nil {
 		return TwoVTwoSimulationResult{}, err
+	}
+	if options.GameplayRulesVersion != 0 {
+		if options.GameplayRulesVersion != 1 && options.GameplayRulesVersion != CurrentGameplayRulesVersion {
+			return TwoVTwoSimulationResult{}, fmt.Errorf("unsupported_gameplay_rules_version")
+		}
+		state.GameplayRulesVersion = options.GameplayRulesVersion
+		if options.GameplayRulesVersion == 1 {
+			state.GameplayRulesVersion = 0
+		}
 	}
 	accumulators := map[string]float64{}
 	currentTick := 0
@@ -359,7 +372,12 @@ func captureTwoVTwoCheckpoint(checkpoints *[]twoVTwoCheckpoint, kind string, at 
 	for id, accumulator := range accumulators {
 		accumulatorsCopy[id] = accumulator
 	}
+	readyCopy := make(map[string]int64, len(state.ProductionReadyAtMs))
+	for id, ready := range state.ProductionReadyAtMs {
+		readyCopy[id] = ready
+	}
 	*checkpoints = append(*checkpoints, twoVTwoCheckpoint{
+		GameplayRulesVersion: state.GameplayRulesVersion, ProductionReadyAtMs: readyCopy,
 		Kind: kind, At: at, Status: state.Status, Elapsed: state.ElapsedTimeSeconds,
 		Territories: territories, Armies: armies, Accumulators: accumulatorsCopy,
 	})

@@ -307,15 +307,7 @@ vi.mock('../../audio/SoundEffects.js', () => ({
   sounds: new Proxy({}, { get: () => () => false }),
 }));
 
-vi.mock('../../gameplay-lab/GameplayLabUI.js', () => ({
-  GameplayLabUI: class {
-    match = vi.fn(); update = vi.fn(); result = vi.fn(); destroy = vi.fn(); inspect = vi.fn();
-  },
-}));
-
 import { GameScene } from '../GameScene.js';
-import { GameplayLabStore } from '../../gameplay-lab/GameplayLabController.js';
-import { createGameplayLabLaunch } from '../../gameplay-lab/GameplayLabScene.js';
 import { CareerManager } from '../../career/CareerManager.js';
 import { BrowserPlatformAdapter } from '@crown-clash/platform';
 import {
@@ -1023,90 +1015,34 @@ describe('First-launch training integration', () => {
   });
 });
 
-describe('Gameplay lab scene isolation', () => {
-  beforeEach(() => { storage.clear(); vi.clearAllMocks(); (CareerManager as any).instance = null; });
-  afterEach(() => { vi.restoreAllMocks(); });
 
-  it.each(['victory', 'defeat', 'draw', 'quit'] as const)('boots and handles %s without career, rewards, login or production analytics', async (status) => {
-    const platform = new BrowserPlatformAdapter();
-    const careerAccess = vi.spyOn(CareerManager, 'getInstance');
-    const store = new GameplayLabStore(window.localStorage);
-    const launch = createGameplayLabLaunch(store, 1, 'capture_recovery');
-    const scene = new GameScene();
-    scene.registry.set('platform', platform);
-    scene.scene.settings.data = { gameplayLab: launch } as any;
-    scene.create();
-    expect((scene as any).lab).toBe(launch.controller);
-    expect((scene as any).gameState.territories.p_base.units).toBe(20);
-    expect((scene as any).gameState.territories.e_base.units).toBe(20);
-    expect((scene as any).playerArmySpeedMultiplier).toBe(1);
-    (scene as any).selectedSourceIds = ['p_base'];
-    (scene as any).hoveredTargetId = 'n_bot_left';
-    (scene as any).handlePointerRelease();
-    expect(launch.controller.battle.record.actions).toHaveLength(1);
-    scene.update(20, 20);
-    expect(launch.controller.battle.tick).toBe(1);
-    if (status === 'quit') (scene as any).finishLabMatch(true);
-    else {
-      launch.controller.battle.state.status = status;
-      launch.controller.battle.record.result = status;
-      (scene as any).endMatch();
-    }
-    await (scene as any).finalizeMatch();
-    expect(store.data.trials).toHaveLength(1);
-    expect(store.data.trials[0].battle.result).toBe(status);
-    expect((scene as any).labUi.result).toHaveBeenCalledTimes(1);
-    expect(careerAccess).not.toHaveBeenCalled();
-    expect(trackEvent).not.toHaveBeenCalled();
-    expect(trackTerminalMatchEvent).not.toHaveBeenCalled();
-    expect([...storage.keys()].filter((key) => /career|ledger|daily|league/.test(key))).toEqual([]);
-    expect(storage.has('crown_clash_gameplay_lab_v4')).toBe(true);
-    (scene as any).cleanup();
+
+describe('production C scene integration',()=>{
+  beforeEach(()=>{storage.clear();vi.clearAllMocks();(CareerManager as any).instance=null;});
+  it.each([1,2] as const)('honors the server ticket rule version %s', version=>{
+    const scene=new GameScene();scene.registry.set('platform',new BrowserPlatformAdapter());
+    scene.scene.settings.data={mode:'bot',botMatch:{matchId:'bot_C',battlefieldId:'crown_cross',gameplayRulesVersion:version}};
+    scene.create();expect((scene as any).gameState.gameplayRulesVersion).toBe(version);(scene as any).cleanup();
   });
-});
-
-it('C preview and multi-attack include every selected source', () => {
-  const store = new GameplayLabStore();
-  const launch = createGameplayLabLaunch(store, 1, 'capture_recovery');
-  const scene = new GameScene();
-  scene.registry.set('platform', new BrowserPlatformAdapter());
-  scene.scene.settings.data = { gameplayLab: launch } as any;
-  scene.create();
-  const s = scene as any;
-  s.gameState.territories.n_bot_right.owner = 'player';
-  s.gameState.territories.n_bot_right.units = 40;
-  s.selectedSourceIds = ['p_base', 'n_bot_right'];
-  s.hoveredTargetId = 'n_bot_left';
-  s.renderDragTrajectory({ positionToCamera: (_camera: unknown, point: any) => point.set(100, 100) });
-  expect(s.dragBadgeText.text).toBe('⚔ 30 (WIN +22) (2 bases)');
-  s.handlePointerRelease();
-  expect(launch.controller.battle.record.actions).toEqual([
-    { type: 'dispatch', reinforcement: false, counterattack: false, tick: 0, owner: 'player', sourceId: 'p_base', targetId: 'n_bot_left' },
-    { type: 'dispatch', reinforcement: false, counterattack: false, tick: 0, owner: 'player', sourceId: 'n_bot_right', targetId: 'n_bot_left' },
-  ]);
-  expect(s.gameState.territories.n_bot_right.units).toBe(20);
-  s.cleanup();
-});
-
-it.each(['player', 'neutral', 'enemy'])('lab tap survives object-before-scene pointerdown for a %s base', (owner) => {
-  vi.clearAllMocks();
-  const launch = createGameplayLabLaunch(new GameplayLabStore(), 1, 'capture_recovery');
-  const scene = new GameScene();
-  scene.registry.set('platform', new BrowserPlatformAdapter());
-  scene.scene.settings.data = { gameplayLab: launch } as any;
-  scene.create();
-  const s = scene as any;
-  s.game = { canvas: { width: 400, height: 720, getBoundingClientRect: () => ({ width: 360, height: 640 }) } };
-  const territory = s.gameState.territories.p_base;
-  territory.owner = owner;
-  vi.spyOn(s, 'getTerritoryUnderPointer').mockReturnValue(territory);
-  const pointer = { x: 100, y: 100 };
-  // Phaser emits the object event first. For friendly bases this starts selection,
-  // so the scene event returns early; inspection must already have been armed.
-  s.territoryVisuals.get('p_base').container.emit('pointerdown', pointer);
-  for (const [event, handler] of s.input.on.mock.calls) if (event === 'pointerdown') handler(pointer);
-  for (const [event, handler] of s.input.on.mock.calls) if (event === 'pointerup') handler(pointer);
-  expect(s.labUi.inspect).toHaveBeenCalledWith('p_base');
-  expect(launch.controller.battle.record.actions).toEqual([]);
-  s.cleanup();
+  it.each(['player','neutral','enemy'])('short tap inspects a %s base without sending an attack',owner=>{
+    const scene=new GameScene();scene.registry.set('platform',new BrowserPlatformAdapter());
+    scene.scene.settings.data={mode:'bot',botMatch:{matchId:'bot_C',battlefieldId:'crown_cross',gameplayRulesVersion:2}};
+    scene.create();const s=scene as any;
+    s.game={canvas:{width:400,height:720,getBoundingClientRect:()=>({width:360,height:640})}};
+    const t=s.gameState.territories.p_base;t.owner=owner;vi.spyOn(s,'getTerritoryUnderPointer').mockReturnValue(t);
+    const pointer={x:100,y:100};s.territoryVisuals.get('p_base').container.emit('pointerdown',pointer);
+    for(const [event,handler] of s.input.on.mock.calls)if(event==='pointerdown')handler(pointer);
+    for(const [event,handler] of s.input.on.mock.calls)if(event==='pointerup')handler(pointer);
+    expect(s.inspectionId).toBe('p_base');expect(s.inspector.visible).toBe(true);
+    expect(s.inspectorText.text).toContain('PROD 1.20/s');expect(s.matchActions).toEqual([]);
+    t.owner='enemy';s.updateTerritoryInspection();expect(s.inspectorText.text).toContain('enemy');s.cleanup();
+  });
+  it('keeps multi-select as two real, recorded production commands',()=>{
+    const scene=new GameScene();scene.registry.set('platform',new BrowserPlatformAdapter());
+    scene.scene.settings.data={mode:'bot',botMatch:{matchId:'bot_C',battlefieldId:'crown_cross',gameplayRulesVersion:2}};
+    scene.create();const s=scene as any;s.gameState.territories.n_bot_right.owner='player';s.gameState.territories.n_bot_right.units=40;
+    s.selectedSourceIds=['p_base','n_bot_right'];s.hoveredTargetId='n_bot_left';s.handlePointerRelease();
+    expect(s.matchActions.map((a:any)=>[a.sourceId,a.targetId])).toEqual([['p_base','n_bot_left'],['n_bot_right','n_bot_left']]);
+    expect(s.gameState.territories.n_bot_right.units).toBe(20);s.cleanup();
+  });
 });

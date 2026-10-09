@@ -175,7 +175,8 @@ function snapshotState(state, accumulators) {
     progress: a.progress,
     speed: a.speed,
   }));
-  return { territories, armies, accumulators: { ...accumulators } };
+  return { territories, armies, accumulators: { ...accumulators },
+    gameplayRulesVersion: state.gameplayRulesVersion, productionReadyAtMs: { ...state.productionReadyAtMs } };
 }
 
 // Exported for the 2v2 cross-engine harness (bot_parity_2v2_crosscheck.mjs),
@@ -196,6 +197,7 @@ export function runTsReplayMirror({ battlefieldId, playerModifiers, enemyModifie
   });
   let accumulators = {};
   let currentTime = 0;
+  let currentTick = 0;
   let nextAiTick = core.PVP_AI_TICK_SECONDS;
   let aiActionIndex = 0;
   let actionIndex = 0;
@@ -206,28 +208,14 @@ export function runTsReplayMirror({ battlefieldId, playerModifiers, enemyModifie
   };
 
   const stepTo = (timestamp) => {
-    while (
-      state.status === 'playing' &&
-      currentTime + core.PVP_SIMULATION_TICK_SECONDS <= timestamp + EPSILON
-    ) {
-      const step = core.stepSimulation(state, accumulators, core.PVP_SIMULATION_TICK_SECONDS);
-      state = step.state;
-      accumulators = step.accumulators;
-      currentTime += core.PVP_SIMULATION_TICK_SECONDS;
+    const targetTick = Math.floor(timestamp / core.PVP_SIMULATION_TICK_SECONDS + EPSILON);
+    while(state.status === 'playing' && currentTick < targetTick) {
+      const step = core.stepSimulation(state,accumulators,core.PVP_SIMULATION_TICK_SECONDS);
+      state=step.state;accumulators=step.accumulators;currentTick++;
     }
-    const remainder = timestamp - currentTime;
-    if (state.status === 'playing' && remainder > 0) {
-      const step = core.stepSimulation(state, accumulators, remainder);
-      state = step.state;
-      accumulators = step.accumulators;
-    }
-    const clockCorrection = timestamp - state.elapsedTimeSeconds;
-    if (state.status === 'playing' && clockCorrection > 0) {
-      const step = core.stepSimulation(state, accumulators, clockCorrection);
-      state = step.state;
-      accumulators = step.accumulators;
-    }
-    currentTime = timestamp;
+    currentTime=timestamp;
+    return;
+
   };
 
   const executeAiAction = () => {
@@ -238,7 +226,7 @@ export function runTsReplayMirror({ battlefieldId, playerModifiers, enemyModifie
   };
 
   for (const action of actions) {
-    while (state.status === 'playing' && nextAiTick <= action.atSeconds) {
+    while (state.status === 'playing' && nextAiTick <= action.atSeconds + EPSILON) {
       stepTo(nextAiTick);
       executeAiAction();
       capture('ai_tick');
@@ -260,7 +248,7 @@ export function runTsReplayMirror({ battlefieldId, playerModifiers, enemyModifie
     }
   }
 
-  while (state.status === 'playing' && nextAiTick <= core.PVP_TIME_LIMIT_SECONDS) {
+  while (state.status === 'playing' && nextAiTick <= core.PVP_TIME_LIMIT_SECONDS + EPSILON) {
     stepTo(nextAiTick);
     executeAiAction();
     capture('ai_tick');

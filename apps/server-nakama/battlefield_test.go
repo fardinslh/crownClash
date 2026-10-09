@@ -16,9 +16,9 @@ import (
 
 func TestBattlefieldLayoutsStaySymmetricAndDistinct(t *testing.T) {
 	expectedCounts := map[string]int{
-		"crown_cross": 9,
-		"twin_passes": 8,
-		"royal_ring":  10,
+		"crown_cross":  9,
+		"twin_passes":  8,
+		"royal_ring":   10,
 		"quad_citadel": 13,
 	}
 
@@ -490,9 +490,9 @@ func TestSettleMatchRejectsForeignBotTicketBeforeCareerMutation(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT settlement FROM match_settlements WHERE match_id = $1")).
 		WithArgs("bot_foreign").WillReturnError(sql.ErrNoRows)
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT player_id, battlefield_id")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT player_id, battlefield_id, gameplay_rules_version")).
 		WithArgs("bot_foreign").
-		WillReturnRows(sqlmock.NewRows([]string{"player_id", "battlefield_id"}).AddRow("player_1", "royal_ring"))
+		WillReturnRows(sqlmock.NewRows([]string{"player_id", "battlefield_id", "gameplay_rules_version"}).AddRow("player_1", "royal_ring", 1))
 	mock.ExpectRollback()
 
 	_, _, err = NewStore(db).SettleMatchVerified(context.Background(), "player_2", "bot_foreign", nil)
@@ -514,7 +514,7 @@ func TestSettleMatchRejectsMissingBotTicketBeforeCareerMutation(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT settlement FROM match_settlements WHERE match_id = $1")).
 		WithArgs("forged_match").WillReturnError(sql.ErrNoRows)
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT player_id, battlefield_id")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT player_id, battlefield_id, gameplay_rules_version")).
 		WithArgs("forged_match").WillReturnError(sql.ErrNoRows)
 	mock.ExpectRollback()
 
@@ -606,8 +606,8 @@ func TestCreateBotMatchPersistsOpaqueServerSelectedTicket(t *testing.T) {
 			"army_speed_level", "treasury_level", "selected_commander", "matches_played", "matches_won",
 			"current_streak", "best_streak", "last_match_timestamp", "tutorial_completed",
 		}).AddRow("player_1", 100, 10, 0, 0, 0, 0, 0, "crown_guard", 0, 0, 0, 0, 0, false))
-	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO bot_matches (match_id, player_id, battlefield_id)")).
-		WithArgs(sqlmock.AnyArg(), "player_1", sqlmock.AnyArg()).
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO bot_matches (match_id, player_id, battlefield_id, gameplay_rules_version)")).
+		WithArgs(sqlmock.AnyArg(), "player_1", sqlmock.AnyArg(), CurrentGameplayRulesVersion).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	ticket, err := NewStore(db).CreateBotMatch(context.Background(), "player_1")
@@ -616,6 +616,9 @@ func TestCreateBotMatchPersistsOpaqueServerSelectedTicket(t *testing.T) {
 	}
 	if !strings.HasPrefix(ticket.MatchID, "bot_") || len(ticket.MatchID) != len("bot_")+32 {
 		t.Fatalf("match ID is not opaque: %q", ticket.MatchID)
+	}
+	if ticket.GameplayRulesVersion != CurrentGameplayRulesVersion {
+		t.Fatal("new ticket must pin C rules")
 	}
 	if !IsBattlefieldID(ticket.BattlefieldID) {
 		t.Fatalf("invalid selected battlefield: %q", ticket.BattlefieldID)

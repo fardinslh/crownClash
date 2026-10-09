@@ -1035,13 +1035,14 @@ func (s *live2v2MatchState) replayPayload() json.RawMessage {
 		winnerTeamID = string(TeamIDB)
 	}
 	payload, _ := json.Marshal(live2v2Replay{
-		SchemaVersion:    MatchSchemaVersion2,
-		Mode:             string(MatchMode2v2),
-		BattlefieldID:    s.battlefieldID,
-		TimeLimitSeconds: s.state.TimeLimitSeconds,
-		RewardPolicy:     CasualPolicy.Name,
-		Players:          players,
-		Actions:          s.actionLog,
+		SchemaVersion:        MatchSchemaVersion2,
+		GameplayRulesVersion: s.state.GameplayRulesVersion,
+		Mode:                 string(MatchMode2v2),
+		BattlefieldID:        s.battlefieldID,
+		TimeLimitSeconds:     s.state.TimeLimitSeconds,
+		RewardPolicy:         CasualPolicy.Name,
+		Players:              players,
+		Actions:              s.actionLog,
 		Result: live2v2ReplayResult{
 			WinnerTeamID: winnerTeamID,
 			PerTeam: [2]MatchStats{
@@ -1066,14 +1067,15 @@ type live2v2ReplayResult struct {
 }
 
 type live2v2Replay struct {
-	SchemaVersion    int                      `json:"schemaVersion"`
-	Mode             string                   `json:"mode"`
-	BattlefieldID    string                   `json:"battlefieldId"`
-	TimeLimitSeconds float64                  `json:"timeLimitSeconds"`
-	RewardPolicy     string                   `json:"rewardPolicy"`
-	Players          []live2v2ReplayPlayer    `json:"players"`
-	Actions          []CanonicalTwoVTwoAction `json:"actions"`
-	Result           live2v2ReplayResult      `json:"result"`
+	GameplayRulesVersion int                      `json:"gameplayRulesVersion"`
+	SchemaVersion        int                      `json:"schemaVersion"`
+	Mode                 string                   `json:"mode"`
+	BattlefieldID        string                   `json:"battlefieldId"`
+	TimeLimitSeconds     float64                  `json:"timeLimitSeconds"`
+	RewardPolicy         string                   `json:"rewardPolicy"`
+	Players              []live2v2ReplayPlayer    `json:"players"`
+	Actions              []CanonicalTwoVTwoAction `json:"actions"`
+	Result               live2v2ReplayResult      `json:"result"`
 }
 
 func (s *live2v2MatchState) connectedPresences() []runtime.Presence {

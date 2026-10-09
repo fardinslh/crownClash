@@ -139,7 +139,9 @@ describe('2v2 deterministic simulation foundations', () => {
     const first = simulate2v2Battle(options(actions, 1));
     const second = simulate2v2Battle(options(actions, 1));
     expect(second).toEqual(first);
-    expect(first.stateHash).toBe('eb165a7a');
+    expect(first.stateHash).toBe('dacd20cf');
+    const legacy = simulate2v2Battle({ ...options(actions, 1), gameplayRulesVersion: 1 });
+    expect(legacy.stateHash).toBe('eb165a7a');
   });
 
   it('fails closed for malformed canonical actions and sources', () => {

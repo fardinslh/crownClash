@@ -1,3 +1,4 @@
+import { GAMEPLAY_RULES_VERSION, validateGameplayRulesVersion, type GameplayRulesVersion } from './gameplay-rules.js';
 import type { PlayerUpgradeModifiers } from './upgrades.js';
 import { getBattlefield, type BattlefieldId } from './battlefields.js';
 import type { GameState, Slot, Team, TeamId, Territory } from './types.js';
@@ -45,6 +46,7 @@ export interface TwoVTwoSpawnAssignment {
 }
 
 export interface CreateTwoVTwoInitialStateOptions {
+  readonly gameplayRulesVersion?: GameplayRulesVersion;
   readonly territories: Readonly<Record<string, Territory>>;
   readonly spawnAssignments: readonly TwoVTwoSpawnAssignment[];
   readonly modifiersBySlot: SlotModifiers;
@@ -94,6 +96,7 @@ export function createInitial2v2GameState(
       territoriesCapturedByPlayer: 0,
       territoriesCapturedByEnemy: 0,
     },
+    ...(validateGameplayRulesVersion(options.gameplayRulesVersion ?? GAMEPLAY_RULES_VERSION) === GAMEPLAY_RULES_VERSION ? { gameplayRulesVersion: GAMEPLAY_RULES_VERSION } : {}),
   };
 }
 

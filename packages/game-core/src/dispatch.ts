@@ -1,6 +1,5 @@
 import { MarchingArmy, Team, Territory } from './types.js';
 import { getTerritoryArmySpeedMultiplier } from './territory-types.js';
-import type { DispatchContext } from './gameplay-rules.js';
 
 export interface DispatchResult {
   success: boolean;
@@ -37,8 +36,7 @@ export function dispatchArmy(
   expectedOwner: Team,
   dispatchRatio: number = 0.5,
   armyIdGenerator: () => string = () => `army_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-  travelSpeedMultiplier: number = 1,
-  _context?: DispatchContext
+  travelSpeedMultiplier: number = 1
 ): DispatchResult {
   if (source.id === target.id) {
     return { success: false, reason: 'Cannot dispatch to the same territory' };
@@ -100,7 +98,6 @@ export function dispatchMultipleArmies(
   expectedOwner: Team,
   dispatchRatio: number = 0.5,
   travelSpeedMultiplier: number = 1,
-  context?: DispatchContext,
   armyIdGenerator?: () => string
 ): MultiDispatchResult {
   const successes: DispatchResult[] = [];
@@ -116,8 +113,7 @@ export function dispatchMultipleArmies(
       expectedOwner,
       dispatchRatio,
       armyIdGenerator,
-      travelSpeedMultiplier,
-      context
+      travelSpeedMultiplier
     );
     if (res.success && res.army && res.sourceTerritory) {
       successes.push(res);

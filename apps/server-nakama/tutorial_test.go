@@ -164,7 +164,7 @@ func TestRpcStartBotMatchAllowsCompletedTutorial(t *testing.T) {
 		WithArgs("grad_2").
 		WillReturnRows(rows)
 	mock.ExpectExec("INSERT INTO bot_matches").
-		WithArgs(sqlmock.AnyArg(), "grad_2", sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), "grad_2", sqlmock.AnyArg(), CurrentGameplayRulesVersion).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	ctx := context.WithValue(context.Background(), runtime.RUNTIME_CTX_USER_ID, "grad_2")

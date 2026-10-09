@@ -1,31 +1,16 @@
-import type { BattlefieldId } from './battlefields.js';
-import { LAB_COMMON_CONFIG, isEngagementVariant } from './gameplay-lab-config.js';
+/** Version 1 remains available only to replay matches issued before C shipped. */
+export type GameplayRulesVersion = 1 | 2;
+export const GAMEPLAY_RULES_VERSION = 2 as const;
+export const CAPTURE_RECOVERY_MS = 3000;
+export const CAPTURE_INITIAL_PRODUCTION_MULTIPLIER = 0.5;
 
-export type GameplayLabVariant = 'capture_recovery';
-
-export const LAB_RULES_VERSION = 4 as const;
-
-export interface GameplayRules {
-  readonly captureProductionRecoveryTicks: number;
-  readonly captureInitialProductionMultiplier: number;
+export function validateGameplayRulesVersion(value: number): GameplayRulesVersion {
+  if (value !== 1 && value !== GAMEPLAY_RULES_VERSION) throw new Error('unsupported_gameplay_rules_version');
+  return value;
 }
 
-export interface DispatchContext {
-  readonly rules?: GameplayRules;
-  readonly battlefieldId?: BattlefieldId;
-}
-
-export function gameplayLabRules(variant: GameplayLabVariant): GameplayRules {
-  if (!isEngagementVariant(variant)) throw new Error('invalid_lab_variant');
-  return {
-    captureProductionRecoveryTicks: LAB_COMMON_CONFIG.captureProductionRecoveryTicks,
-    captureInitialProductionMultiplier: LAB_COMMON_CONFIG.captureInitialProductionMultiplier,
-  };
-}
-
-export function getCaptureProductionMultiplier(rules: GameplayRules | undefined, tick: number, readyTick = 0): number {
-  const recovery = rules?.captureProductionRecoveryTicks ?? 0;
-  if (recovery <= 0 || readyTick <= tick) return 1;
-  const remainingFraction = Math.min(1, (readyTick - tick) / recovery);
-  return 1 - (1 - rules!.captureInitialProductionMultiplier) * remainingFraction;
+/** Integer deadlines keep authoritative snapshots and replay hashes stable across engines. */
+export function getCaptureProductionMultiplier(elapsedSeconds: number, readyAtMs = 0): number {
+  const remaining = Math.max(0, readyAtMs - Math.round(elapsedSeconds * 1000));
+  return 1 - (1 - CAPTURE_INITIAL_PRODUCTION_MULTIPLIER) * Math.min(1, remaining / CAPTURE_RECOVERY_MS);
 }

@@ -193,6 +193,7 @@ export function simulate2v2Battle(
 export function hashTwoVTwoState(state: GameState): string {
   const canonicalState = {
     ...state,
+    ...(state.productionReadyAtMs ? { productionReadyAtMs: Object.fromEntries(Object.entries(state.productionReadyAtMs).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) } : {}),
     territories: Object.fromEntries(
       Object.entries(state.territories).sort(([left], [right]) =>
         left < right ? -1 : left > right ? 1 : 0

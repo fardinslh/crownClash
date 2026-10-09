@@ -17,5 +17,3 @@ export * from './pvp2v2.js';
 export * from './daily.js';
 export * from './league.js';
 export * from './gameplay-rules.js';
-export * from './gameplay-lab.js';
-export * from './gameplay-lab-config.js';

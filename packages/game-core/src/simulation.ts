@@ -4,7 +4,7 @@ import { createDefaultTerritories } from './map.js';
 import { CombatResult, GameState, MarchingArmy, MatchStatus, Territory } from './types.js';
 import type { PlayerUpgradeModifiers } from './upgrades.js';
 import { normalizeBattlefieldId, type BattlefieldId } from './battlefields.js';
-import { getCaptureProductionMultiplier, type GameplayRules } from './gameplay-rules.js';
+import { CAPTURE_RECOVERY_MS, GAMEPLAY_RULES_VERSION, getCaptureProductionMultiplier, validateGameplayRulesVersion, type GameplayRulesVersion } from './gameplay-rules.js';
 
 export interface StepResult {
   state: GameState;
@@ -15,7 +15,7 @@ export interface StepResult {
 export const DEFAULT_MATCH_TIME_LIMIT = 90; // 90 seconds maximum match duration
 
 export interface InitialGameOptions {
-  rules?: GameplayRules;
+  gameplayRulesVersion?: GameplayRulesVersion;
   timeLimit?: number;
   playerModifiers?: PlayerUpgradeModifiers;
   enemyModifiers?: PlayerUpgradeModifiers;
@@ -31,9 +31,6 @@ export function createInitialGameState(options: number | InitialGameOptions = DE
   );
 
   return {
-    ...(typeof options !== 'number' && options.rules ? {
-      rules: options.rules, simulationTick: 0, productionReadyTicks: {},
-    } : {}),
     battlefieldId,
     territories: createDefaultTerritories(playerModifiers, enemyModifiers, battlefieldId),
     armies: [],
@@ -47,6 +44,7 @@ export function createInitialGameState(options: number | InitialGameOptions = DE
       territoriesCapturedByPlayer: 0,
       territoriesCapturedByEnemy: 0,
     },
+    gameplayRulesVersion: validateGameplayRulesVersion(typeof options === 'number' ? GAMEPLAY_RULES_VERSION : (options.gameplayRulesVersion ?? GAMEPLAY_RULES_VERSION)),
   };
 }
 
@@ -67,15 +65,11 @@ export function stepSimulation(
     };
   }
 
-  if (currentState.rules && (!Number.isFinite(deltaSeconds) || Math.abs(deltaSeconds - 0.02) > 1e-9)) {
-    throw new Error('gameplay_rules_require_fixed_20ms_tick');
-  }
-
-  const newElapsed = currentState.elapsedTimeSeconds + deltaSeconds;
-  const experimental = currentState.rules !== undefined;
-  const recoveryEnabled = (currentState.rules?.captureProductionRecoveryTicks ?? 0) > 0;
-  const nextTick = (currentState.simulationTick ?? 0) + 1;
-  const readyTicks = recoveryEnabled ? { ...currentState.productionReadyTicks } : undefined;
+  const recoveryEnabled = currentState.gameplayRulesVersion === GAMEPLAY_RULES_VERSION;
+  const elapsed = currentState.elapsedTimeSeconds + deltaSeconds;
+  const newElapsed = recoveryEnabled ? Math.round(elapsed * 1e9) / 1e9 : elapsed;
+  const nowMs = Math.round(newElapsed * 1000);
+  const readyTimes = recoveryEnabled ? { ...currentState.productionReadyAtMs } : undefined;
   const generationAccumulators = recoveryEnabled ? { ...accumulators } : accumulators;
   const territories: Record<string, Territory> = {};
   for (const [id, t] of Object.entries(currentState.territories)) {
@@ -100,10 +94,9 @@ export function stepSimulation(
         resolvedArrivals.push(combat);
 
         if (combat.captured) {
-          const recovery = currentState.rules?.captureProductionRecoveryTicks ?? 0;
-          if (recovery > 0) {
-            // Ownership changes cannot extend a recovery already in progress.
-            if ((readyTicks![target.id] ?? 0) <= nextTick) readyTicks![target.id] = nextTick + recovery;
+          if (readyTimes) {
+            // Recaptures preserve a recovery already in progress, for either owner.
+            if ((readyTimes[target.id] ?? 0) <= nowMs) readyTimes[target.id] = nowMs + CAPTURE_RECOVERY_MS;
             generationAccumulators[target.id] = 0;
           }
           if (combat.newOwner === 'player') {
@@ -122,8 +115,8 @@ export function stepSimulation(
   }
 
   // 2. Tick passive unit generation for owned territories
-  const productionMultipliers = readyTicks ? Object.fromEntries(Object.entries(readyTicks).map(([id, readyTick]) =>
-    [id, getCaptureProductionMultiplier(currentState.rules, nextTick, readyTick)])) : undefined;
+  const productionMultipliers = readyTimes ? Object.fromEntries(Object.entries(readyTimes).map(([id, readyAtMs]) =>
+    [id, getCaptureProductionMultiplier(newElapsed, readyAtMs)])) : undefined;
   const genResult = tickUnitGeneration(territories, generationAccumulators, deltaSeconds, productionMultipliers);
 
   // 3. Check win / loss status
@@ -158,7 +151,6 @@ export function stepSimulation(
 
   return {
     state: {
-      ...(experimental ? { rules: currentState.rules, simulationTick: nextTick, productionReadyTicks: readyTicks ?? {} } : {}),
       battlefieldId: currentState.battlefieldId,
       territories: genResult.territories,
       armies: remainingArmies,
@@ -166,6 +158,8 @@ export function stepSimulation(
       elapsedTimeSeconds: newElapsed,
       timeLimitSeconds: currentState.timeLimitSeconds,
       stats,
+      ...(currentState.gameplayRulesVersion !== undefined ? { gameplayRulesVersion: currentState.gameplayRulesVersion } : {}),
+      ...(readyTimes && Object.keys(readyTimes).length ? { productionReadyAtMs: readyTimes } : {}),
     },
     accumulators: genResult.accumulators,
     resolvedArrivals,

@@ -1,5 +1,5 @@
 /** Coordinates are CSS pixels; render scale must not change the tap threshold. */
-export class GameplayLabTap {
+export class TerritoryTap {
     private press?: {
         id: string;
         x: number;

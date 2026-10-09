@@ -1,3 +1,4 @@
+import type { GameplayRulesVersion } from './gameplay-rules.js';
 import { dispatchArmy } from './dispatch.js';
 import { evaluateAiMove } from './ai.js';
 import { createInitialGameState, stepSimulation } from './simulation.js';
@@ -105,6 +106,7 @@ export class PvpSimulationError extends Error {
 }
 
 export interface PvpSimulationOptions {
+  gameplayRulesVersion?: GameplayRulesVersion;
   playerModifiers?: PlayerUpgradeModifiers;
   enemyModifiers?: PlayerUpgradeModifiers;
   actions: readonly PvpAction[];
@@ -195,17 +197,30 @@ export function simulatePvpBattle(options: PvpSimulationOptions): PvpSimulationR
 
   let state = createInitialGameState({
     timeLimit: PVP_TIME_LIMIT_SECONDS,
+    gameplayRulesVersion: options.gameplayRulesVersion,
     playerModifiers: options.playerModifiers,
     enemyModifiers: options.enemyModifiers,
     battlefieldId: options.battlefieldId,
   });
   let accumulators: Record<string, number> = {};
   let currentTime = 0;
+  let currentTick = 0;
+  const currentRules = state.gameplayRulesVersion === 2;
+  const clockEpsilon = currentRules ? 1e-9 : 0;
   let nextAiTick = PVP_AI_TICK_SECONDS;
   let aiActionIndex = 0;
   let actionIndex = 0;
 
   const stepTo = (timestamp: number): void => {
+    if (currentRules) {
+      const targetTick = Math.floor(timestamp / PVP_SIMULATION_TICK_SECONDS + 1e-9);
+      while (state.status === 'playing' && currentTick < targetTick) {
+        const step = stepSimulation(state, accumulators, PVP_SIMULATION_TICK_SECONDS);
+        state = step.state; accumulators = step.accumulators; currentTick++;
+      }
+      currentTime = currentTick * PVP_SIMULATION_TICK_SECONDS;
+      return;
+    }
     while (
       state.status === 'playing' &&
       currentTime + PVP_SIMULATION_TICK_SECONDS <= timestamp + 1e-9
@@ -245,20 +260,16 @@ export function simulatePvpBattle(options: PvpSimulationOptions): PvpSimulationR
   };
 
   for (const action of options.actions) {
-    while (state.status === 'playing' && nextAiTick <= action.atSeconds) {
+    while (state.status === 'playing' && nextAiTick <= action.atSeconds + clockEpsilon) {
       stepTo(nextAiTick);
       executeAiAction();
       nextAiTick += PVP_AI_TICK_SECONDS;
     }
 
-    if (state.status !== 'playing') {
-      throw new PvpSimulationError('action_after_battle_end');
-    }
+    if (state.status !== 'playing') break;
 
     stepTo(action.atSeconds);
-    if (state.status !== 'playing') {
-      throw new PvpSimulationError('action_after_battle_end');
-    }
+    if (state.status !== 'playing') break;
 
     try {
       state = dispatchFromState(
@@ -277,7 +288,7 @@ export function simulatePvpBattle(options: PvpSimulationOptions): PvpSimulationR
     }
   }
 
-  while (state.status === 'playing' && nextAiTick <= PVP_TIME_LIMIT_SECONDS) {
+  while (state.status === 'playing' && nextAiTick <= PVP_TIME_LIMIT_SECONDS + clockEpsilon) {
     stepTo(nextAiTick);
     executeAiAction();
     nextAiTick += PVP_AI_TICK_SECONDS;
