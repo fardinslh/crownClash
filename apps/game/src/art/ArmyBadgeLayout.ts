@@ -1,7 +1,7 @@
 import { rectanglesIntersect, type Rect } from '../ui/HudLayout.js';
 
 const CANDIDATES = [[0, 1], [-44, 1], [44, 1], [0, -1], [-44, -1], [44, -1],
-  [-62, 0], [62, 0], [0, 2], [0, -2]] as const;
+  [-56, 0], [56, 0], [0, 2], [0, -2]] as const;
 
 export interface ArmyBadgeOffset { x: number; y: number }
 export interface ArmyBadgeRoute {
@@ -31,7 +31,6 @@ export function planArmyBadgeOffset(
   otherRoutes: readonly ArmyBadgeRoute[] = [],
 ): ArmyBadgeOffset {
   const candidates: ArmyBadgeOffset[] = CANDIDATES.map(([x, direction]) => ({ x, y: preferredY * direction }));
-  candidates.push({ x: -84, y: preferredY }, { x: 84, y: preferredY });
   let best = candidates[0];
   let bestScore = Infinity;
   // A maximum 4px step covers even thin role markers, including edge clamping.

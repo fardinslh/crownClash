@@ -3836,7 +3836,7 @@ export class GameScene extends Phaser.Scene {
         // army is attributed to its dispatching slot via the shape glyph
         // parsed from the server army id (predictions use my own slot).
         // Put the label ahead of downward marches so it does not cover the rear rank.
-        const badgeY = (sin > 0.15 ? 34 : -33) * scale;
+        const badgeY = (sin > 0.15 ? 24 : -24) * scale;
         const slotAttribution2v2 = this.twoVTwoArmyShape(army);
         const initialUnits = slotAttribution2v2
           ? `${slotAttribution2v2} ${army.units}`

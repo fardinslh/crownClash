@@ -424,6 +424,8 @@ texture memory separately.
   Choose a stable marching offset against territory labels, role icons and
   commander cues along the full route; reserve separation against existing squad
   trajectories at spawn.
+  Keep count pills close to their squad: prefer a 24px vertical offset and cap
+  lateral alternatives at 56px; avoid distant 84px placements.
   Keep pills inside the HUD/guide bounds with continuous edge clamping.
 * Troops display at `1.50×` in both their initial pose and animated stride;
   formation offsets, shadows and bob amplitude follow that scale. Preserve all
