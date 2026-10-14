@@ -14,6 +14,7 @@ export type AnalyticsEventInput =
   | { name: 'menu_viewed'; rankId: string }
   | {
       name: 'match_start';
+      botDifficulty?: import('@crown-clash/game-core').BotDifficulty;
       gameplayRulesVersion?: import('@crown-clash/game-core').GameplayRulesVersion;
       matchId: string;
       mode: 'bot' | 'live' | '2v2' | 'async';
@@ -24,6 +25,7 @@ export type AnalyticsEventInput =
     }
   | {
       name: 'match_end';
+      botDifficulty?: import('@crown-clash/game-core').BotDifficulty;
       gameplayRulesVersion?: import('@crown-clash/game-core').GameplayRulesVersion;
       matchId: string;
       mode: 'bot' | 'live' | '2v2' | 'async';
@@ -34,6 +36,7 @@ export type AnalyticsEventInput =
     }
   | {
       name: 'match_quit';
+      botDifficulty?: import('@crown-clash/game-core').BotDifficulty;
       gameplayRulesVersion?: import('@crown-clash/game-core').GameplayRulesVersion;
       matchId: string;
       mode: 'bot' | 'live' | '2v2' | 'async';

@@ -507,7 +507,8 @@ func rpcStartBotMatch(store *Store) rpcFn {
 			return "", errors.New("unauthenticated")
 		}
 		var request struct {
-			SupportedGameplayRulesVersions []int `json:"supportedGameplayRulesVersions"`
+			BotDifficulty                  string `json:"botDifficulty"`
+			SupportedGameplayRulesVersions []int  `json:"supportedGameplayRulesVersions"`
 		}
 		if payload != "" {
 			decoder := json.NewDecoder(strings.NewReader(payload))
@@ -515,6 +516,9 @@ func rpcStartBotMatch(store *Store) rpcFn {
 			if len(payload) > 1024 || !json.Valid([]byte(payload)) || decoder.Decode(&request) != nil || len(request.SupportedGameplayRulesVersions) > 3 {
 				return "", errors.New("invalid_payload")
 			}
+		}
+		if _, err := normalizeBotDifficulty(request.BotDifficulty); err != nil {
+			return "", err
 		}
 		// Ordinary bot entry is gated on the account-wide tutorial flag:
 		// this RPC rejects bot-match tickets while the flag is incomplete.
@@ -530,7 +534,7 @@ func rpcStartBotMatch(store *Store) rpcFn {
 		if !career.TutorialCompleted {
 			return "", errors.New("tutorial_required")
 		}
-		ticket, err := store.CreateBotMatch(ctx, userID, request.SupportedGameplayRulesVersions...)
+		ticket, err := store.CreateBotMatchWithDifficulty(ctx, userID, request.BotDifficulty, request.SupportedGameplayRulesVersions...)
 		if err != nil {
 			return "", err
 		}
@@ -991,7 +995,7 @@ var analyticsEventDefinitions = map[string]analyticsEventDefinition{
 	"menu_viewed":           {properties: analyticsProperties("rankId")},
 	"match_start":           {properties: analyticsProperties("matchId", "mode", "source"), optionalProperties: analytics2v2OptionalProps()},
 	"match_end":             {properties: analyticsPropertiesWithDuration("matchId", "mode", "result"), optionalProperties: analytics2v2OptionalProps()},
-	"match_quit":            {properties: analyticsPropertiesWithDuration("matchId", "mode"), optionalProperties: map[string]analyticsPropertyKind{"gameplayRulesVersion": analyticsPropertyNumber}},
+	"match_quit":            {properties: analyticsPropertiesWithDuration("matchId", "mode"), optionalProperties: map[string]analyticsPropertyKind{"gameplayRulesVersion": analyticsPropertyNumber, "botDifficulty": analyticsPropertyString}},
 	"match_menu_opened":     {properties: analyticsProperties("matchId", "mode")},
 	"match_resumed":         {properties: analyticsProperties("matchId", "mode")},
 	"match_leave_requested": {properties: analyticsProperties("matchId", "mode")},
@@ -1046,6 +1050,7 @@ func analyticsPropertiesWithDuration(keys ...string) map[string]analyticsPropert
 func analytics2v2OptionalProps() map[string]analyticsPropertyKind {
 	return map[string]analyticsPropertyKind{
 		"gameplayRulesVersion": analyticsPropertyNumber,
+		"botDifficulty":        analyticsPropertyString,
 		"battlefieldId":        analyticsPropertyString,
 		"slot":                 analyticsPropertyNumber,
 		"teamId":               analyticsPropertyString,
@@ -1126,6 +1131,15 @@ func validateAnalyticsEvent(event AnalyticsEventRecord, receivedAt int64) error 
 	if v, present := event.Props["gameplayRulesVersion"]; present {
 		n, ok := v.(float64)
 		if !ok || n != math.Trunc(n) || !supportedGameplayRules(int(n)) {
+			return errors.New("invalid_event_props")
+		}
+	}
+	if d, present := event.Props["botDifficulty"]; present {
+		value, ok := d.(string)
+		if !ok || value == "" || event.Props["mode"] != "bot" {
+			return errors.New("invalid_event_props")
+		}
+		if _, err := normalizeBotDifficulty(value); err != nil {
 			return errors.New("invalid_event_props")
 		}
 	}

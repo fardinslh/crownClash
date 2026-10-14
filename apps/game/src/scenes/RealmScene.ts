@@ -1,3 +1,4 @@
+import { startChosenBotMatch } from '../ui/BotDifficultyPicker.js';
 import { trackEvent } from '../analytics/Analytics.js';
 import Phaser from 'phaser';
 import type { PlatformAdapter } from '@crown-clash/platform';
@@ -63,7 +64,7 @@ export class RealmScene extends Phaser.Scene {
     if (this.busy) return; this.busy = true;
     const buttons = this.root?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)');
     buttons?.forEach(b => b.disabled = true);
-    try { await task(); } catch (error) { this.message(realmErrorMessage(error)); }
+    try { await task(); } catch (error) { if (!String(error).includes('bot_difficulty_cancelled')) this.message(realmErrorMessage(error)); }
     finally { this.busy = false; buttons?.forEach(b => b.disabled = false); }
   }
   private async action(action: string): Promise<void> {
@@ -91,7 +92,7 @@ export class RealmScene extends Phaser.Scene {
     this.openDialog(`<h2>${escapeText(title)}</h2><p>این انتخاب فقط برای نبرد با قدرت برابر است و مالکیت دائمی فرمانده را تغییر نمی‌دهد.</p><select><option value="crown_guard">نگهبان تاج · متعادل</option><option value="quartermaster">تدارکات · تولید بیشتر، حرکت کندتر</option><option value="vanguard">پیشرو · حرکت سریع‌تر، سرباز کمتر</option></select><button class="realm-primary" data-loadout>ادامه</button>`);
     this.dialog!.querySelector<HTMLButtonElement>('[data-loadout]')!.onclick=()=>void this.run(()=>action(this.dialog!.querySelector('select')!.value as CommanderId));
   }
-  private async practice(): Promise<void> { const botMatch = await this.career.startBotMatch(this.platform); this.scene.start('GameScene', { source:'menu', botMatch, realmGoal:this.home.goal }); }
+  private async practice(): Promise<void> { const botMatch = this.home.activePractice ?? await startChosenBotMatch(this, this.career, this.platform); this.scene.start('GameScene', { source:'menu', botMatch, realmGoal:this.home.goal }); }
   private async start(source: RealmSource, extra: { originId?: string; token?: string; defenseVersion?: string; commanderId?: CommanderId } = {}): Promise<void> {
     const ticket = await this.client.start(source, extra); this.client.clearChallenge(); this.scene.start('GameScene', { source:'menu', botMatch:ticket, realmTicket:ticket, realmGoal:this.home.goal });
   }

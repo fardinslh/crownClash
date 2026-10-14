@@ -1,3 +1,4 @@
+import { startChosenBotMatch } from '../ui/BotDifficultyPicker.js';
 import { PilotClient } from '../realm/PilotClient.js';
 import Phaser from 'phaser';
 import {
@@ -321,8 +322,8 @@ export class MenuScene extends Phaser.Scene {
       playBg.disableInteractive();
       playText.setText('SCOUTING...');
       const startMatch = async () => {
-        if (!this.registry.get('realmPilot')) return { botMatch: await careerManager.startBotMatch(platform) };
-        return new PilotClient(platform).nextMatch(() => careerManager.startBotMatch(platform));
+        if (!this.registry.get('realmPilot')) return { botMatch: await startChosenBotMatch(this, careerManager, platform) };
+        return new PilotClient(platform).nextMatch(() => startChosenBotMatch(this, careerManager, platform));
       };
       void startMatch().then((match) => {
         if (!this.scene.isActive()) return;
@@ -330,12 +331,13 @@ export class MenuScene extends Phaser.Scene {
         platform.hapticImpact('medium');
         this.scene.start('GameScene', { source: 'menu', ...match });
       }).catch((error: unknown) => {
-        console.error('[MenuScene] Match start failed:', error);
+        const cancelled = String(error).includes('bot_difficulty_cancelled');
+        if (!cancelled) console.error('[MenuScene] Match start failed:', error);
         this.isTransitioning = false;
         if (!this.scene.isActive()) return;
-        playText.setText('TRY AGAIN');
+        playText.setText(cancelled ? 'PLAY  ⚔' : 'TRY AGAIN');
         playBg.setInteractive({ useHandCursor: true });
-        platform.hapticNotification('error');
+        if (!cancelled) platform.hapticNotification('error');
       });
     });
 

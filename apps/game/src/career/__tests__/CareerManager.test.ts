@@ -396,6 +396,7 @@ describe('CareerManager', () => {
     const remoteCareer = createDefaultCareer('rematch_reconnect_player');
     let logins = 0;
     let starts = 0;
+    const difficulties: unknown[] = [];
     const remoteApi: CareerApi = {
       completeTutorial: async () => { throw new Error('not_expected_in_this_test'); },
       login: async () => {
@@ -404,7 +405,8 @@ describe('CareerManager', () => {
       },
       getCareer: async () => remoteCareer,
       getLedger: async () => [],
-      startBotMatch: async () => {
+      startBotMatch: async (difficulty) => {
+        difficulties.push(difficulty);
         starts++;
         if (starts === 1) throw new StaleSocketError('socket_closed');
         return { matchId: 'bot_retry', battlefieldId: 'royal_ring' };
@@ -427,12 +429,13 @@ describe('CareerManager', () => {
     const manager = CareerManager.getInstance('rematch_reconnect_player');
 
     await manager.connect(adapter, remoteApi);
-    await expect(manager.startBotMatch(adapter)).resolves.toEqual({
+    await expect(manager.startBotMatch(adapter, 'hard')).resolves.toEqual({
       matchId: 'bot_retry',
       battlefieldId: 'royal_ring',
     });
     expect(logins).toBe(2);
     expect(starts).toBe(2);
+    expect(difficulties).toEqual(['hard', 'hard']);
     expect(manager.isRemoteConnected()).toBe(true);
   });
 

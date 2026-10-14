@@ -218,7 +218,7 @@ export class CareerManager {
     }
   }
 
-  public async startBotMatch(platform?: PlatformAdapter): Promise<BotMatchTicket> {
+  public async startBotMatch(platform?: PlatformAdapter, difficulty: import('@crown-clash/game-core').BotDifficulty = 'normal'): Promise<BotMatchTicket> {
     if (this.connectPromise) {
       try {
         await this.connectPromise;
@@ -236,7 +236,7 @@ export class CareerManager {
     if (this.remoteConnected) {
       const api = this.requireRemoteApi();
       try {
-        return await api.startBotMatch();
+        return await api.startBotMatch(difficulty);
       } catch (error) {
         if (!platform || !isStaleSocketError(error)) throw error;
 
@@ -245,11 +245,11 @@ export class CareerManager {
         // Re-authenticate once so PLAY AGAIN does not reuse the stale socket.
         this.remoteConnected = false;
         await this.connect(platform, api);
-        return api.startBotMatch();
+        return api.startBotMatch(difficulty);
       }
     }
     if (!isLocalCareerFallbackAllowed()) throw new Error('backend_required_for_match_start');
-    return createLocalBotMatchTicket();
+    return createLocalBotMatchTicket(Date.now(), difficulty);
   }
 
   public async purchaseUpgradeRemote(type: UpgradeType): Promise<UpgradePurchaseResult> {

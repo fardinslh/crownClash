@@ -1006,6 +1006,14 @@ func simulateBattle(actions []PvpAction, player, enemy PlayerUpgradeModifiers, b
 }
 
 func simulateBattleWithRules(actions []PvpAction, player, enemy PlayerUpgradeModifiers, battlefieldID string, rulesVersion int) (GameState, PvpBattleSummary, error) {
+	return simulateBotBattleWithDifficulty(actions, player, enemy, battlefieldID, rulesVersion, "normal")
+}
+
+func simulateBotBattleWithDifficulty(actions []PvpAction, player, enemy PlayerUpgradeModifiers, battlefieldID string, rulesVersion int, difficulty string) (GameState, PvpBattleSummary, error) {
+	difficulty, err := normalizeBotDifficulty(difficulty)
+	if err != nil {
+		return GameState{}, PvpBattleSummary{}, err
+	}
 	if !supportedGameplayRules(rulesVersion) {
 		return GameState{}, PvpBattleSummary{}, errors.New("unsupported_gameplay_rules_version")
 	}
@@ -1038,7 +1046,8 @@ func simulateBattleWithRules(actions []PvpAction, player, enemy PlayerUpgradeMod
 	if hasCaptureRecovery(rulesVersion) {
 		clockEpsilon = 1e-9
 	}
-	nextAITick := PvpAITickSeconds
+	aiTickSeconds := botAITickSeconds(difficulty)
+	nextAITick := aiTickSeconds
 	aiActionIndex := 0
 	actionsProcessed := 0
 	stepTo := func(timestamp float64) {
@@ -1086,7 +1095,7 @@ func simulateBattleWithRules(actions []PvpAction, player, enemy PlayerUpgradeMod
 		for state.Status == "playing" && nextAITick <= action.AtSeconds+clockEpsilon {
 			stepTo(nextAITick)
 			executeAI()
-			nextAITick += PvpAITickSeconds
+			nextAITick += aiTickSeconds
 		}
 		if state.Status != "playing" {
 			break
@@ -1103,7 +1112,7 @@ func simulateBattleWithRules(actions []PvpAction, player, enemy PlayerUpgradeMod
 	for state.Status == "playing" && nextAITick <= PvpTimeLimitSeconds+clockEpsilon {
 		stepTo(nextAITick)
 		executeAI()
-		nextAITick += PvpAITickSeconds
+		nextAITick += aiTickSeconds
 	}
 	if state.Status == "playing" {
 		stepTo(PvpTimeLimitSeconds)

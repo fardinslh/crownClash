@@ -4,6 +4,16 @@ import { StaleSocketError } from '../GameApiClient.js';
 import { featureFlags } from '../../config/featureFlags.js';
 
 describe('NakamaClient settle transport payload', () => {
+  it('sends the selected bot level and consumes the authoritative ticket', async () => {
+    for (const botDifficulty of ['easy', 'normal', 'hard'] as const) {
+      const client = new NakamaClient('127.0.0.1', '7350', false, 'defaultkey');
+      const ticket = { matchId: 'issued-ticket', battlefieldId: 'crown_cross', botDifficulty, gameplayRulesVersion: 3 };
+      const rpc = vi.fn().mockResolvedValue({ payload: JSON.stringify({ ticket }) });
+      (client as unknown as { socket: unknown }).socket = { rpc };
+      await expect(client.startBotMatch(botDifficulty)).resolves.toEqual(ticket);
+      expect(rpc).toHaveBeenCalledExactlyOnceWith('match/start', JSON.stringify({ botDifficulty, supportedGameplayRulesVersions: [1, 2, 3] }));
+    }
+  });
   function clientWithRecordedRpc() {
     const client = new NakamaClient('127.0.0.1', '7350', false, 'defaultkey');
     const rpcCalls: Array<{ id: string; payload: string }> = [];

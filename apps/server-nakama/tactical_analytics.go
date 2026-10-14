@@ -9,8 +9,9 @@ import (
 // Opt-in additive metadata: legacy event shapes still normalize identically.
 func normalizeVersionedAnalyticsEvent(ctx context.Context, tx *sql.Tx, userID string, event AnalyticsEventRecord) (AnalyticsEventRecord, error) {
 	_, requested := event.Props["gameplayRulesVersion"]
+	_, difficultyRequested := event.Props["botDifficulty"]
 	normalized, err := normalizeAnalyticsEvent(ctx, tx, userID, event)
-	if err != nil || !requested {
+	if err != nil || (!requested && !difficultyRequested) {
 		return normalized, err
 	}
 	mode, _ := event.Props["mode"].(string)
@@ -27,6 +28,18 @@ func normalizeVersionedAnalyticsEvent(ctx context.Context, tx *sql.Tx, userID st
 	if !supportedGameplayRules(version) {
 		return AnalyticsEventRecord{}, errors.New("unsupported_gameplay_rules_version")
 	}
-	normalized.Props["gameplayRulesVersion"] = version
+	if requested {
+		normalized.Props["gameplayRulesVersion"] = version
+	}
+	if difficultyRequested {
+		var difficulty string
+		if mode != "bot" {
+			return AnalyticsEventRecord{}, errors.New("invalid_event_props")
+		}
+		if err := tx.QueryRowContext(ctx, `SELECT bot_difficulty FROM bot_matches WHERE match_id=$1 AND player_id=$2`, id, userID).Scan(&difficulty); err != nil {
+			return AnalyticsEventRecord{}, errors.New("analytics_match_not_found")
+		}
+		normalized.Props["botDifficulty"] = difficulty
+	}
 	return normalized, nil
 }

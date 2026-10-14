@@ -45,6 +45,8 @@ for(const [width,height] of [[360,640],[390,844]]){
   await cdp.send('Page.navigate',{url:url.toString()});await wait(`${game}?.scene.isActive('MenuScene') && ${game}.scene.getScene('MenuScene').children.list.some(v=>v.text==='PLAY  ⚔')`);
   assert.equal(await evaluate(`${game}.scene.getScene('MenuScene').children.list.some(v=>v.text?.includes('CROWN HOLD'))`),false);await shot('menu');
   await tap(await point('MenuScene',"s.children.list.find(v=>v.text==='PLAY  ⚔')"));
+  await wait(`!!document.querySelector('.bot-difficulty-overlay')`);
+  await evaluate(`document.querySelector('[data-difficulty=normal]').click();document.querySelector('.bot-difficulty-play').click()`);
   await wait(`${game}.scene.isActive('GameScene') && ${scene}.territoryVisuals.size>0`);
   const state=await evaluate(`${scene}.gameState`);assert.equal(state.gameplayRulesVersion,3);
   const matchId=await evaluate(`${scene}.activeMatchId`);assert.match(matchId,/^bot_[a-f0-9]{32}$/);

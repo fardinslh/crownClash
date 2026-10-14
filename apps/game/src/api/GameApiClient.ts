@@ -38,7 +38,7 @@ export interface CareerApi {
   login(platform: PlatformAdapter): Promise<PlayerCareer>;
   getCareer(): Promise<PlayerCareer>;
   getLedger(limit?: number): Promise<EconomyLedgerEntry[]>;
-  startBotMatch(): Promise<BotMatchTicket>;
+  startBotMatch(difficulty?: import('@crown-clash/game-core').BotDifficulty): Promise<BotMatchTicket>;
   settleMatch(
     matchId: string,
     actions: readonly PvpAction[],

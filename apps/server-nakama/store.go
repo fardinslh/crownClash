@@ -43,9 +43,17 @@ func NewStore(db *sql.DB) *Store {
 }
 
 func (s *Store) CreateBotMatch(ctx context.Context, userID string, supported ...int) (BotMatchTicket, error) {
-	if pilotRuntime.Enabled {
-		return s.CreatePilotPractice(ctx, userID, supported...)
+	return s.CreateBotMatchWithDifficulty(ctx, userID, "", supported...)
+}
+
+func (s *Store) CreateBotMatchWithDifficulty(ctx context.Context, userID, difficulty string, supported ...int) (BotMatchTicket, error) {
+	if _, err := normalizeBotDifficulty(difficulty); err != nil {
+		return BotMatchTicket{}, err
 	}
+	if pilotRuntime.Enabled {
+		return s.CreatePilotPracticeWithDifficulty(ctx, userID, difficulty, supported...)
+	}
+	difficulty, _ = normalizeBotDifficulty(difficulty)
 	if _, err := s.GetOrCreateCareer(ctx, userID); err != nil {
 		return BotMatchTicket{}, err
 	}
@@ -54,14 +62,15 @@ func (s *Store) CreateBotMatch(ctx context.Context, userID string, supported ...
 		return BotMatchTicket{}, err
 	}
 	ticket := BotMatchTicket{
+		BotDifficulty:        difficulty,
 		GameplayRulesVersion: negotiatedAsyncRules(supported),
 		MatchID:              "bot_" + hex.EncodeToString(randomBytes[1:]),
 		BattlefieldID:        battlefieldIDs[int(randomBytes[0])%len(battlefieldIDs)],
 	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO bot_matches (match_id, player_id, battlefield_id, gameplay_rules_version)
-		VALUES ($1, $2, $3, $4)
-	`, ticket.MatchID, userID, ticket.BattlefieldID, ticket.GameplayRulesVersion)
+		INSERT INTO bot_matches (match_id, player_id, battlefield_id, gameplay_rules_version, bot_difficulty)
+		VALUES ($1, $2, $3, $4, $5)
+	`, ticket.MatchID, userID, ticket.BattlefieldID, ticket.GameplayRulesVersion, ticket.BotDifficulty)
 	if err != nil {
 		return BotMatchTicket{}, err
 	}
@@ -352,10 +361,11 @@ func (s *Store) SettleMatchVerified(ctx context.Context, userID, matchID string,
 	var battlefieldID string
 	var ticketOwner string
 	var rulesVersion int
+	var difficulty string
 	ticketErr := tx.QueryRowContext(ctx, `
-		SELECT player_id, battlefield_id, gameplay_rules_version
+		SELECT player_id, battlefield_id, gameplay_rules_version, bot_difficulty
 		FROM bot_matches WHERE match_id = $1 FOR UPDATE
-	`, matchID).Scan(&ticketOwner, &battlefieldID, &rulesVersion)
+	`, matchID).Scan(&ticketOwner, &battlefieldID, &rulesVersion, &difficulty)
 	if errors.Is(ticketErr, sql.ErrNoRows) {
 		return MatchSettlement{}, nil, ErrBotMatchNotFound
 	}
@@ -382,7 +392,7 @@ func (s *Store) SettleMatchVerified(ctx context.Context, userID, matchID string,
 	}
 
 	modifiers := UpgradeModifiers(career)
-	_, summary, err := simulateBattleWithRules(actions, modifiers, DefaultModifiers(), battlefieldID, rulesVersion)
+	_, summary, err := simulateBotBattleWithDifficulty(actions, modifiers, DefaultModifiers(), battlefieldID, rulesVersion, difficulty)
 	if err != nil {
 		return MatchSettlement{}, nil, err
 	}

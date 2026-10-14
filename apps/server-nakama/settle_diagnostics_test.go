@@ -106,7 +106,7 @@ func expectFreshSettlement(t *testing.T, mock sqlmock.Sqlmock, userID string, ca
 		WillReturnRows(sqlmock.NewRows([]string{"settlement"}))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT player_id, battlefield_id, gameplay_rules_version")).
 		WithArgs(diagMatchID).
-		WillReturnRows(sqlmock.NewRows([]string{"player_id", "battlefield_id", "gameplay_rules_version"}).AddRow(userID, "crown_cross", rulesVersion))
+		WillReturnRows(sqlmock.NewRows([]string{"player_id", "battlefield_id", "gameplay_rules_version", "bot_difficulty"}).AddRow(userID, "crown_cross", rulesVersion, "normal"))
 	mock.ExpectQuery(regexp.QuoteMeta("FROM players WHERE id = $1 FOR UPDATE")).
 		WithArgs(userID).
 		WillReturnRows(careerRow)

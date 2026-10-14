@@ -8,7 +8,8 @@ import type { GameState, MatchStats } from './types.js';
 import type { BattlefieldId } from './battlefields.js';
 
 export const PVP_TIME_LIMIT_SECONDS = 90;
-export const PVP_AI_TICK_SECONDS = 1.8;
+import { getBotAiTickSeconds, type BotDifficulty } from './bot-difficulty.js';
+export const PVP_AI_TICK_SECONDS = getBotAiTickSeconds();
 /** Fixed deterministic clock shared by local prediction and server replay. */
 export const PVP_SIMULATION_TICK_SECONDS = 0.02;
 export const MAX_PVP_ACTIONS = 120;
@@ -107,6 +108,7 @@ export class PvpSimulationError extends Error {
 }
 
 export interface PvpSimulationOptions {
+  botDifficulty?: BotDifficulty;
   gameplayRulesVersion?: GameplayRulesVersion;
   playerModifiers?: PlayerUpgradeModifiers;
   enemyModifiers?: PlayerUpgradeModifiers;
@@ -209,7 +211,8 @@ export function simulatePvpBattle(options: PvpSimulationOptions): PvpSimulationR
   let currentTick = 0;
   const currentRules = state.gameplayRulesVersion === 2 || state.gameplayRulesVersion === 3;
   const clockEpsilon = currentRules ? 1e-9 : 0;
-  let nextAiTick = PVP_AI_TICK_SECONDS;
+  const aiTickSeconds = getBotAiTickSeconds(options.botDifficulty);
+  let nextAiTick = aiTickSeconds;
   let aiActionIndex = 0;
   let actionIndex = 0;
 
@@ -271,7 +274,7 @@ export function simulatePvpBattle(options: PvpSimulationOptions): PvpSimulationR
     while (state.status === 'playing' && nextAiTick <= action.atSeconds + clockEpsilon) {
       stepTo(nextAiTick);
       executeAiAction();
-      nextAiTick += PVP_AI_TICK_SECONDS;
+      nextAiTick += aiTickSeconds;
     }
 
     if (state.status !== 'playing') break;
@@ -299,7 +302,7 @@ export function simulatePvpBattle(options: PvpSimulationOptions): PvpSimulationR
   while (state.status === 'playing' && nextAiTick <= PVP_TIME_LIMIT_SECONDS + clockEpsilon) {
     stepTo(nextAiTick);
     executeAiAction();
-    nextAiTick += PVP_AI_TICK_SECONDS;
+    nextAiTick += aiTickSeconds;
   }
 
   if (state.status === 'playing') {

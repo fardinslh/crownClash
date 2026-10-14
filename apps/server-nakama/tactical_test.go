@@ -191,6 +191,7 @@ func TestTacticalCrossEngine(t *testing.T) {
 			Units int
 		} `json:"changes"`
 		Replay *struct {
+			BotDifficulty        string                 `json:"botDifficulty"`
 			BattlefieldID        string                 `json:"battlefieldId"`
 			GameplayRulesVersion int                    `json:"gameplayRulesVersion"`
 			PlayerModifiers      PlayerUpgradeModifiers `json:"playerModifiers"`
@@ -209,7 +210,7 @@ func TestTacticalCrossEngine(t *testing.T) {
 	for _, c := range cases {
 		if c.Replay != nil {
 			r := c.Replay
-			state, summary, err := simulateBattleWithRules(r.Actions, r.PlayerModifiers, r.EnemyModifiers, r.BattlefieldID, r.GameplayRulesVersion)
+			state, summary, err := simulateBotBattleWithDifficulty(r.Actions, r.PlayerModifiers, r.EnemyModifiers, r.BattlefieldID, r.GameplayRulesVersion, r.BotDifficulty)
 			if err != nil {
 				t.Fatal(c.ID, err)
 			}

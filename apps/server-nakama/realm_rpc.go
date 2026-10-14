@@ -85,6 +85,9 @@ func registerRealmRPCs(initializer runtime.Initializer, s *Store) error {
 			case "home":
 				var home RealmHome
 				home, err = s.RealmHome(ctx, user)
+				if err == nil && home.ActivePractice != nil && !req.SupportsBotDifficulty && botAITickSeconds(home.ActivePractice.BotDifficulty) != PvpAITickSeconds {
+					err = errors.New("client_update_required")
+				}
 				if err == nil && ((home.ActiveTicket != nil && !clientSupportsRules(req.SupportedGameplayRulesVersions, home.ActiveTicket.GameplayRulesVersion)) || (home.ActivePractice != nil && !clientSupportsRules(req.SupportedGameplayRulesVersions, home.ActivePractice.GameplayRulesVersion))) {
 					err = errors.New("client_update_required")
 				}

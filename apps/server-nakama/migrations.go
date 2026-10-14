@@ -423,4 +423,8 @@ DO $$ BEGIN
   END IF;
 END $$;
 `})
+	migrations = append(migrations, migration{name: "020_bot_difficulty", sql: `
+ALTER TABLE bot_matches ADD COLUMN bot_difficulty TEXT NOT NULL DEFAULT 'normal'
+ CHECK (bot_difficulty IN ('easy','normal','hard'));
+`})
 }

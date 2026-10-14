@@ -38,13 +38,13 @@ for (const c of cases) {
     expected[c.id].push(structuredClone({ state, accumulators, moves }));
   }
 }
-for (const battlefieldId of ['crown_cross', 'twin_passes', 'royal_ring']) for (const version of [1, 2, 3]) for (const upgraded of [false, true]) {
+for (const battlefieldId of ['crown_cross', 'twin_passes', 'royal_ring']) for (const version of [1, 2, 3]) for (const upgraded of [false, true]) for (const botDifficulty of ['easy', 'normal', 'hard']) {
   const playerModifiers = upgraded ? { startingUnits: 32, productionRateMultiplier: 1.4, armySpeedMultiplier: 1.495 } : mods;
   const ids = core.getBattlefield(battlefieldId).territories.map(t => t.id);
   const actions = Array.from({ length: 100 }, (_, sequence) => ({ sequence, atSeconds: sequence * .8,
     sourceId: ids[(sequence * 3) % ids.length], targetId: ids[(sequence * 7 + 1) % ids.length] }));
-  const replay = { battlefieldId, gameplayRulesVersion: version, playerModifiers, enemyModifiers: mods, actions };
-  const id = `${battlefieldId}-v${version}-${upgraded}`;
+  const replay = { botDifficulty, battlefieldId, gameplayRulesVersion: version, playerModifiers, enemyModifiers: mods, actions };
+  const id = `${battlefieldId}-v${version}-${upgraded}-${botDifficulty}`;
   cases.push({ id, replay }); expected[id] = core.simulatePvpBattle(replay);
 }
 function normalized(value) {

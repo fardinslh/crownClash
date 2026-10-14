@@ -492,7 +492,7 @@ func TestSettleMatchRejectsForeignBotTicketBeforeCareerMutation(t *testing.T) {
 		WithArgs("bot_foreign").WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT player_id, battlefield_id, gameplay_rules_version")).
 		WithArgs("bot_foreign").
-		WillReturnRows(sqlmock.NewRows([]string{"player_id", "battlefield_id", "gameplay_rules_version"}).AddRow("player_1", "royal_ring", 1))
+		WillReturnRows(sqlmock.NewRows([]string{"player_id", "battlefield_id", "gameplay_rules_version", "bot_difficulty"}).AddRow("player_1", "royal_ring", 1, "normal"))
 	mock.ExpectRollback()
 
 	_, _, err = NewStore(db).SettleMatchVerified(context.Background(), "player_2", "bot_foreign", nil)
@@ -606,8 +606,8 @@ func TestCreateBotMatchPersistsOpaqueServerSelectedTicket(t *testing.T) {
 			"army_speed_level", "treasury_level", "selected_commander", "matches_played", "matches_won",
 			"current_streak", "best_streak", "last_match_timestamp", "tutorial_completed",
 		}).AddRow("player_1", 100, 10, 0, 0, 0, 0, 0, "crown_guard", 0, 0, 0, 0, 0, false))
-	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO bot_matches (match_id, player_id, battlefield_id, gameplay_rules_version)")).
-		WithArgs(sqlmock.AnyArg(), "player_1", sqlmock.AnyArg(), CurrentGameplayRulesVersion).
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO bot_matches (match_id, player_id, battlefield_id, gameplay_rules_version, bot_difficulty)")).
+		WithArgs(sqlmock.AnyArg(), "player_1", sqlmock.AnyArg(), CurrentGameplayRulesVersion, "normal").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	ticket, err := NewStore(db).CreateBotMatch(context.Background(), "player_1")

@@ -37,6 +37,14 @@ func (s *Store) activePilotPractice(ctx context.Context, tx *sql.Tx, user string
 	return &p, nil
 }
 func (s *Store) CreatePilotPractice(ctx context.Context, user string, supported ...int) (BotMatchTicket, error) {
+	return s.CreatePilotPracticeWithDifficulty(ctx, user, "", supported...)
+}
+func (s *Store) CreatePilotPracticeWithDifficulty(ctx context.Context, user, difficulty string, supported ...int) (BotMatchTicket, error) {
+	supportsDifficulty := difficulty != ""
+	difficulty, err := normalizeBotDifficulty(difficulty)
+	if err != nil {
+		return BotMatchTicket{}, err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return BotMatchTicket{}, err
@@ -61,7 +69,7 @@ func (s *Store) CreatePilotPractice(ctx context.Context, user string, supported 
 		return BotMatchTicket{}, err
 	}
 	if old != nil {
-		if !clientSupportsRules(supported, old.Ticket.GameplayRulesVersion) {
+		if !clientSupportsRules(supported, old.Ticket.GameplayRulesVersion) || (!supportsDifficulty && botAITickSeconds(old.Ticket.BotDifficulty) != PvpAITickSeconds) {
 			return BotMatchTicket{}, errors.New("client_update_required")
 		}
 		return old.Ticket, tx.Commit()
@@ -72,13 +80,13 @@ func (s *Store) CreatePilotPractice(ctx context.Context, user string, supported 
 	}
 	_, mods := realmModifiers(combatLevels(c), combatLevels(c), c.SelectedCommanderID, "bounded")
 	now := s.nowFn().UnixMilli()
-	ticket := BotMatchTicket{MatchID: id, BattlefieldID: "crown_cross", GameplayRulesVersion: negotiatedAsyncRules(supported), PlayerModifiers: &mods, ExpiresAt: now + realmTicketLifetimeMs}
+	ticket := BotMatchTicket{BotDifficulty: difficulty, MatchID: id, BattlefieldID: "crown_cross", GameplayRulesVersion: negotiatedAsyncRules(supported), PlayerModifiers: &mods, ExpiresAt: now + realmTicketLifetimeMs}
 	p := pilotPractice{RewardTreasuryLevel: c.TreasuryLevel, Ticket: ticket, CreatedAt: now, ExpiresAt: ticket.ExpiresAt, Modifiers: mods}
 	raw, err := json.Marshal(p)
 	if err != nil {
 		return ticket, err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO bot_matches(match_id,player_id,battlefield_id,gameplay_rules_version,pilot_document) VALUES($1,$2,$3,$4,$5)`, id, user, ticket.BattlefieldID, ticket.GameplayRulesVersion, raw)
+	_, err = tx.ExecContext(ctx, `INSERT INTO bot_matches(match_id,player_id,battlefield_id,gameplay_rules_version,pilot_document,bot_difficulty) VALUES($1,$2,$3,$4,$5,$6)`, id, user, ticket.BattlefieldID, ticket.GameplayRulesVersion, raw, difficulty)
 	if err != nil {
 		return ticket, err
 	}
@@ -119,7 +127,7 @@ func (s *Store) SettlePilotPractice(ctx context.Context, user, id string, action
 	if len(actions) == 0 {
 		return MatchSettlement{}, nil, errors.New("realm_dispatch_required")
 	}
-	final, summary, err := simulateBattleWithRules(actions, p.Modifiers, DefaultModifiers(), p.Ticket.BattlefieldID, p.Ticket.GameplayRulesVersion)
+	final, summary, err := simulateBotBattleWithDifficulty(actions, p.Modifiers, DefaultModifiers(), p.Ticket.BattlefieldID, p.Ticket.GameplayRulesVersion, p.Ticket.BotDifficulty)
 	if err != nil {
 		return MatchSettlement{}, nil, err
 	}

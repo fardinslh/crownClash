@@ -1,6 +1,12 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { TRAINING_REQUEST_TIMEOUT_MS } from '../../tutorial/trainingRequest.js';
 
+const { chooseBotDifficultyMock } = vi.hoisted(() => ({ chooseBotDifficultyMock: vi.fn().mockResolvedValue('normal') }));
+vi.mock('../../ui/BotDifficultyPicker.js', async importOriginal => ({
+  ...await importOriginal<typeof import('../../ui/BotDifficultyPicker.js')>(),
+  chooseBotDifficulty: chooseBotDifficultyMock,
+}));
+
 const { MockScene, MockGameObject, MockGraphics, MockContainer, storage } = vi.hoisted(() => {
   const storage = new Map<string, string>();
   const localStorageMock: any = {
@@ -887,6 +893,28 @@ describe('First-launch training integration', () => {
     expect(trackedNames().filter(name => name === 'tutorial_completed')).toHaveLength(1);
     expect(s.scene.start).toHaveBeenCalledWith('GameScene', {
       source: 'menu', botMatch: { matchId: 'bot_after_training', battlefieldId: 'crown_cross' },
+    });
+  });
+
+  it('the first bot match waits for a difficulty choice without timing out the player', async () => {
+    vi.useFakeTimers();
+    let choose!: (difficulty: 'easy' | null) => void;
+    chooseBotDifficultyMock.mockImplementationOnce(() => new Promise(resolve => { choose = resolve; }));
+    const startBotMatch = vi.fn().mockResolvedValue({ matchId: 'first_easy', battlefieldId: 'crown_cross', botDifficulty: 'easy' });
+    const scene = await bootTrainingScene(makeTrainingApi({
+      completeTutorial: async () => ({ ...createDefaultCareer('training_player'), tutorialCompleted: true }),
+      startBotMatch,
+    }));
+    performGuidedActions(scene);
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(TRAINING_REQUEST_TIMEOUT_MS * 2);
+    expect(startBotMatch).not.toHaveBeenCalled();
+    expect((scene as any).scene.start).not.toHaveBeenCalled();
+    choose('easy');
+    await flushMicrotasks();
+    expect(startBotMatch).toHaveBeenCalledExactlyOnceWith('easy');
+    expect((scene as any).scene.start).toHaveBeenCalledWith('GameScene', {
+      source: 'menu', botMatch: { matchId: 'first_easy', battlefieldId: 'crown_cross', botDifficulty: 'easy' },
     });
   });
 

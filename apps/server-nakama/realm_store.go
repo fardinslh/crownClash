@@ -348,6 +348,7 @@ func (s *Store) ResolveRealmChallenge(ctx context.Context, user, token string) (
 
 type RealmStartRequest struct {
 	SupportedGameplayRulesVersions []int  `json:"supportedGameplayRulesVersions"`
+	SupportsBotDifficulty          bool   `json:"supportsBotDifficulty"`
 	Source                         string `json:"source"`
 	Token                          string `json:"token"`
 	OriginID                       string `json:"originId"`

@@ -43,6 +43,7 @@ export interface BattlefieldDefinition {
 }
 
 export interface BotMatchTicket {
+  readonly botDifficulty?: import('./bot-difficulty.js').BotDifficulty;
   readonly playerModifiers?: import('./upgrades.js').PlayerUpgradeModifiers;
   readonly expiresAt?: number;
   readonly gameplayRulesVersion?: GameplayRulesVersion;
@@ -84,12 +85,13 @@ export function getBattlefield(value: unknown): BattlefieldDefinition {
   return BATTLEFIELDS.find((battlefield) => battlefield.id === id) ?? BATTLEFIELDS[0];
 }
 
-export function createLocalBotMatchTicket(now = Date.now()): BotMatchTicket {
+export function createLocalBotMatchTicket(now = Date.now(), botDifficulty: import('./bot-difficulty.js').BotDifficulty = 'normal'): BotMatchTicket {
   // 1v1 selection only: 2v2 battlefields (mode "2v2") can never be picked by
   // the ordinary 1v1 bot-match flow (docs/2v2-architecture.md §3.2.2).
   const oneVOneBattlefields = BATTLEFIELDS.filter((battlefield) => battlefield.mode === '1v1');
   const index = Math.floor(Math.random() * oneVOneBattlefields.length);
   return {
+    botDifficulty,
     gameplayRulesVersion: GAMEPLAY_RULES_VERSION,
     matchId: `local_${now}_${Math.random().toString(36).slice(2, 10)}`,
     battlefieldId: oneVOneBattlefields[index]?.id ?? DEFAULT_BATTLEFIELD_ID,

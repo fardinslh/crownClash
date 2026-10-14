@@ -1,3 +1,4 @@
+import { chooseBotDifficulty, startChosenBotMatch } from '../ui/BotDifficultyPicker.js';
 import { PilotClient } from '../realm/PilotClient.js';
 import type { RealmTicket, RealmResult } from '@crown-clash/game-core';
 import Phaser from 'phaser';
@@ -32,6 +33,8 @@ import {
   MatchStats,
   MAX_PVP_ACTIONS,
   PVP_AI_TICK_SECONDS,
+  getBotAiTickSeconds,
+  type BotDifficulty,
   PVP_SIMULATION_TICK_SECONDS,
   PlayerCareer,
   PvpAction,
@@ -359,6 +362,7 @@ export class GameScene extends Phaser.Scene {
   private inspectionId?: string;
   private inspector?: Phaser.GameObjects.Container;
   private inspectorText?: Phaser.GameObjects.Text;
+  private botDifficulty: BotDifficulty = 'normal';
   private botGameplayRulesVersion: GameplayRulesVersion = 2;
   private careerManager!: CareerManager;
   private careerSubscription?: () => void;
@@ -520,6 +524,7 @@ export class GameScene extends Phaser.Scene {
     this.realmGoal = launchData?.realmGoal ?? 'starting_garrison';
     this.pinnedPracticeModifiers = launchData?.botMatch?.playerModifiers;
     this.offlineBattleClosed = false;
+    this.botDifficulty = launchData?.botMatch?.botDifficulty ?? 'normal';
     this.botGameplayRulesVersion = launchData?.botMatch ? (launchData.botMatch.gameplayRulesVersion ?? 1) : 2;
     this.liveMode = launchData?.mode === 'live';
     // A guided training battle is a client-local bot match: no server
@@ -680,7 +685,7 @@ export class GameScene extends Phaser.Scene {
     } else {
       trackEvent({
         name: 'match_start',
-        ...(!this.liveMode ? { gameplayRulesVersion: this.botGameplayRulesVersion } : {}),
+        ...(!this.liveMode ? { gameplayRulesVersion: this.botGameplayRulesVersion, ...(!this.realmTicket ? { botDifficulty: this.botDifficulty } : {}) } : {}),
         matchId: this.activeMatchId,
         mode: this.is2v2 ? '2v2' : this.liveMode ? 'live' : this.realmTicket ? 'async' : 'bot',
         source: launchData?.source === 'rematch' ? 'rematch' : 'menu',
@@ -702,7 +707,7 @@ export class GameScene extends Phaser.Scene {
     this.lastHoveredFriendlyId = null;
     this.selectionRings.clear();
 
-    this.aiNextTick = PVP_AI_TICK_SECONDS;
+    this.aiNextTick = getBotAiTickSeconds(this.botDifficulty);
     this.botStepRemainder = 0;
     if (this.realmTicket || this.pinnedPracticeModifiers) {
       const client = new PilotClient(this.platform);
@@ -972,10 +977,14 @@ export class GameScene extends Phaser.Scene {
   /** Launches the first ordinary bot match after a saved tutorial. */
   private startFirstRealMatch(request: AbortController): void {
     if (this.registry.get('realmPilot')) { this.scene.start('MenuScene'); return; }
-    void waitForTrainingRequest(
-      this.careerManager.startBotMatch(this.platform), request.signal,
-    )
+    // The player may take time to choose; only the network request is timed out.
+    void chooseBotDifficulty(this).then((difficulty) => {
+      if (request.signal.aborted || this.trainingRequest !== request || this.isExiting || !this.scene.isActive()) return;
+      if (!difficulty) { this.returnToMenu(); return; }
+      return waitForTrainingRequest(this.careerManager.startBotMatch(this.platform, difficulty), request.signal);
+    })
       .then((botMatch) => {
+        if (!botMatch) return;
         if (request.signal.aborted || this.trainingRequest !== request || this.isExiting) return;
         if (!this.scene.isActive()) return;
         sounds.playDispatch();
@@ -1005,7 +1014,7 @@ export class GameScene extends Phaser.Scene {
     this.createTerritoryObjects();
     this.markTerritoriesDirty();
     this.accumulators = {};
-    this.aiNextTick = PVP_AI_TICK_SECONDS;
+    this.aiNextTick = getBotAiTickSeconds(this.botDifficulty);
     this.botStepRemainder = 0;
     this.selectedSourceIds = [];
     this.hoveredTargetId = null;
@@ -2318,7 +2327,7 @@ export class GameScene extends Phaser.Scene {
       ? '⚔ Drag across towers — bases are shared with your ally'
       : this.liveMode
         ? `⚔ Live battle vs ${this.formatShortName(this.liveOpponentName, 12)}`
-        : this.realmTicket ? 'دفاع خودکار حریف · از برج آبی بکش و حمله کن' : this.pinnedPracticeModifiers ? 'تمرین با ربات · بدون جام' : '⚔ Drag across towers to attack or reinforce';
+        : this.realmTicket ? 'دفاع خودکار حریف · از برج آبی بکش و حمله کن' : this.pinnedPracticeModifiers ? `BOT ${this.botDifficulty.toUpperCase()} · NO TROPHIES` : `BOT ${this.botDifficulty.toUpperCase()} · Drag across towers`;
     this.bottomHintText = createText(this, LOGICAL_WIDTH / 2, bottomBarY + 10, initialHint, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
@@ -2804,7 +2813,7 @@ export class GameScene extends Phaser.Scene {
       } else {
         const defaultHint = this.liveMode
           ? `⚔ Live battle vs ${this.formatShortName(this.liveOpponentName, 12)}`
-          : this.realmTicket ? 'دفاع خودکار حریف · از برج آبی بکش و حمله کن' : this.pinnedPracticeModifiers ? 'تمرین با ربات · بدون جام' : '⚔ Drag across towers to attack or reinforce';
+          : this.realmTicket ? 'دفاع خودکار حریف · از برج آبی بکش و حمله کن' : this.pinnedPracticeModifiers ? `BOT ${this.botDifficulty.toUpperCase()} · NO TROPHIES` : `BOT ${this.botDifficulty.toUpperCase()} · Drag across towers`;
         this.bottomHintText.setText(defaultHint).setColor(this.liveMode ? '#93c5fd' : '#94a3b8');
       }
     }
@@ -3003,10 +3012,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Steps the local bot-match prediction, clipping each step at the AI's
-   * fixed tick grid (every PVP_AI_TICK_SECONDS of match time) so the client
-   * prediction matches the server's authoritative replay as closely as
-   * possible.
+   * Steps prediction on the shared combat clock with the ticket's fixed
+   * AI cadence, matching the server's authoritative replay.
    */
   private stepBotMatch(deltaSeconds: number): void {
     if (!Number.isFinite(deltaSeconds) || deltaSeconds <= 0) return;
@@ -3033,7 +3040,7 @@ export class GameScene extends Phaser.Scene {
         this.gameState.elapsedTimeSeconds >= this.aiNextTick - 1e-9
       ) {
 
-        this.aiNextTick += PVP_AI_TICK_SECONDS;
+        this.aiNextTick += getBotAiTickSeconds(this.botDifficulty);
         // Scripted training battle: the enemy never acts. Clash
         // Royale-style passive tutorial opponent — the player is the only
         // commander on the field.
@@ -4273,7 +4280,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
           ? '⚔ Drag across towers — bases are shared with your ally'
           : this.liveMode
             ? `⚔ Live battle vs ${this.formatShortName(this.liveOpponentName, 12)}`
-            : this.realmTicket ? 'دفاع خودکار حریف · از برج آبی بکش و حمله کن' : this.pinnedPracticeModifiers ? 'تمرین با ربات · بدون جام' : '⚔ Drag across towers to attack or reinforce';
+            : this.realmTicket ? 'دفاع خودکار حریف · از برج آبی بکش و حمله کن' : this.pinnedPracticeModifiers ? `BOT ${this.botDifficulty.toUpperCase()} · NO TROPHIES` : `BOT ${this.botDifficulty.toUpperCase()} · Drag across towers`;
         this.bottomHintText.setText(defaultHint).setColor(this.liveMode ? '#93c5fd' : '#94a3b8');
       }
     }
@@ -4758,11 +4765,12 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       btnBg.disableInteractive();
       btnText.setText('SCOUTING...');
       void this.restartMatch().catch((error: unknown) => {
-        console.error('[GameScene] Rematch start failed:', error);
+        const cancelled = String(error).includes('bot_difficulty_cancelled');
+        if (!cancelled) console.error('[GameScene] Rematch start failed:', error);
         if (!this.scene.isActive()) return;
-        btnText.setText('TRY AGAIN');
+        btnText.setText(cancelled ? 'PLAY AGAIN ⚔' : 'TRY AGAIN');
         btnBg.setInteractive({ useHandCursor: true });
-        this.platform.hapticNotification('error');
+        if (!cancelled) this.platform.hapticNotification('error');
       });
     });
 
@@ -5436,8 +5444,8 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
   private async restartMatch(): Promise<void> {
 
     const match = this.registry.get('realmPilot') && !this.liveMode
-      ? await new PilotClient(this.platform).nextMatch(() => this.careerManager.startBotMatch(this.platform))
-      : { botMatch: await this.careerManager.startBotMatch(this.platform) };
+      ? await new PilotClient(this.platform).nextMatch(() => startChosenBotMatch(this, this.careerManager, this.platform))
+      : { botMatch: await startChosenBotMatch(this, this.careerManager, this.platform) };
     if (!this.scene.isActive()) return;
     this.liveClient?.close();
     this.liveClient = undefined;
@@ -5458,7 +5466,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
   }
 
   private trackMatchTerminal(event: Extract<AnalyticsEventInput, { name: 'match_end' | 'match_quit' }>): boolean {
-    return trackTerminalMatchEvent({ ...event, ...(!this.liveMode ? { gameplayRulesVersion: this.botGameplayRulesVersion } : {}) });
+    return trackTerminalMatchEvent({ ...event, ...(!this.liveMode ? { gameplayRulesVersion: this.botGameplayRulesVersion, ...(!this.realmTicket ? { botDifficulty: this.botDifficulty } : {}) } : {}) });
   }
 
   private createUpgradedMatchState(career?: PlayerCareer): void {

@@ -140,6 +140,7 @@ type PvpAction struct {
 }
 
 type BotMatchTicket struct {
+	BotDifficulty        string                  `json:"botDifficulty,omitempty"`
 	PlayerModifiers      *PlayerUpgradeModifiers `json:"playerModifiers,omitempty"`
 	ExpiresAt            int64                   `json:"expiresAt,omitempty"`
 	GameplayRulesVersion int                     `json:"gameplayRulesVersion"`

@@ -21,3 +21,4 @@ export * from './realm.js';
 export * from './tactical-routes.js';
 export * from './tactical-ai.js';
 export * from './order-preview.js';
+export * from './bot-difficulty.js';
