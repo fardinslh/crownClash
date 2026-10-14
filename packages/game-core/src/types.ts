@@ -29,6 +29,10 @@ export interface Territory {
 }
 
 export interface MarchingArmy {
+  /** v3 only. Includes original source and destination; targetId is the current waypoint. */
+  routeIds?: string[];
+  routeLeg?: number;
+  routeSpeedMultiplier?: number;
   id: string;
   sourceId: string;
   targetId: string;
@@ -44,6 +48,7 @@ export interface MarchingArmy {
 }
 
 export interface CombatResult {
+  routeInterrupted?: boolean;
   targetId: string;
   attackerOwner: Team;
   previousOwner: Team;

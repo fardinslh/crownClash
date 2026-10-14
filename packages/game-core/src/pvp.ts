@@ -1,6 +1,7 @@
 import type { GameplayRulesVersion } from './gameplay-rules.js';
 import { dispatchArmy } from './dispatch.js';
 import { evaluateAiMove } from './ai.js';
+import { evaluateTacticalMoves } from './tactical-ai.js';
 import { createInitialGameState, stepSimulation } from './simulation.js';
 import type { PlayerUpgradeModifiers } from './upgrades.js';
 import type { GameState, MatchStats } from './types.js';
@@ -137,7 +138,8 @@ function dispatchFromState(
     owner,
     0.5,
     () => armyId,
-    travelSpeedMultiplier
+    travelSpeedMultiplier,
+    state,
   );
   if (!result.success || !result.army || !result.sourceTerritory) {
     throw new PvpSimulationError('invalid_dispatch');
@@ -205,7 +207,7 @@ export function simulatePvpBattle(options: PvpSimulationOptions): PvpSimulationR
   let accumulators: Record<string, number> = {};
   let currentTime = 0;
   let currentTick = 0;
-  const currentRules = state.gameplayRulesVersion === 2;
+  const currentRules = state.gameplayRulesVersion === 2 || state.gameplayRulesVersion === 3;
   const clockEpsilon = currentRules ? 1e-9 : 0;
   let nextAiTick = PVP_AI_TICK_SECONDS;
   let aiActionIndex = 0;
@@ -247,6 +249,12 @@ export function simulatePvpBattle(options: PvpSimulationOptions): PvpSimulationR
 
   const executeAiAction = (): void => {
     if (state.status !== 'playing') return;
+    if (state.gameplayRulesVersion === 3) {
+      for (const move of evaluateTacticalMoves(state, 'enemy', options.enemyModifiers?.armySpeedMultiplier ?? 1)) {
+        state = dispatchFromState(state, move.fromId, move.toId, 'enemy', options.enemyModifiers?.armySpeedMultiplier ?? 1, `pvp_ai_${aiActionIndex++}`);
+      }
+      return;
+    }
     const move = evaluateAiMove(state.territories, 'enemy', 8);
     if (!move) return;
     state = dispatchFromState(

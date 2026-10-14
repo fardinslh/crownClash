@@ -36,7 +36,7 @@ func (s *Store) activePilotPractice(ctx context.Context, tx *sql.Tx, user string
 	}
 	return &p, nil
 }
-func (s *Store) CreatePilotPractice(ctx context.Context, user string) (BotMatchTicket, error) {
+func (s *Store) CreatePilotPractice(ctx context.Context, user string, supported ...int) (BotMatchTicket, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return BotMatchTicket{}, err
@@ -61,6 +61,9 @@ func (s *Store) CreatePilotPractice(ctx context.Context, user string) (BotMatchT
 		return BotMatchTicket{}, err
 	}
 	if old != nil {
+		if !clientSupportsRules(supported, old.Ticket.GameplayRulesVersion) {
+			return BotMatchTicket{}, errors.New("client_update_required")
+		}
 		return old.Ticket, tx.Commit()
 	}
 	id, err := realmID("practice_")
@@ -69,7 +72,7 @@ func (s *Store) CreatePilotPractice(ctx context.Context, user string) (BotMatchT
 	}
 	_, mods := realmModifiers(combatLevels(c), combatLevels(c), c.SelectedCommanderID, "bounded")
 	now := s.nowFn().UnixMilli()
-	ticket := BotMatchTicket{MatchID: id, BattlefieldID: "crown_cross", GameplayRulesVersion: CurrentGameplayRulesVersion, PlayerModifiers: &mods, ExpiresAt: now + realmTicketLifetimeMs}
+	ticket := BotMatchTicket{MatchID: id, BattlefieldID: "crown_cross", GameplayRulesVersion: negotiatedAsyncRules(supported), PlayerModifiers: &mods, ExpiresAt: now + realmTicketLifetimeMs}
 	p := pilotPractice{RewardTreasuryLevel: c.TreasuryLevel, Ticket: ticket, CreatedAt: now, ExpiresAt: ticket.ExpiresAt, Modifiers: mods}
 	raw, err := json.Marshal(p)
 	if err != nil {

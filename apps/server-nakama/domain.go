@@ -738,6 +738,10 @@ func dispatchArmy(state *GameState, sourceID, targetID string, owner Team, multi
 	if sourceID == targetID || source.Owner != owner {
 		return ErrPvpInvalidDispatch
 	}
+	route := findDispatchRoute(*state, sourceID, targetID, owner)
+	if route == nil {
+		return ErrPvpInvalidDispatch
+	}
 	units := calculateDispatchUnits(source.Units)
 	if units <= 0 {
 		return ErrPvpInvalidDispatch
@@ -749,11 +753,17 @@ func dispatchArmy(state *GameState, sourceID, targetID string, owner Team, multi
 	duration := math.Max(1, distance/(baseArmyTravelSpeed*multiplier*territoryArmySpeedMultiplier(source.Type)))
 	source.Units -= units
 	state.Territories[sourceID] = source
-	state.Armies = append(state.Armies, MarchingArmy{
+	army := MarchingArmy{
 		ID: id, SourceID: sourceID, TargetID: targetID, Owner: owner, Units: units,
 		StartX: source.X, StartY: source.Y, TargetX: target.X, TargetY: target.Y,
 		Speed: 1 / duration, Distance: distance,
-	})
+	}
+	if state.GameplayRulesVersion == 3 {
+		army.RouteIDs = route
+		army.RouteSpeedMultiplier = multiplier * territoryArmySpeedMultiplier(source.Type)
+		army = setArmyLeg(army, source, state.Territories[route[1]], 0)
+	}
+	state.Armies = append(state.Armies, army)
 	if owner == TeamPlayer {
 		state.Stats.PlayerUnitsDispatched += float64(units)
 	} else {
@@ -784,7 +794,7 @@ func tickGeneration(state *GameState, accumulators map[string]float64, delta flo
 			continue
 		}
 		multiplier := 1.0
-		if state.GameplayRulesVersion == CurrentGameplayRulesVersion {
+		if hasCaptureRecovery(state.GameplayRulesVersion) {
 			multiplier = captureProductionMultiplier(state.ElapsedTimeSeconds, state.ProductionReadyAtMs[id])
 		}
 		raw := accumulators[id] + territory.ProductionRate*territoryProductionMultiplier(territory.Type)*multiplier*delta
@@ -811,7 +821,7 @@ func stepSimulation(state GameState, accumulators map[string]float64, delta floa
 	if state.Status != "playing" {
 		return state, accumulators
 	}
-	if state.GameplayRulesVersion == CurrentGameplayRulesVersion {
+	if hasCaptureRecovery(state.GameplayRulesVersion) {
 		readyTimes := make(map[string]int64, len(state.ProductionReadyAtMs))
 		for id, readyAt := range state.ProductionReadyAtMs {
 			readyTimes[id] = readyAt
@@ -824,13 +834,21 @@ func stepSimulation(state GameState, accumulators map[string]float64, delta floa
 		accumulators = nextAccumulators
 	}
 	state.ElapsedTimeSeconds += delta
-	if state.GameplayRulesVersion == CurrentGameplayRulesVersion {
+	if hasCaptureRecovery(state.GameplayRulesVersion) {
 		state.ElapsedTimeSeconds = math.Round(state.ElapsedTimeSeconds*1e9) / 1e9
 	}
 	state.Stats.MatchDurationSeconds = state.ElapsedTimeSeconds
 	remaining := make([]MarchingArmy, 0, len(state.Armies))
 	for _, army := range state.Armies {
 		nextProgress := army.Progress + army.Speed*delta
+		if state.GameplayRulesVersion == 3 {
+			var arrived bool
+			army, arrived = advanceRoutedArmy(army, state.Territories, delta)
+			nextProgress = army.Progress
+			if arrived {
+				nextProgress = 1
+			}
+		}
 		if nextProgress >= 1 {
 			target, exists := state.Territories[army.TargetID]
 			if exists {
@@ -839,7 +857,7 @@ func stepSimulation(state GameState, accumulators map[string]float64, delta floa
 				target.Units = combat.remaining
 				state.Territories[army.TargetID] = target
 				if combat.captured {
-					if state.GameplayRulesVersion == CurrentGameplayRulesVersion {
+					if hasCaptureRecovery(state.GameplayRulesVersion) {
 						nowMs := int64(math.Round(state.ElapsedTimeSeconds * 1000))
 						if state.ProductionReadyAtMs[target.ID] <= nowMs {
 							state.ProductionReadyAtMs[target.ID] = nowMs + captureRecoveryMs
@@ -988,7 +1006,7 @@ func simulateBattle(actions []PvpAction, player, enemy PlayerUpgradeModifiers, b
 }
 
 func simulateBattleWithRules(actions []PvpAction, player, enemy PlayerUpgradeModifiers, battlefieldID string, rulesVersion int) (GameState, PvpBattleSummary, error) {
-	if rulesVersion != 1 && rulesVersion != CurrentGameplayRulesVersion {
+	if !supportedGameplayRules(rulesVersion) {
 		return GameState{}, PvpBattleSummary{}, errors.New("unsupported_gameplay_rules_version")
 	}
 
@@ -1007,18 +1025,24 @@ func simulateBattleWithRules(actions []PvpAction, player, enemy PlayerUpgradeMod
 	}
 	state := CreateInitialGameStateForBattlefield(player, enemy, battlefieldID)
 	state.GameplayRulesVersion = rulesVersion
+	if rulesVersion == 3 {
+		if battlefieldID == "quad_citadel" {
+			return GameState{}, PvpBattleSummary{}, errors.New("tactical_rules_require_1v1")
+		}
+		applyTacticalOpening(&state, player, enemy)
+	}
 	accumulators := map[string]float64{}
 	currentTime := 0.0
 	currentTick := 0
 	clockEpsilon := 0.0
-	if rulesVersion == CurrentGameplayRulesVersion {
+	if hasCaptureRecovery(rulesVersion) {
 		clockEpsilon = 1e-9
 	}
 	nextAITick := PvpAITickSeconds
 	aiActionIndex := 0
 	actionsProcessed := 0
 	stepTo := func(timestamp float64) {
-		if rulesVersion == CurrentGameplayRulesVersion {
+		if hasCaptureRecovery(rulesVersion) {
 			targetTick := int(math.Floor(timestamp/PvpSimulationTick + 1e-9))
 			for state.Status == "playing" && currentTick < targetTick {
 				state, accumulators = stepSimulation(state, accumulators, PvpSimulationTick)
@@ -1043,6 +1067,13 @@ func simulateBattleWithRules(actions []PvpAction, player, enemy PlayerUpgradeMod
 	}
 	executeAI := func() {
 		if state.Status != "playing" {
+			return
+		}
+		if state.GameplayRulesVersion == 3 {
+			for _, move := range evaluateTacticalMoves(state, TeamEnemy, enemy.ArmySpeedMultiplier) {
+				_ = dispatchArmy(&state, move.FromID, move.ToID, TeamEnemy, enemy.ArmySpeedMultiplier, "pvp_ai_"+itoa(int64(aiActionIndex)))
+				aiActionIndex++
+			}
 			return
 		}
 		fromID, toID, ok := evaluateAIMove(state)

@@ -18,3 +18,6 @@ export * from './daily.js';
 export * from './league.js';
 export * from './gameplay-rules.js';
 export * from './realm.js';
+export * from './tactical-routes.js';
+export * from './tactical-ai.js';
+export * from './order-preview.js';

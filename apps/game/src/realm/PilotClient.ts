@@ -23,10 +23,10 @@ export class PilotClient {
     }
   }
   config(): Promise<RealmConfig> { return this.request('config'); }
-  home(): Promise<RealmHome> { return this.request('home'); }
+  home(): Promise<RealmHome> { return this.request('home', { supportedGameplayRulesVersions: [1, 2, 3] }); }
   goal(goal: UpgradeType): Promise<void> { return this.request('goal', { goal }); }
   resolve(token: string): Promise<RealmDefense> { return this.request('challenge/resolve', { token }); }
-  start(source: RealmSource, extra: { token?: string; originId?: string; defenseVersion?: string; commanderId?: CommanderId } = {}): Promise<RealmTicket> { return this.request('attack/start', { source, ...extra }); }
+  start(source: RealmSource, extra: { token?: string; originId?: string; defenseVersion?: string; commanderId?: CommanderId } = {}): Promise<RealmTicket> { return this.request('attack/start', { source, ...extra, supportedGameplayRulesVersions: [1, 2, 3] }); }
   async nextMatch(startPractice: () => Promise<BotMatchTicket>): Promise<{ botMatch: BotMatchTicket | RealmTicket; realmTicket?: RealmTicket; realmGoal?: UpgradeType }> {
     const home = await this.home();
     if (home.activeTicket) return { botMatch: home.activeTicket, realmTicket: home.activeTicket, realmGoal:home.goal };

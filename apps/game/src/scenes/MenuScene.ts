@@ -382,21 +382,6 @@ export class MenuScene extends Phaser.Scene {
       });
     }
 
-    // Keep the main PLAY flow intact; the spare completed-training slot
-    // opens a separate, unrewarded comparison against the local bot.
-    if (careerManager.isTutorialCompleted()) {
-      const prototypeBg = this.add.rectangle(LOGICAL_WIDTH / 2, layout.trainingY, 250, 44, 0x221e16)
-        .setStrokeStyle(1.5, THEME.gold).setInteractive({ useHandCursor: true });
-      const prototypeText = createText(this, LOGICAL_WIDTH / 2, layout.trainingY, 'CROWN HOLD · PLAYTEST', {
-        fontSize: '13px', color: '#fde68a',
-      }).setOrigin(.5);
-      this.bindPressFeedback(prototypeBg, prototypeText);
-      prototypeBg.on('pointerdown', () => {
-        if (this.isTransitioning) return;
-        this.isTransitioning = true;
-        this.scene.start('PrototypeScene');
-      });
-    }
     if (!careerManager.isTutorialCompleted()) {
       const trainingBg = this.add
         .rectangle(LOGICAL_WIDTH / 2, layout.trainingY, 250, 44, 0x1c1830, 1)

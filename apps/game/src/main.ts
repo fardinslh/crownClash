@@ -11,7 +11,6 @@ import { DailyScene } from './scenes/DailyScene.js';
 import { KingdomScene } from './scenes/KingdomScene.js';
 import { LeagueScene } from './scenes/LeagueScene.js';
 import { MenuScene } from './scenes/MenuScene.js';
-import { PrototypeScene } from './scenes/PrototypeScene.js';
 import { CommanderScene } from './scenes/CommanderScene.js';
 import { selectRenderProfile } from './render/RenderProfile.js';
 
@@ -87,8 +86,7 @@ const startApp = async (): Promise<void> => {
     },
     backgroundColor: '#070b14',
     scene: [
-      ...(new URLSearchParams(window.location.search).get('prototype') === 'crown'
-        ? [PrototypeScene, MenuScene] : [MenuScene, PrototypeScene]),
+      MenuScene,
       GameScene, RealmScene, KingdomScene, DailyScene, LeagueScene, CommanderScene,
     ],
     render: {

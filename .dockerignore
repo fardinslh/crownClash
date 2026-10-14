@@ -3,5 +3,9 @@ node_modules
 .agents
 .codex
 .opencode
+.env
+.env.*
+**/.env
+**/.env.*
 qa-artifacts
 dist

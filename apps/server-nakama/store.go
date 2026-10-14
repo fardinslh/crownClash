@@ -42,9 +42,9 @@ func NewStore(db *sql.DB) *Store {
 	return &Store{db: db, nowFn: time.Now}
 }
 
-func (s *Store) CreateBotMatch(ctx context.Context, userID string) (BotMatchTicket, error) {
+func (s *Store) CreateBotMatch(ctx context.Context, userID string, supported ...int) (BotMatchTicket, error) {
 	if pilotRuntime.Enabled {
-		return s.CreatePilotPractice(ctx, userID)
+		return s.CreatePilotPractice(ctx, userID, supported...)
 	}
 	if _, err := s.GetOrCreateCareer(ctx, userID); err != nil {
 		return BotMatchTicket{}, err
@@ -54,7 +54,7 @@ func (s *Store) CreateBotMatch(ctx context.Context, userID string) (BotMatchTick
 		return BotMatchTicket{}, err
 	}
 	ticket := BotMatchTicket{
-		GameplayRulesVersion: CurrentGameplayRulesVersion,
+		GameplayRulesVersion: negotiatedAsyncRules(supported),
 		MatchID:              "bot_" + hex.EncodeToString(randomBytes[1:]),
 		BattlefieldID:        battlefieldIDs[int(randomBytes[0])%len(battlefieldIDs)],
 	}
@@ -994,7 +994,7 @@ func (s *Store) InsertAnalyticsEvents(ctx context.Context, userID string, events
 
 	result := AnalyticsInsertResult{}
 	for _, event := range events {
-		normalized, err := normalizeAnalyticsEvent(ctx, tx, userID, event)
+		normalized, err := normalizeVersionedAnalyticsEvent(ctx, tx, userID, event)
 		if err != nil {
 			return AnalyticsInsertResult{}, err
 		}

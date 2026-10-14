@@ -274,7 +274,7 @@ func Simulate2v2Battle(options TwoVTwoSimulationOptions) (TwoVTwoSimulationResul
 		return TwoVTwoSimulationResult{}, err
 	}
 	if options.GameplayRulesVersion != 0 {
-		if options.GameplayRulesVersion != 1 && options.GameplayRulesVersion != CurrentGameplayRulesVersion {
+		if options.GameplayRulesVersion != 1 && options.GameplayRulesVersion != 2 {
 			return TwoVTwoSimulationResult{}, fmt.Errorf("unsupported_gameplay_rules_version")
 		}
 		state.GameplayRulesVersion = options.GameplayRulesVersion

@@ -309,18 +309,21 @@ type Territory struct {
 }
 
 type MarchingArmy struct {
-	ID       string  `json:"id"`
-	SourceID string  `json:"sourceId"`
-	TargetID string  `json:"targetId"`
-	Owner    Team    `json:"owner"`
-	Units    int     `json:"units"`
-	StartX   float64 `json:"startX"`
-	StartY   float64 `json:"startY"`
-	TargetX  float64 `json:"targetX"`
-	TargetY  float64 `json:"targetY"`
-	Progress float64 `json:"progress"`
-	Speed    float64 `json:"speed"`
-	Distance float64 `json:"distance"`
+	RouteIDs             []string `json:"routeIds,omitempty"`
+	RouteLeg             int      `json:"routeLeg,omitempty"`
+	RouteSpeedMultiplier float64  `json:"routeSpeedMultiplier,omitempty"`
+	ID                   string   `json:"id"`
+	SourceID             string   `json:"sourceId"`
+	TargetID             string   `json:"targetId"`
+	Owner                Team     `json:"owner"`
+	Units                int      `json:"units"`
+	StartX               float64  `json:"startX"`
+	StartY               float64  `json:"startY"`
+	TargetX              float64  `json:"targetX"`
+	TargetY              float64  `json:"targetY"`
+	Progress             float64  `json:"progress"`
+	Speed                float64  `json:"speed"`
+	Distance             float64  `json:"distance"`
 }
 
 type GameState struct {

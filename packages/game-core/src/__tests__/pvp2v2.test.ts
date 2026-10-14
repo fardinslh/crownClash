@@ -80,6 +80,9 @@ function options(actions: readonly CanonicalTwoVTwoAction[], timeLimitSeconds = 
 }
 
 describe('2v2 deterministic simulation foundations', () => {
+  it('rejects tactical rules for live 2v2', () => {
+    expect(() => createInitial2v2GameState({...options([]),gameplayRulesVersion:3})).toThrow('unsupported_gameplay_rules_version');
+  });
   it('maps four slots onto the two unchanged simulation owners', () => {
     expect([0, 1, 2, 3].map((slot) => teamIdForSlot(slot as Slot))).toEqual(['a', 'a', 'b', 'b']);
     expect([0, 1, 2, 3].map((slot) => simulationOwnerForSlot(slot as Slot))).toEqual([

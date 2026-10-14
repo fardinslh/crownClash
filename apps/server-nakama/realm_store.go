@@ -347,11 +347,12 @@ func (s *Store) ResolveRealmChallenge(ctx context.Context, user, token string) (
 }
 
 type RealmStartRequest struct {
-	Source         string `json:"source"`
-	Token          string `json:"token"`
-	OriginID       string `json:"originId"`
-	CommanderID    string `json:"commanderId"`
-	DefenseVersion string `json:"defenseVersion"`
+	SupportedGameplayRulesVersions []int  `json:"supportedGameplayRulesVersions"`
+	Source                         string `json:"source"`
+	Token                          string `json:"token"`
+	OriginID                       string `json:"originId"`
+	CommanderID                    string `json:"commanderId"`
+	DefenseVersion                 string `json:"defenseVersion"`
 }
 
 func (s *Store) StartRealmAttack(ctx context.Context, user string, req RealmStartRequest) (RealmTicket, error) {
@@ -375,6 +376,9 @@ func (s *Store) StartRealmAttack(ctx context.Context, user string, req RealmStar
 		return RealmTicket{}, err
 	}
 	if active != nil {
+		if !clientSupportsRules(req.SupportedGameplayRulesVersions, active.GameplayRulesVersion) {
+			return RealmTicket{}, errors.New("client_update_required")
+		}
 		return *active, tx.Commit()
 	}
 	if _, err = publishRealmDefense(ctx, tx, c); err != nil {
@@ -475,7 +479,7 @@ func (s *Store) StartRealmAttack(ctx context.Context, user string, req RealmStar
 	if err != nil {
 		return RealmTicket{}, err
 	}
-	t := RealmTicket{RewardTreasuryLevel: c.TreasuryLevel, MatchID: id, Source: req.Source, CombatPolicy: policy, BattlefieldID: "crown_cross", GameplayRulesVersion: CurrentGameplayRulesVersion, ConfigVersion: realmConfigVersion, Defender: d, PlayerModifiers: pm, EnemyModifiers: em, EffectiveLevels: levels, CreatedAt: s.nowFn().UnixMilli(), ExpiresAt: s.nowFn().UnixMilli() + realmTicketLifetimeMs, RewardEligible: eligible, OriginID: origin}
+	t := RealmTicket{RewardTreasuryLevel: c.TreasuryLevel, MatchID: id, Source: req.Source, CombatPolicy: policy, BattlefieldID: "crown_cross", GameplayRulesVersion: negotiatedAsyncRules(req.SupportedGameplayRulesVersions), ConfigVersion: realmConfigVersion, Defender: d, PlayerModifiers: pm, EnemyModifiers: em, EffectiveLevels: levels, CreatedAt: s.nowFn().UnixMilli(), ExpiresAt: s.nowFn().UnixMilli() + realmTicketLifetimeMs, RewardEligible: eligible, OriginID: origin}
 	raw, err := json.Marshal(t)
 	if err != nil {
 		return t, err

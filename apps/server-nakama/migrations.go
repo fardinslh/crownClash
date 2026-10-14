@@ -409,3 +409,18 @@ CREATE TABLE realm_live_loadouts(player_id TEXT PRIMARY KEY REFERENCES players(i
 func init() {
 	migrations = append(migrations, migration{name: "017_social_defense_loadout", sql: `ALTER TABLE realm_challenges ADD COLUMN commander_id TEXT CHECK(commander_id IN ('crown_guard','quartermaster','vanguard'));`})
 }
+
+func init() {
+	migrations = append(migrations, migration{name: "018_tactical_rules", sql: `
+ALTER TABLE bot_matches DROP CONSTRAINT bot_matches_gameplay_rules_version_check;
+ALTER TABLE bot_matches ADD CONSTRAINT bot_matches_gameplay_rules_version_check CHECK (gameplay_rules_version IN (1,2,3));
+`})
+	migrations = append(migrations, migration{name: "019_analytics_schema_constraint", sql: `
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='analytics_events_player_event_id_key'
+    AND conrelid='analytics_events'::regclass) THEN
+    ALTER TABLE analytics_events ADD CONSTRAINT analytics_events_player_event_id_key UNIQUE(player_id,event_id);
+  END IF;
+END $$;
+`})
+}

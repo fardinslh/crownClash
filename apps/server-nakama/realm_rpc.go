@@ -83,7 +83,12 @@ func registerRealmRPCs(initializer runtime.Initializer, s *Store) error {
 				err = s.SetPilotLiveLoadout(ctx, user, req.CommanderID)
 				out = map[string]bool{"ok": err == nil}
 			case "home":
-				out, err = s.RealmHome(ctx, user)
+				var home RealmHome
+				home, err = s.RealmHome(ctx, user)
+				if err == nil && ((home.ActiveTicket != nil && !clientSupportsRules(req.SupportedGameplayRulesVersions, home.ActiveTicket.GameplayRulesVersion)) || (home.ActivePractice != nil && !clientSupportsRules(req.SupportedGameplayRulesVersions, home.ActivePractice.GameplayRulesVersion))) {
+					err = errors.New("client_update_required")
+				}
+				out = home
 			case "challenge/create":
 				var token string
 				var expires int64
@@ -207,7 +212,7 @@ func registerRealmRPCs(initializer runtime.Initializer, s *Store) error {
 func marshalJSON(value any) (string, error) { raw, err := json.Marshal(value); return string(raw), err }
 func pilotPublicError(err error) string {
 	text := err.Error()
-	for _, prefix := range []string{"realm_", "coin_", "challenge_", "revenge_", "no_realm_", "defense_", "invalid_", "tutorial_", "payment_", "pvp_", "commander_"} {
+	for _, prefix := range []string{"client_update_", "realm_", "coin_", "challenge_", "revenge_", "no_realm_", "defense_", "invalid_", "tutorial_", "payment_", "pvp_", "commander_"} {
 		if strings.HasPrefix(text, prefix) && len(text) < 100 {
 			return text
 		}

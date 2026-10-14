@@ -162,6 +162,7 @@ func loadServerConfig(initializer runtime.Initializer) {
 	serverConfig.AllowGuestAuth = false
 	serverConfig.InitDataMaxAge = 86400
 	serverConfig.TwoVTwoRollout = map[string]int{}
+	asyncGameplayRulesVersion = 3
 
 	if config, err := initializer.GetConfig(); err == nil {
 		env := make(map[string]string)
@@ -179,6 +180,9 @@ func loadServerConfig(initializer runtime.Initializer) {
 		pilotRuntime.WebhookSecret = env["BALE_PAYMENT_WEBHOOK_SECRET"]
 		pilotRuntime.RefundSecret = env["COIN_REFUND_OPERATOR_SECRET"]
 		serverConfig.AllowGuestAuth = env["ALLOW_GUEST_AUTH"] == "true"
+		if value := env["ASYNC_GAMEPLAY_RULES_VERSION"]; value != "" && value != "3" {
+			asyncGameplayRulesVersion = 2
+		}
 		serverConfig.Enable2v2 = env["ENABLE_2V2"] == "true"
 		for _, platform := range supportedRolloutPlatforms {
 			key := "ENABLE_2V2_ROLLOUT_" + strings.ToUpper(platform)
@@ -502,8 +506,15 @@ func rpcStartBotMatch(store *Store) rpcFn {
 		if !ok || userID == "" {
 			return "", errors.New("unauthenticated")
 		}
-		if payload != "" && payload != "{}" {
-			return "", errors.New("invalid_payload")
+		var request struct {
+			SupportedGameplayRulesVersions []int `json:"supportedGameplayRulesVersions"`
+		}
+		if payload != "" {
+			decoder := json.NewDecoder(strings.NewReader(payload))
+			decoder.DisallowUnknownFields()
+			if len(payload) > 1024 || !json.Valid([]byte(payload)) || decoder.Decode(&request) != nil || len(request.SupportedGameplayRulesVersions) > 3 {
+				return "", errors.New("invalid_payload")
+			}
 		}
 		// Ordinary bot entry is gated on the account-wide tutorial flag:
 		// this RPC rejects bot-match tickets while the flag is incomplete.
@@ -519,7 +530,7 @@ func rpcStartBotMatch(store *Store) rpcFn {
 		if !career.TutorialCompleted {
 			return "", errors.New("tutorial_required")
 		}
-		ticket, err := store.CreateBotMatch(ctx, userID)
+		ticket, err := store.CreateBotMatch(ctx, userID, request.SupportedGameplayRulesVersions...)
 		if err != nil {
 			return "", err
 		}
@@ -980,7 +991,12 @@ var analyticsEventDefinitions = map[string]analyticsEventDefinition{
 	"menu_viewed":           {properties: analyticsProperties("rankId")},
 	"match_start":           {properties: analyticsProperties("matchId", "mode", "source"), optionalProperties: analytics2v2OptionalProps()},
 	"match_end":             {properties: analyticsPropertiesWithDuration("matchId", "mode", "result"), optionalProperties: analytics2v2OptionalProps()},
-	"match_quit":            {properties: analyticsPropertiesWithDuration("matchId", "mode")},
+	"match_quit":            {properties: analyticsPropertiesWithDuration("matchId", "mode"), optionalProperties: map[string]analyticsPropertyKind{"gameplayRulesVersion": analyticsPropertyNumber}},
+	"match_menu_opened":     {properties: analyticsProperties("matchId", "mode")},
+	"match_resumed":         {properties: analyticsProperties("matchId", "mode")},
+	"match_leave_requested": {properties: analyticsProperties("matchId", "mode")},
+	"match_leave_cancelled": {properties: analyticsProperties("matchId", "mode")},
+	"match_quit_confirmed":  {properties: analyticsPropertiesWithDuration("matchId", "mode")},
 	"match_reward_received": {properties: analyticsProperties("matchId", "mode")},
 	// source is optional: schema-version-1 clients shipped before the
 	// Kingdom hub emit this event with no properties at all.
@@ -1029,9 +1045,10 @@ func analyticsPropertiesWithDuration(keys ...string) map[string]analyticsPropert
 // battlefieldId are strings.
 func analytics2v2OptionalProps() map[string]analyticsPropertyKind {
 	return map[string]analyticsPropertyKind{
-		"battlefieldId": analyticsPropertyString,
-		"slot":          analyticsPropertyNumber,
-		"teamId":        analyticsPropertyString,
+		"gameplayRulesVersion": analyticsPropertyNumber,
+		"battlefieldId":        analyticsPropertyString,
+		"slot":                 analyticsPropertyNumber,
+		"teamId":               analyticsPropertyString,
 	}
 }
 
@@ -1106,6 +1123,12 @@ func validateAnalyticsEvent(event AnalyticsEventRecord, receivedAt int64) error 
 			return errors.New("invalid_event_props")
 		}
 	}
+	if v, present := event.Props["gameplayRulesVersion"]; present {
+		n, ok := v.(float64)
+		if !ok || n != math.Trunc(n) || !supportedGameplayRules(int(n)) {
+			return errors.New("invalid_event_props")
+		}
+	}
 	if !hasValidAnalyticsPropertyEnums(event) {
 		return errors.New("invalid_event_props")
 	}
@@ -1169,7 +1192,10 @@ func hasValidAnalyticsPropertyEnums(event AnalyticsEventRecord) bool {
 		// The 2v2 client emits quit events with mode "2v2" (GameScene's
 		// terminal close handler); 1v1 keeps "live". Quit carries no reward
 		// fields, so both modes pass unchanged.
-		return oneOf(value("mode"), "live", "2v2", "async")
+		_, versioned := event.Props["gameplayRulesVersion"]
+		return oneOf(value("mode"), "live", "2v2", "async") || (value("mode") == "bot" && versioned)
+	case "match_menu_opened", "match_resumed", "match_leave_requested", "match_leave_cancelled", "match_quit_confirmed":
+		return oneOf(value("mode"), "bot", "live", "async")
 	case "match_reward_received":
 		return oneOf(value("mode"), "bot", "live", "2v2", "async")
 	case "upgrade_panel_viewed":

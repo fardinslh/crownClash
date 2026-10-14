@@ -1,4 +1,5 @@
-import { MarchingArmy, Team, Territory } from './types.js';
+import { GameState, MarchingArmy, Team, Territory } from './types.js';
+import { findDispatchRoute, setArmyLeg } from './tactical-routes.js';
 import { getTerritoryArmySpeedMultiplier } from './territory-types.js';
 
 export interface DispatchResult {
@@ -36,7 +37,8 @@ export function dispatchArmy(
   expectedOwner: Team,
   dispatchRatio: number = 0.5,
   armyIdGenerator: () => string = () => `army_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-  travelSpeedMultiplier: number = 1
+  travelSpeedMultiplier: number = 1,
+  state?: GameState,
 ): DispatchResult {
   if (source.id === target.id) {
     return { success: false, reason: 'Cannot dispatch to the same territory' };
@@ -45,6 +47,8 @@ export function dispatchArmy(
   if (source.owner !== expectedOwner) {
     return { success: false, reason: 'Source territory is not owned by the dispatcher' };
   }
+  const route = state ? findDispatchRoute(state, source.id, target.id, expectedOwner) : [source.id, target.id];
+  if (!route) return { success: false, reason: target.owner === expectedOwner ? 'No friendly route' : 'Attack an adjacent tower' };
 
   const unitsToSend = calculateDispatchUnits(source.units, dispatchRatio);
   if (unitsToSend <= 0) {
@@ -85,7 +89,9 @@ export function dispatchArmy(
   return {
     success: true,
     sourceTerritory: updatedSource,
-    army,
+    army: state?.gameplayRulesVersion === 3
+      ? setArmyLeg({ ...army, routeIds: route, routeSpeedMultiplier: safeSpeedMultiplier * sourceSpeedMultiplier }, source, state.territories[route[1]], 0)
+      : army,
   };
 }
 
@@ -98,7 +104,8 @@ export function dispatchMultipleArmies(
   expectedOwner: Team,
   dispatchRatio: number = 0.5,
   travelSpeedMultiplier: number = 1,
-  armyIdGenerator?: () => string
+  armyIdGenerator?: () => string,
+  state?: GameState,
 ): MultiDispatchResult {
   const successes: DispatchResult[] = [];
   const armies: MarchingArmy[] = [];
@@ -113,7 +120,8 @@ export function dispatchMultipleArmies(
       expectedOwner,
       dispatchRatio,
       armyIdGenerator,
-      travelSpeedMultiplier
+      travelSpeedMultiplier,
+      state,
     );
     if (res.success && res.army && res.sourceTerritory) {
       successes.push(res);

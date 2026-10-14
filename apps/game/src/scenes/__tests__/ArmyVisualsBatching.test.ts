@@ -325,7 +325,7 @@ vi.mock('phaser', () => {
 
 import { GameScene } from '../GameScene.js';
 import { BrowserPlatformAdapter } from '@crown-clash/platform';
-import { TERRITORY_TYPE_PRESENTATION } from '@crown-clash/game-core';
+import { TERRITORY_TYPE_PRESENTATION, createInitialGameState, dispatchArmy, stepSimulation } from '@crown-clash/game-core';
 
 describe('Army Visuals Batching Optimization', () => {
   let scene: GameScene;
@@ -374,6 +374,48 @@ describe('Army Visuals Batching Optimization', () => {
       },
     };
     scene.create();
+  });
+
+  it.each([false, true])('keeps the same troop group and badge through a routed turn (reduced motion: %s)', reducedMotion => {
+    const internal = scene as any;
+    internal.reducedMotion = reducedMotion;
+    const state = createInitialGameState({ gameplayRulesVersion: 3 });
+    state.territories.n_bot_right.owner = 'player';
+    state.territories.n_bot_left.units = 40;
+    state.territories.n_bot_left.type = 'fortress';
+    const sent = dispatchArmy(state.territories.n_bot_left, state.territories.n_bot_right, 'player', .5, () => 'routed_turn', 1, state);
+    expect(sent.success).toBe(true);
+    expect(sent.army).toBeDefined();
+    expect(sent.army!.routeIds).toEqual(['n_bot_left', 'p_base', 'n_bot_right']);
+    state.territories.n_bot_left = sent.sourceTerritory!;
+    state.armies = [{ ...sent.army!, progress: .99 }];
+    internal.gameState = state;
+    internal.updateArmyVisuals(.016);
+    const original = [...internal.armyVisuals.values()][0];
+    expect(original).toBeDefined();
+    const phase = original.phaseSeconds;
+    const badgeOffset = { ...original.badgeOffset };
+    const followerSprites = original.followers.map((f: any) => f.sprite);
+    const imageCount = scene.children.list.filter(o => o instanceof MockImage).length;
+
+    const moved = stepSimulation(state, {}, .03);
+    expect(moved.state.armies[0].routeLeg).toBe(1);
+    internal.gameState = moved.state;
+    internal.updateArmyVisuals(.03);
+    const turned = [...internal.armyVisuals.values()][0];
+    expect(turned).toBe(original);
+    expect(turned.container.destroyed).toBe(false);
+    expect(turned.followers.map((f: any) => f.sprite)).toEqual(followerSprites);
+    expect(turned.badgeOffset).toEqual(badgeOffset);
+    expect(turned.phaseSeconds).toBeCloseTo(reducedMotion ? phase : phase + .03);
+    expect(scene.children.list.filter(o => o instanceof MockImage)).toHaveLength(imageCount);
+    expect(turned.badgeText.text).toBe('20');
+    if (reducedMotion) {
+      const a = moved.state.armies[0], from = internal.boardLayout.project(a.startX, a.startY), to = internal.boardLayout.project(a.targetX, a.targetY);
+      const dx = to.u - from.u, dy = to.v - from.v;
+      expect(turned.rearOffset.x * dy - turned.rearOffset.y * dx).toBeCloseTo(0, 8);
+      expect(turned.rearOffset.x * dx + turned.rearOffset.y * dy).toBeLessThan(0);
+    }
   });
 
   it('keeps the number attached throughout a march past territory annotations', () => {

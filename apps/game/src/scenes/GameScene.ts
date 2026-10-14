@@ -1,11 +1,13 @@
 import { PilotClient } from '../realm/PilotClient.js';
 import type { RealmTicket, RealmResult } from '@crown-clash/game-core';
 import Phaser from 'phaser';
+import { drawTacticalDrag } from '../ui/TacticalDrag.js';
 import { TerritoryTap } from '../ui/TerritoryTap.js';
 import { anchoredArmyBadge, planArmyBadgeOffset, type ArmyBadgeOffset, type ArmyBadgeRoute } from '../art/ArmyBadgeLayout.js';
 import type { Rect } from '../ui/HudLayout.js';
 import {
   getCaptureProductionMultiplier,
+  evaluateTacticalMoves, previewOrder, armyDestination, type GameplayRulesVersion,
   getTerritoryProductionMultiplier,
   getTerritoryDefenseMultiplier,
   getTerritoryArmySpeedMultiplier,
@@ -13,7 +15,6 @@ import {
   BotMatchTicket,
   calculateDispatchUnits,
   CombatResult,
-  createDefaultCareer,
   createInitialGameState,
   dispatchArmy,
   dispatchMultipleArmies,
@@ -45,6 +46,7 @@ import {
 import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { CareerManager } from '../career/CareerManager.js';
 import { TrainingOverlayUI } from './trainingOverlay.js';
+import { resolveTacticalTrainingGuidance } from '../tutorial/tacticalGuidance.js';
 import { TutorialController } from '../tutorial/TutorialController.js';
 import { waitForTrainingRequest } from '../tutorial/trainingRequest.js';
 import {
@@ -95,6 +97,7 @@ import {
 import {
   trackEvent,
   trackTerminalMatchEvent,
+  type AnalyticsEventInput,
   trackUpgradeEvent,
 } from '../analytics/Analytics.js';
 import { sounds } from '../audio/SoundEffects.js';
@@ -172,12 +175,8 @@ import {
   DustPuffSimulator,
 } from '../combat/SmoothnessHelpers.js';
 import { createText, FONT_FAMILY, MONO_FONT_FAMILY } from '../ui/TextStyles.js';
-import {
-  CROWN_CONFIG, createCrownProgress, createPrototypeState, evaluateCrownAiMoves,
-  resolvePrototypeMode, stepCrownMatch, type CrownProgress, type PrototypeMode,
-} from '../prototype/CrownMatch.js';
-import { trackPrototypeEvent } from '../prototype/PrototypeAnalytics.js';
-import { CrownHud, renderPrototypeResult } from '../prototype/PrototypePresentation.js';
+
+
 
 /**
  * Debounce for the viewport-driven arena rebuild. The camera re-centers
@@ -253,6 +252,9 @@ interface ArmyVisual {
   dustColor: number;
   roleType: TerritoryType;
   phaseSeconds: number;
+  routeLeg: number;
+  headingAngle: number;
+  speedLines?: Phaser.GameObjects.Graphics;
 }
 
 export class GameScene extends Phaser.Scene {
@@ -276,6 +278,7 @@ export class GameScene extends Phaser.Scene {
   private selectedSourceIds: string[] = [];
   private hoveredTargetId: string | null = null;
   private lastHoveredFriendlyId: string | null = null;
+  private tacticalDragKey?: string;
   private pointerWorldPoint = new Phaser.Math.Vector2();
   /** Board projection (identity for un-migrated battlefields, diorama for crown_cross). */
   private boardLayout: BoardLayout = createBoardLayout('crown_cross', 720);
@@ -356,7 +359,7 @@ export class GameScene extends Phaser.Scene {
   private inspectionId?: string;
   private inspector?: Phaser.GameObjects.Container;
   private inspectorText?: Phaser.GameObjects.Text;
-  private botGameplayRulesVersion: 1 | 2 = 2;
+  private botGameplayRulesVersion: GameplayRulesVersion = 2;
   private careerManager!: CareerManager;
   private careerSubscription?: () => void;
   private playerArmySpeedMultiplier = 1;
@@ -400,12 +403,10 @@ export class GameScene extends Phaser.Scene {
   // that never settles, never rewards, and completes only through the five
   // guided actions. See TutorialController/TutorialStatus.
   private trainingMode = false;
-  private prototypeMode: PrototypeMode | null = null;
-  private crownProgress: CrownProgress = createCrownProgress();
-  private crownHud?: CrownHud;
-  private prototypeTerminalTracked = false;
-  private prototypeFirstDispatch = false;
-  private crownLastBeep = -1;
+
+
+
+
   private trainingController?: TutorialController;
   private trainingOverlay?: TrainingOverlayUI;
   private trainingCompletionPending = false;
@@ -503,7 +504,7 @@ export class GameScene extends Phaser.Scene {
     const user = this.platform.getUser();
     const launchData = this.scene.settings.data as {
       source?: 'menu' | 'rematch' | 'compare';
-      prototypeMode?: PrototypeMode;
+
       mode?: 'bot' | 'live';
       training?: boolean;
       liveClient?: LiveMatchClient;
@@ -527,14 +528,12 @@ export class GameScene extends Phaser.Scene {
     // server (the server does not replay or verify the actions — it only
     // gates bot matches and matchmaker tickets on the saved flag).
     this.trainingMode = launchData?.training === true && !this.liveMode;
-    this.prototypeMode = resolvePrototypeMode(launchData);
-    // Even constructing CareerManager can initialize persistent career data.
-    // The local prototype never opens that path.
-    if (!this.prototypeMode) this.careerManager = CareerManager.getInstance(user.id);
-    this.crownProgress = createCrownProgress();
-    this.prototypeTerminalTracked = false;
-    this.prototypeFirstDispatch = false;
-    this.crownLastBeep = -1;
+
+    if (this.trainingMode) this.botGameplayRulesVersion = 3;
+    this.careerManager = CareerManager.getInstance(user.id);
+
+
+
     this.liveClient = launchData?.liveClient;
     this.liveOpponentName =
       launchData?.liveMatch?.opponentName || 'Opponent';
@@ -559,13 +558,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     if (!this.liveMode && !launchData?.botMatch) {
-      if (this.prototypeMode) {
-        const localId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-          ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-        this.activeMatchId = `prototype_${this.prototypeMode}_${localId}`;
-        this.battlefieldId = 'crown_cross';
-        this.isStressMode = false;
-      } else if (this.trainingMode) {
+      if (this.trainingMode) {
         // Local-only training ticket: never settled, never rewarded, and
         // invisible to the server's bot-match gating.
         const trainingTicket = createTrainingTicket();
@@ -606,7 +599,7 @@ export class GameScene extends Phaser.Scene {
       this.platform.hideBackButton();
       this.cleanup();
     });
-    this.backendConnectPromise = !this.liveMode && !this.prototypeMode
+    this.backendConnectPromise = !this.liveMode
       ? this.careerManager
           .connect(this.platform)
           .then(() => undefined)
@@ -636,7 +629,7 @@ export class GameScene extends Phaser.Scene {
         ? 'Surrendering removes you from this battle.\nYour teammate keeps fighting.'
         : this.trainingMode
           ? 'Leave training?\nYour guided progress is saved.'
-          : this.prototypeMode ? 'Leave this practice battle?\nNo coins or rank will change.' : undefined,
+          : undefined,
       getDurationSeconds: () => wholeMatchSeconds(this.gameState?.elapsedTimeSeconds ?? 0),
       closeLiveClient: () => {
         if (this.liveClient) {
@@ -647,18 +640,14 @@ export class GameScene extends Phaser.Scene {
       // Training has no real match to quit: leaving it is a tutorial skip,
       // never a match_quit terminal event.
       trackQuit: (event) => {
-        if (this.prototypeMode) {
-          this.trackPrototypeTerminal('prototype_quit');
-          return false;
-        }
-        if (this.trainingMode) return false;
-        return trackTerminalMatchEvent(event);
+
+        if (this.trainingMode || this.realmTicket) return false;
+        return this.trackMatchTerminal(event);
       },
       // Training is not a match: ordinary match_* menu navigation events
       // are remapped to the tutorial equivalents (or suppressed) so
       // analytics never reports a fake bot match around the tutorial.
       trackAnalytics: (event) => {
-        if (this.prototypeMode) return;
         if (this.trainingMode) {
           const tutorialEvent = remapTrainingMenuAnalytics(event);
           if (tutorialEvent) trackEvent(tutorialEvent);
@@ -675,6 +664,7 @@ export class GameScene extends Phaser.Scene {
             this.matchMenuModalContainer.visible
         ),
     });
+
     this.platform.showBackButton(() => {
       if (this.isExiting) return;
       if (this.resultModalContainer || this.syncingModalContainer) {
@@ -683,16 +673,14 @@ export class GameScene extends Phaser.Scene {
       }
       this.matchMenuController.handleBackButton();
     });
-    if (this.prototypeMode) {
-      trackPrototypeEvent({ name: 'prototype_start', matchId: this.activeMatchId,
-        mode: this.prototypeMode, elapsedSeconds: 0, source: launchData?.source ?? 'menu' });
-    } else if (this.trainingMode) {
+    if (this.trainingMode) {
       // Training is not a real match: no match_start analytics, no match
       // settlement, no rewards. Only the stable tutorial_* events fire.
       trackEvent({ name: 'tutorial_started' });
     } else {
       trackEvent({
         name: 'match_start',
+        ...(!this.liveMode ? { gameplayRulesVersion: this.botGameplayRulesVersion } : {}),
         matchId: this.activeMatchId,
         mode: this.is2v2 ? '2v2' : this.liveMode ? 'live' : this.realmTicket ? 'async' : 'bot',
         source: launchData?.source === 'rematch' ? 'rematch' : 'menu',
@@ -713,12 +701,13 @@ export class GameScene extends Phaser.Scene {
     this.hoveredTargetId = null;
     this.lastHoveredFriendlyId = null;
     this.selectionRings.clear();
-    this.aiNextTick = this.prototypeMode === 'crown' ? CROWN_CONFIG.aiTickSeconds : PVP_AI_TICK_SECONDS;
+
+    this.aiNextTick = PVP_AI_TICK_SECONDS;
     this.botStepRemainder = 0;
     if (this.realmTicket || this.pinnedPracticeModifiers) {
       const client = new PilotClient(this.platform);
       const saved = client.readBattle<{ state: GameState; actions: PvpAction[]; accumulators: Record<string, number>; aiNextTick: number; botStepRemainder: number }>(this.activeMatchId);
-      if (saved && saved.state?.status === 'playing' && saved.actions?.length <= MAX_PVP_ACTIONS) {
+      if (saved && saved.state?.status === 'playing' && saved.state.gameplayRulesVersion === this.botGameplayRulesVersion && saved.actions?.length <= MAX_PVP_ACTIONS) {
         this.gameState = saved.state; this.matchActions = saved.actions; this.accumulators = saved.accumulators;
         this.aiNextTick = saved.aiNextTick; this.botStepRemainder = saved.botStepRemainder;
       }
@@ -769,17 +758,6 @@ export class GameScene extends Phaser.Scene {
 
     // 4. Create HUD
     this.createHud();
-    if (this.prototypeMode) {
-      this.hudTrophiesText?.setText('TEST');
-      this.hudCoinsText?.setText('VS BOT');
-      if (this.prototypeMode === 'crown') {
-        for (const object of [this.playerBar, this.enemyBar, this.neutralBar, this.playerDomText, this.enemyDomText, this.tugCrown]) {
-          object.setVisible(false);
-        }
-        this.crownHud = new CrownHud(this);
-      }
-      this.updateHud();
-    }
 
     // Compact, non-blocking reveal: enough context to notice the map without
     // covering towers or delaying input.
@@ -853,7 +831,7 @@ export class GameScene extends Phaser.Scene {
           trackEvent(tutorialQuitEvent(event.stepId ?? null));
         }
       },
-      { startStep: progress, quick: this.registry.get('realmPilot') === true }
+      { startStep: progress, quick: this.registry.get('realmPilot') === true, tactical: this.gameState.gameplayRulesVersion === 3 }
     );
     this.trainingOverlay = new TrainingOverlayUI(this);
     this.renderTrainingStep();
@@ -874,7 +852,8 @@ export class GameScene extends Phaser.Scene {
     // board projection so the spotlights and the hand hint land on the
     // projected towers (sockets sit on the baked plinth top on the diorama
     // plate).
-    const guidance = resolveTrainingGuidance(this.gameState.territories, step.id);
+    const guidance = this.gameState.gameplayRulesVersion === 3
+      ? resolveTacticalTrainingGuidance(this.gameState, step.id) : resolveTrainingGuidance(this.gameState.territories, step.id);
     const toPoint = (id: string): { x: number; y: number; radius: number } | null => {
       const t = this.gameState.territories[id];
       if (!t) return null;
@@ -1983,7 +1962,7 @@ export class GameScene extends Phaser.Scene {
       .setDepth(92);
 
     // 2. Top Row (y: 20): Profile, Trophies, Coins, Clock, and Audio
-    const career = this.prototypeMode ? createDefaultCareer('practice') : this.careerManager.getCareer();
+    const career = this.careerManager.getCareer();
 
     // Left: Player Profile Pill with dynamic sizing. In 2v2 the four-slot
     // strip owns the entire left side of this row, so no 1v1 profile layer
@@ -2216,8 +2195,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Auto-update HUD when career balance changes (bot battles only for coins)
-    this.careerSubscription = this.prototypeMode ? undefined : this.careerManager.subscribe((updatedCareer) => {
-      if (this.prototypeMode) return;
+    this.careerSubscription = this.careerManager.subscribe((updatedCareer) => {
       if (this.hudCoinsText && this.hudCoinsText.active && !this.liveMode) {
         const coinPillMaxW = getPillMaxContentWidth(hudLayout.coinPill.visibleBounds.width);
         this.hudCoinsText.setText(formatHudCoins(updatedCareer.coins, coinPillMaxW));
@@ -2577,13 +2555,13 @@ export class GameScene extends Phaser.Scene {
     const anchor = this.projectSocketPoint(territory.x, territory.y);
     ring.setPosition(anchor.u, anchor.v).setVisible(true);
     this.tweens.killTweensOf(ring);
-    ring.setScale(0.88).setAlpha(1);
+    ring.setScale(this.reducedMotion ? 1 : 0.94).setAlpha(1);
     if (!this.reducedMotion) {
       this.tweens.add({
         targets: ring,
-        scale: 1.2,
-        alpha: 0.28,
-        duration: 520,
+        scale: 1.05,
+        alpha: 0.68,
+        duration: 440,
         yoyo: true,
         repeat: -1,
         ease: 'Sine.easeInOut',
@@ -2592,6 +2570,7 @@ export class GameScene extends Phaser.Scene {
 
     const vis = this.territoryVisuals.get(territoryId);
     if (vis) {
+      this.tweens.killTweensOf(vis.container);
       if (this.reducedMotion) {
         vis.container.setScale(1.08);
       } else {
@@ -2622,6 +2601,38 @@ export class GameScene extends Phaser.Scene {
     }
 
     const target = this.hoveredTargetId ? this.gameState.territories[this.hoveredTargetId] : null;
+    if (this.gameState.gameplayRulesVersion === 3) {
+      pointer.positionToCamera(this.cameras.main, this.pointerWorldPoint);
+      const view = drawTacticalDrag(this.dragGraphics, this.gameState, this.selectedSourceIds, target?.id ?? null,
+        (x, y) => this.projectSocketPoint(x, y), this.boardLayout.scale, this.playerArmySpeedMultiplier,
+        { u: this.pointerWorldPoint.x, v: this.pointerWorldPoint.y });
+      this.dragBadgeText.setText(view.label).setColor(`#${view.color.toString(16).padStart(6, '0')}`);
+      this.dragBadgeText.setWordWrapWidth(270);
+      const width = Math.min(290, Math.ceil(this.dragBadgeText.width) + 20);
+      const height = Math.max(30, this.dragBadgeText.height + 12);
+      this.dragBadgeBg.setSize(width, height).setStrokeStyle(2, view.color, 1);
+      this.dragBadgeShadow.setSize(width + 4, height + 2);
+      const x = Phaser.Math.Clamp(view.x, width / 2 + 8, 400 - width / 2 - 8), y = Math.max(105, view.y);
+      const key = `${target?.id ?? 'cursor'}:${this.selectedSourceIds.join('|')}`;
+      const badge = this.dragBadgeContainer;
+      if (this.reducedMotion || !target) {
+        this.tweens.killTweensOf(badge);
+        badge.setPosition(x, y).setScale(1).setAlpha(1).setVisible(true);
+      } else if (!badge.visible) {
+        this.tweens.killTweensOf(badge);
+        badge.setPosition(x, y).setScale(.96).setAlpha(0).setVisible(true);
+        this.tweens.add({ targets: badge, scale: 1, alpha: 1, duration: 100, ease: 'Sine.easeOut' });
+      } else if (key !== this.tacticalDragKey) {
+        this.tweens.killTweensOf(badge);
+        badge.setScale(1).setAlpha(1);
+        this.tweens.add({ targets: badge, x, y, duration: 140, ease: 'Sine.easeOut' });
+      }
+      this.tacticalDragKey = key;
+      this.bottomHintText?.setText(view.hint).setColor('#93c5fd');
+      if (target && previewOrder(this.gameState, this.selectedSourceIds, target.id, 'player', this.playerArmySpeedMultiplier).orders.length) this.trainingController?.onPreviewShown();
+      return;
+    }
+
     // The whole gesture overlay draws in projected screen space: sources,
     // hovered targets and the free pointer all map through the board layout
     // (identity layouts project 1:1, so un-migrated maps render unchanged).
@@ -2839,6 +2850,8 @@ export class GameScene extends Phaser.Scene {
     this.hoveredTargetId = null;
     this.lastHoveredFriendlyId = null;
     this.dragGraphics.clear();
+    this.tweens.killTweensOf(this.dragBadgeContainer);
+    this.tacticalDragKey = undefined;
     this.dragBadgeContainer.setVisible(false);
 
     if (targetId && !sourceIds.includes(targetId)) {
@@ -2885,7 +2898,7 @@ export class GameScene extends Phaser.Scene {
             console.warn('[GameScene] Live dispatch failed:', error);
             this.showLiveConnectionError();
           }
-        } else if (this.matchActions.length + sources.length > MAX_PVP_ACTIONS) {
+        } else if (this.matchActions.length + previewOrder(this.gameState, sourceIds, targetId, 'player', this.playerArmySpeedMultiplier).orders.length > MAX_PVP_ACTIONS) {
           // The server replay only accepts a bounded action list; stop
           // dispatching before the cap so the settlement replay stays valid.
           this.spawnFloatingText(
@@ -2901,7 +2914,9 @@ export class GameScene extends Phaser.Scene {
             target,
             'player',
             0.5,
-            this.playerArmySpeedMultiplier
+            this.playerArmySpeedMultiplier,
+            undefined,
+            this.gameState,
           );
 
           if (multiDispatch.armies.length > 0) {
@@ -2914,7 +2929,8 @@ export class GameScene extends Phaser.Scene {
 
             sounds.playDispatch();
             this.platform.hapticImpact(multiDispatch.armies.length > 1 ? 'heavy' : 'medium');
-            this.trainingController?.onDispatch(sourceIds, targetId);
+            this.trainingController?.onDispatch(multiDispatch.armies.map(a => a.sourceId), targetId);
+            if (target.owner === 'player') this.trainingController?.onReinforcement();
           }
         }
       }
@@ -3008,27 +3024,16 @@ export class GameScene extends Phaser.Scene {
       this.markTerritoriesDirty();
     }
     for (let index = 0; index < ticks && this.gameState.status === 'playing'; index++) {
-      const result = this.prototypeMode === 'crown'
-        ? stepCrownMatch(this.gameState, this.accumulators, this.crownProgress, PVP_SIMULATION_TICK_SECONDS)
-        : stepSimulation(this.gameState, this.accumulators, PVP_SIMULATION_TICK_SECONDS);
+      const result = stepSimulation(this.gameState, this.accumulators, PVP_SIMULATION_TICK_SECONDS);
       this.gameState = result.state;
       this.accumulators = result.accumulators;
-      if ('crown' in result) {
-        const progress = result.crown as CrownProgress;
-        if (progress.captures !== this.crownProgress.captures) {
-          trackPrototypeEvent({ name: 'prototype_crown_captured', matchId: this.activeMatchId,
-            mode: 'crown', elapsedSeconds: this.gameState.elapsedTimeSeconds,
-            holder: progress.holder, captures: progress.captures });
-          this.crownLastBeep = -1;
-        }
-        this.crownProgress = progress;
-      }
       result.resolvedArrivals.forEach((arrival) => this.onCombatArrival(arrival));
       if (
         this.gameState.status === 'playing' &&
         this.gameState.elapsedTimeSeconds >= this.aiNextTick - 1e-9
       ) {
-        this.aiNextTick += this.prototypeMode === 'crown' ? CROWN_CONFIG.aiTickSeconds : PVP_AI_TICK_SECONDS;
+
+        this.aiNextTick += PVP_AI_TICK_SECONDS;
         // Scripted training battle: the enemy never acts. Clash
         // Royale-style passive tutorial opponent — the player is the only
         // commander on the field.
@@ -3056,9 +3061,7 @@ export class GameScene extends Phaser.Scene {
     const panel = this.add
       .rectangle(0, 0, 132, 28, 0x0b1220, 0.96)
       .setStrokeStyle(1.5, battlefield.accent, 0.95);
-    const title = createText(this, 0, 0, this.prototypeMode
-      ? this.prototypeMode === 'crown' ? 'CROWN HOLD · 12s' : 'CLASSIC · PRACTICE'
-      : `◆ ${battlefield.name.toUpperCase()}`, {
+    const title = createText(this, 0, 0, `◆ ${battlefield.name.toUpperCase()}`, {
         fontFamily: FONT_FAMILY,
         fontSize: '10px',
         fontStyle: '900',
@@ -3086,14 +3089,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private recordDispatchActions(armies: readonly MarchingArmy[]): void {
-    if (this.prototypeMode) {
-      if (!this.prototypeFirstDispatch && armies.length > 0) {
-        this.prototypeFirstDispatch = true;
-        trackPrototypeEvent({ name: 'prototype_first_dispatch', mode: this.prototypeMode,
-          matchId: this.activeMatchId, elapsedSeconds: this.gameState.elapsedTimeSeconds });
-      }
-      return;
-    }
+
     if (this.liveMode) return;
     if (this.realmTicket && this.matchActions.length === 0 && armies.length) new PilotClient(this.platform).event('first_input', this.activeMatchId);
     const atSeconds =
@@ -3104,15 +3100,15 @@ export class GameScene extends Phaser.Scene {
         sequence: this.matchActions.length,
         atSeconds,
         sourceId: army.sourceId,
-        targetId: army.targetId,
+        targetId: armyDestination(army),
       });
     }
   }
 
   private executeAiTurn(): void {
-    if (this.prototypeMode === 'crown') {
-      for (const move of evaluateCrownAiMoves(this.gameState)) {
-        const dispatch = dispatchArmy(this.gameState.territories[move.fromId], this.gameState.territories[move.toId], 'enemy');
+    if (this.gameState.gameplayRulesVersion === 3) {
+      for (const move of evaluateTacticalMoves(this.gameState, 'enemy', this.enemyArmySpeedMultiplier)) {
+        const dispatch = dispatchArmy(this.gameState.territories[move.fromId], this.gameState.territories[move.toId], 'enemy', .5, undefined, this.enemyArmySpeedMultiplier, this.gameState);
         if (!dispatch.success || !dispatch.army || !dispatch.sourceTerritory) continue;
         this.gameState.territories[move.fromId] = dispatch.sourceTerritory;
         this.gameState.armies.push(dispatch.army);
@@ -3172,7 +3168,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     const speedMultiplier = owner === 'player' ? this.playerArmySpeedMultiplier : this.enemyArmySpeedMultiplier;
-    const dispatch = dispatchArmy(source, target, owner, 0.5, undefined, speedMultiplier);
+    const dispatch = dispatchArmy(source, target, owner, 0.5, undefined, speedMultiplier, this.gameState);
 
     if (dispatch.success && dispatch.army && dispatch.sourceTerritory) {
       this.gameState.territories[source.id] = dispatch.sourceTerritory;
@@ -3191,6 +3187,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onCombatArrival(arrival: CombatResult): void {
+    if (arrival.routeInterrupted) {
+      const t = this.gameState.territories[arrival.targetId];
+      const p = this.projectSocketPoint(t.x, t.y);
+      this.spawnFloatingText(p.u, p.v - 35, 'SUPPLY INTERCEPTED', '#fbbf24');
+    }
+
     const vis = this.territoryVisuals.get(arrival.targetId);
     if (!vis) return;
 
@@ -3725,7 +3727,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private destroyArmyVisual(visual: ArmyVisual): void {
-    this.tweens.killTweensOf(visual.container);
+    this.tweens.killTweensOf([visual.container, visual.rearOffset, ...visual.followers]);
     if (visual.roleAura) {
       visual.roleAura.destroy();
     }
@@ -3738,6 +3740,47 @@ export class GameScene extends Phaser.Scene {
     visual.badgeText.destroy();
     visual.badgeBg.destroy();
     visual.container.destroy();
+  }
+
+  private getArmyVisualHeading(army: MarchingArmy): number {
+    const layout = this.boardLayout;
+    return Math.atan2(
+      (army.targetY - army.startY) * layout.verticalScale() * (layout.isDimetric ? BOARD_VERTICAL_SPACING : 1),
+      (army.targetX - army.startX) * layout.scale
+    );
+  }
+
+  private getMarchTexture(owner: Team, role: 'leader' | 'follower', angle: number): string {
+    const base = `unit_${role}_${owner === 'player' ? 'player' : 'enemy'}`;
+    const cos = Math.cos(angle), sin = Math.sin(angle);
+    const facing = Math.abs(cos) >= Math.abs(sin) ? 'side' : sin > 0 ? 'front' : 'back';
+    for (const key of [`${base}_${facing}`, base, `${base}_front`, `${base}_back`, `${base}_side`]) {
+      if (this.textures?.exists(key)) return key;
+    }
+    return createProceduralUnitFallbackTexture(this.textures, base);
+  }
+
+  private turnArmyVisual(visual: ArmyVisual, army: MarchingArmy): void {
+    const angle = this.getArmyVisualHeading(army);
+    const turn = Math.atan2(Math.sin(angle - visual.headingAngle), Math.cos(angle - visual.headingAngle));
+    const cos = Math.cos(turn), sin = Math.sin(turn), flip = Math.cos(angle) < -0.05;
+    visual.leaderSprite.setTexture(this.getMarchTexture(army.owner, 'leader', angle)).setFlipX(flip);
+    for (const follower of visual.followers) {
+      follower.sprite.setTexture(this.getMarchTexture(army.owner, 'follower', angle)).setFlipX(flip);
+      const relX = follower.relX * cos - follower.relY * sin;
+      const relY = follower.relX * sin + follower.relY * cos;
+      this.tweens.killTweensOf(follower);
+      if (this.reducedMotion) Object.assign(follower, { relX, relY });
+      else this.tweens.add({ targets: follower, relX, relY, duration: 120, ease: 'Sine.easeOut' });
+    }
+    const rear = visual.rearOffset;
+    const x = rear.x * cos - rear.y * sin, y = rear.x * sin + rear.y * cos;
+    this.tweens.killTweensOf(rear);
+    if (this.reducedMotion) Object.assign(rear, { x, y });
+    else this.tweens.add({ targets: rear, x, y, duration: 120, ease: 'Sine.easeOut' });
+    if (visual.speedLines) visual.speedLines.setRotation(visual.speedLines.rotation + turn);
+    visual.headingAngle = angle;
+    visual.routeLeg = army.routeLeg ?? 0;
   }
 
   private updateArmyVisuals(deltaSeconds: number): void {
@@ -3796,12 +3839,7 @@ export class GameScene extends Phaser.Scene {
         // Screen-space travel direction: the projected march vector drives
         // facing, formation and speedlines so they read correctly on the
         // foreshortened diorama board (identity: the world vector).
-        const angle = Phaser.Math.Angle.Between(
-          0,
-          0,
-          (army.targetX - army.startX) * scale,
-          (army.targetY - army.startY) * verticalScale * (layout.isDimetric ? BOARD_VERTICAL_SPACING : 1)
-        );
+        const angle = this.getArmyVisualHeading(army);
         const cos = Math.cos(angle);
         const sin = Math.sin(angle);
         const perpX = -sin;
@@ -3810,23 +3848,6 @@ export class GameScene extends Phaser.Scene {
         // March facing from the screen-space travel direction: across the
         // board (side, mirrored for leftward marches), toward the viewer
         // (front) or away (back). Falls back to the legacy front sprite.
-        const pickUnitTexture = (role: 'leader' | 'follower'): string => {
-          const roleBase =
-            army.owner === 'player'
-              ? role === 'leader'
-                ? 'unit_leader_player'
-                : 'unit_follower_player'
-              : role === 'leader'
-                ? 'unit_leader_enemy'
-                : 'unit_follower_enemy';
-          const facing =
-            Math.abs(cos) >= Math.abs(sin) ? 'side' : sin > 0 ? 'front' : 'back';
-          const key = `${roleBase}_${facing}`;
-          for (const candidate of [key, roleBase, `${roleBase}_front`, `${roleBase}_back`, `${roleBase}_side`]) {
-            if (this.textures?.exists(candidate)) return candidate;
-          }
-          return createProceduralUnitFallbackTexture(this.textures, roleBase);
-        };
 
         // Determine follower formation based on army size
         const followerOffsets: Array<{ x: number; y: number; delay: number }> = [];
@@ -3889,7 +3910,7 @@ export class GameScene extends Phaser.Scene {
         // 2. Followers (Shadows & Sprites). Formation offsets are screen
         // units; the board scale keeps them proportionate on the diorama.
         const followers: ArmyFollower[] = [];
-        const followerTexture = pickUnitTexture('follower');
+        const followerTexture = this.getMarchTexture(army.owner, 'follower', angle);
         const hasShadowTexture = Boolean(this.textures?.exists('cc_army_shadow'));
 
         for (const f of followerOffsets) {
@@ -3926,7 +3947,7 @@ export class GameScene extends Phaser.Scene {
               .setAlpha(0.38)
           : this.add.ellipse(0, 9 * unitScale * scale, 18 * unitScale * scale, 7 * unitScale * scale, 0x000000, 0.38);
 
-        const leaderTexture = pickUnitTexture('leader');
+        const leaderTexture = this.getMarchTexture(army.owner, 'leader', angle);
         const leaderSprite = this.add
           .image(0, 0, leaderTexture)
           .setScale(0.25 * unitScale * scale)
@@ -4025,9 +4046,12 @@ export class GameScene extends Phaser.Scene {
           dustColor: roleStyle.color,
           roleType: sourceType,
           phaseSeconds: 0,
+          routeLeg: army.routeLeg ?? 0,
+          headingAngle: angle,
+          speedLines,
         };
         this.armyVisuals.set(visualId, visual);
-        if (!this.reducedMotion) {
+        if (!this.reducedMotion && !army.routeLeg) {
           container.setScale(0.86).setAlpha(0);
           this.tweens.add({
             targets: container,
@@ -4038,6 +4062,7 @@ export class GameScene extends Phaser.Scene {
           });
         }
       } else {
+        if (visual.routeLeg !== (army.routeLeg ?? 0)) this.turnArmyVisual(visual, army);
         visual.container.setPosition(anchor.u, anchor.v);
         visual.container.setDepth(layout.gameplayDepth('convoy', anchor.v));
         const slotAttribution2v2 = this.twoVTwoArmyShape(army);
@@ -4077,6 +4102,12 @@ export class GameScene extends Phaser.Scene {
       visual.badgeBg.setPosition(badgeRect.x + width / 2, badgeRect.y + 9);
       visual.badgeText.setPosition(badgeRect.x + width / 2 + 7, badgeRect.y + 9);
 
+      // Formation offsets turn independently of the uninterrupted walk cycle.
+      for (const follower of visual.followers) {
+        follower.sprite.x = follower.relX;
+        follower.sprite.y = follower.relY;
+        follower.shadow.setPosition(follower.relX, follower.relY + 7 * unitScale * scale);
+      }
       if (!this.reducedMotion) {
         visual.phaseSeconds += deltaSeconds;
         const leaderStride = computeMarchStride(visual.phaseSeconds, 0, this.sharedStrideMetrics);
@@ -4153,7 +4184,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
 
   private updateCaptureIndicators(): void {
     for (const territory of Object.values(this.gameState.territories)) {
-      if (this.prototypeMode === 'crown' && territory.id === CROWN_CONFIG.territoryId) continue;
+
       const remaining = Math.max(0, (this.gameState.productionReadyAtMs?.[territory.id] ?? 0) - Math.round(this.gameState.elapsedTimeSeconds * 1000));
       let label = this.captureCountdowns.get(territory.id);
       if (remaining > 0) {
@@ -4204,19 +4235,6 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       this.timerText.setColor('#fbbf24');
     }
 
-    if (this.prototypeMode === 'crown') {
-      const crown = this.gameState.territories[CROWN_CONFIG.territoryId];
-      this.crownHud?.update(this.crownProgress, this.projectSocketPoint(crown.x, crown.y),
-        this.boardLayout.scale, territoryArtFootprint(this.battlefieldId, crown).badgeY);
-      this.bottomHintText?.setText('Hold the crown for 12s · Losing it resets your clock');
-      const seconds = Math.ceil((CROWN_CONFIG.holdMs - this.crownProgress.heldMs) / 1000);
-      if (seconds <= 3 && seconds > 0 && seconds !== this.crownLastBeep && this.gameState.status === 'playing') {
-        this.crownLastBeep = seconds;
-        sounds.playHeartbeat('high');
-        this.platform.hapticImpact('light');
-      }
-      return;
-    }
 
     // 2. Dynamic Tug-of-War Dominance Bar
     const dominance = fastComputeDominance(this.gameState);
@@ -4268,21 +4286,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
   }
 
   private endMatch(): void {
-    if (this.prototypeMode) {
-      if (this.isExiting || this.resultModalContainer || this.gameState.status === 'playing') return;
-      sounds.stopBattleMusic();
-      this.cancelDragSelection();
-      this.inspector?.setVisible(false);
-      this.inspectionId = undefined;
-      this.trackPrototypeTerminal('prototype_end');
-      if (this.gameState.status === 'victory') sounds.playVictory();
-      this.resultModalContainer = renderPrototypeResult(this, this.prototypeMode, this.gameState.status,
-        this.gameState.elapsedTimeSeconds, this.crownProgress.captures,
-        () => this.restartPrototype(this.prototypeMode!, 'rematch'),
-        () => this.restartPrototype(this.prototypeMode === 'crown' ? 'classic' : 'crown', 'compare'),
-        () => this.returnToMenu());
-      return;
-    }
+
     // Training battles never settle: no coins, trophies, missions, or
     // match settlement may ever originate from the guided battle.
     if (this.trainingMode) return;
@@ -4313,7 +4317,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
   }
 
   private async finalizeMatch(): Promise<void> {
-    if (this.prototypeMode || this.trainingMode) return;
+    if (this.trainingMode) return;
     if (!canFinalizeBotSettlement({
       isStressMode: this.isStressMode,
       liveMode: this.liveMode,
@@ -4328,7 +4332,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
         await this.careerManager.refreshRemoteCareer();
         this.offlineBattleClosed=true;client.clearBattle(this.activeMatchId);
         this.resultPending = false; this.dismissSyncingModal();
-        trackTerminalMatchEvent({ name: 'match_end', matchId: result.settlement.matchId, mode: 'async', result: result.settlement.status, durationSeconds: result.settlement.stats.matchDurationSeconds });
+        this.trackMatchTerminal({ name: 'match_end', matchId: result.settlement.matchId, mode: 'async', result: result.settlement.status, durationSeconds: result.settlement.stats.matchDurationSeconds });
         if (result.rewarded) trackEvent({ name: 'match_reward_received', matchId: this.activeMatchId, mode: 'async' });
         this.realmResult = result;
         this.gameState.status = result.settlement.status;
@@ -4363,7 +4367,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
         settlement.stats && settlement.stats.matchDurationSeconds > 0
           ? settlement.stats
           : this.localMatchStats();
-      trackTerminalMatchEvent({
+      this.trackMatchTerminal({
         name: 'match_end',
         matchId: settlement.matchId,
         mode: this.realmTicket ? 'async' : 'bot',
@@ -5066,7 +5070,8 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
     this.syncingModalContainer = undefined;
     this.matchMenuModalContainer?.destroy();
     this.matchMenuModalContainer = undefined;
-    this.scene.start(this.prototypeMode ? 'PrototypeScene' : 'MenuScene');
+
+    this.scene.start('MenuScene');
   }
 
   private handleMatchMenuStateChange(state: MatchMenuState): void {
@@ -5093,7 +5098,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
     }
     if (this.realmTicket) {
       void new PilotClient(this.platform).abandon(this.activeMatchId).then(() => {
-        trackTerminalMatchEvent({name:'match_quit',matchId:this.activeMatchId,mode:'async',durationSeconds:this.gameState.elapsedTimeSeconds});
+        this.trackMatchTerminal({name:'match_quit',matchId:this.activeMatchId,mode:'async',durationSeconds:this.gameState.elapsedTimeSeconds});
         this.offlineBattleClosed=true;new PilotClient(this.platform).clearBattle(this.activeMatchId); this.returnToMenu();
       }).catch(error => this.showSettlementError(error));
       return;
@@ -5124,6 +5129,8 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
     this.selectedSourceIds = [];
     this.hoveredTargetId = null;
     this.lastHoveredFriendlyId = null;
+    this.tacticalDragKey = undefined;
+    this.tweens.killTweensOf(this.dragBadgeContainer);
     this.dragGraphics?.clear();
     this.dragBadgeContainer?.setVisible(false);
   }
@@ -5427,10 +5434,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
   }
 
   private async restartMatch(): Promise<void> {
-    if (this.prototypeMode) {
-      this.restartPrototype(this.prototypeMode, 'rematch');
-      return;
-    }
+
     const match = this.registry.get('realmPilot') && !this.liveMode
       ? await new PilotClient(this.platform).nextMatch(() => this.careerManager.startBotMatch(this.platform))
       : { botMatch: await this.careerManager.startBotMatch(this.platform) };
@@ -5453,13 +5457,12 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
     });
   }
 
+  private trackMatchTerminal(event: Extract<AnalyticsEventInput, { name: 'match_end' | 'match_quit' }>): boolean {
+    return trackTerminalMatchEvent({ ...event, ...(!this.liveMode ? { gameplayRulesVersion: this.botGameplayRulesVersion } : {}) });
+  }
+
   private createUpgradedMatchState(career?: PlayerCareer): void {
-    if (this.prototypeMode) {
-      this.playerArmySpeedMultiplier = 1;
-      this.enemyArmySpeedMultiplier = 1;
-      this.gameState = createPrototypeState(this.prototypeMode);
-      return;
-    }
+
     const modifiers = this.realmTicket?.playerModifiers ?? this.pinnedPracticeModifiers ?? getPlayerUpgradeModifiers(career ?? this.careerManager.getCareer());
     this.playerArmySpeedMultiplier = modifiers.armySpeedMultiplier;
     this.enemyArmySpeedMultiplier = this.realmTicket?.enemyModifiers.armySpeedMultiplier ?? 1;
@@ -5522,7 +5525,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
         if (this.isExiting) return;
         if (!this.resultModalContainer && this.gameState.status === 'playing') {
           const durationSeconds = this.gameState.elapsedTimeSeconds;
-          if (trackTerminalMatchEvent({
+          if (this.trackMatchTerminal({
             name: 'match_quit',
             matchId: this.activeMatchId,
             mode: 'live',
@@ -5679,7 +5682,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
         if (this.gameState.status === 'playing') {
           // Terminal dedup: a later match_result for the same match will not
           // re-emit match_end after this quit (shared terminalMatchIds set).
-          trackTerminalMatchEvent({
+          this.trackMatchTerminal({
             name: 'match_quit',
             matchId: this.activeMatchId,
             mode: '2v2',
@@ -6298,26 +6301,12 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
     return processed;
   }
 
-  private restartPrototype(mode: PrototypeMode, source: 'rematch' | 'compare'): void {
-    this.scene.restart({ prototypeMode: mode, source });
-  }
 
-  private trackPrototypeTerminal(name: 'prototype_end' | 'prototype_quit'): void {
-    if (!this.prototypeMode || this.prototypeTerminalTracked) return;
-    this.prototypeTerminalTracked = true;
-    trackPrototypeEvent({ name, matchId: this.activeMatchId, mode: this.prototypeMode,
-      elapsedSeconds: this.gameState.elapsedTimeSeconds,
-      ...(name === 'prototype_end' && this.gameState.status !== 'playing' ? { result: this.gameState.status } : {}),
-      ...(this.prototypeMode === 'crown' ? { captures: this.crownProgress.captures,
-        firstCaptureSeconds: this.crownProgress.firstCaptureSeconds ?? -1 } : {}),
-    });
-  }
 
   private cleanup(): void {
-    if (this.prototypeMode && this.gameState?.status === 'playing') this.trackPrototypeTerminal('prototype_quit');
-    this.crownHud?.destroy();
-    this.crownHud = undefined;
-    this.prototypeMode = null;
+
+
+
     this.territoryTap.cancel();
     this.captureCountdowns.clear();
     this.inspector?.destroy();

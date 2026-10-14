@@ -66,6 +66,8 @@ export function createInitial2v2GameState(
   options: CreateTwoVTwoInitialStateOptions
 ): GameState {
   validateSpawnAssignments(options);
+  const version = validateGameplayRulesVersion(options.gameplayRulesVersion ?? GAMEPLAY_RULES_VERSION);
+  if (version === 3) throw new Error('unsupported_gameplay_rules_version');
 
   const territories: Record<string, Territory> = {};
   for (const [id, territory] of Object.entries(options.territories)) {
@@ -96,7 +98,7 @@ export function createInitial2v2GameState(
       territoriesCapturedByPlayer: 0,
       territoriesCapturedByEnemy: 0,
     },
-    ...(validateGameplayRulesVersion(options.gameplayRulesVersion ?? GAMEPLAY_RULES_VERSION) === GAMEPLAY_RULES_VERSION ? { gameplayRulesVersion: GAMEPLAY_RULES_VERSION } : {}),
+    ...(version === 2 ? { gameplayRulesVersion: 2 as const } : {}),
   };
 }
 

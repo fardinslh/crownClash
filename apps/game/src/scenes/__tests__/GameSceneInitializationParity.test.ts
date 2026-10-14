@@ -64,6 +64,7 @@ const { MockScene, MockGameObject, MockGraphics, MockContainer, storage } = vi.h
     setRadius(r: number) { this.width = r * 2; this.height = r * 2; return this; }
     setDisplaySize(_w: number, _h: number) { return this; }
     setText(t: string) { this.text = t; return this; }
+    setWordWrapWidth(_width: number) { return this; }
     setColor(c: string) { this.color = c; return this; }
     setOrigin(x = 0.5, y = x) { this.originX = x; this.originY = y; return this; }
     setStrokeStyle(_thickness: number, color: number, _alpha = 1) { this.strokeColor = color; return this; }
@@ -321,8 +322,6 @@ import {
 } from '@crown-clash/game-core';
 import type { CareerApi } from '../../api/GameApiClient.js';
 import { trackEvent, trackTerminalMatchEvent } from '../../analytics/Analytics.js';
-import { createPrototypeState } from '../../prototype/CrownMatch.js';
-import { PROTOTYPE_EVENT } from '../../prototype/PrototypeAnalytics.js';
 import {
   isStartupLoadingShellDismissed,
   LOADING_SHELL_ID,
@@ -753,7 +752,7 @@ describe('First-launch training integration', () => {
     controller.onTimerTick(2.6);
     controller.onCapture('n_bot_left', true);
     controller.onTimerTick(1.6);
-    controller.onDispatch(['p_base', 'n_bot_left'], 'n_center');
+    controller.onReinforcement();
     controller.onCapture('e_base', true);
   }
 
@@ -1051,119 +1050,99 @@ describe('production C scene integration',()=>{
   });
 });
 
-describe('unrewarded prototype scene integration', () => {
-  beforeEach(() => {
-    storage.clear(); vi.clearAllMocks(); (CareerManager as any).instance = null;
-  });
+describe('tactical main-game integration', () => {
+  beforeEach(() => { storage.clear(); vi.clearAllMocks(); (CareerManager as any).instance = null; });
   afterEach(() => vi.restoreAllMocks());
-
-  function boot(mode: 'crown' | 'classic') {
-    const scene = new GameScene();
-    const platform = new BrowserPlatformAdapter();
+  it('collects two friendly towers during a drag and records both legal attacks', () => {
+    const scene: any = new GameScene();
+    scene.registry.set('platform', new BrowserPlatformAdapter());
+    scene.scene.settings.data = { mode: 'bot', botMatch: { matchId: 'bot_multi_touch', battlefieldId: 'crown_cross', gameplayRulesVersion: 3 } };
+    scene.create();
+    scene.game = { canvas: { width: 400, height: 720, getBoundingClientRect: () => ({ width: 360, height: 640 }) } };
+    const pointerAt = (id: string) => {
+      const t = scene.gameState.territories[id], p = scene.projectSocketPoint(t.x, t.y);
+      return { x: p.u, y: p.v, positionToCamera: (_camera: unknown, out: any) => out.set(p.u, p.v) };
+    };
+    const emit = (event: string, id: string) => {
+      for (const [name, handler] of scene.input.on.mock.calls) if (name === event) handler(pointerAt(id));
+    };
+    emit('pointerdown', 'p_base');
+    emit('pointermove', 'n_bot_left');
+    emit('pointermove', 'n_center');
+    expect(scene.selectedSourceIds).toEqual(['p_base', 'n_bot_left']);
+    expect(scene.dragBadgeText.text).toContain('21 SEND');
+    emit('pointerup', 'n_center');
+    expect(scene.matchActions.map((a: any) => [a.sourceId, a.targetId])).toEqual([['p_base', 'n_center'], ['n_bot_left', 'n_center']]);
+    expect(scene.gameState.territories.p_base.units).toBe(14);
+    expect(scene.gameState.territories.n_bot_left.units).toBe(7);
+    expect(scene.gameState.armies).toHaveLength(2);
+    scene.cleanup();
+  });
+  it('explains why only the front left tower can attack the next left tower', () => {
+    const scene: any = new GameScene();
+    scene.registry.set('platform', new BrowserPlatformAdapter());
+    scene.scene.settings.data = { mode: 'bot', botMatch: { matchId: 'bot_left_lane', battlefieldId: 'crown_cross', gameplayRulesVersion: 3 } };
+    scene.create();
+    scene.game = { canvas: { width: 400, height: 720, getBoundingClientRect: () => ({ width: 360, height: 640 }) } };
+    scene.gameState.territories.n_mid_left.owner = 'player';
+    scene.gameState.territories.n_mid_left.units = 20;
+    const emit = (event: string, id: string) => {
+      const t = scene.gameState.territories[id], p = scene.projectSocketPoint(t.x, t.y);
+      const pointer = { x: p.u, y: p.v, positionToCamera: (_camera: unknown, out: any) => out.set(p.u, p.v) };
+      for (const [name, handler] of scene.input.on.mock.calls) if (name === event) handler(pointer);
+    };
+    emit('pointerdown', 'n_bot_left');
+    emit('pointermove', 'n_mid_left');
+    emit('pointermove', 'n_top_left');
+    expect(scene.selectedSourceIds).toEqual(['n_bot_left', 'n_mid_left']);
+    expect(scene.dragBadgeText.text).toContain('1/2 TOWERS');
+    expect(scene.dragBadgeText.text).toContain('10 SEND');
+    expect(scene.bottomHintText.text).toContain('1 selected tower has no direct road');
+    emit('pointerup', 'n_top_left');
+    expect(scene.matchActions.map((a: any) => [a.sourceId, a.targetId])).toEqual([['n_mid_left', 'n_top_left']]);
+    expect(scene.gameState.territories.n_bot_left.units).toBe(14);
+    expect(scene.gameState.territories.n_mid_left.units).toBe(10);
+    scene.cleanup();
+  });
+  it('records a versioned bot quit through the menu controller', () => {
+    const scene:any=new GameScene();scene.registry.set('platform',new BrowserPlatformAdapter());
+    scene.scene.settings.data={mode:'bot',botMatch:{matchId:'bot_quit_v3',battlefieldId:'crown_cross',gameplayRulesVersion:3}};
+    scene.create();scene.matchMenuController.confirmExit();
+    expect(trackTerminalMatchEvent).toHaveBeenCalledWith(expect.objectContaining({name:'match_quit',mode:'bot',matchId:'bot_quit_v3',gameplayRulesVersion:3}));
+    scene.cleanup();
+  });
+  it('records the commanded destination, not the current waypoint, for replay', () => {
+    const scene:any=new GameScene();scene.registry.set('platform',new BrowserPlatformAdapter());
+    scene.scene.settings.data={mode:'bot',botMatch:{matchId:'bot_route',battlefieldId:'crown_cross',gameplayRulesVersion:3}};
+    scene.create();scene.gameState.territories.n_bot_right.owner='player';
+    scene.selectedSourceIds=['n_bot_left'];scene.hoveredTargetId='n_bot_right';scene.handlePointerRelease();
+    expect(scene.gameState.armies[0]).toMatchObject({targetId:'p_base',routeIds:['n_bot_left','p_base','n_bot_right'],routeLeg:0});
+    expect(scene.matchActions).toEqual([{sequence:0,atSeconds:0,sourceId:'n_bot_left',targetId:'n_bot_right'}]);
+    scene.cleanup();
+  });
+  it('rejects a retired prototype launch without a server ticket', () => {
+    const scene: any = new GameScene(); scene.registry.set('platform', new BrowserPlatformAdapter());
+    scene.scene.settings.data = { prototypeMode: 'crown' }; scene.create();
+    expect(scene.scene.start).toHaveBeenCalledWith('MenuScene');
+    expect(scene.gameState).toBeUndefined();
+  });
+  it.each([2, 3] as const)('uses the server-pinned rules v%s and resets AI cadence on restart', async version => {
+    const scene: any = new GameScene(), platform = new BrowserPlatformAdapter();
     scene.registry.set('platform', platform);
     const manager = CareerManager.getInstance(platform.getUser().id);
-    const getManager = vi.spyOn(CareerManager, 'getInstance');
-    const connect = vi.spyOn(manager, 'connect');
-    const localSettlement = vi.spyOn(manager, 'recordMatchResult');
-    const remoteSettlement = vi.spyOn(manager, 'recordMatchResultRemote');
-    const ticket = vi.spyOn(manager, 'startBotMatch');
-    const events = vi.spyOn(window, 'dispatchEvent');
-    (scene.scene.settings as any).data = { prototypeMode: mode, source: 'menu' };
+    vi.spyOn(manager, 'connect').mockResolvedValue(createDefaultCareer(platform.getUser().id));
+    scene.scene.settings.data = { mode: 'bot', botMatch: { matchId: 'pinned_' + version, battlefieldId: 'crown_cross', gameplayRulesVersion: version } };
     scene.create();
-    return { scene: scene as any, manager, getManager, connect, localSettlement, remoteSettlement, ticket, events };
-  }
-
-  it.each(['crown', 'classic'] as const)('%s starts without connecting, a server ticket, or career modifiers', async mode => {
-    const { scene, manager, getManager, connect, ticket } = boot(mode);
-    expect(scene.gameState).toEqual(createPrototypeState(mode));
-    expect(scene.prototypeMode).toBe(mode);
-    expect(scene.hudTrophiesText.text).toBe('TEST');
-    expect(scene.hudCoinsText.text).toBe('VS BOT');
-    expect(connect).not.toHaveBeenCalled();
-    expect(getManager).not.toHaveBeenCalled();
-    expect(ticket).not.toHaveBeenCalled();
-    expect(trackEvent).not.toHaveBeenCalled();
-    expect(scene.matchActions).toEqual([]);
-    (manager as any).career.startingGarrisonLevel = 10;
-    (manager as any).career.productionLevel = 10;
-    (manager as any).career.armySpeedLevel = 10;
-    scene.createUpgradedMatchState(manager.getCareer());
-    expect(scene.gameState).toEqual(createPrototypeState(mode));
-    await scene.restartMatch();
-    expect(scene.scene.restart).toHaveBeenCalledWith({ prototypeMode: mode, source: 'rematch' });
-    expect(ticket).not.toHaveBeenCalled();
-    scene.cleanup();
-  });
-
-  it('a full bot capture and hold renders a result once and cannot settle even through the direct finalizer', async () => {
-    const { scene, manager, localSettlement, remoteSettlement, events } = boot('crown');
-    const before = manager.getCareer();
-    for (let i = 0; i < 1000 && scene.gameState.status === 'playing'; i++) scene.update(i * 20, 20);
-    expect(scene.gameState.status).toBe('defeat');
-    expect(scene.crownProgress.heldMs).toBe(12000);
-    expect(scene.resultModalContainer).toBeDefined();
-    expect(scene.resultModalContainer.list.map((v: any) => v.text)).toContain('BOT WINS');
-    // A reused GameScene can still hold a manager from an earlier ordinary
-    // match. The guard must work even with that live dependency present.
-    scene.careerManager = manager;
-    const modal = scene.resultModalContainer;
-    scene.endMatch();
-    await scene.finalizeMatch();
-    expect(scene.resultModalContainer).toBe(modal);
-    expect(localSettlement).not.toHaveBeenCalled();
-    expect(remoteSettlement).not.toHaveBeenCalled();
-    expect(manager.getCareer()).toEqual(before);
-    expect(manager.getLedger()).toEqual([]);
-    expect(trackTerminalMatchEvent).not.toHaveBeenCalled();
-    expect(trackEvent).not.toHaveBeenCalled();
-    const localEvents = events.mock.calls.map(([event]) => event as CustomEvent).filter(e => e.type === PROTOTYPE_EVENT);
-    expect(localEvents.filter(e => e.detail.name === 'prototype_end')).toHaveLength(1);
-    expect(localEvents.filter(e => e.detail.name === 'prototype_crown_captured').length).toBeGreaterThan(0);
-    scene.cleanup();
-    expect(scene.prototypeMode).toBeNull();
+    expect(scene.gameState.gameplayRulesVersion).toBe(version);
+    expect(scene.gameState.territories.p_base.units).toBe(version === 3 ? 28 : 20);
+    expect(scene.gameState.territories.n_bot_left.owner).toBe(version === 3 ? 'player' : 'neutral');
     expect(scene.crownHud).toBeUndefined();
-  });
-
-  it('pause freezes the crown clock; exit returns to comparison and emits only one local quit', () => {
-    const { scene, localSettlement, remoteSettlement, events } = boot('crown');
-    for (let i = 0; i < 200; i++) scene.update(i * 20, 20);
-    expect(scene.crownProgress.heldMs).toBeGreaterThan(0);
-    scene.matchMenuController.openMenu();
-    const time = scene.gameState.elapsedTimeSeconds;
-    const held = scene.crownProgress.heldMs;
-    for (let i = 0; i < 100; i++) scene.update(i * 20, 20);
-    expect(scene.gameState.elapsedTimeSeconds).toBe(time);
-    expect(scene.crownProgress.heldMs).toBe(held);
-    scene.matchMenuController.closeMenu();
-    scene.update(0, 20);
-    expect(scene.crownProgress.heldMs).toBe(held + 20);
-    scene.matchMenuController.openConfirm();
-    scene.matchMenuController.confirmExit();
-    expect(scene.scene.start).toHaveBeenCalledWith('PrototypeScene');
-    scene.cleanup();
-    const quits = events.mock.calls.map(([event]) => event as CustomEvent)
-      .filter(e => e.type === PROTOTYPE_EVENT && e.detail.name === 'prototype_quit');
-    expect(quits).toHaveLength(1);
-    expect(localSettlement).not.toHaveBeenCalled();
-    expect(remoteSettlement).not.toHaveBeenCalled();
-    expect(trackEvent).not.toHaveBeenCalled();
-  });
-
-  it('switching from prototype to an ordinary server-ticket match restores the original scene path', () => {
-    const { scene } = boot('crown');
-    scene.cleanup();
-    scene.scene.settings.data = { mode: 'bot', botMatch: { matchId: 'ordinary_after_prototype', battlefieldId: 'crown_cross', gameplayRulesVersion: 2 } };
-    scene.create();
-    expect(scene.prototypeMode).toBeNull();
-    expect(scene.crownHud).toBeUndefined();
-    expect(scene.gameState.territories.p_base.units).toBe(20);
-    expect(scene.gameState.territories.n_center.productionRate).toBe(1.1);
-    expect(scene.gameState.territories.n_bot_left.owner).toBe('neutral');
-    expect(trackEvent).toHaveBeenCalledWith(expect.objectContaining({ name: 'match_start', matchId: 'ordinary_after_prototype' }));
+    expect(trackEvent).toHaveBeenCalledWith(expect.objectContaining({ name: 'match_start', gameplayRulesVersion: version }));
+    scene.stepBotMatch(.25); expect(scene.gameState.elapsedTimeSeconds).toBe(.24);
+    scene.aiNextTick = 70; scene.cleanup(); scene.create(); expect(scene.aiNextTick).toBe(1.8);
     scene.cleanup();
   });
 });
-
 
 describe('authoritative result to next-battle loop',()=>{
  it('presents the server result inside the battle instead of routing to the realm hub',async()=>{

@@ -105,6 +105,7 @@ export interface TutorialEvent {
 export type TutorialEventCallback = (event: TutorialEvent) => void;
 
 export interface TutorialStartOptions {
+  readonly tactical?: boolean;
   readonly quick?: boolean;
   /**
    * Step index to resume from (0 to TUTORIAL_STEPS.length - 1). Actions
@@ -128,6 +129,7 @@ export interface TutorialStartOptions {
 export class TutorialController {
   private stepIndex = 0;
   private quick = false;
+  private tactical = false;
   private _isCompleted = false;
   private _isSkipped = false;
   private destroyed = false;
@@ -146,7 +148,8 @@ export class TutorialController {
     private readonly onEvent: TutorialEventCallback,
     options: TutorialStartOptions = {},
   ) {
-    this.quick = options.quick === true;
+    this.tactical = options.tactical === true;
+    this.quick = !this.tactical && options.quick === true;
     if (options.resumeCompleted === true) {
       // Silent completed state for the save-retry resume path: the guided
       // actions were genuinely performed in a previous session, so
@@ -191,6 +194,16 @@ export class TutorialController {
     if (!this.isActive) return null;
     const step = STEP_DEFINITIONS[this.stepIndex];
     if (!step) return null;
+    if (this.tactical) {
+      const instructions: Record<TutorialStepId, string> = {
+        drag_to_attack: 'از برج آبی، به برج همسایهٔ روشن بکش.',
+        preview_result: 'پیش از رهاکردن، نیروی ارسالی و باقی‌مانده را ببین.',
+        tower_roles: 'فتح برج، مسیر تازه‌ای برای حمله باز می‌کند.',
+        multi_dispatch: 'به برج آبی روشن نیرو بفرست؛ از مسیر خودی می‌روند.',
+        destroy_base: 'مسیر را باز کن و از برج همسایه به پایگاه قرمز حمله کن.',
+      };
+      return { ...step, instruction: instructions[step.id] };
+    }
     if (!this.quick) return step;
     const instructions: Partial<Record<TutorialStepId,string>> = {
       drag_to_attack: 'از برج آبی به برج روشن بکش و رها کن.',
@@ -253,11 +266,16 @@ export class TutorialController {
     }
 
     if (step === 'multi_dispatch') {
+      if (this.tactical) return;
       if (sourceIds.length >= 2) {
         this.advanceStep(); // completes the tutorial
       }
       return;
     }
+  }
+
+  onReinforcement(): void {
+    if (this.tactical && this.isActive && this.currentStepId === 'multi_dispatch') this.advanceStep();
   }
 
   /**

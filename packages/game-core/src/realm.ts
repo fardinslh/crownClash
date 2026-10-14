@@ -15,7 +15,7 @@ export interface RealmDefense {
 export interface RealmTicket {
   rewardTreasuryLevel: number;
   matchId: string; source: RealmSource; combatPolicy: RealmCombatPolicy;
-  battlefieldId: BattlefieldId; gameplayRulesVersion: 2; configVersion: number;
+  battlefieldId: BattlefieldId; gameplayRulesVersion: import('./gameplay-rules.js').GameplayRulesVersion; configVersion: number;
   defender: RealmDefense; playerModifiers: PlayerUpgradeModifiers;
   enemyModifiers: PlayerUpgradeModifiers; effectiveLevels: [number, number, number];
   createdAt: number; expiresAt: number; rewardEligible: boolean;

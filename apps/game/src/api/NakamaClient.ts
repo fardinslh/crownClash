@@ -189,7 +189,7 @@ export class NakamaClient implements CareerApi {
   }
 
   public async startBotMatch(): Promise<BotMatchTicket> {
-    const result = await this.rpc('match/start', '');
+    const result = await this.rpc('match/start', JSON.stringify({ supportedGameplayRulesVersions: [1, 2, 3] }));
     return (JSON.parse(result) as { ticket: BotMatchTicket }).ticket;
   }
 
