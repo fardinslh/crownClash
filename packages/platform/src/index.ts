@@ -4,3 +4,5 @@ export * from './TelegramPlatformAdapter.js';
 export * from './BalePlatformAdapter.js';
 export * from './EitaaPlatformAdapter.js';
 export * from './factory.js';
+
+export * from './launch.js';

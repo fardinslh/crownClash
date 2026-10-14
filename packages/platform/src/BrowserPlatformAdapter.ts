@@ -1,3 +1,4 @@
+import { parseLaunchContext, browserChallengeLink } from './launch.js';
 import {
   HapticImpactStyle,
   HapticNotificationType,
@@ -21,6 +22,9 @@ export class BrowserPlatformAdapter implements PlatformAdapter {
   constructor() {
     this.user = this.loadOrCreateGuestUser();
   }
+
+  getLaunchContext() { return parseLaunchContext(typeof window === 'undefined' ? '' : window.location.search, undefined); }
+  createChallengeLink(token: string, _botUsername: string): string { return browserChallengeLink(token); }
 
   async initialize(): Promise<void> {
     // Listen for resize / viewport events

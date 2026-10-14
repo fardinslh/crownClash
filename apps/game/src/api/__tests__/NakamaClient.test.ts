@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { NakamaClient, isNakamaTransportError, normalizeNakamaError } from '../NakamaClient.js';
 import { StaleSocketError } from '../GameApiClient.js';
 import { featureFlags } from '../../config/featureFlags.js';
@@ -148,5 +148,30 @@ describe('NakamaClient error normalization', () => {
   it('returns an existing StaleSocketError unchanged', () => {
     const error = new StaleSocketError('custom_stale');
     expect(normalizeNakamaError(error)).toBe(error);
+  });
+});
+
+
+describe('analytics across scene transitions', () => {
+  const event = { eventId:'event_1', sessionId:'session_1', occurredAt:Date.now(), schemaVersion:1 as const, name:'session_start' as const, props:{} };
+  it('uses authenticated HTTP when the live socket has been retired and propagates failures for retry', async () => {
+    const client = new NakamaClient('127.0.0.1','7350',false,'defaultkey');
+    const session = { token:'test-token' };
+    const socketRpc = vi.fn().mockRejectedValue(new StaleSocketError('retired'));
+    const httpRpc = vi.fn().mockResolvedValue({ payload:'{}' });
+    (client as any).session = session;
+    (client as any).socket = { rpc:socketRpc };
+    (client as any).client.rpc = httpRpc;
+    await client.trackEvents([event]);
+    expect(httpRpc).toHaveBeenCalledWith(session,'analytics/events',{events:[event]});
+    expect(socketRpc).not.toHaveBeenCalled();
+    httpRpc.mockRejectedValueOnce(new Error('offline'));
+    await expect(client.trackEvents([event])).rejects.toThrow('offline');
+  });
+  it('requires authentication before sending an analytics batch', async () => {
+    const client = new NakamaClient('127.0.0.1','7350',false,'defaultkey');
+    const rpc = vi.fn();(client as any).client.rpc = rpc;
+    await expect(client.trackEvents([event])).rejects.toThrow('analytics_not_authenticated');
+    expect(rpc).not.toHaveBeenCalled();
   });
 });

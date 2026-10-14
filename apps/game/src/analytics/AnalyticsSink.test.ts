@@ -169,3 +169,24 @@ describe('AnalyticsSink', () => {
     sink.stop();
   });
 });
+
+it('retains failed batches across reopen and removes only acknowledged events', async () => {
+  const memory = new Map<string,string>();
+  vi.stubGlobal('localStorage',{getItem:(key:string)=>memory.get(key)??null,setItem:(key:string,value:string)=>memory.set(key,value)});
+  try {
+    const first=new AnalyticsSink({storageKey:'analytics:a',flush:async()=>{throw new Error('offline');}});
+    first.start();const event={...createEvent(99),occurredAt:Date.now()};dispatch(event);await first.flush();first.stop();
+    expect(JSON.parse(memory.get('analytics:a')!)).toEqual([event]);
+    const flush=vi.fn(async()=>undefined);const second=new AnalyticsSink({storageKey:'analytics:a',flush});
+    await second.flush();expect(flush).toHaveBeenCalledWith([event]);expect(JSON.parse(memory.get('analytics:a')!)).toEqual([]);
+    const other=new AnalyticsSink({storageKey:'analytics:b',flush});await other.flush();expect(flush).toHaveBeenCalledTimes(1);
+  } finally {vi.unstubAllGlobals();}
+});
+
+it('persists in-flight events when a new event arrives before acknowledgement',async()=>{
+ const memory=new Map<string,string>();vi.stubGlobal('localStorage',{getItem:(key:string)=>memory.get(key)??null,setItem:(key:string,value:string)=>memory.set(key,value)});
+ const pending=deferred();const sink=new AnalyticsSink({storageKey:'analytics:flight',flush:async()=>pending.promise});
+ try{sink.start();const first={...createEvent(1),occurredAt:Date.now()},second={...createEvent(2),occurredAt:Date.now()};dispatch(first);const flush=sink.flush();dispatch(second);
+ expect(JSON.parse(memory.get('analytics:flight')!)).toEqual([first,second]);pending.resolve();await flush;expect(JSON.parse(memory.get('analytics:flight')!)).toEqual([]);
+ }finally{pending.resolve();sink.stop();vi.unstubAllGlobals();}
+});

@@ -1,3 +1,5 @@
+import { RealmScene } from './scenes/RealmScene.js';
+import { PilotClient } from './realm/PilotClient.js';
 import Phaser from 'phaser';
 import { LOGICAL_HEIGHT, LOGICAL_WIDTH } from '@crown-clash/game-core';
 import { createPlatformAdapter } from '@crown-clash/platform';
@@ -9,6 +11,7 @@ import { DailyScene } from './scenes/DailyScene.js';
 import { KingdomScene } from './scenes/KingdomScene.js';
 import { LeagueScene } from './scenes/LeagueScene.js';
 import { MenuScene } from './scenes/MenuScene.js';
+import { PrototypeScene } from './scenes/PrototypeScene.js';
 import { CommanderScene } from './scenes/CommanderScene.js';
 import { selectRenderProfile } from './render/RenderProfile.js';
 
@@ -44,9 +47,11 @@ const loadGameFonts = async (): Promise<void> => {
 
 const startApp = async (): Promise<void> => {
   platform.ready();
+  new PilotClient(platform).captureEntry();
 
   const api = getSharedGameApiClient();
   const analyticsSink = new AnalyticsSink({
+    storageKey: `analytics:${platform.platform}:${platform.getUser().id}`,
     flush: (events) => api.trackEvents(events),
     shouldFlush: () => api.isAuthenticated(),
   });
@@ -81,7 +86,11 @@ const startApp = async (): Promise<void> => {
       createContainer: true,
     },
     backgroundColor: '#070b14',
-    scene: [MenuScene, GameScene, KingdomScene, DailyScene, LeagueScene, CommanderScene],
+    scene: [
+      ...(new URLSearchParams(window.location.search).get('prototype') === 'crown'
+        ? [PrototypeScene, MenuScene] : [MenuScene, PrototypeScene]),
+      GameScene, RealmScene, KingdomScene, DailyScene, LeagueScene, CommanderScene,
+    ],
     render: {
       antialias: true,
       antialiasGL: true,

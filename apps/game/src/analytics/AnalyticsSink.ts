@@ -3,6 +3,7 @@ import { isAnalyticsEvent, type AnalyticsEvent } from './Analytics.js';
 export const ANALYTICS_BATCH_MAX_SIZE = 50;
 
 export interface AnalyticsSinkOptions {
+  storageKey?: string;
   flush: (events: readonly AnalyticsEvent[]) => Promise<void>;
   shouldFlush?: () => boolean;
   flushIntervalMs?: number;
@@ -19,10 +20,18 @@ export class AnalyticsSink {
   private readonly flushFn: AnalyticsSinkOptions['flush'];
   private readonly shouldFlush: () => boolean;
   private buffer: AnalyticsEvent[] = [];
+  private inFlight: AnalyticsEvent[] = [];
+  private storageKey?: string;
   private timer: ReturnType<typeof setInterval> | null = null;
   private flushPromise: Promise<void> | null = null;
 
   constructor(options: AnalyticsSinkOptions) {
+    this.storageKey = options.storageKey;
+    if (this.storageKey) {
+      try { const saved: unknown = JSON.parse(localStorage.getItem(this.storageKey) || '[]');
+        if (Array.isArray(saved)) this.buffer = saved.filter(isAnalyticsEvent).filter(e => e.occurredAt > Date.now() - 30*86400000).slice(-(options.maxBuffer ?? 100));
+      } catch { /* A corrupt cache is never sent. */ }
+    }
     this.flushFn = options.flush;
     this.shouldFlush = options.shouldFlush ?? (() => true);
     this.options = {
@@ -70,11 +79,17 @@ export class AnalyticsSink {
   private async flushBufferedEvents(): Promise<void> {
     while (this.buffer.length > 0 && this.shouldFlush()) {
       const batch = this.buffer.splice(0, ANALYTICS_BATCH_MAX_SIZE);
+      this.inFlight = batch;
+      this.persist();
       try {
         await this.flushFn(batch);
+        this.inFlight = [];
+        this.persist();
       } catch {
+        this.inFlight = [];
         this.buffer.unshift(...batch);
         this.trimBuffer(batch.length);
+        this.persist();
         return;
       }
     }
@@ -94,7 +109,14 @@ export class AnalyticsSink {
     if (!isAnalyticsEvent(detail)) return;
     this.buffer.push(detail);
     this.trimBuffer();
+    this.persist();
   };
+
+  private persist(): void {
+    if (!this.storageKey) return;
+    const remaining = Math.max(0, this.options.maxBuffer - this.inFlight.length);
+    try { localStorage.setItem(this.storageKey, JSON.stringify([...this.inFlight, ...(remaining > 0 ? this.buffer.slice(-remaining) : [])])); } catch { /* Storage failure does not block play. */ }
+  }
 
   private trimBuffer(preserveHead = 0): void {
     if (this.buffer.length > this.options.maxBuffer) {

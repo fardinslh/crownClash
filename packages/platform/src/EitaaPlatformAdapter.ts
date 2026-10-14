@@ -1,3 +1,4 @@
+import { parseLaunchContext, browserChallengeLink } from './launch.js';
 import {
   HapticImpactStyle,
   HapticNotificationType,
@@ -32,6 +33,9 @@ export class EitaaPlatformAdapter implements PlatformAdapter {
     }
     this.user = this.extractEitaaUser();
   }
+
+  getLaunchContext() { return parseLaunchContext(typeof window === 'undefined' ? '' : window.location.search, this.eitaaBridge?.initDataUnsafe?.start_param); }
+  createChallengeLink(token: string, _botUsername: string): string { return browserChallengeLink(token); }
 
   async initialize(): Promise<void> {
     if (!this.eitaaBridge) return;

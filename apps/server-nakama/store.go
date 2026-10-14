@@ -43,6 +43,9 @@ func NewStore(db *sql.DB) *Store {
 }
 
 func (s *Store) CreateBotMatch(ctx context.Context, userID string) (BotMatchTicket, error) {
+	if pilotRuntime.Enabled {
+		return s.CreatePilotPractice(ctx, userID)
+	}
 	if _, err := s.GetOrCreateCareer(ctx, userID); err != nil {
 		return BotMatchTicket{}, err
 	}
@@ -323,6 +326,12 @@ type BotSettlementDiagnostics struct {
 // supplies only dispatch intents; status, stats, and rewards are derived
 // server-side and cannot be forged.
 func (s *Store) SettleMatchVerified(ctx context.Context, userID, matchID string, actions []PvpAction) (MatchSettlement, *BotSettlementDiagnostics, error) {
+	if isPilotPractice(matchID) {
+		return s.SettlePilotPractice(ctx, userID, matchID, actions)
+	}
+	if pilotRuntime.Enabled {
+		return MatchSettlement{}, nil, errors.New("realm_legacy_settlement_disabled")
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return MatchSettlement{}, nil, err
@@ -850,6 +859,9 @@ func (s *Store) GetPvpHistory(ctx context.Context, userID string, limit int) ([]
 }
 
 func (s *Store) SettlePvpAttack(ctx context.Context, attackerID, defenderID, attackID string, actions []PvpAction) (PvpAttackResult, error) {
+	if pilotRuntime.Enabled {
+		return PvpAttackResult{}, errors.New("realm_legacy_settlement_disabled")
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return PvpAttackResult{}, err

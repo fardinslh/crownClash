@@ -105,6 +105,7 @@ export interface TutorialEvent {
 export type TutorialEventCallback = (event: TutorialEvent) => void;
 
 export interface TutorialStartOptions {
+  readonly quick?: boolean;
   /**
    * Step index to resume from (0 to TUTORIAL_STEPS.length - 1). Actions
    * already performed in a previous session are not repeated. Out-of-range
@@ -126,6 +127,7 @@ export interface TutorialStartOptions {
 
 export class TutorialController {
   private stepIndex = 0;
+  private quick = false;
   private _isCompleted = false;
   private _isSkipped = false;
   private destroyed = false;
@@ -144,6 +146,7 @@ export class TutorialController {
     private readonly onEvent: TutorialEventCallback,
     options: TutorialStartOptions = {},
   ) {
+    this.quick = options.quick === true;
     if (options.resumeCompleted === true) {
       // Silent completed state for the save-retry resume path: the guided
       // actions were genuinely performed in a previous session, so
@@ -157,6 +160,7 @@ export class TutorialController {
       Number.isFinite(requested) && requested > 0 && requested < STEP_DEFINITIONS.length
         ? requested
         : 0;
+    if (this.quick && (this.stepIndex === 1 || this.stepIndex === 3)) this.stepIndex++;
     // Fire the initial started event and enter the (possibly resumed) step.
     this.emit({ type: 'started' });
     this.emit({ type: 'step_entered', stepId: this.currentStepId ?? undefined });
@@ -185,7 +189,15 @@ export class TutorialController {
 
   get currentStep(): TutorialStepInfo | null {
     if (!this.isActive) return null;
-    return STEP_DEFINITIONS[this.stepIndex] ?? null;
+    const step = STEP_DEFINITIONS[this.stepIndex];
+    if (!step) return null;
+    if (!this.quick) return step;
+    const instructions: Partial<Record<TutorialStepId,string>> = {
+      drag_to_attack: 'از برج آبی به برج روشن بکش و رها کن.',
+      tower_roles: 'برج‌های فتح‌شده برای تو سرباز می‌سازند؛ برج بعدی را بگیر.',
+      destroy_base: 'حالا پایگاه قرمز را فتح کن!',
+    };
+    return { ...step, instruction: instructions[step.id] ?? step.instruction };
   }
 
   get currentStepId(): TutorialStepId | null {
@@ -349,6 +361,7 @@ export class TutorialController {
 
     const finishedStepId = this.currentStepId;
     this.stepIndex++;
+    if (this.quick && (this.stepIndex === 1 || this.stepIndex === 3)) this.stepIndex++;
     this.stepElapsed = 0;
     this.previewShown = false;
     this.firstCaptureOccurred = false;

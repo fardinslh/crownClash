@@ -307,6 +307,56 @@ ALTER TABLE bot_matches
 	},
 }
 
+func init() {
+	migrations = append(migrations, migration{name: "014_realm_commercial_pilot", sql: `
+CREATE TABLE realm_defenses (
+ player_id TEXT PRIMARY KEY REFERENCES players(id), document JSONB NOT NULL,
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE realm_challenges (
+ token TEXT PRIMARY KEY, player_id TEXT NOT NULL REFERENCES players(id), expires_at BIGINT NOT NULL
+);
+CREATE INDEX realm_challenges_owner ON realm_challenges(player_id, expires_at);
+CREATE TABLE realm_tickets (
+ id TEXT PRIMARY KEY, player_id TEXT NOT NULL REFERENCES players(id), defender_id TEXT NOT NULL REFERENCES players(id),
+ source TEXT NOT NULL CHECK(source IN ('ranked','friend','revenge')), origin_id TEXT,
+ document JSONB NOT NULL, state TEXT NOT NULL DEFAULT 'active' CHECK(state IN ('active','settled','abandoned')),
+ rewarded BOOLEAN NOT NULL DEFAULT false, result JSONB, actions JSONB,
+ created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL, settled_at BIGINT
+);
+CREATE UNIQUE INDEX realm_one_active ON realm_tickets(player_id) WHERE state='active';
+CREATE UNIQUE INDEX realm_one_revenge ON realm_tickets(player_id,origin_id) WHERE origin_id IS NOT NULL;
+CREATE INDEX realm_history_incoming ON realm_tickets(defender_id,created_at DESC);
+CREATE INDEX realm_history_outgoing ON realm_tickets(player_id,created_at DESC);
+CREATE TABLE realm_goals (
+ player_id TEXT PRIMARY KEY REFERENCES players(id), upgrade_type TEXT NOT NULL
+ CHECK(upgrade_type IN ('starting_garrison','production','army_speed','treasury')),
+ viewed_at BIGINT NOT NULL DEFAULT 0
+);
+CREATE TABLE coin_orders (
+ id TEXT PRIMARY KEY, player_id TEXT NOT NULL REFERENCES players(id), external_id TEXT NOT NULL,
+ product_id TEXT NOT NULL CHECK(product_id IN ('starter','refill')), coins INTEGER NOT NULL CHECK(coins>0),
+ amount_rials INTEGER NOT NULL CHECK(amount_rials>0), state TEXT NOT NULL DEFAULT 'created'
+ CHECK(state IN ('created','pending','fulfilled','refunded')), invoice TEXT NOT NULL DEFAULT '',
+ transaction_id TEXT UNIQUE, created_at BIGINT NOT NULL, fulfilled_at BIGINT,
+ refunded_at BIGINT, refund_reference TEXT UNIQUE, refund_note TEXT
+);
+CREATE UNIQUE INDEX coin_starter_once ON coin_orders(player_id) WHERE product_id='starter';
+CREATE INDEX coin_orders_player ON coin_orders(player_id,created_at DESC);
+CREATE TABLE pilot_visits (
+ id TEXT PRIMARY KEY, player_id TEXT, campaign TEXT NOT NULL DEFAULT 'direct', challenge_token TEXT,
+ experiment_version INTEGER NOT NULL DEFAULT 1, received_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX pilot_visits_cohort ON pilot_visits(campaign,received_at);
+CREATE TABLE pilot_observations (
+ id TEXT PRIMARY KEY, player_id TEXT NOT NULL REFERENCES players(id), name TEXT NOT NULL,
+ reference TEXT NOT NULL DEFAULT '', version INTEGER NOT NULL DEFAULT 1,
+ received_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX pilot_observations_player ON pilot_observations(player_id,received_at);
+`})
+}
+
 func RunMigrations(ctx context.Context, db *sql.DB) error {
 	if _, err := db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -340,4 +390,22 @@ func RunMigrations(ctx context.Context, db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+func init() {
+	migrations = append(migrations, migration{name: "015_pilot_payment_recovery", sql: `
+ALTER TABLE coin_orders ADD COLUMN test_mode BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE bot_matches ADD COLUMN pilot_document JSONB;
+CREATE UNIQUE INDEX bot_pilot_active ON bot_matches(player_id) WHERE pilot_document IS NOT NULL AND settled_at IS NULL;
+`})
+}
+
+func init() {
+	migrations = append(migrations, migration{name: "016_pilot_live_loadouts", sql: `
+CREATE TABLE realm_live_loadouts(player_id TEXT PRIMARY KEY REFERENCES players(id),commander_id TEXT NOT NULL CHECK(commander_id IN ('crown_guard','quartermaster','vanguard')));
+`})
+}
+
+func init() {
+	migrations = append(migrations, migration{name: "017_social_defense_loadout", sql: `ALTER TABLE realm_challenges ADD COLUMN commander_id TEXT CHECK(commander_id IN ('crown_guard','quartermaster','vanguard'));`})
 }

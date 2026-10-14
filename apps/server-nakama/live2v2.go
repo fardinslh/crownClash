@@ -81,6 +81,7 @@ type live2v2SlotState struct {
 }
 
 type live2v2MatchState struct {
+	equalPower        bool
 	store             *Store
 	settle2v2         func(ctx context.Context, request Settle2v2Request) ([]MatchSettlement, error)
 	matchCreate       func(ctx context.Context, moduleName string, params map[string]interface{}) (string, error)
@@ -178,6 +179,7 @@ func newLive2v2MatchID(startedAt int64) string {
 
 func (m *live2v2Match) MatchInit(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, params map[string]interface{}) (interface{}, int, string) {
 	state := &live2v2MatchState{
+		equalPower:     pilotRuntime.Enabled,
 		store:          m.store,
 		presenceByUser: make(map[string]int, live2v2MaxPlayers),
 		accumulators:   make(map[string]float64),
@@ -269,6 +271,12 @@ func (s *live2v2MatchState) assignSlotsByDraft(ctx context.Context) error {
 		career, err := s.store.GetOrCreateCareer(ctx, userID)
 		if err != nil {
 			return err
+		}
+		if s.equalPower {
+			career, err = s.store.pilotLiveCareer(ctx, career)
+			if err != nil {
+				return err
+			}
 		}
 		entries = append(entries, twoVTwoDraftEntry{UserID: userID, Trophies: career.Trophies})
 		careers[userID] = career

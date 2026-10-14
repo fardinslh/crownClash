@@ -1,3 +1,4 @@
+import { parseLaunchContext, messengerChallengeLink } from './launch.js';
 import {
   HapticImpactStyle,
   HapticNotificationType,
@@ -39,6 +40,9 @@ export class BalePlatformAdapter implements PlatformAdapter {
     this.user = this.extractBaleUser();
   }
 
+  getLaunchContext() { return parseLaunchContext(typeof window === 'undefined' ? '' : window.location.search, this.baleBridge?.initDataUnsafe?.start_param); }
+  createChallengeLink(token: string, botUsername: string): string { return messengerChallengeLink('ble.ir', botUsername, token); }
+
   async initialize(): Promise<void> {
     if (!this.baleBridge) return;
 
@@ -48,7 +52,7 @@ export class BalePlatformAdapter implements PlatformAdapter {
 
       this.baleBridge.onEvent?.('viewportChanged', () => this.emit('viewportChanged'));
       this.baleBridge.onEvent?.('themeChanged', () => this.emit('themeChanged'));
-      this.baleBridge.onEvent?.('backButtonClicked', () => {
+      this.baleBridge.onEvent?.('backButtonPressed', () => {
         this.emit('backButtonClicked');
         if (this.backButtonCallback) {
           this.backButtonCallback();
@@ -244,12 +248,18 @@ export class BalePlatformAdapter implements PlatformAdapter {
     }
   }
 
-  async requestPayment(_invoice: PaymentInvoice): Promise<PaymentResult> {
-    // Bale payments are server-settled via payment gateway (e.g. Shaparak / ZarinPal)
-    return {
-      status: 'pending',
-      error: 'Bale payment gateway invoice settlement should be invoked via backend redirect',
-    };
+  async requestPayment(invoice: PaymentInvoice): Promise<PaymentResult> {
+    if (typeof this.baleBridge?.openInvoice !== 'function') return { status: 'failed', error: 'native_checkout_unavailable' };
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve({ status: 'pending' }), 120000);
+      try {
+        this.baleBridge.openInvoice(invoice.slug, (result: { status?: string }) => {
+          clearTimeout(timer);
+          const status = result?.status;
+          resolve({ status: status === 'paid' || status === 'cancelled' || status === 'failed' ? status : 'pending' });
+        });
+      } catch { clearTimeout(timer); resolve({ status: 'failed', error: 'native_checkout_failed' }); }
+    });
   }
 
   on(event: PlatformEventType, callback: () => void): () => void {

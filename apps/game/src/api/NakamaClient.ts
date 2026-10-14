@@ -243,7 +243,11 @@ export class NakamaClient implements CareerApi {
 
   public async trackEvents(events: readonly TrackedAnalyticsEvent[]): Promise<void> {
     if (events.length === 0) return;
-    await this.rpc('analytics/events', JSON.stringify({ events }));
+    if (!this.session) throw new StaleSocketError('analytics_not_authenticated');
+    // Scene transitions can retire a shared live socket. Analytics uses the
+    // authenticated HTTP transport so a lost socket cannot strand its retry queue.
+    try { await this.client.rpc(this.session, 'analytics/events', { events }); }
+    catch (error) { throw normalizeNakamaError(error); }
   }
 
   public openLiveMatch(): LiveMatchClient {
@@ -273,6 +277,10 @@ export class NakamaClient implements CareerApi {
   public async completeTutorial(): Promise<PlayerCareer> {
     const result = await this.rpc('tutorial/complete', '');
     return (JSON.parse(result) as { career: PlayerCareer }).career;
+  }
+
+  public async pilotRequest<T>(method: string, payload: unknown = {}): Promise<T> {
+    return JSON.parse(await this.rpc(`pilot/${method}`, JSON.stringify(payload))) as T;
   }
 
   private async rpc(id: string, payload: string): Promise<string> {

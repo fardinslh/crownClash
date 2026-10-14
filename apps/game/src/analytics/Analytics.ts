@@ -15,7 +15,7 @@ export type AnalyticsEventInput =
   | {
       name: 'match_start';
       matchId: string;
-      mode: 'bot' | 'live' | '2v2';
+      mode: 'bot' | 'live' | '2v2' | 'async';
       source: 'menu' | 'rematch';
       battlefieldId?: BattlefieldId;
       slot?: number;
@@ -24,7 +24,7 @@ export type AnalyticsEventInput =
   | {
       name: 'match_end';
       matchId: string;
-      mode: 'bot' | 'live' | '2v2';
+      mode: 'bot' | 'live' | '2v2' | 'async';
       result: 'victory' | 'defeat' | 'draw';
       durationSeconds: number;
       slot?: number;
@@ -33,20 +33,20 @@ export type AnalyticsEventInput =
   | {
       name: 'match_quit';
       matchId: string;
-      mode: 'bot' | 'live' | '2v2';
+      mode: 'bot' | 'live' | '2v2' | 'async';
       durationSeconds: number;
     }
-  | { name: 'match_menu_opened'; matchId: string; mode: 'bot' | 'live' }
-  | { name: 'match_resumed'; matchId: string; mode: 'bot' | 'live' }
-  | { name: 'match_leave_requested'; matchId: string; mode: 'bot' | 'live' }
-  | { name: 'match_leave_cancelled'; matchId: string; mode: 'bot' | 'live' }
+  | { name: 'match_menu_opened'; matchId: string; mode: 'bot' | 'live' | 'async' }
+  | { name: 'match_resumed'; matchId: string; mode: 'bot' | 'live' | 'async' }
+  | { name: 'match_leave_requested'; matchId: string; mode: 'bot' | 'live' | 'async' }
+  | { name: 'match_leave_cancelled'; matchId: string; mode: 'bot' | 'live' | 'async' }
   | {
       name: 'match_quit_confirmed';
       matchId: string;
-      mode: 'bot' | 'live';
+      mode: 'bot' | 'live' | 'async';
       durationSeconds: number;
     }
-  | { name: 'match_reward_received'; matchId: string; mode: 'bot' | 'live' | '2v2' }
+  | { name: 'match_reward_received'; matchId: string; mode: 'bot' | 'live' | '2v2' | 'async' }
   | { name: 'upgrade_panel_viewed'; source: 'menu' | 'result' }
   | { name: 'upgrade_purchase_succeeded'; purchaseId: string }
   | {

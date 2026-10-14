@@ -1,3 +1,4 @@
+import { parseLaunchContext, messengerChallengeLink } from './launch.js';
 import {
   HapticImpactStyle,
   HapticNotificationType,
@@ -34,6 +35,9 @@ export class TelegramPlatformAdapter implements PlatformAdapter {
     }
     this.user = this.extractTelegramUser();
   }
+
+  getLaunchContext() { return parseLaunchContext(typeof window === 'undefined' ? '' : window.location.search, this.webApp?.initDataUnsafe?.start_param); }
+  createChallengeLink(token: string, botUsername: string): string { return messengerChallengeLink('t.me', botUsername, token); }
 
   async initialize(): Promise<void> {
     if (!this.webApp) return;

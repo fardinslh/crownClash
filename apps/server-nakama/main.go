@@ -57,6 +57,9 @@ func InitModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runti
 	}
 
 	store := NewStore(db)
+	if err := registerRealmRPCs(initializer, store); err != nil {
+		return err
+	}
 
 	if err := initializer.RegisterBeforeAuthenticateCustom(beforeAuthenticateCustom); err != nil {
 		return err
@@ -153,6 +156,7 @@ func InitModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runti
 }
 
 func loadServerConfig(initializer runtime.Initializer) {
+	pilotRuntime = pilotRuntimeConfig{}
 	serverConfig.TelegramBotToken = ""
 	serverConfig.BaleBotToken = ""
 	serverConfig.AllowGuestAuth = false
@@ -168,6 +172,12 @@ func loadServerConfig(initializer runtime.Initializer) {
 		}
 		serverConfig.TelegramBotToken = env["TELEGRAM_BOT_TOKEN"]
 		serverConfig.BaleBotToken = env["BALE_BOT_TOKEN"]
+		pilotRuntime.Enabled = env["ENABLE_REALM_PILOT"] == "true"
+		pilotRuntime.PaymentsEnabled = env["ENABLE_COIN_PAYMENTS"] == "true"
+		pilotRuntime.BotUsername = env["BALE_BOT_USERNAME"]
+		pilotRuntime.WalletToken = env["BALE_WALLET_TOKEN"]
+		pilotRuntime.WebhookSecret = env["BALE_PAYMENT_WEBHOOK_SECRET"]
+		pilotRuntime.RefundSecret = env["COIN_REFUND_OPERATOR_SECRET"]
 		serverConfig.AllowGuestAuth = env["ALLOW_GUEST_AUTH"] == "true"
 		serverConfig.Enable2v2 = env["ENABLE_2V2"] == "true"
 		for _, platform := range supportedRolloutPlatforms {
@@ -1149,19 +1159,19 @@ func hasValidAnalyticsPropertyEnums(event AnalyticsEventRecord) bool {
 	switch event.Name {
 	case "match_start":
 		battlefieldID, hasBattlefieldID := event.Props["battlefieldId"]
-		return oneOf(value("mode"), "bot", "live", "2v2") &&
+		return oneOf(value("mode"), "bot", "live", "2v2", "async") &&
 			oneOf(value("source"), "menu", "rematch") &&
 			(!hasBattlefieldID || oneOf(battlefieldID.(string), "crown_cross", "twin_passes", "royal_ring", "quad_citadel")) &&
 			valid2v2ParticipantProps(event.Props)
 	case "match_end":
-		return oneOf(value("mode"), "bot", "live", "2v2") && oneOf(value("result"), "victory", "defeat", "draw") && valid2v2ParticipantProps(event.Props)
+		return oneOf(value("mode"), "bot", "live", "2v2", "async") && oneOf(value("result"), "victory", "defeat", "draw") && valid2v2ParticipantProps(event.Props)
 	case "match_quit":
 		// The 2v2 client emits quit events with mode "2v2" (GameScene's
 		// terminal close handler); 1v1 keeps "live". Quit carries no reward
 		// fields, so both modes pass unchanged.
-		return oneOf(value("mode"), "live", "2v2")
+		return oneOf(value("mode"), "live", "2v2", "async")
 	case "match_reward_received":
-		return oneOf(value("mode"), "bot", "live", "2v2")
+		return oneOf(value("mode"), "bot", "live", "2v2", "async")
 	case "upgrade_panel_viewed":
 		// Legacy schema-version-1 clients send no properties; only enforce
 		// the enum when source is present.

@@ -45,6 +45,7 @@ type livePlayerState struct {
 }
 
 type liveMatchState struct {
+	equalPower    bool
 	store         *Store
 	players       [liveMaxPlayers]*livePlayerState
 	presenceByID  map[string]int
@@ -90,6 +91,7 @@ func (m *liveMatch) MatchInit(ctx context.Context, logger runtime.Logger, db *sq
 		}
 	}
 	state := &liveMatchState{
+		equalPower:    pilotRuntime.Enabled,
 		store:         m.store,
 		presenceByID:  make(map[string]int),
 		accumulators:  make(map[string]float64),
@@ -156,6 +158,13 @@ func (m *liveMatch) MatchJoin(ctx context.Context, logger runtime.Logger, db *sq
 		if err != nil {
 			logger.WithField("error", err).Error("live join career fetch failed")
 			continue
+		}
+		if s.equalPower {
+			career, err = s.store.pilotLiveCareer(ctx, career)
+			if err != nil {
+				logger.Error("live pilot loadout unavailable")
+				continue
+			}
 		}
 		displayName, err := s.store.GetPlayerDisplayName(ctx, presence.GetUserId())
 		if err != nil {

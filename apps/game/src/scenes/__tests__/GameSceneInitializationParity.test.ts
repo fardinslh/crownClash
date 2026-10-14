@@ -45,6 +45,7 @@ const { MockScene, MockGameObject, MockGraphics, MockContainer, storage } = vi.h
     interactive: boolean = false;
     destroyed: boolean = false;
     visible: boolean = true;
+    active: boolean = true;
     texture = { key: '' };
     _listeners = new Map<string, Set<Function>>();
 
@@ -87,7 +88,7 @@ const { MockScene, MockGameObject, MockGraphics, MockContainer, storage } = vi.h
     emit(event: string, ...args: any[]) {
       this._listeners.get(event)?.forEach((fn) => fn(...args));
     }
-    destroy() { this.destroyed = true; }
+    destroy() { this.destroyed = true; this.active = false; }
   }
 
   class MockContainer extends MockGameObject {
@@ -307,6 +308,7 @@ vi.mock('../../audio/SoundEffects.js', () => ({
   sounds: new Proxy({}, { get: () => () => false }),
 }));
 
+import { PilotClient } from '../../realm/PilotClient.js';
 import { GameScene } from '../GameScene.js';
 import { CareerManager } from '../../career/CareerManager.js';
 import { BrowserPlatformAdapter } from '@crown-clash/platform';
@@ -319,6 +321,8 @@ import {
 } from '@crown-clash/game-core';
 import type { CareerApi } from '../../api/GameApiClient.js';
 import { trackEvent, trackTerminalMatchEvent } from '../../analytics/Analytics.js';
+import { createPrototypeState } from '../../prototype/CrownMatch.js';
+import { PROTOTYPE_EVENT } from '../../prototype/PrototypeAnalytics.js';
 import {
   isStartupLoadingShellDismissed,
   LOADING_SHELL_ID,
@@ -1045,4 +1049,141 @@ describe('production C scene integration',()=>{
     expect(s.matchActions.map((a:any)=>[a.sourceId,a.targetId])).toEqual([['p_base','n_bot_left'],['n_bot_right','n_bot_left']]);
     expect(s.gameState.territories.n_bot_right.units).toBe(20);s.cleanup();
   });
+});
+
+describe('unrewarded prototype scene integration', () => {
+  beforeEach(() => {
+    storage.clear(); vi.clearAllMocks(); (CareerManager as any).instance = null;
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  function boot(mode: 'crown' | 'classic') {
+    const scene = new GameScene();
+    const platform = new BrowserPlatformAdapter();
+    scene.registry.set('platform', platform);
+    const manager = CareerManager.getInstance(platform.getUser().id);
+    const getManager = vi.spyOn(CareerManager, 'getInstance');
+    const connect = vi.spyOn(manager, 'connect');
+    const localSettlement = vi.spyOn(manager, 'recordMatchResult');
+    const remoteSettlement = vi.spyOn(manager, 'recordMatchResultRemote');
+    const ticket = vi.spyOn(manager, 'startBotMatch');
+    const events = vi.spyOn(window, 'dispatchEvent');
+    (scene.scene.settings as any).data = { prototypeMode: mode, source: 'menu' };
+    scene.create();
+    return { scene: scene as any, manager, getManager, connect, localSettlement, remoteSettlement, ticket, events };
+  }
+
+  it.each(['crown', 'classic'] as const)('%s starts without connecting, a server ticket, or career modifiers', async mode => {
+    const { scene, manager, getManager, connect, ticket } = boot(mode);
+    expect(scene.gameState).toEqual(createPrototypeState(mode));
+    expect(scene.prototypeMode).toBe(mode);
+    expect(scene.hudTrophiesText.text).toBe('TEST');
+    expect(scene.hudCoinsText.text).toBe('VS BOT');
+    expect(connect).not.toHaveBeenCalled();
+    expect(getManager).not.toHaveBeenCalled();
+    expect(ticket).not.toHaveBeenCalled();
+    expect(trackEvent).not.toHaveBeenCalled();
+    expect(scene.matchActions).toEqual([]);
+    (manager as any).career.startingGarrisonLevel = 10;
+    (manager as any).career.productionLevel = 10;
+    (manager as any).career.armySpeedLevel = 10;
+    scene.createUpgradedMatchState(manager.getCareer());
+    expect(scene.gameState).toEqual(createPrototypeState(mode));
+    await scene.restartMatch();
+    expect(scene.scene.restart).toHaveBeenCalledWith({ prototypeMode: mode, source: 'rematch' });
+    expect(ticket).not.toHaveBeenCalled();
+    scene.cleanup();
+  });
+
+  it('a full bot capture and hold renders a result once and cannot settle even through the direct finalizer', async () => {
+    const { scene, manager, localSettlement, remoteSettlement, events } = boot('crown');
+    const before = manager.getCareer();
+    for (let i = 0; i < 1000 && scene.gameState.status === 'playing'; i++) scene.update(i * 20, 20);
+    expect(scene.gameState.status).toBe('defeat');
+    expect(scene.crownProgress.heldMs).toBe(12000);
+    expect(scene.resultModalContainer).toBeDefined();
+    expect(scene.resultModalContainer.list.map((v: any) => v.text)).toContain('BOT WINS');
+    // A reused GameScene can still hold a manager from an earlier ordinary
+    // match. The guard must work even with that live dependency present.
+    scene.careerManager = manager;
+    const modal = scene.resultModalContainer;
+    scene.endMatch();
+    await scene.finalizeMatch();
+    expect(scene.resultModalContainer).toBe(modal);
+    expect(localSettlement).not.toHaveBeenCalled();
+    expect(remoteSettlement).not.toHaveBeenCalled();
+    expect(manager.getCareer()).toEqual(before);
+    expect(manager.getLedger()).toEqual([]);
+    expect(trackTerminalMatchEvent).not.toHaveBeenCalled();
+    expect(trackEvent).not.toHaveBeenCalled();
+    const localEvents = events.mock.calls.map(([event]) => event as CustomEvent).filter(e => e.type === PROTOTYPE_EVENT);
+    expect(localEvents.filter(e => e.detail.name === 'prototype_end')).toHaveLength(1);
+    expect(localEvents.filter(e => e.detail.name === 'prototype_crown_captured').length).toBeGreaterThan(0);
+    scene.cleanup();
+    expect(scene.prototypeMode).toBeNull();
+    expect(scene.crownHud).toBeUndefined();
+  });
+
+  it('pause freezes the crown clock; exit returns to comparison and emits only one local quit', () => {
+    const { scene, localSettlement, remoteSettlement, events } = boot('crown');
+    for (let i = 0; i < 200; i++) scene.update(i * 20, 20);
+    expect(scene.crownProgress.heldMs).toBeGreaterThan(0);
+    scene.matchMenuController.openMenu();
+    const time = scene.gameState.elapsedTimeSeconds;
+    const held = scene.crownProgress.heldMs;
+    for (let i = 0; i < 100; i++) scene.update(i * 20, 20);
+    expect(scene.gameState.elapsedTimeSeconds).toBe(time);
+    expect(scene.crownProgress.heldMs).toBe(held);
+    scene.matchMenuController.closeMenu();
+    scene.update(0, 20);
+    expect(scene.crownProgress.heldMs).toBe(held + 20);
+    scene.matchMenuController.openConfirm();
+    scene.matchMenuController.confirmExit();
+    expect(scene.scene.start).toHaveBeenCalledWith('PrototypeScene');
+    scene.cleanup();
+    const quits = events.mock.calls.map(([event]) => event as CustomEvent)
+      .filter(e => e.type === PROTOTYPE_EVENT && e.detail.name === 'prototype_quit');
+    expect(quits).toHaveLength(1);
+    expect(localSettlement).not.toHaveBeenCalled();
+    expect(remoteSettlement).not.toHaveBeenCalled();
+    expect(trackEvent).not.toHaveBeenCalled();
+  });
+
+  it('switching from prototype to an ordinary server-ticket match restores the original scene path', () => {
+    const { scene } = boot('crown');
+    scene.cleanup();
+    scene.scene.settings.data = { mode: 'bot', botMatch: { matchId: 'ordinary_after_prototype', battlefieldId: 'crown_cross', gameplayRulesVersion: 2 } };
+    scene.create();
+    expect(scene.prototypeMode).toBeNull();
+    expect(scene.crownHud).toBeUndefined();
+    expect(scene.gameState.territories.p_base.units).toBe(20);
+    expect(scene.gameState.territories.n_center.productionRate).toBe(1.1);
+    expect(scene.gameState.territories.n_bot_left.owner).toBe('neutral');
+    expect(trackEvent).toHaveBeenCalledWith(expect.objectContaining({ name: 'match_start', matchId: 'ordinary_after_prototype' }));
+    scene.cleanup();
+  });
+});
+
+
+describe('authoritative result to next-battle loop',()=>{
+ it('presents the server result inside the battle instead of routing to the realm hub',async()=>{
+  const scene:any=new GameScene();
+  const stats={matchDurationSeconds:64,playerUnitsDispatched:40,enemyUnitsDispatched:50,territoriesCapturedByPlayer:2,territoriesCapturedByEnemy:3};
+  const career=createDefaultCareer('retention_test');
+  const settlement=settleMatch(career,'defeat',stats,'realm_result');
+  const ticket:any={matchId:'realm_result'};
+  const response={ticket,settlement,rewarded:true};
+  const settle=vi.spyOn(PilotClient.prototype,'settle').mockResolvedValue(response);
+  try{
+   scene.realmTicket=ticket;scene.activeMatchId=ticket.matchId;scene.matchActions=[];
+   scene.gameState={status:'victory'};scene.backendConnectPromise=Promise.resolve();
+   scene.careerManager={refreshRemoteCareer:vi.fn().mockResolvedValue(settlement.newCareer)};
+   scene.renderResultModal=vi.fn();scene.dismissSyncingModal=vi.fn();
+   await scene.finalizeMatch();
+   expect(scene.renderResultModal).toHaveBeenCalledWith('defeat',stats,settlement);
+   expect(scene.scene.start).not.toHaveBeenCalled();
+   expect(scene.offlineBattleClosed).toBe(true);expect(scene.resultPending).toBe(false);
+   expect(scene.careerManager.refreshRemoteCareer).toHaveBeenCalledOnce();
+  }finally{settle.mockRestore();}
+ });
 });

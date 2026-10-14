@@ -34,6 +34,7 @@ export type ClientObservedStatus = 'victory' | 'defeat' | 'draw';
  * PvP. Single-player bot matches are still settled via settleMatch.
  */
 export interface CareerApi {
+  pilotRequest?<T>(method: string, payload?: unknown): Promise<T>;
   login(platform: PlatformAdapter): Promise<PlayerCareer>;
   getCareer(): Promise<PlayerCareer>;
   getLedger(limit?: number): Promise<EconomyLedgerEntry[]>;

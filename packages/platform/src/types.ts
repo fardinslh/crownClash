@@ -49,6 +49,8 @@ export interface PlatformAdapter {
    * The identifier of the active platform environment.
    */
   readonly platform: PlatformType;
+  getLaunchContext?(): import('./launch.js').LaunchContext;
+  createChallengeLink?(token: string, botUsername: string): string;
 
   /**
    * Initializes platform SDKs, listeners, and authentication states.

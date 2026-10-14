@@ -1,3 +1,4 @@
+import { PilotClient } from '../realm/PilotClient.js';
 import Phaser from 'phaser';
 import {
   getRankTier,
@@ -101,6 +102,28 @@ export class MenuScene extends Phaser.Scene {
     }
 
     const career = careerManager.getCareer();
+    if (careerManager.isRemoteConnected()) {
+      try {
+        const pilot = new PilotClient(platform);
+        const config = await pilot.config();
+        this.registry.set('realmPilot', config.enabled);
+        if (config.enabled) {
+          await pilot.attachEntry();
+          if (careerManager.isTutorialCompleted() && pilot.challenge()) {
+            const home = await pilot.home();
+            if (!home.activeTicket && !home.activePractice) {
+              this.scene.start('RealmScene');
+              return;
+            }
+            pilot.clearChallenge();
+          }
+        }
+      } catch (error) {
+        // Do not mask pilot failures by entering a different economic flow.
+        if (this.registry.get('realmPilot')) { this.showBackendUnavailable(); return; }
+      }
+    }
+
 
     // First-launch policy: an incomplete tutorial auto-starts the guided
     // training battle once per session (a skipped training returns to this
@@ -193,10 +216,19 @@ export class MenuScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    this.add
+    const goldBg = this.add
       .rectangle(LOGICAL_WIDTH / 2 - 72, layout.statsY, 124, 44, 0x0f172a, 0.95)
       .setStrokeStyle(1.5, 0xf59e0b, 0.85);
-    createText(this, LOGICAL_WIDTH / 2 - 72, layout.statsY - 10, 'GOLD', {
+    if (this.registry.get('realmPilot')) {
+      goldBg.setName('realm-entry').setInteractive({ useHandCursor: true });
+      goldBg.on('pointerdown', () => {
+        if (this.isTransitioning) return;
+        this.isTransitioning = true;
+        platform.hapticSelection();
+        this.scene.start('RealmScene');
+      });
+    }
+    createText(this, LOGICAL_WIDTH / 2 - 72, layout.statsY - 10, this.registry.get('realmPilot') ? 'GOLD · REALM ›' : 'GOLD', {
         fontFamily: FONT_FAMILY,
         fontSize: '10px',
         fontStyle: 'bold',
@@ -288,11 +320,15 @@ export class MenuScene extends Phaser.Scene {
       this.isTransitioning = true;
       playBg.disableInteractive();
       playText.setText('SCOUTING...');
-      void careerManager.startBotMatch(platform).then((botMatch) => {
+      const startMatch = async () => {
+        if (!this.registry.get('realmPilot')) return { botMatch: await careerManager.startBotMatch(platform) };
+        return new PilotClient(platform).nextMatch(() => careerManager.startBotMatch(platform));
+      };
+      void startMatch().then((match) => {
         if (!this.scene.isActive()) return;
         sounds.playDispatch();
         platform.hapticImpact('medium');
-        this.scene.start('GameScene', { source: 'menu', botMatch });
+        this.scene.start('GameScene', { source: 'menu', ...match });
       }).catch((error: unknown) => {
         console.error('[MenuScene] Match start failed:', error);
         this.isTransitioning = false;
@@ -346,9 +382,21 @@ export class MenuScene extends Phaser.Scene {
       });
     }
 
-    // The retired optional War Academy entry is gone. While the tutorial
-    // is incomplete the slot becomes the required TRAINING entry; once the
-    // account-wide flag is set, no entry renders at all.
+    // Keep the main PLAY flow intact; the spare completed-training slot
+    // opens a separate, unrewarded comparison against the local bot.
+    if (careerManager.isTutorialCompleted()) {
+      const prototypeBg = this.add.rectangle(LOGICAL_WIDTH / 2, layout.trainingY, 250, 44, 0x221e16)
+        .setStrokeStyle(1.5, THEME.gold).setInteractive({ useHandCursor: true });
+      const prototypeText = createText(this, LOGICAL_WIDTH / 2, layout.trainingY, 'CROWN HOLD · PLAYTEST', {
+        fontSize: '13px', color: '#fde68a',
+      }).setOrigin(.5);
+      this.bindPressFeedback(prototypeBg, prototypeText);
+      prototypeBg.on('pointerdown', () => {
+        if (this.isTransitioning) return;
+        this.isTransitioning = true;
+        this.scene.start('PrototypeScene');
+      });
+    }
     if (!careerManager.isTutorialCompleted()) {
       const trainingBg = this.add
         .rectangle(LOGICAL_WIDTH / 2, layout.trainingY, 250, 44, 0x1c1830, 1)

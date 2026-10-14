@@ -43,6 +43,8 @@ export interface BattlefieldDefinition {
 }
 
 export interface BotMatchTicket {
+  readonly playerModifiers?: import('./upgrades.js').PlayerUpgradeModifiers;
+  readonly expiresAt?: number;
   readonly gameplayRulesVersion?: GameplayRulesVersion;
   readonly matchId: string;
   readonly battlefieldId: BattlefieldId;
