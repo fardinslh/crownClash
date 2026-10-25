@@ -72,6 +72,7 @@ export type AnalyticsEventInput =
   | { name: 'live_invite_created' }
   | { name: 'live_invite_joined' }
   | { name: 'share_opened'; source: 'live_invite' | 'result' | 'result_2v2' }
+  | { name: 'ability_used'; matchId: string; commanderId: 'crown_guard' | 'quartermaster' | 'vanguard'; atSeconds: number }
   | { name: 'live_match_started'; matchId: string; mode?: '1v1' | '2v2' }
   | {
       name: 'live_match_ended';
@@ -129,6 +130,7 @@ const EVENT_NAMES: ReadonlySet<AnalyticsEvent['name']> = new Set([
   'live_invite_created',
   'live_invite_joined',
   'share_opened',
+  'ability_used',
   'live_match_started',
   'live_match_ended',
   'live_match_disconnected',

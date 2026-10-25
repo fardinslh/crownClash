@@ -1017,6 +1017,7 @@ var analyticsEventDefinitions = map[string]analyticsEventDefinition{
 	"live_invite_created":        {properties: map[string]analyticsPropertyKind{}},
 	"live_invite_joined":         {properties: map[string]analyticsPropertyKind{}},
 	"share_opened":               {properties: analyticsProperties("source")},
+	"ability_used":               {properties: map[string]analyticsPropertyKind{"matchId": analyticsPropertyString, "commanderId": analyticsPropertyString, "atSeconds": analyticsPropertyNumber}},
 	"live_match_started":         {properties: analyticsProperties("matchId"), optionalProperties: analyticsProperties("mode")},
 	"live_match_ended":           {properties: analyticsProperties("matchId", "status")},
 	"live_match_disconnected":    {properties: analyticsProperties("matchId")},
@@ -1225,6 +1226,8 @@ func hasValidAnalyticsPropertyEnums(event AnalyticsEventRecord) bool {
 	case "upgrade_purchase_failed":
 		return oneOf(value("upgradeType"), "starting_garrison", "production", "army_speed", "treasury") &&
 			oneOf(value("reason"), "insufficient_coins", "max_level")
+	case "ability_used":
+		return oneOf(value("commanderId"), "crown_guard", "quartermaster", "vanguard")
 	case "share_opened":
 		return oneOf(value("source"), "live_invite", "result", "result_2v2")
 	case "live_match_started":

@@ -1,4 +1,5 @@
 import { startChosenBotMatch } from '../ui/BotDifficultyPicker.js';
+import { AbilityButton } from '../ui/AbilityButton.js';
 import { PilotClient } from '../realm/PilotClient.js';
 import type { RealmTicket, RealmResult } from '@crown-clash/game-core';
 import Phaser from 'phaser';
@@ -9,6 +10,7 @@ import type { Rect } from '../ui/HudLayout.js';
 import {
   getCaptureProductionMultiplier,
   evaluateTacticalMoves, previewOrder, armyDestination, usesTacticalRules, type GameplayRulesVersion,
+  ABILITY_CONFIG, COMMANDER_ABILITY, abilityNeedsTarget, applyPlayerAbility, hasCommanderAbilities, isShielded, type CommanderId,
   getTerritoryProductionMultiplier,
   getTerritoryDefenseMultiplier,
   getTerritoryArmySpeedMultiplier,
@@ -369,6 +371,11 @@ export class GameScene extends Phaser.Scene {
   private inspector?: Phaser.GameObjects.Container;
   private inspectorText?: Phaser.GameObjects.Text;
   private botDifficulty: BotDifficulty = 'normal';
+  /** v4: the ticket's server-stored commander; undefined disables the ability. */
+  private abilityCommanderId?: CommanderId;
+  private abilityButton?: AbilityButton;
+  private abilityTargeting = false;
+  private readonly shieldVisuals = new Map<string, Phaser.GameObjects.Arc>();
   private botGameplayRulesVersion: GameplayRulesVersion = 2;
   private careerManager!: CareerManager;
   private careerSubscription?: () => void;
@@ -541,6 +548,10 @@ export class GameScene extends Phaser.Scene {
     this.trainingMode = launchData?.training === true && !this.liveMode;
 
     if (this.trainingMode) this.botGameplayRulesVersion = 3;
+    this.abilityCommanderId = !this.trainingMode && !this.liveMode && hasCommanderAbilities(this.botGameplayRulesVersion)
+      ? launchData?.botMatch?.commanderId
+      : undefined;
+    this.abilityTargeting = false;
     this.careerManager = CareerManager.getInstance(user.id);
 
 
@@ -769,6 +780,7 @@ export class GameScene extends Phaser.Scene {
 
     // 4. Create HUD
     this.createHud();
+    this.createAbilityButton();
 
     // Compact, non-blocking reveal: enough context to notice the map without
     // covering towers or delaying input.
@@ -1169,6 +1181,7 @@ export class GameScene extends Phaser.Scene {
     this.bottomBarBg?.setPosition(LOGICAL_WIDTH / 2, bottomBarY);
     this.bottomBarBg?.setSize(Math.min(360, vp.visibleWidth - 40), 40);
     this.bottomHintText?.setPosition(LOGICAL_WIDTH / 2, bottomBarY + 10);
+    this.abilityButton?.setPosition(...this.abilityButtonPosition(vp.visibleWidth, vp.visibleHeight));
     const legendY = bottomBarY - 9;
     for (const group of this.legendGroups) {
       group.icon.setY(legendY);
@@ -1893,9 +1906,16 @@ export class GameScene extends Phaser.Scene {
       container.setSize(territoryHitAreaSize(territory.radius), territoryHitAreaSize(territory.radius));
       container.setInteractive({ useHandCursor: true });
 
-      container.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      container.on('pointerdown', (pointer: Phaser.Input.Pointer, _x: number, _y: number, event: Phaser.Types.Input.EventData) => {
         if (this.isExiting || this.matchMenuController?.isOpen()) return;
         if (this.is2v2InputBlocked()) return;
+        if (this.isSelfTargetingAbility()) {
+          // The tap is the ability target; keep it from also starting a
+          // drag or a tap-to-inspect in the scene-level handler.
+          event.stopPropagation();
+          this.tryUseAbility(territory.id, territory.id);
+          return;
+        }
         this.startDragFromTerritory(territory.id, pointer);
       });
 
@@ -2435,6 +2455,12 @@ export class GameScene extends Phaser.Scene {
       }
 
       const territory = this.getTerritoryUnderPointer(pointer);
+      if (this.isSelfTargetingAbility()) {
+        // Self-targeted abilities resolve on the tap; an empty tap cancels.
+        if (territory) this.tryUseAbility(territory.id, territory.id);
+        else this.setAbilityTargeting(false);
+        return;
+      }
       if (territory) {
         this.startDragFromTerritory(territory.id, pointer);
       }
@@ -2461,6 +2487,7 @@ export class GameScene extends Phaser.Scene {
       if (this.lastHoveredFriendlyId && (!hoveredTerritory || hoveredTerritory.id !== this.lastHoveredFriendlyId)) {
         const prevFriendly = this.gameState.territories[this.lastHoveredFriendlyId];
         if (
+          !this.abilityTargeting &&
           prevFriendly &&
           prevFriendly.owner === 'player' &&
           prevFriendly.units > 1 &&
@@ -2646,7 +2673,9 @@ export class GameScene extends Phaser.Scene {
       pointer.positionToCamera(this.cameras.main, this.pointerWorldPoint);
       const view = drawTacticalDrag(this.dragGraphics, this.gameState, this.selectedSourceIds, target?.id ?? null,
         (x, y) => this.projectSocketPoint(x, y), this.boardLayout.scale, this.playerArmySpeedMultiplier,
-        { u: this.pointerWorldPoint.x, v: this.pointerWorldPoint.y });
+        { u: this.pointerWorldPoint.x, v: this.pointerWorldPoint.y },
+        this.abilityTargeting ? ABILITY_CONFIG.chargeRatio : .5);
+      if (this.abilityTargeting) view.label = `⚡ ${faBattle.ability.chargeLabel}\n${view.label}`;
       this.dragBadgeText.setText(view.label).setColor(`#${view.color.toString(16).padStart(6, '0')}`);
       this.dragBadgeText.setWordWrapWidth(270);
       const width = Math.min(290, Math.ceil(this.dragBadgeText.width) + 20);
@@ -2848,6 +2877,7 @@ export class GameScene extends Phaser.Scene {
           : this.realmTicket ? 'دفاع خودکار حریف · از برج آبی بکش و حمله کن' : this.pinnedPracticeModifiers ? faBattle.hud.botNoTrophies(this.botDifficulty) : faBattle.hud.botDrag(this.botDifficulty);
         this.bottomHintText.setText(defaultHint).setColor(this.liveMode ? '#93c5fd' : '#94a3b8');
       }
+      if (this.abilityTargeting) this.showAbilityHint();
     }
 
     if (this.selectedSourceIds.length === 0) {
@@ -2939,6 +2969,9 @@ export class GameScene extends Phaser.Scene {
             console.warn('[GameScene] Live dispatch failed:', error);
             this.showLiveConnectionError();
           }
+        } else if (this.abilityTargeting) {
+          // Vanguard charge: the dragged tower sends its whole garrison.
+          this.tryUseAbility(sourceIds[0], targetId);
         } else if (this.matchActions.length + previewOrder(this.gameState, sourceIds, targetId, 'player', this.playerArmySpeedMultiplier).orders.length > MAX_PVP_ACTIONS) {
           // The server replay only accepts a bounded action list; stop
           // dispatching before the cap so the settlement replay stays valid.
@@ -2986,6 +3019,7 @@ export class GameScene extends Phaser.Scene {
   update(time: number, delta: number): void {
     if (!Number.isFinite(delta) || delta <= 0) return;
     const deltaSeconds = delta / 1000;
+    this.updateAbilityPresentation();
 
     if (this.trainingController?.isActive) {
       this.trainingController.onTimerTick(deltaSeconds);
@@ -3132,6 +3166,117 @@ export class GameScene extends Phaser.Scene {
       ease: 'Sine.easeIn',
       onComplete: () => reveal.destroy(),
     });
+  }
+
+  /** v4 commander ability button (bot/async tickets that carry a commander). */
+  private createAbilityButton(): void {
+    if (!this.abilityCommanderId) return;
+    const ability = COMMANDER_ABILITY[this.abilityCommanderId];
+    const { visibleWidth, visibleHeight } = getSceneViewport(this);
+    const [x, y] = this.abilityButtonPosition(visibleWidth, visibleHeight);
+    this.abilityButton = new AbilityButton(this, ability, faBattle.ability[ability].name, x, y, 97, this.reducedMotion, () => {
+      if (this.isExiting || this.matchMenuController?.isOpen() || this.gameState.status !== 'playing') return;
+      const state = this.abilityButton?.current;
+      if (state === 'charging') {
+        const seconds = Math.ceil(ABILITY_CONFIG.unlockSeconds - this.gameState.elapsedTimeSeconds);
+        this.bottomHintText?.setText(faBattle.ability.locked(Math.max(1, seconds))).setColor('#94a3b8');
+        this.platform.hapticSelection();
+        return;
+      }
+      if (state === 'ready' || state === 'targeting') this.setAbilityTargeting(state === 'ready');
+    });
+  }
+
+  /** Right end of the bottom bar (thumb reach), lifted above it. */
+  private abilityButtonPosition(visibleWidth: number, visibleHeight: number): [number, number] {
+    const bottomBarY = Math.max(691, visibleHeight - 28);
+    const barRight = LOGICAL_WIDTH / 2 + Math.min(360, visibleWidth - 40) / 2;
+    return [barRight - 30, bottomBarY - 64];
+  }
+
+  private setAbilityTargeting(on: boolean): void {
+    this.abilityTargeting = on;
+    if (on) {
+      this.cancelDragSelection();
+      this.showAbilityHint();
+    } else {
+      this.bottomHintText?.setText(faBattle.ability.cancelled).setColor('#94a3b8');
+    }
+    sounds.playReinforce();
+    this.platform.hapticSelection();
+  }
+
+  private isSelfTargetingAbility(): boolean {
+    return this.abilityTargeting && Boolean(this.abilityCommanderId) && !abilityNeedsTarget(COMMANDER_ABILITY[this.abilityCommanderId!]);
+  }
+
+  private showAbilityHint(): void {
+    if (!this.abilityCommanderId) return;
+    this.bottomHintText?.setText(faBattle.ability[COMMANDER_ABILITY[this.abilityCommanderId]].target).setColor('#fde68a');
+  }
+
+  /** Per-frame: button state, the one-time ready cue and shield expiry. */
+  private updateAbilityPresentation(): void {
+    const button = this.abilityButton;
+    if (button) {
+      const before = button.current;
+      button.update(this.gameState.elapsedTimeSeconds, Boolean(this.gameState.playerAbilityUsed), this.abilityTargeting);
+      if (before === 'charging' && button.current === 'ready') {
+        this.bottomHintText?.setText(faBattle.ability.ready).setColor('#fde68a');
+        this.platform.hapticNotification('success');
+        sounds.playTrophy();
+      }
+    }
+    for (const [id, ring] of this.shieldVisuals) {
+      if (isShielded(this.gameState, id) && this.gameState.territories[id]?.owner === 'player') continue;
+      this.tweens.killTweensOf(ring);
+      ring.destroy();
+      this.shieldVisuals.delete(id);
+    }
+  }
+
+  /**
+   * Applies the ability locally with the same game-core rule the server
+   * replays, and records it as a `kind: 'ability'` action. An illegal
+   * choice leaves the ability armed so the player can pick again.
+   */
+  private tryUseAbility(sourceId: string, targetId: string): void {
+    const commanderId = this.abilityCommanderId;
+    if (!commanderId || this.matchActions.length >= MAX_PVP_ACTIONS) return;
+    const result = applyPlayerAbility(this.gameState, commanderId, sourceId, targetId, this.playerArmySpeedMultiplier, `player_ability_${this.matchActions.length}`);
+    if (!result) {
+      this.bottomHintText?.setText(faBattle.ability.invalid).setColor('#f87171');
+      this.platform.hapticNotification('error');
+      return;
+    }
+    this.gameState = result.state;
+    const atSeconds = Math.round(this.gameState.elapsedTimeSeconds * 1000) / 1000;
+    this.matchActions.push({ sequence: this.matchActions.length, atSeconds, sourceId, targetId, kind: 'ability' });
+    this.abilityTargeting = false;
+    trackEvent({ name: 'ability_used', matchId: this.activeMatchId, commanderId, atSeconds });
+    const ability = COMMANDER_ABILITY[commanderId];
+    const vis = this.territoryVisuals.get(sourceId);
+    const territory = this.gameState.territories[sourceId];
+    this.platform.hapticImpact('heavy');
+    if (ability === 'vanguard_charge') sounds.playDispatch(); else sounds.playCapture();
+    if (vis && territory) {
+      this.spawnFloatingText(vis.container.x, vis.container.y - 46 * this.boardLayout.scale, faBattle.ability[ability].used, '#fde68a', 500);
+      if (!this.reducedMotion) {
+        this.tweens.add({ targets: vis.container, scale: 1.12, duration: 140, yoyo: true, ease: 'Sine.easeOut' });
+      }
+      if (ability === 'royal_shield') {
+        const ring = this.add
+          .circle(vis.container.x, vis.container.y, (territory.radius + 14) * this.boardLayout.scale, 0xfbbf24, 0.12)
+          .setStrokeStyle(3, 0xfde68a, 0.95)
+          .setDepth(vis.container.depth + 0.5);
+        if (!this.reducedMotion) this.tweens.add({ targets: ring, alpha: 0.55, duration: 600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+        this.shieldVisuals.get(sourceId)?.destroy();
+        this.shieldVisuals.set(sourceId, ring);
+      }
+    }
+    this.bottomHintText?.setText(faBattle.ability[ability].used).setColor('#fde68a');
+    this.markTerritoriesDirty();
+    this.updateTerritoryVisuals();
   }
 
   private recordDispatchActions(armies: readonly MarchingArmy[]): void {
@@ -6390,6 +6535,11 @@ export class GameScene extends Phaser.Scene {
     this.lastAppliedViewport = { width: 0, height: 0 };
     this.bottomBarShadow = undefined;
     this.bottomBarBg = undefined;
+    this.abilityButton?.destroy();
+    this.abilityButton = undefined;
+    this.abilityTargeting = false;
+    for (const ring of this.shieldVisuals.values()) ring.destroy();
+    this.shieldVisuals.clear();
     this.matchMenuModalContainer?.destroy();
     this.matchMenuModalContainer = undefined;
     this.syncingModalContainer?.destroy();

@@ -49,6 +49,8 @@ export interface BotMatchTicket {
   readonly gameplayRulesVersion?: GameplayRulesVersion;
   readonly matchId: string;
   readonly battlefieldId: BattlefieldId;
+  /** v4 tickets: the server-stored commander whose ability this match may use. */
+  readonly commanderId?: import('./commanders.js').CommanderId;
 }
 
 import rawBattlefields from '../../../apps/server-nakama/battlefields.json' with { type: 'json' };

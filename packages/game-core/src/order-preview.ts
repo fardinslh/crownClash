@@ -4,12 +4,12 @@ import { armyArrivalSeconds } from './tactical-routes.js';
 import type { GameState, Team } from './types.js';
 
 /** Static-board estimate only: other orders and future production can change the outcome. */
-export function previewOrder(state: GameState, sources: readonly string[], targetId: string, owner: Team, multiplier = 1) {
+export function previewOrder(state: GameState, sources: readonly string[], targetId: string, owner: Team, multiplier = 1, ratio = .5) {
   const target = state.territories[targetId];
   const orders = sources.flatMap(id => {
     const source = state.territories[id];
     if (!source || !target) return [];
-    const d = dispatchArmy(source, target, owner, .5, () => `preview_${id}`, multiplier, state);
+    const d = dispatchArmy(source, target, owner, ratio, () => `preview_${id}`, multiplier, state);
     return d.army && d.sourceTerritory ? [{ army: d.army, source: d.sourceTerritory }] : [];
   });
   const arrivals = orders.map((order, index) => ({ ...order, index, eta: armyArrivalSeconds(order.army, state) }))

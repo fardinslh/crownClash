@@ -108,6 +108,16 @@ export const faBattle = {
     inspector: (name: string, owner: string, prod: string, def: number, spd: number): string =>
       `${territoryName(name)} · ${OWNERS[owner] ?? owner}\nتولید ${prod}/s · دفاع ×${def} · سرعت ×${spd}`,
   },
+  ability: {
+    royal_shield: { name: 'سپر سلطنتی', target: 'روی یکی از برج‌هایت بزن تا 8 ثانیه دو برابر مقاوم شود', used: 'سپر فعال شد!' },
+    supply_drop: { name: 'تدارکات', target: 'روی یکی از برج‌هایت بزن تا 10 سرباز بگیرد', used: '+10 سرباز!' },
+    vanguard_charge: { name: 'یورش', target: 'از برجت به هدف بکش — همه سربازها می‌روند', used: 'یورش!' },
+    locked: (seconds: number): string => `قدرت فرمانده تا ${seconds} ثانیه دیگر`,
+    ready: 'قدرت فرمانده آماده است — دکمه را بزن!',
+    cancelled: 'لغو شد',
+    invalid: 'این‌جا نمی‌شود — برج خودت را انتخاب کن',
+    chargeLabel: 'یورش',
+  },
   drag: {
     reinforce: (n: number, src: string): string => `+${n} تقویت${src}`,
     win: (n: number, rem: number, src: string): string => `⚔ ${n} (برد +${rem})${src}`,
