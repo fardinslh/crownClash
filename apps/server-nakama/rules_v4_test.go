@@ -84,8 +84,11 @@ func TestApplyPlayerAbilityRules(t *testing.T) {
 
 	charge := v4AbilityState()
 	units := charge.Territories["p_base"].Units
-	if !applyPlayerAbility(&charge, "vanguard", "p_base", "n_bot_left", 1, "c") || charge.Territories["p_base"].Units != 0 || charge.Armies[len(charge.Armies)-1].Units != units {
-		t.Fatal("vanguard charge should send the full garrison")
+	sent := units / 2
+	if !applyPlayerAbility(&charge, "vanguard", "p_base", "n_bot_left", 1, "c") || charge.Territories["p_base"].Units != units-sent ||
+		charge.Armies[len(charge.Armies)-1].Units != int(float64(sent)*abilityChargeUnitMultiplier) ||
+		charge.Stats.PlayerUnitsDispatched != float64(charge.Armies[len(charge.Armies)-1].Units) {
+		t.Fatalf("vanguard charge should pay half and send a doubled army: %+v", charge.Armies)
 	}
 	remote := v4AbilityState()
 	if applyPlayerAbility(&remote, "vanguard", "p_base", "e_base", 1, "c") || remote.PlayerAbilityUsed {

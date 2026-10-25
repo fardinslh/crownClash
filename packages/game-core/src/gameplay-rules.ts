@@ -20,8 +20,10 @@ export const ABILITY_CONFIG = Object.freeze({
   unlockSeconds: 15,
   shieldDefenseMultiplier: 2,
   shieldDurationMs: 8000,
-  supplyUnits: 10,
-  chargeRatio: 1,
+  supplyUnits: 5,
+  /** Vanguard charge: a normal 50% send whose army arrives 2x stronger and 1.5x faster. */
+  chargeUnitMultiplier: 2,
+  chargeSpeedMultiplier: 1.5,
 });
 export const CAPTURE_INITIAL_PRODUCTION_MULTIPLIER = 0.5;
 

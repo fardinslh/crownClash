@@ -9,8 +9,11 @@ const (
 	abilityUnlockSeconds           = 15.0
 	abilityShieldDefenseMultiplier = 2.0
 	abilityShieldDurationMs        = int64(8000)
-	abilitySupplyUnits             = 10
-	abilityChargeRatio             = 1.0
+	abilitySupplyUnits             = 5
+	// Vanguard charge: an ordinary 50% send whose army arrives 2x stronger
+	// and 1.5x faster; the source pays only the usual half.
+	abilityChargeUnitMultiplier  = 2.0
+	abilityChargeSpeedMultiplier = 1.5
 )
 
 var commanderAbility = map[string]string{
@@ -58,9 +61,13 @@ func applyPlayerAbility(state *GameState, commanderID, sourceID, targetID string
 		if targetID == sourceID {
 			return false
 		}
-		if err := dispatchArmyWithRatio(state, sourceID, targetID, TeamPlayer, speedMultiplier, armyID, abilityChargeRatio); err != nil {
+		if err := dispatchArmyWithRatio(state, sourceID, targetID, TeamPlayer, speedMultiplier*abilityChargeSpeedMultiplier, armyID, 0.5); err != nil {
 			return false
 		}
+		last := len(state.Armies) - 1
+		boosted := int(math.Floor(float64(state.Armies[last].Units) * abilityChargeUnitMultiplier))
+		state.Stats.PlayerUnitsDispatched += float64(boosted - state.Armies[last].Units)
+		state.Armies[last].Units = boosted
 	default:
 		return false
 	}

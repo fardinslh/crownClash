@@ -2681,9 +2681,10 @@ export class GameScene extends Phaser.Scene {
     if (usesTacticalRules(this.gameState.gameplayRulesVersion)) {
       pointer.positionToCamera(this.cameras.main, this.pointerWorldPoint);
       const view = drawTacticalDrag(this.dragGraphics, this.gameState, this.selectedSourceIds, target?.id ?? null,
-        (x, y) => this.projectSocketPoint(x, y), this.boardLayout.scale, this.playerArmySpeedMultiplier,
+        (x, y) => this.projectSocketPoint(x, y), this.boardLayout.scale,
+        this.playerArmySpeedMultiplier * (this.abilityTargeting ? ABILITY_CONFIG.chargeSpeedMultiplier : 1),
         { u: this.pointerWorldPoint.x, v: this.pointerWorldPoint.y },
-        this.abilityTargeting ? ABILITY_CONFIG.chargeRatio : .5);
+        this.abilityTargeting ? ABILITY_CONFIG.chargeUnitMultiplier : 1);
       if (this.abilityTargeting) view.label = `⚡ ${faBattle.ability.chargeLabel}\n${view.label}`;
       this.dragBadgeText.setText(view.label).setColor(`#${view.color.toString(16).padStart(6, '0')}`);
       this.dragBadgeText.setWordWrapWidth(270);

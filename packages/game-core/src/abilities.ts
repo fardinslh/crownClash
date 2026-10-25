@@ -64,16 +64,18 @@ export function applyPlayerAbility(
   }
   const target = state.territories[targetId];
   if (!target || targetId === sourceId) return null;
-  const result = dispatchArmy(source, target, 'player', ABILITY_CONFIG.chargeRatio, () => armyId, armySpeedMultiplier, state);
+  const result = dispatchArmy(source, target, 'player', .5, () => armyId, armySpeedMultiplier * ABILITY_CONFIG.chargeSpeedMultiplier, state);
   if (!result.success || !result.army || !result.sourceTerritory) return null;
+  // The source pays the ordinary half; the charging army arrives stronger.
+  const army = { ...result.army, units: Math.floor(result.army.units * ABILITY_CONFIG.chargeUnitMultiplier) };
   return {
-    army: result.army,
+    army,
     state: {
       ...state,
       playerAbilityUsed: true,
       territories: { ...state.territories, [sourceId]: result.sourceTerritory },
-      armies: [...state.armies, result.army],
-      stats: { ...state.stats, playerUnitsDispatched: state.stats.playerUnitsDispatched + result.army.units },
+      armies: [...state.armies, army],
+      stats: { ...state.stats, playerUnitsDispatched: state.stats.playerUnitsDispatched + army.units },
     },
   };
 }

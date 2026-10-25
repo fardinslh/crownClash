@@ -6,7 +6,7 @@ export function drawTacticalDrag(
   graphics: Phaser.GameObjects.Graphics, state: GameState, sourceIds: readonly string[], targetId: string | null,
   project: (x: number, y: number) => { u: number; v: number }, scale: number, speed: number,
   cursor?: { u: number; v: number },
-  ratio = .5,
+  unitMultiplier = 1,
 ): { label: string; hint: string; color: number; x: number; y: number } {
   for (const target of Object.values(state.territories)) {
     if (sourceIds.includes(target.id)) continue;
@@ -29,7 +29,7 @@ export function drawTacticalDrag(
     }
     return { label: faBattle.drag.towersSelected(sourceIds.length), hint: faBattle.drag.towersSelectedHint, color: 0x93c5fd, x: end.u, y: end.v - 58 };
   }
-  const preview = previewOrder(state, sourceIds, target.id, 'player', speed, ratio);
+  const preview = previewOrder(state, sourceIds, target.id, 'player', speed, unitMultiplier);
   const sourceCount = sourceIds.length > 1 ? faBattle.drag.partialSources(preview.orders.length, sourceIds.length) : '';
   const unreachable = sourceIds.filter(id => !findDispatchRoute(state, id, target.id, 'player')).length;
   const missing = sourceIds.length - preview.orders.length;

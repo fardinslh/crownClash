@@ -31,11 +31,16 @@ describe('v4 commander abilities', () => {
     expect(applyPlayerAbility(result.state, 'quartermaster', 'p_base', 'p_base', 1, 'b')).toBeNull();
   });
 
-  it('vanguard charge sends the whole garrison down a legal road', () => {
+  it('vanguard charge pays the usual half and sends a stronger, faster army down a legal road', () => {
     const start = v4();
+    const units = start.territories.p_base.units;
+    const sent = Math.floor(units / 2);
     const result = applyPlayerAbility(start, 'vanguard', 'p_base', 'n_bot_left', 1, 'charge')!;
-    expect(result.army?.units).toBe(start.territories.p_base.units);
-    expect(result.state.territories.p_base.units).toBe(0);
+    const plain = applyPlayerAbility({ ...start, gameplayRulesVersion: 4 }, 'vanguard', 'p_base', 'n_bot_left', 1 / ABILITY_CONFIG.chargeSpeedMultiplier, 'slow')!;
+    expect(result.army?.units).toBe(Math.floor(sent * ABILITY_CONFIG.chargeUnitMultiplier));
+    expect(result.state.territories.p_base.units).toBe(units - sent);
+    expect(result.army!.routeSpeedMultiplier).toBeGreaterThan(plain.army!.routeSpeedMultiplier!);
+    expect(result.state.stats.playerUnitsDispatched).toBe(start.stats.playerUnitsDispatched + result.army!.units);
     expect(applyPlayerAbility(v4(), 'vanguard', 'p_base', 'e_base', 1, 'x')).toBeNull();
   });
 
