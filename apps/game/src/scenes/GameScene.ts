@@ -11,6 +11,7 @@ import {
   getCaptureProductionMultiplier,
   evaluateTacticalMoves, previewOrder, armyDestination, usesTacticalRules, type GameplayRulesVersion,
   ABILITY_CONFIG, COMMANDER_ABILITY, abilityNeedsTarget, applyPlayerAbility, hasCommanderAbilities, isShielded, type CommanderId,
+  hasFogOfWar, computeVisibleTerritoryIds, isArmyCountVisible,
   getTerritoryProductionMultiplier,
   getTerritoryDefenseMultiplier,
   getTerritoryArmySpeedMultiplier,
@@ -247,6 +248,8 @@ interface ArmyFollower {
 }
 
 interface ArmyVisual {
+  /** v4 fog: hostile convoy outside vision (count hidden, dimmed). */
+  fogged?: boolean;
   id: string;
   container: Phaser.GameObjects.Container;
   roleAura?: Phaser.GameObjects.Image | Phaser.GameObjects.Arc | Phaser.GameObjects.Ellipse;
@@ -376,6 +379,10 @@ export class GameScene extends Phaser.Scene {
   private abilityButton?: AbilityButton;
   private abilityTargeting = false;
   private readonly shieldVisuals = new Map<string, Phaser.GameObjects.Arc>();
+  /** v4 fog of war: hide garrison/army counts outside the player's vision. */
+  private fogEnabled = false;
+  private fogVisible: ReadonlySet<string> = new Set();
+  private readonly fogVeils = new Map<string, Phaser.GameObjects.Image>();
   private botGameplayRulesVersion: GameplayRulesVersion = 2;
   private careerManager!: CareerManager;
   private careerSubscription?: () => void;
@@ -552,6 +559,8 @@ export class GameScene extends Phaser.Scene {
       ? launchData?.botMatch?.commanderId
       : undefined;
     this.abilityTargeting = false;
+    this.fogEnabled = !this.trainingMode && !this.liveMode && hasFogOfWar(this.botGameplayRulesVersion);
+    this.fogVisible = new Set();
     this.careerManager = CareerManager.getInstance(user.id);
 
 
@@ -3669,10 +3678,13 @@ export class GameScene extends Phaser.Scene {
 
     this.territoriesDirty = false;
     this.lastTerritorySignature = currentSig;
+    if (this.fogEnabled) this.fogVisible = computeVisibleTerritoryIds(this.gameState, 'player');
 
     for (const [id, vis] of this.territoryVisuals.entries()) {
       const stateTerritory = this.gameState.territories[id];
       if (!stateTerritory) continue;
+      const fogged = this.fogEnabled && !this.fogVisible.has(id);
+      this.applyFogVeil(id, vis, fogged);
 
       const producedUnit =
         stateTerritory.type === 'barracks' &&
@@ -3680,9 +3692,9 @@ export class GameScene extends Phaser.Scene {
         stateTerritory.owner === vis.territory.owner;
       vis.territory = stateTerritory;
 
-      if (vis.lastUnits !== stateTerritory.units) {
+      if (vis.lastUnits !== stateTerritory.units || fogged !== (vis.unitText.text === '?')) {
         vis.lastUnits = stateTerritory.units;
-        vis.unitText.setText(stateTerritory.units.toString());
+        vis.unitText.setText(fogged ? '?' : stateTerritory.units.toString());
       }
 
       if (producedUnit) {
@@ -3714,6 +3726,29 @@ export class GameScene extends Phaser.Scene {
         }
       }
     }
+  }
+
+  private isArmyFogged(army: MarchingArmy): boolean {
+    return this.fogEnabled && army.owner !== 'player' && !isArmyCountVisible(army, this.fogVisible, 'player');
+  }
+
+  /** Soft dark veil over a fogged tower; its garrison badge reads "?". */
+  private applyFogVeil(id: string, vis: TerritoryVisual, fogged: boolean): void {
+    let veil = this.fogVeils.get(id);
+    if (!fogged && !veil) return;
+    if (!veil) {
+      const key = this.ensureRadialGradientTexture('cc_fog_veil', '6, 10, 20', [[0, 0.62], [0.55, 0.5], [1, 0]]);
+      if (!key) return;
+      const size = (vis.territory.radius * 2 + 56) * this.boardLayout.scale;
+      veil = this.add.image(0, -10 * this.boardLayout.scale, key).setDisplaySize(size, size).setAlpha(0);
+      vis.container.add(veil);
+      this.fogVeils.set(id, veil);
+    }
+    const alpha = fogged ? 1 : 0;
+    if (veil.alpha === alpha) return;
+    this.tweens.killTweensOf(veil);
+    if (this.reducedMotion) veil.setAlpha(alpha);
+    else this.tweens.add({ targets: veil, alpha, duration: 260, ease: 'Sine.easeOut' });
   }
 
   private initArmyVisualTextures(): void {
@@ -4151,7 +4186,7 @@ export class GameScene extends Phaser.Scene {
         // Put the label ahead of downward marches so it does not cover the rear rank.
         const badgeY = (sin > 0.15 ? 24 : -24) * scale;
         const slotAttribution2v2 = this.twoVTwoArmyShape(army);
-        const initialUnits = slotAttribution2v2
+        const initialUnits = this.isArmyFogged(army) ? '?' : slotAttribution2v2
           ? `${slotAttribution2v2} ${army.units}`
           : `${army.units}`;
         const badgeWidth = Math.max(42, initialUnits.length * 7 + 28);
@@ -4258,9 +4293,14 @@ export class GameScene extends Phaser.Scene {
         visual.container.setPosition(anchor.u, anchor.v);
         visual.container.setDepth(layout.gameplayDepth('convoy', anchor.v));
         const slotAttribution2v2 = this.twoVTwoArmyShape(army);
-        const unitsStr = slotAttribution2v2
+        const armyFogged = this.isArmyFogged(army);
+        const unitsStr = armyFogged ? '?' : slotAttribution2v2
           ? `${slotAttribution2v2} ${army.units}`
           : `${army.units}`;
+        if (this.fogEnabled && visual.fogged !== armyFogged) {
+          visual.fogged = armyFogged;
+          visual.container.setAlpha(armyFogged ? 0.5 : 1);
+        }
         if (visual.badgeText.text !== unitsStr) {
           visual.badgeText.setText(unitsStr);
           const newWidth = Math.max(42, unitsStr.length * 7 + 28);
@@ -5693,6 +5733,8 @@ export class GameScene extends Phaser.Scene {
 
   /** Destroys every territory/army visual (scene restart or 2v2 rematch). */
   private destroyBattlefieldVisuals(): void {
+    // Veils are children of the territory containers destroyed below.
+    this.fogVeils.clear();
     for (const label of this.captureCountdowns.values()) label.destroy();
     this.captureCountdowns.clear();
     this.inspector?.destroy();
@@ -6540,6 +6582,7 @@ export class GameScene extends Phaser.Scene {
     this.abilityTargeting = false;
     for (const ring of this.shieldVisuals.values()) ring.destroy();
     this.shieldVisuals.clear();
+    this.fogVeils.clear();
     this.matchMenuModalContainer?.destroy();
     this.matchMenuModalContainer = undefined;
     this.syncingModalContainer?.destroy();

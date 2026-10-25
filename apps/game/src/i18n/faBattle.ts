@@ -110,7 +110,7 @@ export const faBattle = {
   },
   ability: {
     royal_shield: { name: 'سپر سلطنتی', target: 'روی یکی از برج‌هایت بزن تا 8 ثانیه دو برابر مقاوم شود', used: 'سپر فعال شد!' },
-    supply_drop: { name: 'تدارکات', target: 'روی یکی از برج‌هایت بزن تا 10 سرباز بگیرد', used: '+10 سرباز!' },
+    supply_drop: { name: 'تدارکات', target: 'روی یکی از برج‌هایت بزن تا 10 سرباز بگیرد', used: '10 سرباز رسید!' },
     vanguard_charge: { name: 'یورش', target: 'از برجت به هدف بکش — همه سربازها می‌روند', used: 'یورش!' },
     locked: (seconds: number): string => `قدرت فرمانده تا ${seconds} ثانیه دیگر`,
     ready: 'قدرت فرمانده آماده است — دکمه را بزن!',
