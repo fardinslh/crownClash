@@ -34,16 +34,16 @@ describe('LivePvpController', () => {
     });
 
     it('mapLivePvpError provides friendly messages', () => {
-      expect(mapLivePvpError('invite_not_found')).toContain('Battle room not found');
-      expect(mapLivePvpError('live_match_full')).toContain('already full');
-      expect(mapLivePvpError('live_match_invalid_code')).toContain('Invalid code format');
-      expect(mapLivePvpError('missing_room_code')).toContain('Invalid code format');
-      expect(mapLivePvpError('live_match_finished')).toContain('already finished');
-      expect(mapLivePvpError('live_connection_timeout')).toContain('timed out');
-      expect(mapLivePvpError('invite_create_failed')).toContain('Could not create');
-      expect(mapLivePvpError('invite_join_failed')).toContain('Could not join');
-      expect(mapLivePvpError('connection_closed')).toContain('closed');
-      expect(mapLivePvpError('unknown_custom')).toBe('Error: unknown_custom');
+      expect(mapLivePvpError('invite_not_found')).toContain('اتاق نبرد پیدا نشد');
+      expect(mapLivePvpError('live_match_full')).toContain('ظرفیت این اتاق پر است');
+      expect(mapLivePvpError('live_match_invalid_code')).toContain('قالب کد نامعتبر');
+      expect(mapLivePvpError('missing_room_code')).toContain('قالب کد نامعتبر');
+      expect(mapLivePvpError('live_match_finished')).toContain('قبلاً تمام شده');
+      expect(mapLivePvpError('live_connection_timeout')).toContain('زمان‌بر شد');
+      expect(mapLivePvpError('invite_create_failed')).toContain('ساخت اتاق نبرد ناموفق');
+      expect(mapLivePvpError('invite_join_failed')).toContain('ورود به اتاق ناموفق');
+      expect(mapLivePvpError('connection_closed')).toContain('قطع شد');
+      expect(mapLivePvpError('unknown_custom')).toBe('خطا: unknown_custom');
     });
   });
 
@@ -94,7 +94,7 @@ describe('LivePvpController', () => {
       // Invalid code rejected
       const invalidResult = controller.startJoining('ABC');
       expect(invalidResult.success).toBe(false);
-      expect(controller.getState().errorMessage).toContain('8-character');
+      expect(controller.getState().errorMessage).toContain('۸ حرفی');
       expect(controller.getState().view).toBe('entering_code');
 
       // Valid code accepted
@@ -125,8 +125,8 @@ describe('LivePvpController', () => {
     });
 
     it('maps 2v2 errors to honest copy', () => {
-      expect(mapLivePvpError('two_v2_disabled')).toMatch(/not available yet/i);
-      expect(mapLivePvpError('queue_2v2_failed')).toMatch(/2v2/i);
+      expect(mapLivePvpError('two_v2_disabled')).toContain('در دسترس نیست');
+      expect(mapLivePvpError('queue_2v2_failed')).toContain('۲ در ۲');
     });
 
     it('handles error state and cancellation', () => {
@@ -135,7 +135,7 @@ describe('LivePvpController', () => {
       controller.onError('invite_not_found');
 
       expect(controller.getState().view).toBe('error');
-      expect(controller.getState().errorMessage).toContain('Battle room not found');
+      expect(controller.getState().errorMessage).toContain('اتاق نبرد پیدا نشد');
 
       controller.cancel();
       expect(controller.getState().view).toBe('lobby');

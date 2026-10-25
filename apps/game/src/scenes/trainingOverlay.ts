@@ -32,6 +32,7 @@ import { trainingOverlayPanelY } from '../ui/BattlefieldArenaLayout.js';
 import type { TutorialStepInfo } from '../tutorial/TutorialController.js';
 import { TUTORIAL_STEPS } from '../tutorial/TutorialController.js';
 import { createText, FONT_FAMILY } from '../ui/TextStyles.js';
+import { fa } from '../i18n/fa.js';
 
 /** Overlay depth layering: above the board, below the instruction panel. */
 const SPOTLIGHT_DEPTH = 6;
@@ -549,7 +550,7 @@ export class TrainingOverlayUI {
     const banner = scene.add
       .rectangle(0, 0, bannerW, 84, 0x0b1220, 0.97)
       .setStrokeStyle(3, THEME.gold, 1);
-    const title = createText(scene, 0, -14, '👑 VICTORY!', {
+    const title = createText(scene, 0, -14, fa.training.victory, {
         fontFamily: FONT_FAMILY,
         fontSize: '27px',
         fontStyle: '900',
@@ -559,7 +560,7 @@ export class TrainingOverlayUI {
         resolution: 2,
       })
       .setOrigin(0.5);
-    const subtitle = createText(scene, 0, 22, 'TRAINING COMPLETE — SAVING…', {
+    const subtitle = createText(scene, 0, 22, fa.training.savingSub, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -588,13 +589,13 @@ export class TrainingOverlayUI {
   setCelebrationSaving(saving: boolean): void {
     if (this.destroyed) return;
     this.celebrationSubtitle?.setText(
-      saving ? 'TRAINING COMPLETE — SAVING…' : 'TRAINING COMPLETE!'
+      saving ? fa.training.savingSub : fa.training.complete
     );
   }
 
   showStartingMatch(): void {
     if (this.destroyed) return;
-    this.celebrationSubtitle?.setText('TRAINING COMPLETE — STARTING BATTLE…');
+    this.celebrationSubtitle?.setText(fa.training.starting);
   }
 
   /** Light one-shot confetti burst from the banner (skipped when reduced). */
@@ -657,7 +658,7 @@ export class TrainingOverlayUI {
     this.retryLabel = createText(this.scene,
         LOGICAL_WIDTH / 2,
         this.panel.y,
-        '⚠ COULD NOT SAVE — TAP TO RETRY',
+        fa.training.saveFailed,
         {
           fontFamily: FONT_FAMILY,
           fontSize: '13px',

@@ -29,32 +29,32 @@ export function isValidRoomCode(code: string): boolean {
 export function mapLivePvpError(code: string): string {
   switch (code) {
     case 'two_v2_disabled':
-      return '2v2 is not available yet.\nPlease update your game.';
+      return 'نبرد ۲ در ۲ هنوز در دسترس نیست.\nلطفاً بازی را به‌روزرسانی کن.';
     case 'queue_2v2_failed':
-      return 'Could not find a 2v2 battle.\nPlease try again.';
+      return 'نبرد ۲ در ۲ پیدا نشد.\nدوباره تلاش کن.';
     case 'invite_not_found':
-      return 'Battle room not found.\nCheck the code or create a new room.';
+      return 'اتاق نبرد پیدا نشد.\nکد را بررسی کن یا اتاق جدید بساز.';
     case 'live_match_full':
-      return 'This battle room is already full (2/2 players).';
+      return 'ظرفیت این اتاق پر است (۲ از ۲).';
     case 'live_match_invalid_code':
     case 'missing_room_code':
-      return 'Invalid code format.\nRoom codes are 8 letters and numbers.';
+      return 'قالب کد نامعتبر است.\nکد اتاق ۸ حرف و عدد است.';
     case 'live_match_finished':
-      return 'This battle has already finished.';
+      return 'این نبرد قبلاً تمام شده است.';
     case 'live_match_not_authorized':
-      return 'You are not authorized to join this match.';
+      return 'اجازهٔ ورود به این نبرد را نداری.';
     case 'live_connection_timeout':
-      return 'Connection timed out.\nPlease check your connection and retry.';
+      return 'اتصال زمان‌بر شد.\nاینترنتت را بررسی کن و دوباره تلاش کن.';
     case 'invite_create_failed':
-      return 'Could not create battle room.\nPlease try again.';
+      return 'ساخت اتاق نبرد ناموفق بود.\nدوباره تلاش کن.';
     case 'invite_join_failed':
-      return 'Could not join battle room.\nPlease check code and try again.';
+      return 'ورود به اتاق ناموفق بود.\nکد را بررسی کن و دوباره تلاش کن.';
     case 'matchmaker_failed':
-      return 'Matchmaking failed.\nPlease try again.';
+      return 'یافتن حریف ناموفق بود.\nدوباره تلاش کن.';
     case 'connection_closed':
-      return 'Connection to server was closed.\nPlease try again.';
+      return 'اتصال به سرور قطع شد.\nدوباره تلاش کن.';
     default:
-      return code ? `Error: ${code}` : 'Could not connect to Live PvP.';
+      return code ? `خطا: ${code}` : 'اتصال به نبرد آنلاین برقرار نشد.';
   }
 }
 
@@ -125,11 +125,11 @@ export class LivePvpController {
 
   public startJoining(code?: string): { success: boolean; error?: string } {
     if (this.view === 'creating' || this.view === 'joining' || this.view === 'queueing' || this.view === 'queueing_2v2') {
-      return { success: false, error: 'Request already in progress' };
+      return { success: false, error: 'درخواست قبلی در حال انجام است' };
     }
     const targetCode = code !== undefined ? sanitizeRoomCode(code) : this.roomCode;
     if (!isValidRoomCode(targetCode)) {
-      const err = 'Enter the 8-character invite code';
+      const err = 'کد دعوت ۸ حرفی را وارد کن';
       this.errorMessage = err;
       this.notify();
       return { success: false, error: err };

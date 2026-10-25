@@ -20,6 +20,7 @@ import {
 } from '../ui/Viewport.js';
 import { computeLeagueLayout } from '../ui/HubLayouts.js';
 import { createText, FONT_FAMILY } from '../ui/TextStyles.js';
+import { fa, rankName } from '../i18n/fa.js';
 
 export class LeagueScene extends Phaser.Scene {
   private platform!: PlatformAdapter;
@@ -98,11 +99,11 @@ export class LeagueScene extends Phaser.Scene {
     this.bindPressFeedback(backBg, backText);
     backBg.on('pointerdown', () => this.closeLeague());
 
-    createText(this, LOGICAL_WIDTH / 2, 35, 'LEAGUE ROAD', {
+    createText(this, LOGICAL_WIDTH / 2, 35, fa.league.title, {
       fontFamily: FONT_FAMILY, fontSize: '24px', fontStyle: '900', color: '#f8fafc',
       stroke: '#000000', strokeThickness: 4, resolution: 2,
     }).setOrigin(0.5);
-    createText(this, LOGICAL_WIDTH / 2, 63, 'Rise. Claim. Rule.', {
+    createText(this, LOGICAL_WIDTH / 2, 63, fa.league.subtitle, {
       fontFamily: FONT_FAMILY, fontSize: '12px', fontStyle: 'bold', color: '#93c5fd',
       stroke: '#000000', strokeThickness: 2, resolution: 2,
     }).setOrigin(0.5);
@@ -113,7 +114,7 @@ export class LeagueScene extends Phaser.Scene {
     }).setOrigin(1, 0.5);
     this.refreshCoins();
 
-    this.statusText = createText(this, LOGICAL_WIDTH / 2, 0, 'Reading royal records…', {
+    this.statusText = createText(this, LOGICAL_WIDTH / 2, 0, fa.league.loading, {
       fontFamily: FONT_FAMILY, fontSize: '13px', fontStyle: 'bold', color: '#94a3b8', resolution: 2,
     }).setOrigin(0.5);
 
@@ -168,12 +169,12 @@ export class LeagueScene extends Phaser.Scene {
   }
 
   private showLoadError(): void {
-    this.statusText.setText("Couldn't load League Road.").setColor('#fca5a5').setVisible(true);
+    this.statusText.setText(fa.league.loadFailed).setColor('#fca5a5').setVisible(true);
     this.retryBg?.destroy();
     this.retryText?.destroy();
     this.retryBg = this.add.rectangle(LOGICAL_WIDTH / 2, 0, 160, 44, 0x2563eb, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1).setInteractive({ useHandCursor: true });
-    this.retryText = createText(this, LOGICAL_WIDTH / 2, 0, 'RETRY', {
+    this.retryText = createText(this, LOGICAL_WIDTH / 2, 0, fa.league.retry, {
       fontFamily: FONT_FAMILY, fontSize: '13px', fontStyle: '900', color: '#ffffff', resolution: 2,
     }).setOrigin(0.5);
     this.bindPressFeedback(this.retryBg, this.retryText);
@@ -182,7 +183,7 @@ export class LeagueScene extends Phaser.Scene {
       this.retryBg = undefined;
       this.retryText?.destroy();
       this.retryText = undefined;
-      this.statusText.setText('Reading royal records…').setColor('#94a3b8');
+      this.statusText.setText(fa.league.loading).setColor('#94a3b8');
       void this.loadState();
     });
     this.applyLayout(getSceneViewport(this));
@@ -198,17 +199,17 @@ export class LeagueScene extends Phaser.Scene {
     const rankColor = progress.current.color;
     const summaryBg = this.add.rectangle(0, 0, 352, 88, 0x111827, 0.98)
       .setStrokeStyle(2, rankColor, 0.95);
-    const title = createText(this, -156, -27, `${progress.current.badge}  ${progress.current.name.toUpperCase()}`, {
+    const title = createText(this, -156, -27, `${progress.current.badge}  ${rankName(progress.current.id, progress.current.name)}`, {
       fontFamily: FONT_FAMILY, fontSize: '16px', fontStyle: '900', color: '#f8fafc',
       stroke: '#000000', strokeThickness: 2, resolution: 2,
     }).setOrigin(0, 0.5);
-    const power = createText(this, 156, -27, `POWER ${this.state.kingdomPower}/80`, {
+    const power = createText(this, 156, -27, fa.league.power(this.state.kingdomPower), {
       fontFamily: FONT_FAMILY, fontSize: '11px', fontStyle: '900', color: '#c7d2fe', resolution: 2,
     }).setOrigin(1, 0.5);
     const track = this.add.rectangle(-156, 7, 312, 10, 0x080d18, 1).setOrigin(0, 0.5);
     const fill = this.add.rectangle(-156, 7, Math.max(3, 312 * progress.progress), 8, rankColor, 1).setOrigin(0, 0.5);
     const detail = createText(this, 0, 28,
-      progress.next ? `${this.state.trophies} TROPHIES  •  ${progress.trophiesToNext} TO ${progress.next.name.toUpperCase()}` : `${this.state.trophies} TROPHIES  •  REALM MASTERED`, {
+      progress.next ? fa.league.progressNext(this.state.trophies, progress.trophiesToNext, rankName(progress.next.id, progress.next.name)) : fa.league.progressMax(this.state.trophies), {
         fontFamily: FONT_FAMILY, fontSize: '11px', fontStyle: 'bold', color: '#94a3b8', resolution: 2,
       }).setOrigin(0.5);
     this.summaryContainer.add([summaryBg, title, power, track, fill, detail]);
@@ -225,7 +226,7 @@ export class LeagueScene extends Phaser.Scene {
 
     this.kingdomButtonBg = this.add.rectangle(LOGICAL_WIDTH / 2, 0, 220, 42, 0x111c33, 1)
       .setStrokeStyle(1.5, THEME.gold, 0.8).setInteractive({ useHandCursor: true });
-    this.kingdomButtonText = createText(this, LOGICAL_WIDTH / 2, 0, 'IMPROVE KINGDOM  🏰', {
+    this.kingdomButtonText = createText(this, LOGICAL_WIDTH / 2, 0, fa.league.improveKingdom, {
       fontFamily: FONT_FAMILY, fontSize: '12px', fontStyle: '900', color: '#fde68a',
       stroke: '#000000', strokeThickness: 2, resolution: 2,
     }).setOrigin(0.5);
@@ -256,14 +257,14 @@ export class LeagueScene extends Phaser.Scene {
       color: tier.unlocked ? '#f8fafc' : '#64748b', stroke: '#000000', strokeThickness: 2, resolution: 2,
     }).setOrigin(0, 0.5);
     const rewardText = tier.reward > 0 ? `  •  +${tier.reward} 🪙` : '';
-    const requirement = createText(this, 78, 12, `${current ? 'CURRENT LEAGUE' : `${tier.minTrophies} TROPHIES`}${rewardText}`, {
+    const requirement = createText(this, 78, 12, `${current ? fa.league.currentLeague : fa.league.trophies(tier.minTrophies)}${rewardText}`, {
       fontFamily: FONT_FAMILY, fontSize: '11px', fontStyle: 'bold',
       color: current ? '#93c5fd' : '#94a3b8', resolution: 2,
     }).setOrigin(0, 0.5);
     const button = this.add.rectangle(326, 0, 86, 36, claimable ? 0x2563eb : 0x202b3d, 1)
       .setStrokeStyle(1.5, claimable ? 0x60a5fa : tier.claimed ? THEME.gold : 0x475569, 1);
     const buttonText = createText(this, 326, 0,
-      pending ? '…' : tier.reward === 0 ? 'BEGUN ✓' : tier.claimed ? 'CLAIMED ✓' : claimable ? 'CLAIM' : 'LOCKED', {
+      pending ? '…' : tier.reward === 0 ? fa.league.begun : tier.claimed ? fa.league.claimed : claimable ? fa.league.claim : fa.league.locked, {
         fontFamily: FONT_FAMILY, fontSize: '11px', fontStyle: '900',
         color: tier.claimed ? '#fde68a' : claimable ? '#ffffff' : '#94a3b8',
         stroke: '#000000', strokeThickness: 1.5, resolution: 2,
@@ -302,7 +303,7 @@ export class LeagueScene extends Phaser.Scene {
     } catch (error) {
       console.error('[LeagueScene] Reward claim failed:', error);
       this.platform.hapticNotification('error');
-      this.showToast("Couldn't claim reward. Please try again.");
+      this.showToast(fa.league.claimFailed);
     } finally {
       if (this.active && visitId === this.visitId) {
         this.pendingRankId = null;
@@ -316,7 +317,7 @@ export class LeagueScene extends Phaser.Scene {
     this.platform.hapticNotification('success');
     const burst = this.add.container(LOGICAL_WIDTH / 2, 350).setDepth(250);
     const glow = this.add.circle(0, 0, 72, THEME.gold, 0.2);
-    const text = createText(this, 0, 0, `LEAGUE BOUNTY\n+${reward} 🪙`, {
+    const text = createText(this, 0, 0, `${fa.league.bounty}\n+${reward} 🪙`, {
       fontFamily: FONT_FAMILY, fontSize: '20px', fontStyle: '900', color: '#fde68a',
       stroke: '#000000', strokeThickness: 4, align: 'center', resolution: 2,
     }).setOrigin(0.5);
@@ -334,9 +335,9 @@ export class LeagueScene extends Phaser.Scene {
   }
 
   private failureMessage(reason?: string): string {
-    if (reason === 'not_unlocked') return 'Earn more trophies to unlock this reward.';
-    if (reason === 'already_claimed') return 'This league reward was already claimed.';
-    return "Couldn't claim reward. Please try again.";
+    if (reason === 'not_unlocked') return fa.league.notUnlocked;
+    if (reason === 'already_claimed') return fa.league.alreadyClaimed;
+    return fa.league.claimFailed;
   }
 
   private showToast(message: string): void {
@@ -349,7 +350,7 @@ export class LeagueScene extends Phaser.Scene {
   private closeLeague(): void {
     if (this.isExiting) return;
     if (this.pendingRankId) {
-      this.showToast('Finishing your reward claim…');
+      this.showToast(fa.league.finishingClaim);
       return;
     }
     this.isExiting = true;

@@ -52,7 +52,7 @@ describe('2v2 slot identity', () => {
   it('keeps the YOU marker on a compact second line', () => {
     const badges = computeTwoVTwoSlotBadges(1);
     expect(formatTwoVTwoSlotBadge(badges[0])).toBe('A1 ●');
-    expect(formatTwoVTwoSlotBadge(badges[1])).toBe('A2 ▲\n★ YOU');
+    expect(formatTwoVTwoSlotBadge(badges[1])).toBe('A2 ▲\n★ تو');
   });
 });
 
@@ -102,14 +102,14 @@ describe('teammate banner copy', () => {
     const badges = computeTwoVTwoSlotBadges(1);
     const ally = badges.find((badge) => badge.isAlly)!;
     expect(formatTeammateBanner(ally, 'Commander_1234', 'Cmdr 1234')).toBe(
-      '● A1 · Ally: Cmdr 1234 · shared bases'
+      '● A1 · هم‌تیمی: Cmdr 1234 · پایگاه‌های مشترک'
     );
   });
 
   it('falls back to Ally when the name is blank', () => {
     const badges = computeTwoVTwoSlotBadges(0);
     const ally = badges.find((badge) => badge.isAlly)!;
-    expect(formatTeammateBanner(ally, '', '')).toContain('Ally: Ally');
+    expect(formatTeammateBanner(ally, '', '')).toContain('هم‌تیمی: هم‌تیمی');
   });
 });
 

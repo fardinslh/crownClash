@@ -197,12 +197,12 @@ describe('MatchMenuController', () => {
   describe('Mode-specific confirmation messaging', () => {
     it('returns lost progress message for bot mode', () => {
       const { controller } = createController({ liveMode: false });
-      expect(controller.getConfirmationMessage()).toBe('Current battle progress will be lost.');
+      expect(controller.getConfirmationMessage()).toBe('پیشرفت این نبرد از بین می‌رود.');
     });
 
     it('returns forfeit warning message for live mode', () => {
       const { controller } = createController({ liveMode: true });
-      expect(controller.getConfirmationMessage()).toBe('Leaving forfeits this match.');
+      expect(controller.getConfirmationMessage()).toBe('خروج یعنی باخت در این بازی.');
     });
   });
 
@@ -319,7 +319,7 @@ describe('MatchMenuController', () => {
 
     it('keeps the default live message without an override', () => {
       const { controller } = createController({ liveMode: true });
-      expect(controller.getConfirmationMessage()).toBe('Leaving forfeits this match.');
+      expect(controller.getConfirmationMessage()).toBe('خروج یعنی باخت در این بازی.');
     });
   });
 });

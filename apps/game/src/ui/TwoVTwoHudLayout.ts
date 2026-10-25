@@ -1,5 +1,6 @@
 import type { Slot, TeamId } from '@crown-clash/game-core';
 import { TWO_V_TWO_SLOTS } from '@crown-clash/game-core';
+import { faBattle } from '../i18n/faBattle.js';
 import type { Rect } from './HudLayout.js';
 import { rectanglesIntersect } from './HudLayout.js';
 
@@ -57,7 +58,7 @@ export function computeTwoVTwoSlotBadges(mySlot: Slot): readonly TwoVTwoSlotBadg
 /** Compact badge copy that cannot spill into the adjacent 46px badge. */
 export function formatTwoVTwoSlotBadge(badge: TwoVTwoSlotBadge): string {
   return badge.isYou
-    ? `${badge.label} ${badge.shape}\n★ YOU`
+    ? `${badge.label} ${badge.shape}\n${faBattle.twoVTwo.youMarker}`
     : `${badge.label} ${badge.shape}`;
 }
 
@@ -182,8 +183,8 @@ export function formatTeammateBanner(
   allyName: string,
   formattedName: string
 ): string {
-  const name = (formattedName || allyName || 'Ally').trim() || 'Ally';
-  return `${ally.shape} ${ally.label} · Ally: ${name} · shared bases`;
+  const name = (formattedName || allyName || faBattle.names.ally).trim() || faBattle.names.ally;
+  return faBattle.twoVTwo.banner(ally.shape, ally.label, name);
 }
 
 /** The shared-territory cue glyph drawn on team-owned fortresses. */

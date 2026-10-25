@@ -29,6 +29,7 @@ import {
 } from '../ui/Viewport.js';
 import { computeMenuLayout } from '../ui/MenuLayout.js';
 import { createText, FONT_FAMILY } from '../ui/TextStyles.js';
+import { commanderCopy, fa, rankName } from '../i18n/fa.js';
 
 export class MenuScene extends Phaser.Scene {
   private liveClient?: LiveMatchClient;
@@ -181,7 +182,7 @@ export class MenuScene extends Phaser.Scene {
       ease: 'Sine.easeInOut',
     });
 
-    createText(this, LOGICAL_WIDTH / 2, layout.titleY, 'CROWN CLASH', {
+    createText(this, LOGICAL_WIDTH / 2, layout.titleY, fa.menu.title, {
         fontFamily: FONT_FAMILY,
         fontSize: '34px',
         fontStyle: '900',
@@ -192,7 +193,7 @@ export class MenuScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    createText(this, LOGICAL_WIDTH / 2, layout.subtitleY, 'TAKE THE REALM', {
+    createText(this, LOGICAL_WIDTH / 2, layout.subtitleY, fa.menu.subtitle, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -206,7 +207,7 @@ export class MenuScene extends Phaser.Scene {
     this.add
       .rectangle(LOGICAL_WIDTH / 2, layout.rankY, 280, 34, 0x111c33, 0.95)
       .setStrokeStyle(1.5, rank.color, 0.9);
-    createText(this, LOGICAL_WIDTH / 2, layout.rankY, `${rank.badge}  ${rank.name.toUpperCase()}  •  🏆 ${career.trophies}`, {
+    createText(this, LOGICAL_WIDTH / 2, layout.rankY, `${rank.badge}  ${rankName(rank.id, rank.name)}  •  🏆 ${career.trophies}`, {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: 'bold',
@@ -229,9 +230,9 @@ export class MenuScene extends Phaser.Scene {
         this.scene.start('RealmScene');
       });
     }
-    createText(this, LOGICAL_WIDTH / 2 - 72, layout.statsY - 10, this.registry.get('realmPilot') ? 'GOLD · REALM ›' : 'GOLD', {
+    createText(this, LOGICAL_WIDTH / 2 - 72, layout.statsY - 10, this.registry.get('realmPilot') ? fa.menu.coinsRealm : fa.menu.coins, {
         fontFamily: FONT_FAMILY,
-        fontSize: '10px',
+        fontSize: '11px',
         fontStyle: 'bold',
         color: '#94a3b8',
         stroke: '#000000',
@@ -253,9 +254,9 @@ export class MenuScene extends Phaser.Scene {
     this.add
       .rectangle(LOGICAL_WIDTH / 2 + 72, layout.statsY, 124, 44, 0x0f172a, 0.95)
       .setStrokeStyle(1.5, 0x818cf8, 0.85);
-    createText(this, LOGICAL_WIDTH / 2 + 72, layout.statsY - 10, 'WINS', {
+    createText(this, LOGICAL_WIDTH / 2 + 72, layout.statsY - 10, fa.menu.wins, {
         fontFamily: FONT_FAMILY,
-        fontSize: '10px',
+        fontSize: '11px',
         fontStyle: 'bold',
         color: '#94a3b8',
         stroke: '#000000',
@@ -275,9 +276,9 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     const commander = getCommander(career.selectedCommanderId);
-    createText(this, LOGICAL_WIDTH / 2, layout.doctrineY, `DOCTRINE  •  ${commander.name.toUpperCase()}`, {
+    createText(this, LOGICAL_WIDTH / 2, layout.doctrineY, fa.menu.commanderLine(commanderCopy(commander.id, commander).name), {
         fontFamily: FONT_FAMILY,
-        fontSize: '10px',
+        fontSize: '11px',
         fontStyle: '900',
         color: '#93c5fd',
         resolution: 2,
@@ -288,7 +289,7 @@ export class MenuScene extends Phaser.Scene {
       .rectangle(LOGICAL_WIDTH / 2, layout.playY, 250, 56, 0x2563eb, 1)
       .setStrokeStyle(2.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
-    const playText = createText(this, LOGICAL_WIDTH / 2, layout.playY, 'PLAY  ⚔', {
+    const playText = createText(this, LOGICAL_WIDTH / 2, layout.playY, fa.menu.play, {
         fontFamily: FONT_FAMILY,
         fontSize: '22px',
         fontStyle: '900',
@@ -320,7 +321,7 @@ export class MenuScene extends Phaser.Scene {
       }
       this.isTransitioning = true;
       playBg.disableInteractive();
-      playText.setText('SCOUTING...');
+      playText.setText(fa.menu.scouting);
       const startMatch = async () => {
         if (!this.registry.get('realmPilot')) return { botMatch: await startChosenBotMatch(this, careerManager, platform) };
         return new PilotClient(platform).nextMatch(() => startChosenBotMatch(this, careerManager, platform));
@@ -335,7 +336,7 @@ export class MenuScene extends Phaser.Scene {
         if (!cancelled) console.error('[MenuScene] Match start failed:', error);
         this.isTransitioning = false;
         if (!this.scene.isActive()) return;
-        playText.setText(cancelled ? 'PLAY  ⚔' : 'TRY AGAIN');
+        playText.setText(cancelled ? fa.menu.play : fa.menu.tryAgain);
         playBg.setInteractive({ useHandCursor: true });
         if (!cancelled) platform.hapticNotification('error');
       });
@@ -354,7 +355,7 @@ export class MenuScene extends Phaser.Scene {
     const liveText = createText(this,
         LOGICAL_WIDTH / 2,
         layout.livePvpY,
-        careerManager.isRemoteConnected() ? 'LIVE PVP  ⚔' : 'LIVE PVP OFFLINE',
+        careerManager.isRemoteConnected() ? fa.menu.livePvp : fa.menu.livePvpOffline,
         {
           fontFamily: FONT_FAMILY,
           fontSize: '14px',
@@ -389,7 +390,7 @@ export class MenuScene extends Phaser.Scene {
         .rectangle(LOGICAL_WIDTH / 2, layout.trainingY, 250, 44, 0x1c1830, 1)
         .setStrokeStyle(1.5, THEME.gold, 0.9)
         .setInteractive({ useHandCursor: true });
-      const trainingText = createText(this, LOGICAL_WIDTH / 2, layout.trainingY, 'TRAINING  •  REQUIRED', {
+      const trainingText = createText(this, LOGICAL_WIDTH / 2, layout.trainingY, fa.menu.trainingRequired, {
           fontFamily: FONT_FAMILY,
           fontSize: '12px',
           fontStyle: '900',
@@ -408,7 +409,7 @@ export class MenuScene extends Phaser.Scene {
       .rectangle(56, layout.navigationY, 82, 44, dailyAvailable ? 0x1c1830 : 0x273449, 1)
       .setStrokeStyle(1.5, dailyAvailable ? THEME.gold : 0x475569, 0.9)
       .setInteractive({ useHandCursor: true });
-    const dailyText = createText(this, 56, layout.navigationY, dailyAvailable ? 'DAILY' : 'OFFLINE', {
+    const dailyText = createText(this, 56, layout.navigationY, dailyAvailable ? fa.menu.daily : fa.menu.offline, {
         fontFamily: FONT_FAMILY,
         fontSize: dailyAvailable ? '12px' : '10px',
         fontStyle: '900',
@@ -436,7 +437,7 @@ export class MenuScene extends Phaser.Scene {
       .rectangle(152, layout.navigationY, 82, 44, 0x151d31, 1)
       .setStrokeStyle(1.5, 0x818cf8, 0.9)
       .setInteractive({ useHandCursor: true });
-    const leagueText = createText(this, 152, layout.navigationY, 'LEAGUE', {
+    const leagueText = createText(this, 152, layout.navigationY, fa.menu.league, {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: '900',
@@ -460,7 +461,7 @@ export class MenuScene extends Phaser.Scene {
       .rectangle(248, layout.navigationY, 82, 44, 0x111c33, 1)
       .setStrokeStyle(1.5, THEME.gold, 0.8)
       .setInteractive({ useHandCursor: true });
-    const kingdomText = createText(this, 248, layout.navigationY, 'KINGDOM', {
+    const kingdomText = createText(this, 248, layout.navigationY, fa.menu.kingdom, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: '900',
@@ -484,9 +485,9 @@ export class MenuScene extends Phaser.Scene {
       .rectangle(344, layout.navigationY, 82, 44, 0x172033, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 0.85)
       .setInteractive({ useHandCursor: true });
-    const commanderText = createText(this, 344, layout.navigationY, 'COUNCIL', {
+    const commanderText = createText(this, 344, layout.navigationY, fa.menu.council, {
         fontFamily: FONT_FAMILY,
-        fontSize: '10px',
+        fontSize: '11px',
         fontStyle: '900',
         color: '#bfdbfe',
         stroke: '#000000',
@@ -513,7 +514,12 @@ export class MenuScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5)
-    muteBg.setInteractive({ useHandCursor: true });
+    // 44x44 touch target around the smaller 40x36 visual.
+    muteBg.setInteractive({
+      hitArea: new Phaser.Geom.Rectangle(-2, -4, 44, 44),
+      hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+      useHandCursor: true,
+    });
     muteBg.on('pointerdown', () => {
       const muted = sounds.toggleMute();
       muteBtn.setText(muted ? '🔇' : '🔊');
@@ -638,7 +644,7 @@ export class MenuScene extends Phaser.Scene {
       cleanupJoinInput();
       overlay.destroy();
       raidButton.setInteractive({ useHandCursor: true });
-      raidText.setText('LIVE PVP  ⚔');
+      raidText.setText(fa.menu.livePvp);
     };
 
     // ---------------------------------------------------------------- LOBBY VIEW
@@ -651,31 +657,31 @@ export class MenuScene extends Phaser.Scene {
       .setStrokeStyle(2, show2v2Entry ? THEME.twoVTwoAccent : 0x60a5fa, 0.95);
 
     const lobbyTitleY = show2v2Entry ? -148 : -120;
-    const lobbyTitle = TS('LIVE PVP', 0, lobbyTitleY, '22px', '#bfdbfe', { fontStyle: '900', strokeThickness: 3 });
-    const lobbySubtitle = TS('Challenge a Commander in real time', 0, lobbyTitleY + 28, '10px', '#94a3b8', { strokeThickness: 1 });
+    const lobbyTitle = TS(fa.lobby.title, 0, lobbyTitleY, '22px', '#bfdbfe', { fontStyle: '900', strokeThickness: 3 });
+    const lobbySubtitle = TS(fa.lobby.subtitle, 0, lobbyTitleY + 28, '10px', '#94a3b8', { strokeThickness: 1 });
 
     const quickMatchY = show2v2Entry ? -76 : -42;
     const { bg: queueBg, txt: queueTxt } = makeBtn(
-      0, quickMatchY, 260, 52, 0x2563eb, 0x60a5fa, 'QUICK MATCH  ⚔', '#ffffff', '14px'
+      0, quickMatchY, 260, 52, 0x2563eb, 0x60a5fa, fa.lobby.quickMatch, '#ffffff', '14px'
     );
     // 2v2 CASUAL entry — reachable only when the flag is on (Phase 5).
     const twoVTwoY = quickMatchY + 58;
     const twoVTwoEntry = show2v2Entry
       ? makeBtn(
           0, twoVTwoY, 260, 48, 0x17123a, THEME.twoVTwoAccent,
-          '2V2 CASUAL  🛡', '#c7d2fe', '13px'
+          fa.lobby.twoVTwo, '#c7d2fe', '13px'
         )
       : null;
     const twoVTwoSub = show2v2Entry
-      ? TS('team up · no trophy changes', 0, twoVTwoY + 31, '9px', '#818cf8', { strokeThickness: 1 })
+      ? TS(fa.lobby.twoVTwoSub, 0, twoVTwoY + 31, '9px', '#818cf8', { strokeThickness: 1 })
       : null;
     const createY = show2v2Entry ? twoVTwoY + 56 : 20;
     const { bg: createBg, txt: createTxt } = makeBtn(
-      0, createY, 260, 48, 0x0e2a1a, 0x34d399, 'CREATE BATTLE  🔗', '#6ee7b7', '13px'
+      0, createY, 260, 48, 0x0e2a1a, 0x34d399, fa.lobby.createBattle, '#6ee7b7', '13px'
     );
     const joinY = createY + 55;
     const { bg: joinBg, txt: joinTxt } = makeBtn(
-      0, joinY, 260, 48, 0x11153a, 0x818cf8, 'JOIN BATTLE  ↗', '#c7d2fe', '13px'
+      0, joinY, 260, 48, 0x11153a, 0x818cf8, fa.lobby.joinBattle, '#c7d2fe', '13px'
     );
 
     // Close ✕ in top-right of lobby card
@@ -700,8 +706,8 @@ export class MenuScene extends Phaser.Scene {
     const waitCard = this.add
       .rectangle(0, 0, 320, 340, 0x0c1322, 0.99)
       .setStrokeStyle(2, 0x34d399, 0.9);
-    const waitTitle = TS('BATTLE ROOM CREATED', 0, -145, '14px', '#6ee7b7', { fontStyle: '900', strokeThickness: 2 });
-    const waitSubtitle = TS('Share this code with your opponent', 0, -122, '10px', '#94a3b8', { strokeThickness: 1 });
+    const waitTitle = TS(fa.lobby.roomCreated, 0, -145, '14px', '#6ee7b7', { fontStyle: '900', strokeThickness: 2 });
+    const waitSubtitle = TS(fa.lobby.shareCode, 0, -122, '10px', '#94a3b8', { strokeThickness: 1 });
 
     // Big mono room-code badge
     const codeBadgeBg = this.add
@@ -720,15 +726,15 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     const { bg: copyBg, txt: copyTxt } = makeBtn(
-      -67, -5, 120, 44, 0x1c2a1c, 0x34d399, '📋  COPY', '#86efac', '12px'
+      -67, -5, 120, 44, 0x1c2a1c, 0x34d399, fa.lobby.copy, '#86efac', '12px'
     );
     const { bg: shareBg, txt: shareTxt } = makeBtn(
-      67, -5, 120, 44, 0x111c33, 0x60a5fa, '🔗  SHARE', '#93c5fd', '12px'
+      67, -5, 120, 44, 0x111c33, 0x60a5fa, fa.lobby.share, '#93c5fd', '12px'
     );
 
     // Pulsing waiting indicator
     const waitDot = TS('⏳', 0, 52, '18px', '#fbbf24');
-    const waitStatus = TS('WAITING FOR OPPONENT…', 0, 80, '11px', '#94a3b8', { strokeThickness: 1 });
+    const waitStatus = TS(fa.lobby.waitingOpponent, 0, 80, '11px', '#94a3b8', { strokeThickness: 1 });
     this.tweens.add({
       targets: waitDot,
       alpha: 0.3,
@@ -739,7 +745,7 @@ export class MenuScene extends Phaser.Scene {
     });
 
     const { bg: leaveRoomBg, txt: leaveRoomTxt } = makeBtn(
-      0, 130, 180, 42, 0x1f0a0a, 0xf87171, '✕  LEAVE ROOM', '#fca5a5', '12px'
+      0, 130, 180, 42, 0x1f0a0a, 0xf87171, fa.lobby.leaveRoom, '#fca5a5', '12px'
     );
 
     waitingView.add([
@@ -757,8 +763,8 @@ export class MenuScene extends Phaser.Scene {
     const joinCard = this.add
       .rectangle(0, -110, 300, 210, 0x0c1322, 0.99)
       .setStrokeStyle(2, 0x818cf8, 0.9);
-    const joinTitle = TS('ENTER INVITE CODE', 0, -200, '14px', '#c7d2fe', { fontStyle: '900', strokeThickness: 2 });
-    const joinSubtitle = TS('8-character code your friend shared', 0, -182, '10px', '#94a3b8', { strokeThickness: 1 });
+    const joinTitle = TS(fa.lobby.enterCode, 0, -200, '14px', '#c7d2fe', { fontStyle: '900', strokeThickness: 2 });
+    const joinSubtitle = TS(fa.lobby.codeHint, 0, -182, '10px', '#94a3b8', { strokeThickness: 1 });
 
     // Keep the keyboard input invisible. Phaser renders the visible field so
     // it always shares the modal's coordinate system on every viewport.
@@ -769,7 +775,7 @@ export class MenuScene extends Phaser.Scene {
     joinInput.autocapitalize = 'characters';
     joinInput.spellcheck = false;
     joinInput.inputMode = 'text';
-    joinInput.setAttribute('aria-label', 'Invite code');
+    joinInput.setAttribute('aria-label', fa.lobby.inviteCodeLabel);
     joinInput.style.cssText = [
       'position: fixed',
       'display: none',
@@ -803,7 +809,7 @@ export class MenuScene extends Phaser.Scene {
       .rectangle(0, -123, 230, 46, 0x0f172a, 1)
       .setStrokeStyle(2, 0x818cf8, 1)
       .setInteractive({ useHandCursor: true });
-    const joinInputText = createText(this, 0, -123, 'TAP TO TYPE', {
+    const joinInputText = createText(this, 0, -123, fa.lobby.tapToType, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: '700',
@@ -814,10 +820,10 @@ export class MenuScene extends Phaser.Scene {
     const joinErrorText = TS('', 0, -87, '10px', '#f87171', { strokeThickness: 1 });
 
     const { bg: joinSubmitBg, txt: joinSubmitTxt } = makeBtn(
-      55, -50, 130, 42, 0x2563eb, 0x60a5fa, 'JOIN  ↗', '#ffffff', '13px'
+      55, -50, 130, 42, 0x2563eb, 0x60a5fa, fa.lobby.join, '#ffffff', '13px'
     );
     const { bg: joinCancelBg, txt: joinCancelTxt } = makeBtn(
-      -75, -50, 100, 42, 0x1a1a2e, 0x475569, 'CANCEL', '#94a3b8', '12px'
+      -75, -50, 100, 42, 0x1a1a2e, 0x475569, fa.lobby.cancel, '#94a3b8', '12px'
     );
 
     joinView.add([
@@ -833,7 +839,7 @@ export class MenuScene extends Phaser.Scene {
       .rectangle(0, 0, 280, 160, 0x0c1322, 0.99)
       .setStrokeStyle(2, 0x60a5fa, 0.8);
     const loadSpinner = TS('⏳', 0, -30, '32px', '#60a5fa');
-    const loadText = TS('CONNECTING…', 0, 18, '13px', '#93c5fd', { strokeThickness: 2 });
+    const loadText = TS(fa.lobby.connecting, 0, 18, '13px', '#93c5fd', { strokeThickness: 2 });
     this.tweens.add({
       targets: loadSpinner,
       angle: 360,
@@ -841,7 +847,7 @@ export class MenuScene extends Phaser.Scene {
       repeat: -1,
     });
     const { bg: loadCancelBg, txt: loadCancelTxt } = makeBtn(
-      0, 58, 140, 38, 0x1f0a0a, 0xf87171, 'CANCEL', '#fca5a5', '12px'
+      0, 58, 140, 38, 0x1f0a0a, 0xf87171, fa.lobby.cancel, '#fca5a5', '12px'
     );
     loadingView.add([loadCard, loadSpinner, loadText, loadCancelBg, loadCancelTxt]);
 
@@ -863,10 +869,10 @@ export class MenuScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     const { bg: retryBg, txt: retryTxt } = makeBtn(
-      -70, 62, 120, 42, 0x2563eb, 0x60a5fa, '↺  RETRY', '#ffffff', '12px'
+      -70, 62, 120, 42, 0x2563eb, 0x60a5fa, fa.lobby.retry, '#ffffff', '12px'
     );
     const { bg: errBackBg, txt: errBackTxt } = makeBtn(
-      70, 62, 120, 42, 0x111c33, 0x475569, '← BACK', '#94a3b8', '12px'
+      70, 62, 120, 42, 0x111c33, 0x475569, fa.lobby.back, '#94a3b8', '12px'
     );
     errorView.add([errCard, errIcon, errMsg, retryBg, retryTxt, errBackBg, errBackTxt]);
 
@@ -889,11 +895,11 @@ export class MenuScene extends Phaser.Scene {
         case 'queueing_2v2': {
           loadingView.setVisible(true);
           loadText.setText(
-            view === 'creating' ? 'CREATING ROOM…' :
-            view === 'joining'  ? 'JOINING ROOM…' :
+            view === 'creating' ? fa.lobby.creatingRoom :
+            view === 'joining'  ? fa.lobby.joiningRoom :
             view === 'queueing_2v2'
-                                ? 'FINDING 2v2 BATTLE…\n4 COMMANDERS NEEDED'
-            :                     'FINDING OPPONENT…'
+                                ? fa.lobby.finding2v2
+            :                     fa.lobby.findingOpponent
           );
           const cancelMatchmaking = (): void => {
             this.liveClient?.close();
@@ -910,10 +916,10 @@ export class MenuScene extends Phaser.Scene {
             : '--------';
           codeText.setText(formatted);
           if (opts.copied) {
-            copyTxt.setText('COPIED! ✓');
+            copyTxt.setText(fa.lobby.copied);
             copyBg.setFillStyle(0x065f46, 1);
           } else {
-            copyTxt.setText('📋  COPY');
+            copyTxt.setText(fa.lobby.copy);
             copyBg.setFillStyle(0x1c2a1c, 1);
           }
           const backToLobby = (): void => controller.cancel();
@@ -930,7 +936,7 @@ export class MenuScene extends Phaser.Scene {
         }
         case 'error': {
           errorView.setVisible(true);
-          errMsg.setText(opts.error ?? 'Could not connect to Live PvP.');
+          errMsg.setText(opts.error ?? fa.lobby.connectFailed);
           const errBack = (): void => {
             this.liveClient?.close();
             this.liveClient = undefined;
@@ -1072,7 +1078,7 @@ export class MenuScene extends Phaser.Scene {
       window.setTimeout(() => {
         joinInput.value = '';
         joinInputText
-          .setText('TAP TO TYPE')
+          .setText(fa.lobby.tapToType)
           .setFontSize('11px')
           .setColor('#94a3b8')
           .setLetterSpacing(0);
@@ -1108,8 +1114,9 @@ export class MenuScene extends Phaser.Scene {
       const code = state.roomCode;
       const url = new URL(window.location.href);
       url.searchParams.set('liveRoom', code);
+      trackEvent({ name: 'share_opened', source: 'live_invite' });
       void platform.share({
-        text: `Join my live Crown Clash battle! Code: ${code.slice(0,4)}-${code.slice(4)}`,
+        text: fa.lobby.shareText(`${code.slice(0, 4)}-${code.slice(4)}`),
         url: url.toString(),
       });
       platform.hapticSelection();
@@ -1129,7 +1136,7 @@ export class MenuScene extends Phaser.Scene {
       const sanitized = sanitizeRoomCode(joinInputEl.value);
       if (joinInputEl.value !== sanitized) joinInputEl.value = sanitized;
       joinInputText
-        .setText(sanitized || 'TAP TO TYPE')
+        .setText(sanitized || fa.lobby.tapToType)
         .setFontSize(sanitized ? '22px' : '11px')
         .setColor(sanitized ? '#ffffff' : '#94a3b8')
         .setLetterSpacing(sanitized ? 5 : 0);
@@ -1151,7 +1158,7 @@ export class MenuScene extends Phaser.Scene {
       const code = sanitizeRoomCode(joinInputEl.value);
       const result = controller.startJoining(code);
       if (!result.success) {
-        joinErrorText.setText(result.error ?? 'Invalid code.');
+        joinErrorText.setText(result.error ?? fa.lobby.invalidCode);
         platform.hapticNotification('error');
         return;
       }
@@ -1203,7 +1210,7 @@ export class MenuScene extends Phaser.Scene {
       LOGICAL_HEIGHT,
       0x070b14
     );
-    createText(this, LOGICAL_WIDTH / 2, 250, 'CROWN CLASH', {
+    createText(this, LOGICAL_WIDTH / 2, 250, fa.menu.title, {
         fontFamily: FONT_FAMILY,
         fontSize: '30px',
         fontStyle: '900',
@@ -1213,7 +1220,7 @@ export class MenuScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
-    createText(this, LOGICAL_WIDTH / 2, 330, 'Connection required to load your realm.', {
+    createText(this, LOGICAL_WIDTH / 2, 330, fa.menu.connectionRequired, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -1226,7 +1233,7 @@ export class MenuScene extends Phaser.Scene {
       .rectangle(LOGICAL_WIDTH / 2, 410, 190, 50, 0x2563eb, 1)
       .setStrokeStyle(2, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
-    const retryText = createText(this, LOGICAL_WIDTH / 2, 410, 'RETRY', {
+    const retryText = createText(this, LOGICAL_WIDTH / 2, 410, fa.menu.retry, {
         fontFamily: FONT_FAMILY,
         fontSize: '15px',
         fontStyle: '900',

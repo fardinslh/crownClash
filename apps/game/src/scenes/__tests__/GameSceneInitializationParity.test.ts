@@ -864,7 +864,7 @@ describe('First-launch training integration', () => {
     performGuidedActions(scene);
     await flushMicrotasks();
     expect(storage.get(key)).toBe('5');
-    expect(s.trainingOverlay.celebrationSubtitle.text).toContain('SAVING');
+    expect(s.trainingOverlay.celebrationSubtitle.text).toContain('در حال ذخیره');
     await vi.advanceTimersByTimeAsync(TRAINING_REQUEST_TIMEOUT_MS - 1);
     expect(s.trainingCompletionPending).toBe(true);
     await vi.advanceTimersByTimeAsync(1);
@@ -896,10 +896,7 @@ describe('First-launch training integration', () => {
     });
   });
 
-  it('the first bot match waits for a difficulty choice without timing out the player', async () => {
-    vi.useFakeTimers();
-    let choose!: (difficulty: 'easy' | null) => void;
-    chooseBotDifficultyMock.mockImplementationOnce(() => new Promise(resolve => { choose = resolve; }));
+  it('the first bot match after training starts on Easy without a difficulty picker', async () => {
     const startBotMatch = vi.fn().mockResolvedValue({ matchId: 'first_easy', battlefieldId: 'crown_cross', botDifficulty: 'easy' });
     const scene = await bootTrainingScene(makeTrainingApi({
       completeTutorial: async () => ({ ...createDefaultCareer('training_player'), tutorialCompleted: true }),
@@ -907,11 +904,7 @@ describe('First-launch training integration', () => {
     }));
     performGuidedActions(scene);
     await flushMicrotasks();
-    await vi.advanceTimersByTimeAsync(TRAINING_REQUEST_TIMEOUT_MS * 2);
-    expect(startBotMatch).not.toHaveBeenCalled();
-    expect((scene as any).scene.start).not.toHaveBeenCalled();
-    choose('easy');
-    await flushMicrotasks();
+    expect(chooseBotDifficultyMock).not.toHaveBeenCalled();
     expect(startBotMatch).toHaveBeenCalledExactlyOnceWith('easy');
     expect((scene as any).scene.start).toHaveBeenCalledWith('GameScene', {
       source: 'menu', botMatch: { matchId: 'first_easy', battlefieldId: 'crown_cross', botDifficulty: 'easy' },
@@ -927,7 +920,7 @@ describe('First-launch training integration', () => {
     const s = scene as any;
     performGuidedActions(scene);
     await flushMicrotasks();
-    expect(s.trainingOverlay.celebrationSubtitle.text).toContain('STARTING BATTLE');
+    expect(s.trainingOverlay.celebrationSubtitle.text).toContain('نبرد اول');
     expect(s.careerManager.getCareer().tutorialCompleted).toBe(true);
     expect(trackedNames().filter(name => name === 'tutorial_completed')).toHaveLength(1);
     expect(s.scene.start).not.toHaveBeenCalled();
@@ -1065,8 +1058,8 @@ describe('production C scene integration',()=>{
     for(const [event,handler] of s.input.on.mock.calls)if(event==='pointerdown')handler(pointer);
     for(const [event,handler] of s.input.on.mock.calls)if(event==='pointerup')handler(pointer);
     expect(s.inspectionId).toBe('p_base');expect(s.inspector.visible).toBe(true);
-    expect(s.inspectorText.text).toContain('PROD 1.20/s');expect(s.matchActions).toEqual([]);
-    t.owner='enemy';s.updateTerritoryInspection();expect(s.inspectorText.text).toContain('enemy');s.cleanup();
+    expect(s.inspectorText.text).toContain('تولید 1.20/s');expect(s.matchActions).toEqual([]);
+    t.owner='enemy';s.updateTerritoryInspection();expect(s.inspectorText.text).toContain('دشمن');s.cleanup();
   });
   it('keeps multi-select as two real, recorded production commands',()=>{
     const scene=new GameScene();scene.registry.set('platform',new BrowserPlatformAdapter());
@@ -1098,7 +1091,7 @@ describe('tactical main-game integration', () => {
     emit('pointermove', 'n_bot_left');
     emit('pointermove', 'n_center');
     expect(scene.selectedSourceIds).toEqual(['p_base', 'n_bot_left']);
-    expect(scene.dragBadgeText.text).toContain('21 SEND');
+    expect(scene.dragBadgeText.text).toContain('21 ارسال');
     emit('pointerup', 'n_center');
     expect(scene.matchActions.map((a: any) => [a.sourceId, a.targetId])).toEqual([['p_base', 'n_center'], ['n_bot_left', 'n_center']]);
     expect(scene.gameState.territories.p_base.units).toBe(14);
@@ -1123,9 +1116,9 @@ describe('tactical main-game integration', () => {
     emit('pointermove', 'n_mid_left');
     emit('pointermove', 'n_top_left');
     expect(scene.selectedSourceIds).toEqual(['n_bot_left', 'n_mid_left']);
-    expect(scene.dragBadgeText.text).toContain('1/2 TOWERS');
-    expect(scene.dragBadgeText.text).toContain('10 SEND');
-    expect(scene.bottomHintText.text).toContain('1 selected tower has no direct road');
+    expect(scene.dragBadgeText.text).toContain('1/2 برج');
+    expect(scene.dragBadgeText.text).toContain('10 ارسال');
+    expect(scene.bottomHintText.text).toContain('1 برج انتخابی مسیر مستقیم ندارد');
     emit('pointerup', 'n_top_left');
     expect(scene.matchActions.map((a: any) => [a.sourceId, a.targetId])).toEqual([['n_mid_left', 'n_top_left']]);
     expect(scene.gameState.territories.n_bot_left.units).toBe(14);

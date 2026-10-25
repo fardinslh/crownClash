@@ -73,14 +73,14 @@ describe('Adverse Network & Lifecycle Verification with Real Modules', () => {
       expect(controller.getState().view).toBe('lobby');
 
       // Test real error mappings
-      expect(mapLivePvpError('live_connection_timeout')).toContain('timed out');
-      expect(mapLivePvpError('connection_closed')).toContain('Connection to server was closed');
-      expect(mapLivePvpError('live_match_full')).toContain('already full');
+      expect(mapLivePvpError('live_connection_timeout')).toContain('زمان‌بر شد');
+      expect(mapLivePvpError('connection_closed')).toContain('اتصال به سرور قطع شد');
+      expect(mapLivePvpError('live_match_full')).toContain('ظرفیت این اتاق پر است');
 
       // Exercise controller error state
       controller.onError('live_connection_timeout');
       expect(controller.getState().view).toBe('error');
-      expect(controller.getState().errorMessage).toContain('timed out');
+      expect(controller.getState().errorMessage).toContain('زمان‌بر شد');
 
       // User retries after adverse network failure
       controller.cancel();

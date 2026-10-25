@@ -2,7 +2,7 @@ import { expect, it } from 'vitest';
 import { createInitialGameState, dispatchMultipleArmies, stepSimulation } from '@crown-clash/game-core';
 import { TutorialController } from '../TutorialController.js';
 import { resolveTacticalTrainingGuidance } from '../tacticalGuidance.js';
-import { applyTrainingSandbox } from '../trainingGuidance.js';
+import { applyTrainingSandbox, holdTrainingEnemyBase } from '../trainingGuidance.js';
 
 it('finishes all stable tutorial steps using legal real attacks and routed reinforcement', () => {
   let state=createInitialGameState({gameplayRulesVersion:3});applyTrainingSandbox(state.territories);state.timeLimitSeconds=300;
@@ -25,4 +25,17 @@ it('finishes all stable tutorial steps using legal real attacks and routed reinf
   }
   expect(controller.isCompleted).toBe(true);expect(routed).toBe(true);
   expect(completed).toEqual(['drag_to_attack','preview_result','tower_roles','multi_dispatch','destroy_base']);
+});
+
+it('switches the finale hint from reinforcing to attacking the enemy base once the frontier is strong', () => {
+  const state=createInitialGameState({gameplayRulesVersion:3});applyTrainingSandbox(state.territories);
+  const t=state.territories;
+  for(const id of ['p_base','n_bot_left','n_bot_right','n_mid_left','n_mid_right','n_top_left'])t[id].owner='player';
+  // Weak frontier: the guided move is to reinforce, not attack.
+  for(const id of ['p_base','n_bot_left','n_bot_right','n_mid_left','n_mid_right','n_top_left','n_center'])t[id].units=2;
+  expect(resolveTacticalTrainingGuidance(state,'destroy_base').hintPath.at(-1)).not.toBe('e_base');
+  // The enemy HQ is held at its sandbox garrison, so a strong frontier wins.
+  t.e_base.units=40;holdTrainingEnemyBase(t);
+  t.n_top_left.units=40;
+  expect(resolveTacticalTrainingGuidance(state,'destroy_base').hintPath.at(-1)).toBe('e_base');
 });

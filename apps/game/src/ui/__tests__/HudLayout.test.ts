@@ -89,25 +89,32 @@ describe('HudLayout', () => {
       const maxContentWidth = 58;
       const formatted = formatHudName('Commander_9960', maxContentWidth, '🔴 ');
 
-      expect(formatted.startsWith('🔴 Cmdr')).toBe(true);
+      expect(formatted.startsWith('🔴 فرم')).toBe(true);
       expect(formatted.endsWith('…')).toBe(true);
       const measured = measureHudTextWidth(formatted);
       expect(measured).toBeLessThanOrEqual(maxContentWidth);
     });
 
+    it('drops the guest number instead of cutting it mid-way', () => {
+      const formatted = formatHudName('Commander_1234', 76, '🔵 ');
+      expect(formatted).toBe('🔵 فرمانده');
+      expect(measureHudTextWidth(formatted)).toBeLessThanOrEqual(76);
+      expect(formatHudName('Commander_1234', 200, '🔵 ')).toBe('🔵 فرمانده 1234');
+    });
+
     it('handles empty or whitespace names gracefully', () => {
       const playerFallback = formatHudName('', 80, '🔵 ');
-      expect(playerFallback).toBe('🔵 Player');
+      expect(playerFallback).toBe('🔵 بازیکن');
       expect(measureHudTextWidth(playerFallback)).toBeLessThanOrEqual(80);
 
       const opponentFallback = formatHudName('   ', 80, '🔴 ');
-      expect(opponentFallback).toBe('🔴 Opponent');
+      expect(opponentFallback).toBe('🔴 حریف');
       expect(measureHudTextWidth(opponentFallback)).toBeLessThanOrEqual(80);
 
-      const constrainedOpponent = formatHudName('   ', 58, '🔴 ');
-      expect(constrainedOpponent.startsWith('🔴 Opp')).toBe(true);
+      const constrainedOpponent = formatHudName('   ', 44, '🔴 ');
+      expect(constrainedOpponent.startsWith('🔴 حر')).toBe(true);
       expect(constrainedOpponent.endsWith('…')).toBe(true);
-      expect(measureHudTextWidth(constrainedOpponent)).toBeLessThanOrEqual(58);
+      expect(measureHudTextWidth(constrainedOpponent)).toBeLessThanOrEqual(44);
     });
 
     it('formats Persian names within content bounds', () => {

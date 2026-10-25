@@ -614,7 +614,7 @@ describe('Navigation & Mobile Lifecycle Hardening Pass', () => {
         onExitConfirmed: vi.fn(),
       });
 
-      expect(botController.getConfirmationMessage()).toBe('Current battle progress will be lost.');
+      expect(botController.getConfirmationMessage()).toBe('پیشرفت این نبرد از بین می‌رود.');
 
       const liveController = new MatchMenuController({
         liveMode: true,
@@ -625,7 +625,7 @@ describe('Navigation & Mobile Lifecycle Hardening Pass', () => {
         onExitConfirmed: vi.fn(),
       });
 
-      expect(liveController.getConfirmationMessage()).toBe('Leaving forfeits this match.');
+      expect(liveController.getConfirmationMessage()).toBe('خروج یعنی باخت در این بازی.');
 
       // Confirming quit fires analytics and audit events
       liveController.openConfirm();

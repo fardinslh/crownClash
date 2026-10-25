@@ -25,6 +25,7 @@ import {
 } from '../ui/Viewport.js';
 import { computeKingdomLayout } from '../ui/HubLayouts.js';
 import { createText, FONT_FAMILY } from '../ui/TextStyles.js';
+import { fa, kingdomTierName, upgradeCopy, upgradeEffectLabel, upgradeMilestoneLabel } from '../i18n/fa.js';
 
 const CARD_WIDTH = 174;
 const CARD_HEIGHT = 248;
@@ -106,15 +107,15 @@ export class KingdomScene extends Phaser.Scene {
               this.playKingdomTierCelebration(newTier);
             }
           } else if (purchase.reason === 'insufficient_coins') {
-            this.showToast('Not enough gold for this upgrade yet.');
+            this.showToast(fa.kingdom.notEnoughGold);
           } else if (purchase.reason === 'max_level') {
-            this.showToast('This upgrade is already fully mastered.');
+            this.showToast(fa.kingdom.maxed);
           }
         },
         onError: (_type, error) => {
           console.error('[KingdomScene] Upgrade purchase failed:', error);
           this.platform.hapticNotification('error');
-          this.showToast("Couldn't reach the kingdom. Please try again.");
+          this.showToast(fa.kingdom.unreachable);
         },
       }
     );
@@ -175,7 +176,7 @@ export class KingdomScene extends Phaser.Scene {
     this.bindPressFeedback(backBg, backLabel);
     backBg.on('pointerdown', () => this.closeKingdom());
 
-    createText(this, LOGICAL_WIDTH / 2, 42, 'KINGDOM', {
+    createText(this, LOGICAL_WIDTH / 2, 42, fa.kingdom.title, {
         fontFamily: FONT_FAMILY,
         fontSize: '24px',
         fontStyle: '900',
@@ -185,7 +186,7 @@ export class KingdomScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
-    createText(this, LOGICAL_WIDTH / 2, 68, 'Grow your realm', {
+    createText(this, LOGICAL_WIDTH / 2, 68, fa.kingdom.subtitle, {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: 'bold',
@@ -233,7 +234,7 @@ export class KingdomScene extends Phaser.Scene {
       strokeThickness: 2,
       resolution: 2,
     });
-    this.kingdomLevelText = createText(this, 376, 84 + 13, '', {
+    this.kingdomLevelText = createText(this, 370, 84 + 13, '', {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: '900',
@@ -246,7 +247,7 @@ export class KingdomScene extends Phaser.Scene {
     this.tierProgressFill = this.add.rectangle(146, 84 + 40, 1, 5, THEME.gold, 1).setOrigin(0, 0.5);
     this.tierGoalText = createText(this, 146, 84 + 52, '', {
       fontFamily: FONT_FAMILY,
-      fontSize: '10px',
+      fontSize: '11px',
       fontStyle: 'bold',
       color: '#93c5fd',
       resolution: 2,
@@ -348,7 +349,7 @@ export class KingdomScene extends Phaser.Scene {
     // Phaser's FIT scaling renders logical pixels at ~0.89x, so a 10px label
     // lands at ~9 CSS px. Nothing below 10px is considered readable enough
     // for card content at that size.
-    const titleText = createText(this, 0, -102, `${meta.icon} ${meta.title}`, {
+    const titleText = createText(this, 0, -102, `${meta.icon} ${upgradeCopy(type, meta).title}`, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: '900',
@@ -358,9 +359,9 @@ export class KingdomScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
-    const subtitleText = createText(this, 0, -82, meta.subtitle, {
+    const subtitleText = createText(this, 0, -82, upgradeCopy(type, meta).subtitle, {
         fontFamily: FONT_FAMILY,
-        fontSize: '10px',
+        fontSize: '11px',
         fontStyle: 'bold',
         color: '#94a3b8',
         resolution: 2,
@@ -378,7 +379,7 @@ export class KingdomScene extends Phaser.Scene {
       .setOrigin(0.5);
     const milestoneText = createText(this, 0, -37, '', {
         fontFamily: FONT_FAMILY,
-        fontSize: '10px',
+        fontSize: '11px',
         fontStyle: 'bold',
         color: '#93c5fd',
         resolution: 2,
@@ -441,16 +442,16 @@ export class KingdomScene extends Phaser.Scene {
       const card: UpgradeCardViewModel = getUpgradeCardViewModel(career, type);
       const isPending = this.purchaseRunner.pending === type;
 
-      levelText.setText(`LV. ${card.level} / ${card.maxLevel}`);
-      milestoneText.setText(card.milestoneLabel);
+      levelText.setText(fa.kingdom.level(card.level, card.maxLevel));
+      milestoneText.setText(upgradeMilestoneLabel(card.milestoneLabel));
 
       const fillColor = card.milestoneProgress >= 1 ? 0xf59e0b : 0x2563eb;
       progressFill.setFillStyle(fillColor, 1);
       progressFill.setSize(Math.max(1, 140 * card.milestoneProgress), 4);
       cardBg.setStrokeStyle(1.5, card.isMaxLevel ? 0xf59e0b : 0x334155, 1);
 
-      nowLabel.setText(`NOW   ${card.currentEffectLabel}`);
-      nextLabel.setText(card.isMaxLevel ? '🏆 FULLY UPGRADED' : `NEXT  ${card.nextEffectLabel}`);
+      nowLabel.setText(fa.kingdom.now(upgradeEffectLabel(card.currentEffectLabel)));
+      nextLabel.setText(card.isMaxLevel ? fa.kingdom.fullyUpgraded : fa.kingdom.next(upgradeEffectLabel(card.nextEffectLabel ?? '')));
       nextLabel.setColor(card.isMaxLevel ? '#fbbf24' : '#64ffda');
 
       if (isPending) {
@@ -462,7 +463,7 @@ export class KingdomScene extends Phaser.Scene {
       }
 
       if (card.isMaxLevel) {
-        buyText.setText('MAX');
+        buyText.setText(fa.kingdom.max);
         buyBg.setFillStyle(0x1f2937, 1).setStrokeStyle(1.5, 0xf59e0b, 0.7);
         buyText.setColor('#fbbf24');
         buyBg.disableInteractive();
@@ -575,22 +576,22 @@ export class KingdomScene extends Phaser.Scene {
 
     this.drawKingdom(kingdom);
     this.tierText
-      .setText(kingdom.tier.name.toUpperCase())
+      .setText(kingdomTierName(kingdom.tier.id, kingdom.tier.name))
       .setColor(`#${kingdom.tier.color.toString(16).padStart(6, '0')}`);
-    this.kingdomLevelText.setText(`POWER ${kingdom.totalLevel}/${kingdom.maxLevel}`);
+    this.kingdomLevelText.setText(fa.kingdom.power(kingdom.totalLevel, kingdom.maxLevel));
     this.tierProgressFill.setFillStyle(kingdom.tier.color, 1);
     this.tierProgressFill.setSize(Math.max(1, 230 * kingdom.tierProgress), 5);
     this.tierGoalText.setText(
       kingdom.nextTier
-        ? `${kingdom.levelsToNextTier} upgrade levels to ${kingdom.nextTier.name}`
-        : 'Realm fully evolved'
+        ? fa.kingdom.toNextTier(kingdom.levelsToNextTier, kingdomTierName(kingdom.nextTier.id, kingdom.nextTier.name))
+        : fa.kingdom.fullyEvolved
     );
     this.cards.forEach((card) => card.refresh());
   }
 
   private playKingdomTierCelebration(progress: KingdomProgress): void {
     this.platform.hapticNotification('success');
-    const banner = createText(this, LOGICAL_WIDTH / 2, 112, `REALM EVOLVED\n${progress.tier.name.toUpperCase()}`, {
+    const banner = createText(this, LOGICAL_WIDTH / 2, 112, fa.kingdom.evolved(kingdomTierName(progress.tier.id, progress.tier.name)), {
         fontFamily: FONT_FAMILY,
         fontSize: '18px',
         fontStyle: '900',
@@ -635,7 +636,7 @@ export class KingdomScene extends Phaser.Scene {
     // on a torn-down scene and let MenuScene render pre-purchase career data,
     // so the hub stays open until the purchase settles.
     if (!this.purchaseRunner.requestClose()) {
-      this.showToast('Finishing your upgrade…');
+      this.showToast(fa.kingdom.finishingUpgrade);
       return;
     }
     this.isExiting = true;

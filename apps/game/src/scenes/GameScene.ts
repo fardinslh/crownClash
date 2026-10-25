@@ -1,4 +1,4 @@
-import { chooseBotDifficulty, startChosenBotMatch } from '../ui/BotDifficultyPicker.js';
+import { startChosenBotMatch } from '../ui/BotDifficultyPicker.js';
 import { PilotClient } from '../realm/PilotClient.js';
 import type { RealmTicket, RealmResult } from '@crown-clash/game-core';
 import Phaser from 'phaser';
@@ -50,12 +50,14 @@ import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { CareerManager } from '../career/CareerManager.js';
 import { TrainingOverlayUI } from './trainingOverlay.js';
 import { resolveTacticalTrainingGuidance } from '../tutorial/tacticalGuidance.js';
-import { TutorialController } from '../tutorial/TutorialController.js';
+import { TutorialController, type TutorialStepId } from '../tutorial/TutorialController.js';
 import { waitForTrainingRequest } from '../tutorial/trainingRequest.js';
 import {
   applyTrainingSandbox,
+  holdTrainingEnemyBase,
   isTrainingTerritoryBright,
   resolveTrainingGuidance,
+  type TrainingGuidance,
   TRAINING_DIM_ALPHA,
   TRAINING_TIME_LIMIT_SECONDS,
 } from '../tutorial/trainingGuidance.js';
@@ -178,6 +180,8 @@ import {
   DustPuffSimulator,
 } from '../combat/SmoothnessHelpers.js';
 import { createText, FONT_FAMILY, MONO_FONT_FAMILY } from '../ui/TextStyles.js';
+import { battlefieldName, faBattle, upgradeEffectLabel } from '../i18n/faBattle.js';
+import { rankName, upgradeMilestoneLabel } from '../i18n/fa.js';
 
 
 
@@ -187,6 +191,8 @@ import { createText, FONT_FAMILY, MONO_FONT_FAMILY } from '../ui/TextStyles.js';
  * the viewport to settle (interactive resizes, Bale expand animation).
  */
 const VIEWPORT_RELAYOUT_DEBOUNCE_MS = 200;
+/** Bot difficulty of the match that directly follows the tutorial. */
+const FIRST_MATCH_DIFFICULTY: BotDifficulty = 'easy';
 
 /**
  * Rendered army unit sprites: leader/follower x player/enemy x march facing
@@ -373,7 +379,7 @@ export class GameScene extends Phaser.Scene {
   private resultPending = false;
   private liveMode = false;
   private liveClient?: LiveMatchClient;
-  private liveOpponentName = 'Opponent';
+  private liveOpponentName: string = faBattle.names.opponent;
   private liveUnsubscribers: Array<() => void> = [];
   private livePredictions: PendingLiveDispatch[] = [];
   private lastAuthoritativeState: GameState | null = null;
@@ -541,7 +547,7 @@ export class GameScene extends Phaser.Scene {
 
     this.liveClient = launchData?.liveClient;
     this.liveOpponentName =
-      launchData?.liveMatch?.opponentName || 'Opponent';
+      launchData?.liveMatch?.opponentName || faBattle.names.opponent;
     if (launchData?.liveMatch2v2) {
       this.initTwoVTwoSession(launchData.liveMatch2v2);
     }
@@ -631,9 +637,9 @@ export class GameScene extends Phaser.Scene {
       liveMode: this.liveMode,
       matchId: this.activeMatchId,
       confirmationMessage: this.live2v2
-        ? 'Surrendering removes you from this battle.\nYour teammate keeps fighting.'
+        ? faBattle.menu.surrenderConfirm2v2
         : this.trainingMode
-          ? 'Leave training?\nYour guided progress is saved.'
+          ? faBattle.menu.leaveTraining
           : undefined,
       getDurationSeconds: () => wholeMatchSeconds(this.gameState?.elapsedTimeSeconds ?? 0),
       closeLiveClient: () => {
@@ -857,8 +863,9 @@ export class GameScene extends Phaser.Scene {
     // board projection so the spotlights and the hand hint land on the
     // projected towers (sockets sit on the baked plinth top on the diorama
     // plate).
-    const guidance = this.gameState.gameplayRulesVersion === 3
-      ? resolveTacticalTrainingGuidance(this.gameState, step.id) : resolveTrainingGuidance(this.gameState.territories, step.id);
+    const guidance = this.resolveTrainingGuidanceNow(step.id);
+    this.trainingGuidanceKey = guidance.hintPath.join('>');
+    this.trainingGuidanceRefreshSeconds = 0;
     const toPoint = (id: string): { x: number; y: number; radius: number } | null => {
       const t = this.gameState.territories[id];
       if (!t) return null;
@@ -878,6 +885,33 @@ export class GameScene extends Phaser.Scene {
       });
     overlay.showHandHint(hintPoints);
     this.applyTrainingDimming(guidance.spotlightIds);
+  }
+
+  private trainingGuidanceKey = '';
+  private trainingGuidanceRefreshSeconds = 0;
+
+  private resolveTrainingGuidanceNow(stepId: TutorialStepId): TrainingGuidance {
+    return this.gameState.gameplayRulesVersion === 3
+      ? resolveTacticalTrainingGuidance(this.gameState, stepId)
+      : resolveTrainingGuidance(this.gameState.territories, stepId);
+  }
+
+  /**
+   * Guidance depends on live troop counts (e.g. "reinforce the frontier"
+   * becomes "attack the base" once the frontier is strong enough), but it
+   * was only resolved on step entry and captures, so the hand hint went
+   * stale and kept demonstrating reinforcements forever. Re-resolve on a
+   * short cadence and rebuild the hint only when the path really changed;
+   * never mid-gesture, so the player's own drag is not interrupted.
+   */
+  private refreshTrainingGuidance(deltaSeconds: number): void {
+    const step = this.trainingController?.currentStep;
+    if (!step || this.selectedSourceIds.length > 0 || this.trainingController?.shouldPauseSimulation) return;
+    this.trainingGuidanceRefreshSeconds += deltaSeconds;
+    if (this.trainingGuidanceRefreshSeconds < 0.75) return;
+    this.trainingGuidanceRefreshSeconds = 0;
+    const key = this.resolveTrainingGuidanceNow(step.id).hintPath.join('>');
+    if (key !== this.trainingGuidanceKey) this.renderTrainingStep();
   }
 
   /**
@@ -977,12 +1011,10 @@ export class GameScene extends Phaser.Scene {
   /** Launches the first ordinary bot match after a saved tutorial. */
   private startFirstRealMatch(request: AbortController): void {
     if (this.registry.get('realmPilot')) { this.scene.start('MenuScene'); return; }
-    // The player may take time to choose; only the network request is timed out.
-    void chooseBotDifficulty(this).then((difficulty) => {
-      if (request.signal.aborted || this.trainingRequest !== request || this.isExiting || !this.scene.isActive()) return;
-      if (!difficulty) { this.returnToMenu(); return; }
-      return waitForTrainingRequest(this.careerManager.startBotMatch(this.platform, difficulty), request.signal);
-    })
+    // No difficulty picker between the tutorial win and the first real
+    // match: a fresh player gets Easy (its first win pays server coins);
+    // the picker appears from the menu PLAY button afterwards.
+    void waitForTrainingRequest(this.careerManager.startBotMatch(this.platform, FIRST_MATCH_DIFFICULTY), request.signal)
       .then((botMatch) => {
         if (!botMatch) return;
         if (request.signal.aborted || this.trainingRequest !== request || this.isExiting) return;
@@ -2191,7 +2223,7 @@ export class GameScene extends Phaser.Scene {
           ),
           {
             fontFamily: FONT_FAMILY,
-            fontSize: '9px',
+            fontSize: '10px',
             fontStyle: 'bold',
             color: '#93c5fd',
             stroke: '#030712',
@@ -2295,14 +2327,14 @@ export class GameScene extends Phaser.Scene {
     const iconWordGap = 5;
     const groupGap = 18;
     const legendSpecs: Array<{ type: TerritoryType; word: string }> = [
-      { type: 'fortress', word: 'SHIELDS' },
-      { type: 'barracks', word: 'TRAINS' },
-      { type: 'stable', word: 'MARCHES' },
+      { type: 'fortress', word: faBattle.legend.shields },
+      { type: 'barracks', word: faBattle.legend.trains },
+      { type: 'stable', word: faBattle.legend.marches },
     ];
     const legendWords = legendSpecs.map((spec) =>
       createText(this, 0, legendY, spec.word, {
-          fontFamily: MONO_FONT_FAMILY,
-          fontSize: '10px',
+          fontFamily: FONT_FAMILY,
+          fontSize: '11px',
           fontStyle: 'bold',
           color: '#f8c76a',
           resolution: 2,
@@ -2324,10 +2356,10 @@ export class GameScene extends Phaser.Scene {
     });
 
     const initialHint = this.is2v2
-      ? '⚔ Drag across towers — bases are shared with your ally'
+      ? faBattle.hud.draggingTeamHint
       : this.liveMode
-        ? `⚔ Live battle vs ${this.formatShortName(this.liveOpponentName, 12)}`
-        : this.realmTicket ? 'دفاع خودکار حریف · از برج آبی بکش و حمله کن' : this.pinnedPracticeModifiers ? `BOT ${this.botDifficulty.toUpperCase()} · NO TROPHIES` : `BOT ${this.botDifficulty.toUpperCase()} · Drag across towers`;
+        ? faBattle.hud.liveHint(this.formatShortName(this.liveOpponentName, 12))
+        : this.realmTicket ? 'دفاع خودکار حریف · از برج آبی بکش و حمله کن' : this.pinnedPracticeModifiers ? faBattle.hud.botNoTrophies(this.botDifficulty) : faBattle.hud.botDrag(this.botDifficulty);
     this.bottomHintText = createText(this, LOGICAL_WIDTH / 2, bottomBarY + 10, initialHint, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
@@ -2342,11 +2374,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private computePlayerHudLabel(maxContentWidth?: number): string {
-    const rawName = this.platform.getUser().username || this.platform.getUser().firstName || 'Commander';
+    const rawName = this.platform.getUser().username || this.platform.getUser().firstName || faBattle.names.commander;
     if (maxContentWidth !== undefined) {
       return formatHudName(rawName, maxContentWidth, this.playerHudPrefix());
     }
-    return `${this.playerHudPrefix()}${this.formatShortName(rawName, 7)}`;
+    return `${this.playerHudPrefix()}${this.formatShortName(rawName, 12)}`;
   }
 
   /** 2v2 uses the slot's shape glyph (non-color identity); 1v1 keeps 🔵. */
@@ -2356,11 +2388,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private formatShortName(name: string, maxLen = 8): string {
-    if (!name) return 'Player';
+    if (!name) return faBattle.names.player;
     const trimmed = name.trim();
     let candidate = trimmed;
     if (trimmed.startsWith('Commander_')) {
-      candidate = 'Cmdr ' + (trimmed.slice(10, 14) || trimmed.slice(10));
+      candidate = faBattle.names.commanderShort + (trimmed.slice(10, 14) || trimmed.slice(10));
     }
     if (candidate.length > maxLen) {
       return candidate.slice(0, maxLen - 1) + '…';
@@ -2762,11 +2794,11 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
-    const sourceCountLabel = selectedTerritories.length > 1 ? ` (${selectedTerritories.length} bases)` : '';
+    const sourceCountLabel = selectedTerritories.length > 1 ? faBattle.drag.bases(selectedTerritories.length) : '';
 
     if (isHoveringTarget && target) {
       if (isFriendly) {
-        this.dragBadgeText.setText(`+${totalUnitsToSend} REINFORCE${sourceCountLabel}`);
+        this.dragBadgeText.setText(faBattle.drag.reinforce(totalUnitsToSend, sourceCountLabel));
         this.dragBadgeText.setColor('#10b981');
         this.dragBadgeBg.setStrokeStyle(2, 0x10b981, 1);
       } else {
@@ -2775,22 +2807,22 @@ export class GameScene extends Phaser.Scene {
         this.trainingController?.onPreviewShown();
         if (totalUnitsToSend > target.units) {
           const rem = totalUnitsToSend - target.units;
-          this.dragBadgeText.setText(`⚔ ${totalUnitsToSend} (WIN +${rem})${sourceCountLabel}`);
+          this.dragBadgeText.setText(faBattle.drag.win(totalUnitsToSend, rem, sourceCountLabel));
           this.dragBadgeText.setColor('#f59e0b');
           this.dragBadgeBg.setStrokeStyle(2, 0xf59e0b, 1);
         } else if (totalUnitsToSend === target.units) {
-          this.dragBadgeText.setText(`⚔ ${totalUnitsToSend} (TIE)${sourceCountLabel}`);
+          this.dragBadgeText.setText(faBattle.drag.tie(totalUnitsToSend, sourceCountLabel));
           this.dragBadgeText.setColor('#fb923c');
           this.dragBadgeBg.setStrokeStyle(2, 0xfb923c, 1);
         } else {
           const needed = target.units - totalUnitsToSend;
-          this.dragBadgeText.setText(`⚔ ${totalUnitsToSend} (-${needed})${sourceCountLabel}`);
+          this.dragBadgeText.setText(faBattle.drag.lose(totalUnitsToSend, needed, sourceCountLabel));
           this.dragBadgeText.setColor('#ef4444');
           this.dragBadgeBg.setStrokeStyle(2, 0xef4444, 1);
         }
       }
     } else {
-      this.dragBadgeText.setText(`⚔ SEND ${totalUnitsToSend}${sourceCountLabel}`);
+      this.dragBadgeText.setText(faBattle.drag.send(totalUnitsToSend, sourceCountLabel));
       this.dragBadgeText.setColor('#ffffff');
       this.dragBadgeBg.setStrokeStyle(2, THEME.teams.player.primary, 0.95);
     }
@@ -2799,7 +2831,7 @@ export class GameScene extends Phaser.Scene {
     this.dragBadgeShadow.setSize(badgeWidth + 4, 28);
 
     // Dynamic Bottom Action Bar Update
-    this.bottomHintText?.setText(`⚔ Swiping from ${selectedTerritories.length} towers -> ${totalUnitsToSend} troops ready`)
+    this.bottomHintText?.setText(faBattle.hud.selectingHint(selectedTerritories.length, totalUnitsToSend))
       .setColor('#60a5fa');
   }
 
@@ -2809,11 +2841,11 @@ export class GameScene extends Phaser.Scene {
       const enemyTerritoriesCount = territories.filter((t) => t.owner === 'enemy').length;
       const enemyArmiesCount = (this.gameState?.armies ?? []).filter((a) => a.owner === 'enemy').length;
       if (enemyTerritoriesCount === 0 && enemyArmiesCount > 0 && this.gameState?.status === 'playing') {
-        this.bottomHintText.setText('⚔ LAST ENEMY ARMY REMAINING').setColor('#fbbf24');
+        this.bottomHintText.setText(faBattle.hud.lastEnemyArmy).setColor('#fbbf24');
       } else {
         const defaultHint = this.liveMode
-          ? `⚔ Live battle vs ${this.formatShortName(this.liveOpponentName, 12)}`
-          : this.realmTicket ? 'دفاع خودکار حریف · از برج آبی بکش و حمله کن' : this.pinnedPracticeModifiers ? `BOT ${this.botDifficulty.toUpperCase()} · NO TROPHIES` : `BOT ${this.botDifficulty.toUpperCase()} · Drag across towers`;
+          ? faBattle.hud.liveHint(this.formatShortName(this.liveOpponentName, 12))
+          : this.realmTicket ? 'دفاع خودکار حریف · از برج آبی بکش و حمله کن' : this.pinnedPracticeModifiers ? faBattle.hud.botNoTrophies(this.botDifficulty) : faBattle.hud.botDrag(this.botDifficulty);
         this.bottomHintText.setText(defaultHint).setColor(this.liveMode ? '#93c5fd' : '#94a3b8');
       }
     }
@@ -2913,10 +2945,14 @@ export class GameScene extends Phaser.Scene {
           this.spawnFloatingText(
             LOGICAL_WIDTH / 2,
             96,
-            'command limit reached',
+            faBattle.drag.commandLimit,
             '#f87171'
           );
         } else {
+          // Training: a send that cannot take the target fails silently
+          // otherwise, so say why before the new player retries.
+          const trainingAttackFalls = Boolean(this.trainingController?.isActive) && target.owner !== 'player' &&
+            previewOrder(this.gameState, sourceIds, targetId, 'player', this.playerArmySpeedMultiplier).projected?.owner !== 'player';
           // Execute Coordinated Multi-Dispatch (or Reinforcement)
           const multiDispatch = dispatchMultipleArmies(
             sources,
@@ -2940,6 +2976,7 @@ export class GameScene extends Phaser.Scene {
             this.platform.hapticImpact(multiDispatch.armies.length > 1 ? 'heavy' : 'medium');
             this.trainingController?.onDispatch(multiDispatch.armies.map(a => a.sourceId), targetId);
             if (target.owner === 'player') this.trainingController?.onReinforcement();
+            if (trainingAttackFalls) this.spawnFloatingText(LOGICAL_WIDTH / 2, 96, faBattle.drag.needMoreTroops, '#fbbf24', 1600);
           }
         }
       }
@@ -2952,6 +2989,7 @@ export class GameScene extends Phaser.Scene {
 
     if (this.trainingController?.isActive) {
       this.trainingController.onTimerTick(deltaSeconds);
+      this.refreshTrainingGuidance(deltaSeconds);
     }
 
     if (this.gameState.status === 'playing' && !this.liveMode) {
@@ -3034,6 +3072,7 @@ export class GameScene extends Phaser.Scene {
       const result = stepSimulation(this.gameState, this.accumulators, PVP_SIMULATION_TICK_SECONDS);
       this.gameState = result.state;
       this.accumulators = result.accumulators;
+      if (this.trainingMode) holdTrainingEnemyBase(this.gameState.territories);
       result.resolvedArrivals.forEach((arrival) => this.onCombatArrival(arrival));
       if (
         this.gameState.status === 'playing' &&
@@ -3068,9 +3107,9 @@ export class GameScene extends Phaser.Scene {
     const panel = this.add
       .rectangle(0, 0, 132, 28, 0x0b1220, 0.96)
       .setStrokeStyle(1.5, battlefield.accent, 0.95);
-    const title = createText(this, 0, 0, `◆ ${battlefield.name.toUpperCase()}`, {
+    const title = createText(this, 0, 0, faBattle.hud.battlefieldTitle(battlefieldName(battlefield.id, battlefield.name)), {
         fontFamily: FONT_FAMILY,
-        fontSize: '10px',
+        fontSize: '11px',
         fontStyle: '900',
         color: '#ffffff',
         stroke: '#000000',
@@ -3197,7 +3236,7 @@ export class GameScene extends Phaser.Scene {
     if (arrival.routeInterrupted) {
       const t = this.gameState.territories[arrival.targetId];
       const p = this.projectSocketPoint(t.x, t.y);
-      this.spawnFloatingText(p.u, p.v - 35, 'SUPPLY INTERCEPTED', '#fbbf24');
+      this.spawnFloatingText(p.u, p.v - 35, faBattle.float.supplyIntercepted, '#fbbf24');
     }
 
     const vis = this.territoryVisuals.get(arrival.targetId);
@@ -3265,7 +3304,7 @@ export class GameScene extends Phaser.Scene {
       this.spawnFloatingText(
         anchor.u,
         anchor.v - 20 * anchorScale,
-        capturedByPlayer ? `CAPTURE +${arrival.remainingUnits}` : 'TOWER LOST',
+        capturedByPlayer ? faBattle.float.capture(arrival.remainingUnits) : faBattle.float.towerLost,
         teamStyle.lightHex
       );
     } else if (arrival.reinforced) {
@@ -3316,7 +3355,7 @@ export class GameScene extends Phaser.Scene {
       this.spawnFloatingText(
         anchor.u,
         anchor.v - 20 * anchorScale,
-        fortressBlocked ? `DEFLECT -${arrival.incomingUnits}` : `-${arrival.incomingUnits}`,
+        fortressBlocked ? faBattle.float.deflect(arrival.incomingUnits) : `-${arrival.incomingUnits}`,
         fortressBlocked ? '#fbbf24' : '#ef4444'
       );
       this.spawnImpactRing(
@@ -3415,7 +3454,7 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private spawnFloatingText(x: number, y: number, text: string, color: string): void {
+  private spawnFloatingText(x: number, y: number, text: string, color: string, holdMs = 0): void {
     const float = createText(this, x, y, text, {
         fontFamily: FONT_FAMILY,
         fontSize: '16px',
@@ -3432,6 +3471,7 @@ export class GameScene extends Phaser.Scene {
       targets: float,
       y: y - 28,
       alpha: 0,
+      delay: holdMs,
       duration: 600,
       ease: 'Quad.easeOut',
       onComplete: () => float.destroy(),
@@ -4185,8 +4225,7 @@ export class GameScene extends Phaser.Scene {
     this.inspector?.setPosition(scrollX + 12, visibleHeight - 88);
     const recovery = getCaptureProductionMultiplier(this.gameState.elapsedTimeSeconds, this.gameState.productionReadyAtMs?.[territory.id]);
     const production = territory.productionRate * getTerritoryProductionMultiplier(territory.type) * recovery;
-    this.inspectorText.setText(`${territory.name} · ${territory.owner}
-PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territory.type)} · SPD ×${getTerritoryArmySpeedMultiplier(territory.type)}`);
+    this.inspectorText.setText(faBattle.hud.inspector(territory.name, territory.owner, production.toFixed(2), getTerritoryDefenseMultiplier(territory.type), getTerritoryArmySpeedMultiplier(territory.type)));
   }
 
   private updateCaptureIndicators(): void {
@@ -4205,7 +4244,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
         const direction = territory.x < LOGICAL_WIDTH / 2 ? 1 : -1;
         const productionPercent = Math.floor(getCaptureProductionMultiplier(this.gameState.elapsedTimeSeconds, this.gameState.productionReadyAtMs?.[territory.id]) * 100);
         label.setPosition(anchor.u + direction * (territory.radius + 38) * this.boardLayout.scale,
-          anchor.v + art.badgeY * this.boardLayout.scale).setText(`PROD ${productionPercent}%\n${(remaining / 1000).toFixed(1)}s`).setVisible(true);
+          anchor.v + art.badgeY * this.boardLayout.scale).setText(faBattle.hud.production(productionPercent, (remaining / 1000).toFixed(1))).setVisible(true);
       } else label?.setVisible(false);
     }
   }
@@ -4271,16 +4310,16 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
     // 3. Tactical banner / Hint updates when not actively dragging
     if (this.selectedSourceIds.length === 0 && this.bottomHintText) {
       if (dominance.isLastEnemyArmy && this.gameState.status === 'playing') {
-        const lastArmyText = '⚔ LAST ENEMY ARMY REMAINING';
+        const lastArmyText = faBattle.hud.lastEnemyArmy;
         if (this.bottomHintText.text !== lastArmyText) {
           this.bottomHintText.setText(lastArmyText).setColor('#fbbf24');
         }
-      } else if (this.bottomHintText.text === '⚔ LAST ENEMY ARMY REMAINING') {
+      } else if (this.bottomHintText.text === faBattle.hud.lastEnemyArmy) {
         const defaultHint = this.is2v2
-          ? '⚔ Drag across towers — bases are shared with your ally'
+          ? faBattle.hud.draggingTeamHint
           : this.liveMode
-            ? `⚔ Live battle vs ${this.formatShortName(this.liveOpponentName, 12)}`
-            : this.realmTicket ? 'دفاع خودکار حریف · از برج آبی بکش و حمله کن' : this.pinnedPracticeModifiers ? `BOT ${this.botDifficulty.toUpperCase()} · NO TROPHIES` : `BOT ${this.botDifficulty.toUpperCase()} · Drag across towers`;
+            ? faBattle.hud.liveHint(this.formatShortName(this.liveOpponentName, 12))
+            : this.realmTicket ? 'دفاع خودکار حریف · از برج آبی بکش و حمله کن' : this.pinnedPracticeModifiers ? faBattle.hud.botNoTrophies(this.botDifficulty) : faBattle.hud.botDrag(this.botDifficulty);
         this.bottomHintText.setText(defaultHint).setColor(this.liveMode ? '#93c5fd' : '#94a3b8');
       }
     }
@@ -4436,12 +4475,12 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       .setStrokeStyle(2, isWin ? 0xf59e0b : isDraw ? 0x60a5fa : 0xef4444, 0.95);
 
     // Header Title & Subtitle
-    const titleText = isWin ? 'VICTORY!' : status === 'draw' ? 'DRAW' : 'DEFEAT';
+    const titleText = isWin ? faBattle.result.victory : status === 'draw' ? faBattle.result.draw : faBattle.result.defeat;
     const titleColor = isWin ? '#fbbf24' : status === 'draw' ? '#93c5fd' : '#ef4444';
     const subText = this.realmTicket
-      ? `⚔ ${formatHudName(this.realmTicket.defender.displayName, 130)} · AUTOMATIC DEFENSE`
-      : this.pinnedPracticeModifiers ? 'BOT PRACTICE · NO TROPHIES'
-      : isWin ? '👑 ALL ENEMY BASES CAPTURED!' : status === 'draw' ? '⚔ THE BATTLE ENDED EVEN' : '⚔️ YOUR DEFENSES HAVE FALLEN';
+      ? faBattle.result.automaticDefense(formatHudName(this.realmTicket.defender.displayName, 130))
+      : this.pinnedPracticeModifiers ? faBattle.result.botPractice
+      : isWin ? faBattle.result.winSub : status === 'draw' ? faBattle.result.drawSub : faBattle.result.loseSub;
 
     const title = createText(this, 0, -275, titleText, {
         fontFamily: FONT_FAMILY,
@@ -4473,7 +4512,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       .setStrokeStyle(1.5, rankTier.color, 0.9)
       .setVisible(rankPresentation.showRankSummary);
 
-    const rankText = createText(this, 0, rankPresentation.rankY - 6, `${rankTier.badge} ${rankTier.name.toUpperCase()} (🏆 ${settlement.newCareer.trophies})`, {
+    const rankText = createText(this, 0, rankPresentation.rankY - 6, faBattle.result.rank(rankTier.badge, rankName(rankTier.id, rankTier.name), settlement.newCareer.trophies), {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -4507,9 +4546,9 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       .rectangle(trophyCardX, trophyCardY, 130, 64, 0x111827, 0.95)
       .setStrokeStyle(1.5, isWin ? 0xf59e0b : 0x374151, 0.85);
 
-    const trophyLabel = createText(this, trophyCardX, trophyCardY - 17, 'TROPHIES', {
+    const trophyLabel = createText(this, trophyCardX, trophyCardY - 17, faBattle.result.trophies, {
         fontFamily: FONT_FAMILY,
-        fontSize: '10px',
+        fontSize: '11px',
         fontStyle: 'bold',
         color: '#94a3b8',
         stroke: '#000000',
@@ -4536,9 +4575,9 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       .rectangle(goldCardX, goldCardY, 130, 64, 0x111827, 0.95)
       .setStrokeStyle(1.5, 0xf59e0b, 0.85);
 
-    const goldLabel = createText(this, goldCardX, goldCardY - 17, 'GOLD REWARD', {
+    const goldLabel = createText(this, goldCardX, goldCardY - 17, faBattle.result.goldReward, {
         fontFamily: FONT_FAMILY,
-        fontSize: '10px',
+        fontSize: '11px',
         fontStyle: 'bold',
         color: '#94a3b8',
         stroke: '#000000',
@@ -4559,16 +4598,16 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       .setOrigin(0.5);
 
     // Bonus Breakdown Chip
-    const primaryBreakdown: string[] = [`Base: ${settlement.breakdown.baseCoins}`];
-    if (settlement.breakdown.speedBonus > 0) primaryBreakdown.push(`Speed: +${settlement.breakdown.speedBonus}`);
-    if (settlement.breakdown.dominationBonus > 0) primaryBreakdown.push(`Dominance: +${settlement.breakdown.dominationBonus}`);
+    const primaryBreakdown: string[] = [faBattle.result.base(settlement.breakdown.baseCoins)];
+    if (settlement.breakdown.speedBonus > 0) primaryBreakdown.push(faBattle.result.speed(settlement.breakdown.speedBonus));
+    if (settlement.breakdown.dominationBonus > 0) primaryBreakdown.push(faBattle.result.dominance(settlement.breakdown.dominationBonus));
     const secondaryBreakdown: string[] = [];
-    if (settlement.breakdown.streakBonus > 0) secondaryBreakdown.push(`Streak: +${settlement.breakdown.streakBonus}`);
-    if (settlement.breakdown.treasuryBonus > 0) secondaryBreakdown.push(`Treasury: +${settlement.breakdown.treasuryBonus}`);
+    if (settlement.breakdown.streakBonus > 0) secondaryBreakdown.push(faBattle.result.streak(settlement.breakdown.streakBonus));
+    if (settlement.breakdown.treasuryBonus > 0) secondaryBreakdown.push(faBattle.result.treasury(settlement.breakdown.treasuryBonus));
 
-    const bonusChipText = createText(this, 0, -108, this.realmResult?.rewarded === false ? 'No repeat reward · battle recorded' : [primaryBreakdown.join('  •  '), secondaryBreakdown.join('  •  ')].filter(Boolean).join('\n'), {
+    const bonusChipText = createText(this, 0, -108, this.realmResult?.rewarded === false ? faBattle.result.noRepeatReward : [primaryBreakdown.join('  •  '), secondaryBreakdown.join('  •  ')].filter(Boolean).join('\n'), {
         fontFamily: FONT_FAMILY,
-        fontSize: '10px',
+        fontSize: '11px',
         fontStyle: 'bold',
         color: '#38bdf8',
         stroke: '#000000',
@@ -4587,7 +4626,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
     const matchStatsText = createText(this,
         0,
         -68,
-        `⏱ Time: ${duration}s    🏰 Captured: ${stats.territoriesCapturedByPlayer}    ⚔ Dispatched: ${stats.playerUnitsDispatched}\n🔥 Win Streak: ${settlement.newCareer.currentStreak}    👑 Total Wins: ${settlement.newCareer.matchesWon}`,
+        faBattle.result.stats(duration, stats.territoriesCapturedByPlayer, stats.playerUnitsDispatched, settlement.newCareer.currentStreak, settlement.newCareer.matchesWon),
         {
           fontFamily: FONT_FAMILY,
           fontSize: '11px',
@@ -4609,7 +4648,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       const promoGlow = this.add
         .rectangle(0, 0, 284, 28, 0x3b2f0b, 1)
         .setStrokeStyle(2, 0xfde047, 1);
-      const promoText = createText(this, 0, 0, `🎉 PROMOTED TO ${rankTier.name.toUpperCase()}!`, {
+      const promoText = createText(this, 0, 0, faBattle.result.promoted(rankName(rankTier.id, rankTier.name)), {
           fontFamily: FONT_FAMILY,
           fontSize: '11px',
           fontStyle: '900',
@@ -4656,10 +4695,10 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       icon: string;
       title: string;
     }> = [
-      { type: 'starting_garrison', x: -72, y: 7, icon: '🏰', title: 'CITADEL' },
-      { type: 'production', x: 72, y: 7, icon: '⚒', title: 'WAR FORGE' },
-      { type: 'army_speed', x: -72, y: 57, icon: '⚡', title: 'ROYAL ROADS' },
-      { type: 'treasury', x: 72, y: 57, icon: '🪙', title: 'TREASURY' },
+      { type: 'starting_garrison', x: -72, y: 7, icon: '🏰', title: faBattle.result.upgrades.starting_garrison },
+      { type: 'production', x: 72, y: 7, icon: '⚒', title: faBattle.result.upgrades.production },
+      { type: 'army_speed', x: -72, y: 57, icon: '⚡', title: faBattle.result.upgrades.army_speed },
+      { type: 'treasury', x: 72, y: 57, icon: '🪙', title: faBattle.result.upgrades.treasury },
     ];
 
     const displayedUpgrades = emphasizeReplay
@@ -4700,10 +4739,10 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
         const card = getUpgradeCardViewModel(career, row.type);
 
         label.setText(
-          `${row.icon} ${row.title} LV.${card.level}/${card.maxLevel}\n${this.registry.get('realmPilot') && card.nextEffectLabel ? `NEXT: ${card.nextEffectLabel}` : `${card.currentEffectLabel} • ${card.milestoneLabel}`}`
+          faBattle.result.upgradeRow(row.icon, row.title, card.level, card.maxLevel, this.registry.get('realmPilot') && card.nextEffectLabel ? faBattle.result.upgradeNext(card.nextEffectLabel) : `${upgradeEffectLabel(card.currentEffectLabel)} • ${upgradeMilestoneLabel(card.milestoneLabel)}`)
         );
-        buyText.setText(card.nextCost === null ? 'MAX' : `${card.nextCost} 🪙`);
-        upgradeBalanceText.setText(`${this.registry.get('realmPilot') ? 'GROW YOUR REALM' : 'UPGRADE YOUR ARMY'}  •  ${career.coins} 🪙`);
+        buyText.setText(card.nextCost === null ? faBattle.result.max : `${card.nextCost} 🪙`);
+        upgradeBalanceText.setText(`${this.registry.get('realmPilot') ? faBattle.result.growRealm : faBattle.result.upgradeArmy}  •  ${career.coins} 🪙`);
 
         if (goalProgressFill) goalProgressFill.setSize(Math.max(1, 280 * (card.nextCost === null ? 1 : Math.min(1,career.coins/card.nextCost))), 6);
 
@@ -4739,7 +4778,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       .setStrokeStyle(2, isWin || emphasizeReplay ? 0x60a5fa : 0x9ca3af, 1)
       .setInteractive({ useHandCursor: true });
 
-    const btnText = createText(this, 0, btnY, 'PLAY AGAIN ⚔', {
+    const btnText = createText(this, 0, btnY, faBattle.result.playAgain, {
         fontFamily: FONT_FAMILY,
         fontSize: '15px',
         fontStyle: 'bold',
@@ -4763,12 +4802,12 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       sounds.playDispatch();
       this.platform.hapticSelection();
       btnBg.disableInteractive();
-      btnText.setText('SCOUTING...');
+      btnText.setText(faBattle.result.scouting);
       void this.restartMatch().catch((error: unknown) => {
         const cancelled = String(error).includes('bot_difficulty_cancelled');
         if (!cancelled) console.error('[GameScene] Rematch start failed:', error);
         if (!this.scene.isActive()) return;
-        btnText.setText(cancelled ? 'PLAY AGAIN ⚔' : 'TRY AGAIN');
+        btnText.setText(cancelled ? faBattle.result.playAgain : faBattle.result.tryAgain);
         btnBg.setInteractive({ useHandCursor: true });
         if (!cancelled) this.platform.hapticNotification('error');
       });
@@ -4781,7 +4820,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       .setStrokeStyle(1.5, 0x475569, 1)
       .setInteractive({ useHandCursor: true });
 
-    const shareText = createText(this, 0, shareY, 'SHARE RESULT 📢', {
+    const shareText = createText(this, 0, shareY, faBattle.result.shareResult, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -4805,14 +4844,15 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       this.platform.hapticSelection();
       if (this.registry.get('realmPilot') && !this.liveMode) {
         shareBg.disableInteractive();
-        try { const client = new PilotClient(this.platform); const opened = await client.invite(await client.config()); if (!opened) shareText.setText('TRY SHARE AGAIN'); }
-        catch { shareText.setText('TRY SHARE AGAIN');this.platform.hapticNotification('error'); }
+        try { const client = new PilotClient(this.platform); const opened = await client.invite(await client.config()); if (!opened) shareText.setText(faBattle.result.tryShareAgain); }
+        catch { shareText.setText(faBattle.result.tryShareAgain);this.platform.hapticNotification('error'); }
         finally { if (this.scene.isActive()) shareBg.setInteractive({ useHandCursor:true }); }
         return;
       }
       const shareMsg = isWin
-        ? `👑 I conquered Crown Clash in ${duration}s! 🏆 Trophies: ${settlement.newCareer.trophies} ⚔️ Challenge my realm!`
-        : `⚔ I fought for the Crown in Crown Clash! Challenge my realm!`;
+        ? faBattle.result.shareWin(duration, settlement.newCareer.trophies)
+        : faBattle.result.shareLose;
+      trackEvent({ name: 'share_opened', source: 'result' });
       await this.platform.share({ text: shareMsg });
     });
 
@@ -4821,7 +4861,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       .rectangle(0, menuY, 240, emphasizeReplay ? 56 : 46, 0x0f172a, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
-    const menuText = createText(this, 0, menuY, 'MAIN MENU', {
+    const menuText = createText(this, 0, menuY, faBattle.result.mainMenu, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -4888,9 +4928,25 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
         if (settlement.rankPromoted) {
           sounds.playRankUp();
         }
-        if (settlement.breakdown.totalCoins > 0) {
+        const totalCoins = settlement.breakdown.totalCoins;
+        if (totalCoins > 0) {
           sounds.playCoin();
-          if (!this.reducedMotion) this.tweens.add({targets:goldValue,scale:1.12,duration:150,yoyo:true,ease:'Sine.easeInOut'});
+          if (!this.reducedMotion) {
+            // Reward beat: count the server-settled coins up, then pop.
+            goldValue.setText('+0 🪙');
+            this.tweens.addCounter({
+              from: 0,
+              to: totalCoins,
+              duration: Math.min(900, 300 + totalCoins * 8),
+              ease: 'Cubic.easeOut',
+              onUpdate: (tween) => goldValue.setText(`+${Math.round(tween.getValue() ?? 0)} 🪙`),
+              onComplete: () => {
+                goldValue.setText(`+${totalCoins} 🪙`);
+                this.platform.hapticImpact('light');
+                this.tweens.add({targets:goldValue,scale:1.18,duration:150,yoyo:true,ease:'Sine.easeInOut'});
+              },
+            });
+          }
         }
         if (settlement.breakdown.trophyDelta > 0) this.time.delayedCall(220, () => sounds.playTrophy());
       },
@@ -4910,7 +4966,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       .rectangle(0, 0, 300, 270, 0x0c1322, 0.99)
       .setStrokeStyle(2, 0xef4444, 0.95);
     const liveConnectionLost = this.liveMode;
-    const title = createText(this, 0, -62, liveConnectionLost ? 'CONNECTION LOST' : 'SYNC FAILED', {
+    const title = createText(this, 0, -62, liveConnectionLost ? faBattle.result.connectionLost : faBattle.result.syncFailed, {
         fontFamily: FONT_FAMILY,
         fontSize: '24px',
         fontStyle: '900',
@@ -4924,8 +4980,8 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
         0,
         -20,
         liveConnectionLost
-          ? 'The live match was surrendered.\nReturn to the main menu.'
-          : 'Your result was not saved.\nRetry before leaving the battle.',
+          ? faBattle.result.liveSurrendered
+          : faBattle.result.notSaved,
         {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
@@ -4941,7 +4997,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       .rectangle(0, 55, 190, 50, 0x2563eb, 1)
       .setStrokeStyle(2, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
-    const retryText = createText(this, 0, 55, liveConnectionLost ? 'MAIN MENU' : 'RETRY SYNC', {
+    const retryText = createText(this, 0, 55, liveConnectionLost ? faBattle.result.mainMenu : faBattle.result.retrySync, {
         fontFamily: FONT_FAMILY,
         fontSize: '14px',
         fontStyle: '900',
@@ -4969,7 +5025,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       .rectangle(0, 105, 190, 46, 0x0f172a, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
-    const menuText = createText(this, 0, 105, 'MAIN MENU', {
+    const menuText = createText(this, 0, 105, faBattle.result.mainMenu, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -5008,7 +5064,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
     const card = this.add
       .rectangle(0, 0, 280, 140, 0x0c1322, 0.98)
       .setStrokeStyle(2, 0x3b82f6, 0.9);
-    const title = createText(this, 0, -25, 'BATTLE COMPLETE', {
+    const title = createText(this, 0, -25, faBattle.result.battleComplete, {
         fontFamily: FONT_FAMILY,
         fontSize: '18px',
         fontStyle: '900',
@@ -5018,8 +5074,8 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
         resolution: 2,
       })
       .setOrigin(0.5);
-    const subtitle = createText(this, 0, 15, 'SYNCING RESULT...', {
-        fontFamily: MONO_FONT_FAMILY,
+    const subtitle = createText(this, 0, 15, faBattle.result.syncing, {
+        fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
         color: '#93c5fd',
@@ -5165,7 +5221,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       .setStrokeStyle(1, 0x60a5fa, 0.35);
 
     const titleY = -cardHeight / 2 + 28;
-    const titleText = this.liveMode ? 'BATTLE MENU' : 'PAUSED';
+    const titleText = this.liveMode ? faBattle.menu.battleMenu : faBattle.menu.paused;
     const title = createText(this, 0, titleY, titleText, {
         fontFamily: FONT_FAMILY,
         fontSize: '18px',
@@ -5185,8 +5241,8 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       const warningBg = this.add
         .rectangle(0, startBtnY + 4, 234, 26, 0x450a0a, 0.95)
         .setStrokeStyle(1, 0xef4444, 0.9);
-      const warningText = createText(this, 0, startBtnY + 4, '● LIVE BATTLE CONTINUES', {
-          fontFamily: MONO_FONT_FAMILY,
+      const warningText = createText(this, 0, startBtnY + 4, faBattle.menu.liveContinues, {
+          fontFamily: FONT_FAMILY,
           fontSize: '11px',
           fontStyle: 'bold',
           color: '#fca5a5',
@@ -5203,7 +5259,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       .rectangle(0, resumeY, 234, 44, 0x2563eb, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
-    const resumeText = createText(this, 0, resumeY, 'RESUME', {
+    const resumeText = createText(this, 0, resumeY, faBattle.menu.resume, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -5226,7 +5282,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       .rectangle(0, soundY, 234, 44, 0x111c33, 1)
       .setStrokeStyle(1.5, 0x334155, 1)
       .setInteractive({ useHandCursor: true });
-    const soundText = createText(this, 0, soundY, sounds.isMuted() ? 'SOUND: OFF' : 'SOUND: ON', {
+    const soundText = createText(this, 0, soundY, sounds.isMuted() ? faBattle.menu.soundOff : faBattle.menu.soundOn, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -5239,7 +5295,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
     this.bindPressFeedback(soundBg, soundText);
     soundBg.on('pointerdown', () => {
       const isMuted = sounds.toggleMute();
-      soundText.setText(isMuted ? 'SOUND: OFF' : 'SOUND: ON');
+      soundText.setText(isMuted ? faBattle.menu.soundOff : faBattle.menu.soundOn);
       this.platform.hapticSelection();
     });
     elements.push(soundBg, soundText);
@@ -5251,7 +5307,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       .rectangle(0, leaveY, 234, 44, 0x1e1520, 1)
       .setStrokeStyle(1.5, 0xef4444, 0.9)
       .setInteractive({ useHandCursor: true });
-    const leaveText = createText(this, 0, leaveY, this.is2v2 ? 'SURRENDER' : 'LEAVE MATCH', {
+    const leaveText = createText(this, 0, leaveY, this.is2v2 ? faBattle.menu.surrender : faBattle.menu.leaveMatch, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -5304,7 +5360,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       .setStrokeStyle(1, 0xf87171, 0.35);
 
     const titleY = -cardHeight / 2 + 28;
-    const title = createText(this, 0, titleY, 'LEAVE MATCH?', {
+    const title = createText(this, 0, titleY, faBattle.menu.leaveTitle, {
         fontFamily: FONT_FAMILY,
         fontSize: '18px',
         fontStyle: '900',
@@ -5336,8 +5392,8 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       const warningBg = this.add
         .rectangle(0, btnStartY + 4, 234, 26, 0x450a0a, 0.95)
         .setStrokeStyle(1, 0xef4444, 0.9);
-      const warningText = createText(this, 0, btnStartY + 4, '● LIVE BATTLE CONTINUES', {
-          fontFamily: MONO_FONT_FAMILY,
+      const warningText = createText(this, 0, btnStartY + 4, faBattle.menu.liveContinues, {
+          fontFamily: FONT_FAMILY,
           fontSize: '11px',
           fontStyle: 'bold',
           color: '#fca5a5',
@@ -5354,7 +5410,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       .rectangle(0, keepY, 234, 44, 0x2563eb, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
-    const keepText = createText(this, 0, keepY, 'KEEP PLAYING', {
+    const keepText = createText(this, 0, keepY, faBattle.menu.keepPlaying, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -5378,7 +5434,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       .rectangle(0, confirmLeaveY, 234, 44, 0xdc2626, 1)
       .setStrokeStyle(1.5, 0xf87171, 1)
       .setInteractive({ useHandCursor: true });
-    const confirmLeaveText = createText(this, 0, confirmLeaveY, this.is2v2 ? 'SURRENDER' : 'LEAVE MATCH', {
+    const confirmLeaveText = createText(this, 0, confirmLeaveY, this.is2v2 ? faBattle.menu.surrender : faBattle.menu.leaveMatch, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -5850,7 +5906,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       // Not fatal: the countdown still starts the match without ready votes.
     }
     if (!this.resultModalContainer) return;
-    const pending = createText(this, 0, 60, 'REMATCH FOUND — ENTERING THE ARENA…', {
+    const pending = createText(this, 0, 60, faBattle.twoVTwo.rematchFound, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: '900',
@@ -5908,7 +5964,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
     // Casual notice — honest no-rewards copy replaces the 1v1 reward cards.
     const casualNotice = createText(this, 0, -202, TWO_V_TWO_CASUAL_NOTICE, {
         fontFamily: FONT_FAMILY,
-        fontSize: '10px',
+        fontSize: '11px',
         fontStyle: 'bold',
         color: '#94a3b8',
         stroke: '#000000',
@@ -5939,11 +5995,11 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       if (model.cancelled) break;
       const teamStyle = THEME.teams[row.group.teamId === 'a' ? 'player' : 'enemy'];
       const teamLabelText = row.group.isMyTeam
-        ? `${row.group.isWinner ? '🏆' : '🛡'} YOUR TEAM ${row.group.teamId.toUpperCase()}${row.group.isWinner ? ' — WINNER' : ''}`
-        : `${row.group.isWinner ? '🏆' : '⚔'} ENEMY TEAM ${row.group.teamId.toUpperCase()}${row.group.isWinner ? ' — WINNER' : ''}`;
+        ? faBattle.twoVTwo.yourTeam(row.group.isWinner ? '🏆' : '🛡', row.group.teamId.toUpperCase(), row.group.isWinner)
+        : faBattle.twoVTwo.enemyTeam(row.group.isWinner ? '🏆' : '⚔', row.group.teamId.toUpperCase(), row.group.isWinner);
       const teamLabel = createText(this, 0, row.labelY, teamLabelText, {
           fontFamily: FONT_FAMILY,
-          fontSize: '10px',
+          fontSize: '11px',
           fontStyle: '900',
           color: row.group.isWinner ? '#fbbf24' : '#94a3b8',
           stroke: '#000000',
@@ -6000,11 +6056,11 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
             cell.center.x,
             cell.center.y + 22,
             participant.abandoned
-              ? `ABANDONED${participant.coinsAwarded === null ? '' : ` · +${participant.coinsAwarded}g`}`
-              : `${participant.coinsAwarded === null ? '' : `+${participant.coinsAwarded}g · `}⚔${participant.unitsDispatched ?? '—'} · 🏰${participant.territoriesCaptured ?? '—'}`,
+              ? faBattle.twoVTwo.abandoned(participant.coinsAwarded)
+              : `${participant.coinsAwarded === null ? '' : `+${participant.coinsAwarded}🪙 · `}⚔${participant.unitsDispatched ?? '—'} · 🏰${participant.territoriesCaptured ?? '—'}`,
             {
               fontFamily: FONT_FAMILY,
-              fontSize: '9px',
+              fontSize: '10px',
               fontStyle: 'bold',
               color: participant.abandoned ? '#f87171' : '#94a3b8',
               stroke: '#000000',
@@ -6018,7 +6074,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
     }
 
     if (model.cancelled) {
-      const cancelledNote = createText(this, 0, -110, 'No result was recorded for this match.', {
+      const cancelledNote = createText(this, 0, -110, faBattle.twoVTwo.cancelledNote, {
           fontFamily: FONT_FAMILY,
           fontSize: '11px',
           fontStyle: 'bold',
@@ -6057,7 +6113,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
         client?.sendRematchVote();
       } catch (error) {
         // The vote window may have closed; surface it without crashing.
-        this.spawnFloatingText(LOGICAL_WIDTH / 2, 96, 'rematch unavailable', '#f87171');
+        this.spawnFloatingText(LOGICAL_WIDTH / 2, 96, faBattle.float.rematchUnavailable, '#f87171');
         console.warn('[GameScene] Rematch vote failed:', error);
         this.twoVTwoRematchVoteSent = false;
         return;
@@ -6074,7 +6130,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       .rectangle(0, shareY, 240, 46, 0x1e293b, 1)
       .setStrokeStyle(1.5, 0x475569, 1)
       .setInteractive({ useHandCursor: true });
-    const shareText = createText(this, 0, shareY, 'SHARE RESULT 📢', {
+    const shareText = createText(this, 0, shareY, faBattle.result.shareResult, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -6087,10 +6143,11 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
     this.bindPressFeedback(shareBg, shareText);
     shareBg.on('pointerdown', async () => {
       this.platform.hapticSelection();
+      trackEvent({ name: 'share_opened', source: 'result_2v2' });
       await this.platform.share({
         text: model.myStatus === 'victory'
-          ? '👑 Our team seized the Quad Citadel in Crown Clash 2v2! ⚔️ Join the battle!'
-          : '⚔ We fought for the Quad Citadel in Crown Clash 2v2! Challenge us!',
+          ? faBattle.twoVTwo.shareWin
+          : faBattle.twoVTwo.shareLose,
       });
     });
     elements.push(shareBg, shareText);
@@ -6100,7 +6157,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       .rectangle(0, menuY, 240, 46, 0x0f172a, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
-    const menuText = createText(this, 0, menuY, 'MAIN MENU', {
+    const menuText = createText(this, 0, menuY, faBattle.result.mainMenu, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -6143,7 +6200,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
     const card = this.add
       .rectangle(0, 0, 290, 170, 0x0c1322, 0.99)
       .setStrokeStyle(2, 0xf59e0b, 0.95);
-    const title = createText(this, 0, -50, 'CONNECTION LOST', {
+    const title = createText(this, 0, -50, faBattle.reconnect.title, {
         fontFamily: FONT_FAMILY,
         fontSize: '19px',
         fontStyle: '900',
@@ -6153,7 +6210,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
         resolution: 2,
       })
       .setOrigin(0.5);
-    const subtitle = createText(this, 0, -8, `Reconnecting… (attempt ${attempt + 1})\nYour slot is held for 30s`, {
+    const subtitle = createText(this, 0, -8, faBattle.reconnect.subtitle(attempt + 1), {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: 'bold',
@@ -6195,7 +6252,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
     const card = this.add
       .rectangle(0, 0, 300, 220, 0x0c1322, 0.99)
       .setStrokeStyle(2, 0xef4444, 0.95);
-    const title = createText(this, 0, -75, 'MATCH ABANDONED', {
+    const title = createText(this, 0, -75, faBattle.reconnect.abandonedTitle, {
         fontFamily: FONT_FAMILY,
         fontSize: '19px',
         fontStyle: '900',
@@ -6205,7 +6262,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
         resolution: 2,
       })
       .setOrigin(0.5);
-    const subtitle = createText(this, 0, -25, 'You could not rejoin in time.\nThe match continues without you.', {
+    const subtitle = createText(this, 0, -25, faBattle.reconnect.abandonedSubtitle, {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: 'bold',
@@ -6219,7 +6276,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       .setOrigin(0.5);
     const codeText = createText(this, 0, 22, code.replaceAll('_', ' '), {
         fontFamily: FONT_FAMILY,
-        fontSize: '9px',
+        fontSize: '10px',
         fontStyle: 'bold',
         color: '#64748b',
         stroke: '#000000',
@@ -6231,7 +6288,7 @@ PROD ${production.toFixed(2)}/s · DEF ×${getTerritoryDefenseMultiplier(territo
       .rectangle(0, 70, 200, 48, 0x0f172a, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
-    const menuText = createText(this, 0, 70, 'RETURN TO MENU', {
+    const menuText = createText(this, 0, 70, faBattle.reconnect.returnToMenu, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: '900',

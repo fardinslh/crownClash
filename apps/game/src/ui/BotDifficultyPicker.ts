@@ -3,11 +3,12 @@ import { BOT_DIFFICULTIES, type BotDifficulty, type BotMatchTicket } from '@crow
 import type { PlatformAdapter } from '@crown-clash/platform';
 import type { CareerManager } from '../career/CareerManager.js';
 import './bot-difficulty.css';
+import { fa } from '../i18n/fa.js';
 
 const labels: Record<BotDifficulty, { title: string; description: string }> = {
-  easy: { title: 'EASY', description: 'More time to react' },
-  normal: { title: 'NORMAL', description: 'The current challenge' },
-  hard: { title: 'HARD', description: 'Faster enemy decisions' },
+  easy: fa.difficulty.easy,
+  normal: fa.difficulty.normal,
+  hard: fa.difficulty.hard,
 };
 const preferenceKey = 'crown-clash:bot-difficulty';
 export function preferredBotDifficulty(): BotDifficulty {
@@ -29,9 +30,9 @@ export function chooseBotDifficulty(scene: Phaser.Scene): Promise<BotDifficulty 
     const root = document.createElement('div');
     root.className = 'bot-difficulty-overlay';
     root.innerHTML = `<section role="dialog" aria-modal="true" aria-labelledby="bot-difficulty-title">
-      <span class="bot-difficulty-eyebrow">BOT BATTLE</span><h2 id="bot-difficulty-title">Choose your challenge</h2>
-      <p>Same troops. Different reaction speed.</p><div class="bot-difficulty-options"></div>
-      <button class="bot-difficulty-play">PLAY ⚔</button><button class="bot-difficulty-cancel">BACK</button>
+      <span class="bot-difficulty-eyebrow">${fa.difficulty.eyebrow}</span><h2 id="bot-difficulty-title">${fa.difficulty.heading}</h2>
+      <p>${fa.difficulty.note}</p><div class="bot-difficulty-options"></div>
+      <button class="bot-difficulty-play">${fa.difficulty.play}</button><button class="bot-difficulty-cancel">${fa.difficulty.back}</button>
     </section>`;
     let selected = preferredBotDifficulty();
     const options = root.querySelector('.bot-difficulty-options')!;

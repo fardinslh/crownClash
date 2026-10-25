@@ -6,6 +6,7 @@ import type {
 import { TWO_V_TWO_SLOTS } from '@crown-clash/game-core';
 import type { LiveMatchResult2v2 } from '../api/LiveMatchClient.js';
 import { slotLabel } from '../ui/TwoVTwoHudLayout.js';
+import { faBattle } from '../i18n/faBattle.js';
 
 // ── 2v2 result view model (docs/2v2-architecture.md Phase 5) ──────────────
 // Pure grouping/copy logic for the 2v2 results modal. Deterministic and
@@ -53,7 +54,7 @@ function participantCard(
     slot: participant.slot,
     teamId: participant.teamId,
     label: slotLabel(participant.slot),
-    displayName: rosterNames[participant.slot] ?? `Commander ${participant.slot + 1}`,
+    displayName: rosterNames[participant.slot] ?? `${faBattle.names.commander} ${participant.slot + 1}`,
     status: participant.status ?? 'unknown',
     abandoned: participant.abandoned === true,
     unitsDispatched: typeof stats?.playerUnitsDispatched === 'number' ? stats.playerUnitsDispatched : null,
@@ -105,7 +106,7 @@ export function buildTwoVTwoResultViewModel(
       slot,
       teamId: (slot < 2 ? 'a' : 'b') as TeamId,
       label: slotLabel(slot),
-      displayName: rosterNames[slot] ?? `Commander ${slot + 1}`,
+      displayName: rosterNames[slot] ?? `${faBattle.names.commander} ${slot + 1}`,
       status: 'unknown' as const,
       abandoned: false,
       unitsDispatched: null,
@@ -152,37 +153,37 @@ export function twoVTwoResultHeadline(model: TwoVTwoResultViewModel): {
 } {
   if (model.cancelled) {
     return {
-      title: 'MATCH CANCELLED',
-      subtitle: 'The battle was abandoned.\nNo trophies or gold changed hands.',
+      title: faBattle.twoVTwo.cancelledTitle,
+      subtitle: faBattle.twoVTwo.cancelledSubtitle,
       color: '#94a3b8',
     };
   }
   if (model.myStatus === 'victory') {
     return {
-      title: 'VICTORY!',
-      subtitle: '👑 YOUR TEAM SEIZED THE CITADEL',
+      title: faBattle.result.victory,
+      subtitle: faBattle.twoVTwo.winSub,
       color: '#fbbf24',
     };
   }
   if (model.myStatus === 'defeat') {
     return {
-      title: 'DEFEAT',
-      subtitle: '⚔️ YOUR TEAM’S DEFENSES HAVE FALLEN',
+      title: faBattle.result.defeat,
+      subtitle: faBattle.twoVTwo.loseSub,
       color: '#ef4444',
     };
   }
   return {
-    title: 'DRAW',
-    subtitle: '🛡 NEITHER SIDE CLAIMED THE CITADEL',
+    title: faBattle.result.draw,
+    subtitle: faBattle.twoVTwo.drawSub,
     color: '#94a3b8',
   };
 }
 
-export const TWO_V_TWO_CASUAL_NOTICE = 'CASUAL MATCH — no trophy changes';
+export const TWO_V_TWO_CASUAL_NOTICE = faBattle.twoVTwo.casualNotice;
 
 /** One-shot rematch vote button copy. */
 export function twoVTwoRematchButtonLabel(voted: boolean): string {
-  return voted ? 'REMATCH VOTE SENT ✓' : 'VOTE REMATCH 🔄 (all 4 must agree)';
+  return voted ? faBattle.twoVTwo.rematchSent : faBattle.twoVTwo.rematchVote;
 }
 
 /**
@@ -197,8 +198,8 @@ export function formatTwoVTwoResultCellLabel(
   displayName: string,
   maxNameChars = 9
 ): string {
-  const name = (displayName ?? '').trim() || 'Commander';
+  const name = (displayName ?? '').trim() || faBattle.names.commander;
   const truncated =
     name.length > maxNameChars ? `${name.slice(0, maxNameChars)}…` : name;
-  return `${shape} ${label}${isYou ? ' ★YOU' : ''} ${truncated}`;
+  return `${shape} ${label}${isYou ? faBattle.twoVTwo.youInline : ''} ${truncated}`;
 }

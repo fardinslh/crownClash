@@ -90,6 +90,20 @@ export function applyTrainingSandbox(territories: Record<string, Territory>): vo
   }
 }
 
+/**
+ * Keeps the scripted enemy HQ from out-growing the player while they read
+ * the steps: the sandbox only lowers its production rate, so over a slow
+ * tutorial it still climbed past what one deliberate attack can beat and
+ * the finale stalled on endless reinforce hints. Growth is capped at the
+ * sandbox garrison; attacks still reduce it normally.
+ */
+export function holdTrainingEnemyBase(territories: Record<string, Territory>): void {
+  const enemyBase = territories[TUTORIAL_ENEMY_BASE_ID];
+  if (enemyBase && enemyBase.owner === 'enemy' && enemyBase.units > TRAINING_ENEMY_BASE_UNITS) {
+    enemyBase.units = TRAINING_ENEMY_BASE_UNITS;
+  }
+}
+
 function distance(a: Territory, b: Territory): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }

@@ -1,0 +1,29 @@
+# Bale launch tasks
+
+Status as of 2026-10-25. Source: pre-release audit (mechanic, UX, retention).
+
+## Done
+- [x] Persian UI + Vazirmatn font + RTL isolates for canvas text (Menu, Daily, League, Kingdom, Council, Live PvP lobby, difficulty picker, battle HUD/results, tutorial, loading shell).
+- [x] Tutorial: finale (`destroy_base`) stalled. Guidance was resolved only on step entry/capture, so the hand hint kept showing "reinforce the frontier" forever, and the enemy HQ kept growing (10 -> 21+). Now guidance refreshes every 0.75 s (`GameScene.refreshTrainingGuidance`) and the enemy HQ is capped at its sandbox garrison (`holdTrainingEnemyBase`). Regression test in `TacticalTutorial.test.ts`.
+- [x] Tutorial: a training attack that cannot take its target now shows "سرباز کافی نیست — اول برج را تقویت کن" after release.
+- [x] Tutorial: guest name pill showed "…فرمانده" on 360px. The HUD candidate was cut at 7 code points; a guest handle that does not fit now drops its number instead (`formatHudName`).
+- [x] Tutorial -> first match: no difficulty picker; the first real match after training starts on Easy and the celebration says it pays coins. The picker stays on the menu PLAY button. Training itself still grants no economy (server rule, `TestStoreCompleteTutorialIsIdempotentAndGrantsNoEconomy`); the first real win is the first server-settled reward.
+- [x] Analytics drift (server): `destroy_base` tutorial step, `live_queue_2v2_joined` and `live_match_started.mode` were rejected by `analytics/events`. The sink retries a rejected batch, so one such event blocked all later analytics for that player. Fixed in `main.go`; `TestAnalyticsSchemaCoversClientEvents` now reads the client event list and tutorial steps and fails on drift.
+- [x] Analytics: new `share_opened` event (`source`: `live_invite`, `result`, `result_2v2`), documented in `ANALYTICS.md`.
+- [x] Post-match reward beat: coins count up from 0 to the server-settled total, then pop with a light haptic (skipped with reduced motion).
+- [x] Legibility: 9-10px labels raised by 1px in Game/Kingdom/Menu; menu mute button has a 44x44 hit area (other menu buttons were already >= 44px tall).
+- [x] Remaining English strings: loading shell status, League load/claim errors, Kingdom network error, `M0->5` milestone label (now "هدف: سطح 5" / "مرحله 5 ✓").
+
+## Needs the owner (cannot be done from code)
+- [ ] Real-device test in Bale: initData validation (`auth.go`, shared Telegram HMAC path), the query-string/`bale_guest` fallback in `BalePlatformAdapter.ts`, `bale://share`, `openInvoice` payment.
+- [ ] Decide `ENABLE_REALM_PILOT` / `ENABLE_COIN_PAYMENTS` (both off by default, so revenge/shop/starter pack do not exist in the default build).
+- [ ] Review Persian copy (hand-written) and check mixed Persian+number lines on a real WebView.
+- [ ] Re-entry hook: Bale bot message for revenge / daily chest. Needs the bot token, a decision on message frequency, and server-side sending; not started.
+- [ ] Replace emoji/rectangle UI with real icon and chest art (Blender pipeline per the Art Bible).
+
+## Later
+- [ ] Analytics still missing: checkout (only matters once coin payments are on), chest open, FTUE timing, client error reporting.
+- [ ] Haptics toggle (sound mute already exists and persists).
+- [ ] `PrototypeScene.ts` + `src/prototype/` are unregistered (not in the bundle). Delete them or wire them back together with `scripts/crown-prototype-qa.mjs`.
+- [ ] `.opencode/*` deletions in the working tree are not part of these changes; commit or restore them separately.
+- [ ] Main JS chunk is 505 kB (123 kB gzip) plus Phaser 381 kB gzip; consider lazy-loading non-first-screen scenes.

@@ -20,6 +20,7 @@ import {
 } from '../ui/Viewport.js';
 import { computeDailyLayout } from '../ui/HubLayouts.js';
 import { createText, FONT_FAMILY } from '../ui/TextStyles.js';
+import { fa, missionCopy } from '../i18n/fa.js';
 
 const MISSION_ICONS: Record<DailyMissionState['id'], string> = {
   play_matches: '⚔️',
@@ -98,7 +99,7 @@ export class DailyScene extends Phaser.Scene {
         onError: (_type, error) => {
           console.error('[DailyScene] Reward claim failed:', error);
           this.platform.hapticNotification('error');
-          this.showToast("Couldn't claim reward. Please try again.");
+          this.showToast(fa.daily.claimFailed);
         },
       }
     );
@@ -140,7 +141,7 @@ export class DailyScene extends Phaser.Scene {
     this.bindPressFeedback(backBg, backLabel);
     backBg.on('pointerdown', () => this.closeDaily());
 
-    createText(this, LOGICAL_WIDTH / 2, 39, 'ROYAL ORDERS', {
+    createText(this, LOGICAL_WIDTH / 2, 39, fa.daily.title, {
         fontFamily: FONT_FAMILY,
         fontSize: '24px',
         fontStyle: '900',
@@ -150,7 +151,7 @@ export class DailyScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0.5);
-    createText(this, LOGICAL_WIDTH / 2, 66, 'Complete today’s campaign', {
+    createText(this, LOGICAL_WIDTH / 2, 66, fa.daily.subtitle, {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: 'bold',
@@ -161,7 +162,7 @@ export class DailyScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    this.resetText = createText(this, LOGICAL_WIDTH / 2, 0, 'RESET  --:--:--', {
+    this.resetText = createText(this, LOGICAL_WIDTH / 2, 0, fa.daily.resetPlaceholder, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -185,7 +186,7 @@ export class DailyScene extends Phaser.Scene {
       .setOrigin(1, 0.5);
     this.refreshGold();
 
-    this.statusText = createText(this, LOGICAL_WIDTH / 2, 0, 'Reading today’s orders…', {
+    this.statusText = createText(this, LOGICAL_WIDTH / 2, 0, fa.daily.loading, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
@@ -253,7 +254,7 @@ export class DailyScene extends Phaser.Scene {
     } catch (error) {
       console.error('[DailyScene] Failed to load daily state:', error);
       if (this.active && visitId === this.visitId) {
-        this.showLoadError("Couldn't load today's orders.");
+        this.showLoadError(fa.daily.loadError);
       }
     }
   }
@@ -266,7 +267,7 @@ export class DailyScene extends Phaser.Scene {
       .rectangle(LOGICAL_WIDTH / 2, 0, 160, 44, 0x2563eb, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
-    this.retryLabel = createText(this, LOGICAL_WIDTH / 2, 0, 'RETRY', {
+    this.retryLabel = createText(this, LOGICAL_WIDTH / 2, 0, fa.daily.retry, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: '900',
@@ -280,7 +281,7 @@ export class DailyScene extends Phaser.Scene {
       this.retryBg = undefined;
       this.retryLabel?.destroy();
       this.retryLabel = undefined;
-      this.statusText.setText('Reading today’s orders…').setColor('#94a3b8');
+      this.statusText.setText(fa.daily.loading).setColor('#94a3b8');
       void this.loadState();
     });
     this.applyLayout(getSceneViewport(this));
@@ -318,7 +319,7 @@ export class DailyScene extends Phaser.Scene {
       .setStrokeStyle(1.5, borderColor, 0.85);
     const icon = createText(this, -145, -20, MISSION_ICONS[mission.id], { fontSize: '19px', resolution: 2 })
       .setOrigin(0.5);
-    const title = createText(this, -114, -34, mission.title.toUpperCase(), {
+    const title = createText(this, -114, -34, missionCopy(mission.id, mission).title, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: '900',
@@ -328,7 +329,7 @@ export class DailyScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0, 0.5);
-    const description = createText(this, -114, -13, mission.description, {
+    const description = createText(this, -114, -13, missionCopy(mission.id, mission).description, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -362,7 +363,7 @@ export class DailyScene extends Phaser.Scene {
       .setOrigin(1, 0.5);
 
     const button = this.add.rectangle(121, 24, 94, 40, 0x273449, 1).setStrokeStyle(1.5, 0x475569, 1);
-    const buttonLabel = createText(this, 121, 24, mission.claimed ? 'CLAIMED ✓' : pending ? '…' : claimable ? 'CLAIM' : 'IN BATTLE', {
+    const buttonLabel = createText(this, 121, 24, mission.claimed ? fa.daily.claimed : pending ? '…' : claimable ? fa.daily.claim : fa.daily.inBattle, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: '900',
@@ -417,7 +418,7 @@ export class DailyScene extends Phaser.Scene {
     const halo = this.add.circle(-126, 0, 38, THEME.gold, chest.unlocked ? 0.12 : 0.04);
     const icon = createText(this, -126, 0, chest.claimed ? '👑' : '🎁', { fontSize: '34px', resolution: 2 })
       .setOrigin(0.5);
-    const title = createText(this, -77, -35, 'CROWN CHEST', {
+    const title = createText(this, -77, -35, fa.daily.chestTitle, {
         fontFamily: FONT_FAMILY,
         fontSize: '16px',
         fontStyle: '900',
@@ -427,7 +428,7 @@ export class DailyScene extends Phaser.Scene {
         resolution: 2,
       })
       .setOrigin(0, 0.5);
-    const detail = createText(this, -77, -10, chest.claimed ? 'Royal bounty collected' : chest.unlocked ? 'All orders fulfilled' : `Claim all orders  ${claimedMissions}/3`, {
+    const detail = createText(this, -77, -10, chest.claimed ? fa.daily.chestClaimed : chest.unlocked ? fa.daily.chestUnlocked : fa.daily.chestProgress(claimedMissions), {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -446,7 +447,7 @@ export class DailyScene extends Phaser.Scene {
       })
       .setOrigin(0, 0.5);
     const button = this.add.rectangle(113, 24, 100, 42, 0x273449, 1).setStrokeStyle(1.5, borderColor, 1);
-    const buttonLabel = createText(this, 113, 24, chest.claimed ? 'OPENED ✓' : pending ? '…' : chest.unlocked ? 'OPEN' : 'LOCKED', {
+    const buttonLabel = createText(this, 113, 24, chest.claimed ? fa.daily.opened : pending ? '…' : chest.unlocked ? fa.daily.open : fa.daily.locked, {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
         fontStyle: '900',
@@ -475,7 +476,7 @@ export class DailyScene extends Phaser.Scene {
     }
     const burst = this.add.container(LOGICAL_WIDTH / 2, isChest ? 355 : 330).setDepth(250);
     const glow = this.add.circle(0, 0, isChest ? 82 : 62, THEME.gold, 0.18);
-    const label = createText(this, 0, 0, `${isChest ? 'CROWN CHEST\n' : ''}+${reward} 🪙`, {
+    const label = createText(this, 0, 0, `${isChest ? `${fa.daily.chestTitle}\n` : ''}+${reward} 🪙`, {
         fontFamily: FONT_FAMILY,
         fontSize: isChest ? '22px' : '19px',
         fontStyle: '900',
@@ -506,7 +507,7 @@ export class DailyScene extends Phaser.Scene {
 
   private refreshResetText(): void {
     if (!this.state) return;
-    this.resetText.setText(`RESET  ${formatDailyReset(this.state.resetsAt)}`);
+    this.resetText.setText(fa.daily.reset(formatDailyReset(this.state.resetsAt)));
     if (Date.now() < this.state.resetsAt || this.loadingReset) return;
     this.loadingReset = true;
     void this.loadState().finally(() => {
@@ -525,10 +526,10 @@ export class DailyScene extends Phaser.Scene {
   }
 
   private failureMessage(reason?: string): string {
-    if (reason === 'not_complete') return 'Finish this order before claiming it.';
-    if (reason === 'already_claimed') return 'This reward was already claimed.';
-    if (reason === 'chest_locked') return 'Claim all three orders first.';
-    return "Couldn't claim reward. Please try again.";
+    if (reason === 'not_complete') return fa.daily.notComplete;
+    if (reason === 'already_claimed') return fa.daily.alreadyClaimed;
+    if (reason === 'chest_locked') return fa.daily.chestLocked;
+    return fa.daily.claimFailed;
   }
 
   private showToast(message: string): void {
@@ -547,7 +548,7 @@ export class DailyScene extends Phaser.Scene {
   private closeDaily(): void {
     if (this.isExiting) return;
     if (!this.claimRunner.requestClose()) {
-      this.showToast('Finishing your reward claim…');
+      this.showToast(fa.daily.finishingClaim);
       return;
     }
     this.isExiting = true;

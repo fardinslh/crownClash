@@ -120,34 +120,34 @@ describe('buildTwoVTwoResultViewModel', () => {
 
 describe('2v2 result copy', () => {
   it('speaks honestly about casual rewards', () => {
-    expect(TWO_V_TWO_CASUAL_NOTICE).toMatch(/CASUAL/i);
-    expect(TWO_V_TWO_CASUAL_NOTICE).toMatch(/no trophy changes/i);
+    expect(TWO_V_TWO_CASUAL_NOTICE).toContain('بازی دوستانه');
+    expect(TWO_V_TWO_CASUAL_NOTICE).toContain('بدون تغییر جام');
   });
 
   it('heads victory, defeat, draw and cancelled differently', () => {
     const victory = buildTwoVTwoResultViewModel(settledResult(), 0);
-    expect(twoVTwoResultHeadline(victory).title).toBe('VICTORY!');
+    expect(twoVTwoResultHeadline(victory).title).toBe('پیروزی!');
     const defeat = buildTwoVTwoResultViewModel(settledResult(), 3);
-    expect(twoVTwoResultHeadline(defeat).title).toBe('DEFEAT');
+    expect(twoVTwoResultHeadline(defeat).title).toBe('شکست');
     const cancelled = buildTwoVTwoResultViewModel({ matchId: 'm', outcome: 'cancelled' }, 0);
     const cancelledHeadline = twoVTwoResultHeadline(cancelled);
-    expect(cancelledHeadline.title).toBe('MATCH CANCELLED');
-    expect(cancelledHeadline.subtitle).toMatch(/No trophies or gold/i);
+    expect(cancelledHeadline.title).toBe('نبرد لغو شد');
+    expect(cancelledHeadline.subtitle).toContain('جام و سکه‌ای');
   });
 
   it('one-shot rematch button label consumes into sent state', () => {
-    expect(twoVTwoRematchButtonLabel(false)).toMatch(/VOTE REMATCH/);
-    expect(twoVTwoRematchButtonLabel(true)).toBe('REMATCH VOTE SENT ✓');
+    expect(twoVTwoRematchButtonLabel(false)).toContain('رأی بازی مجدد');
+    expect(twoVTwoRematchButtonLabel(true)).toBe('رأی بازی مجدد ارسال شد ✓');
   });
 
   it('cell labels keep the YOU marker readable under truncation', () => {
     expect(formatTwoVTwoResultCellLabel('▲', 'A2', true, 'Commander_YOU')).toBe(
-      '▲ A2 ★YOU Commander…'
+      '▲ A2 ★تو Commander…'
     );
     expect(formatTwoVTwoResultCellLabel('●', 'A1', false, 'Commander_8A2F')).toBe(
       '● A1 Commander…'
     );
     expect(formatTwoVTwoResultCellLabel('■', 'B1', false, 'Ally')).toBe('■ B1 Ally');
-    expect(formatTwoVTwoResultCellLabel('◆', 'B2', false, '')).toBe('◆ B2 Commander');
+    expect(formatTwoVTwoResultCellLabel('◆', 'B2', false, '')).toBe('◆ B2 فرمانده');
   });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Territory } from '@crown-clash/game-core';
 import {
   applyTrainingSandbox,
+  holdTrainingEnemyBase,
   isTrainingTerritoryBright,
   resolveTrainingGuidance,
   TRAINING_DIM_ALPHA,
@@ -62,6 +63,24 @@ function makeTerritories(
 // ---------------------------------------------------------------------------
 // Sandbox tuning
 // ---------------------------------------------------------------------------
+
+describe('holdTrainingEnemyBase', () => {
+  it('caps enemy HQ growth at the sandbox garrison so the finale stays winnable', () => {
+    const territories = makeTerritories({ e_base: { units: 21 } });
+    holdTrainingEnemyBase(territories);
+    expect(territories.e_base.units).toBe(10);
+  });
+
+  it('never raises a weakened HQ and ignores a captured one', () => {
+    const weakened = makeTerritories({ e_base: { units: 4 } });
+    holdTrainingEnemyBase(weakened);
+    expect(weakened.e_base.units).toBe(4);
+
+    const captured = makeTerritories({ e_base: { owner: 'player', units: 30 } });
+    holdTrainingEnemyBase(captured);
+    expect(captured.e_base.units).toBe(30);
+  });
+});
 
 describe('applyTrainingSandbox', () => {
   it('overpowers the player base and guts the enemy base (Clash Royale-style)', () => {

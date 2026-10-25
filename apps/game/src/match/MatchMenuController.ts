@@ -1,3 +1,5 @@
+import { faBattle } from '../i18n/faBattle.js';
+
 export type MatchMenuState = 'closed' | 'menu' | 'confirm';
 
 export interface MatchQuitEvent {
@@ -191,7 +193,7 @@ export class MatchMenuController {
       return this.deps.confirmationMessage;
     }
     return this.deps.liveMode
-      ? 'Leaving forfeits this match.'
-      : 'Current battle progress will be lost.';
+      ? faBattle.menu.leaveLive
+      : faBattle.menu.leaveBot;
   }
 }

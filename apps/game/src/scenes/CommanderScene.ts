@@ -17,6 +17,7 @@ import {
 } from '../ui/Viewport.js';
 import { computeCommanderLayout } from '../ui/HubLayouts.js';
 import { createText, FONT_FAMILY as FONT } from '../ui/TextStyles.js';
+import { commanderCopy, fa } from '../i18n/fa.js';
 
 export class CommanderScene extends Phaser.Scene {
   private platform!: PlatformAdapter;
@@ -63,18 +64,18 @@ export class CommanderScene extends Phaser.Scene {
     const back = this.add.rectangle(42, 42, 48, 44, 0x111827).setStrokeStyle(1.5, 0x475569);
     back.setInteractive({ useHandCursor: true }).on('pointerdown', () => this.close());
     createText(this, 42, 40, '<', { fontFamily: FONT, fontSize: '25px', fontStyle: 'bold', color: '#e2e8f0', resolution: 2 }).setOrigin(0.5);
-    createText(this, 200, 35, 'WAR COUNCIL', {
+    createText(this, 200, 35, fa.council.title, {
       fontFamily: FONT, fontSize: '25px', fontStyle: '900', color: '#f8fafc', stroke: '#000000', strokeThickness: 4, resolution: 2,
     }).setOrigin(0.5);
-    createText(this, 200, 68, 'Choose one battle doctrine', {
+    createText(this, 200, 68, fa.council.subtitle, {
       fontFamily: FONT, fontSize: '12px', fontStyle: 'bold', color: '#93c5fd', resolution: 2,
     }).setOrigin(0.5);
     const level = getKingdomLevel(this.careerManager.getCareer());
-    this.powerBadgeText = createText(this, 200, layout.powerBadgeY, `KINGDOM POWER  ${level}`, {
+    this.powerBadgeText = createText(this, 200, layout.powerBadgeY, fa.council.power(level), {
       fontFamily: FONT, fontSize: '11px', fontStyle: '900', color: '#fbbf24', backgroundColor: '#1c1917', padding: { x: 12, y: 6 }, resolution: 2,
     }).setOrigin(0.5);
     COMMANDERS.forEach((commander, index) => this.createCard(commander, layout.cardYs[index]));
-    this.helperText = createText(this, 200, layout.helperTextY, 'Sidegrades change strategy, not total power.', {
+    this.helperText = createText(this, 200, layout.helperTextY, fa.council.helper, {
       fontFamily: FONT, fontSize: '11px', color: '#64748b', fontStyle: 'bold', resolution: 2,
     }).setOrigin(0.5);
     this.applyLayout(viewport);
@@ -110,19 +111,19 @@ export class CommanderScene extends Phaser.Scene {
     container.add(createText(this, -132, -20, unlocked ? initials : 'X', {
       fontFamily: FONT, fontSize: '17px', fontStyle: '900', color: unlocked ? '#f8fafc' : '#64748b', resolution: 2,
     }).setOrigin(0.5));
-    container.add(createText(this, -92, -54, commander.name.toUpperCase(), {
+    container.add(createText(this, -92, -54, commanderCopy(commander.id, commander).name, {
       fontFamily: FONT, fontSize: '15px', fontStyle: '900', color: unlocked ? '#f8fafc' : '#64748b', resolution: 2,
     }));
-    container.add(createText(this, -92, -32, commander.role, {
+    container.add(createText(this, -92, -32, commanderCopy(commander.id, commander).role, {
       fontFamily: FONT, fontSize: '11px', fontStyle: 'bold', color: unlocked ? '#94a3b8' : '#64748b', resolution: 2,
     }));
-    container.add(createText(this, -92, -5, commander.strength, {
+    container.add(createText(this, -92, -5, commanderCopy(commander.id, commander).strength, {
       fontFamily: FONT, fontSize: '11px', fontStyle: 'bold', color: unlocked ? '#86efac' : '#64748b', resolution: 2,
     }));
-    container.add(createText(this, -92, 15, commander.tradeoff, {
+    container.add(createText(this, -92, 15, commanderCopy(commander.id, commander).tradeoff, {
       fontFamily: FONT, fontSize: '11px', fontStyle: 'bold', color: unlocked ? '#fca5a5' : '#64748b', resolution: 2,
     }));
-    const buttonLabel = selected ? 'EQUIPPED' : unlocked ? 'EQUIP' : `POWER ${commander.unlockKingdomLevel}`;
+    const buttonLabel = selected ? fa.council.equipped : unlocked ? fa.council.equip : fa.council.unlockAt(commander.unlockKingdomLevel);
     const button = this.add.rectangle(92, 45, 142, 44, selected ? commander.accent : unlocked ? 0x2563eb : 0x1e293b)
       .setStrokeStyle(1.5, selected ? 0xf8fafc : unlocked ? 0x60a5fa : 0x334155);
     container.add(button);
@@ -142,7 +143,7 @@ export class CommanderScene extends Phaser.Scene {
       }
       const result = await this.careerManager.selectCommander(commanderId);
       if (!this.active) return;
-      if (!result.success) return this.showToast('Commander is still locked.');
+      if (!result.success) return this.showToast(fa.council.locked);
       sounds.playReinforce();
       this.platform.hapticNotification('success');
       trackEvent({ name: 'commander_selected', commanderId });
@@ -153,7 +154,7 @@ export class CommanderScene extends Phaser.Scene {
       COMMANDERS.forEach((commander, index) => this.createCard(commander, layout.cardYs[index]));
     } catch (error) {
       console.error('[CommanderScene] Selection failed:', error);
-      if (this.active) this.showToast('Could not equip. Try again.');
+      if (this.active) this.showToast(fa.council.equipFailed);
     } finally { this.pending = false; }
   }
 
@@ -168,7 +169,7 @@ export class CommanderScene extends Phaser.Scene {
 
   private close(): void {
     if (this.isExiting) return;
-    if (this.pending) return this.showToast('Equipping commander...');
+    if (this.pending) return this.showToast(fa.council.equipping);
     this.isExiting = true;
     this.platform.hapticSelection();
     this.scene.start('MenuScene');

@@ -21,6 +21,8 @@ import { selectRenderProfile } from './render/RenderProfile.js';
 const platform = createPlatformAdapter();
 
 const GAME_FONT_SPECS = [
+  '700 16px "Vazirmatn"',
+  '800 16px "Vazirmatn"',
   '700 16px "Baloo 2"',
   '800 16px "Baloo 2"',
   '400 16px "JetBrains Mono"',

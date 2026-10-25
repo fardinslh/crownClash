@@ -57,34 +57,36 @@ export interface TutorialStepInfo {
   hintPath: readonly string[];
 }
 
+import { fa } from '../i18n/fa.js';
+
 const STEP_DEFINITIONS: readonly TutorialStepInfo[] = [
   {
     id: 'drag_to_attack',
-    instruction: 'Drag from your tower to the glowing tower!',
+    instruction: fa.tutorial.dragToAttack,
     spotlightTargets: ['p_base', 'n_bot_left'],
     hintPath: ['p_base', 'n_bot_left'],
   },
   {
     id: 'preview_result',
-    instruction: 'Hold over a target — the badge predicts WIN or LOSE!',
+    instruction: fa.tutorial.previewResult,
     spotlightTargets: ['p_base', 'n_bot_right'],
     hintPath: ['p_base', 'n_bot_right'],
   },
   {
     id: 'tower_roles',
-    instruction: 'Captured towers fight for you — take another!',
+    instruction: fa.tutorial.towerRoles,
     spotlightTargets: ['n_center'],
     hintPath: ['p_base', 'n_center'],
   },
   {
     id: 'multi_dispatch',
-    instruction: 'COMBO! Drag through BOTH towers, then release on the target!',
+    instruction: fa.tutorial.multiDispatch,
     spotlightTargets: ['p_base', 'n_bot_left', 'n_center'],
     hintPath: ['p_base', 'n_bot_left', 'n_center'],
   },
   {
     id: 'destroy_base',
-    instruction: 'FINISH THEM! Drag across your towers and take the enemy base!',
+    instruction: fa.tutorial.destroyBase,
     spotlightTargets: ['p_base', TUTORIAL_ENEMY_BASE_ID],
     hintPath: ['p_base', TUTORIAL_ENEMY_BASE_ID],
   },

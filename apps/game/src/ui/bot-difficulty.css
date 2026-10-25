@@ -1,12 +1,12 @@
-.bot-difficulty-overlay { position:absolute; inset:0; z-index:1100; display:flex; align-items:center; justify-content:center; padding:24px 18px; box-sizing:border-box; background:rgba(4,8,18,.86); color:#f8fafc; font-family:'Baloo 2',Arial,sans-serif; }
+.bot-difficulty-overlay { position:absolute; inset:0; z-index:1100; display:flex; align-items:center; justify-content:center; padding:24px 18px; box-sizing:border-box; background:rgba(4,8,18,.86); color:#f8fafc; font-family:'Vazirmatn','Baloo 2',Arial,sans-serif; direction:rtl; }
 .bot-difficulty-overlay section { width:100%; max-width:360px; max-height:100%; overflow:auto; padding:26px 20px 18px; box-sizing:border-box; border:1px solid #334766; border-radius:20px; background:#0f192c; box-shadow:0 20px 60px #0008; text-align:center; }
-.bot-difficulty-eyebrow { color:#93c5fd; font-size:11px; font-weight:800; letter-spacing:2px; }
+.bot-difficulty-eyebrow { color:#93c5fd; font-size:11px; font-weight:800; }
 .bot-difficulty-overlay h2 { margin:12px 0 8px; font-size:24px; }
 .bot-difficulty-overlay p { margin:0 0 22px; color:#a7b5cc; font-size:13px; line-height:1.5; }
 .bot-difficulty-options { display:grid; gap:10px; margin-bottom:20px; }
 .bot-difficulty-overlay button { min-height:48px; border-radius:12px; font:inherit; cursor:pointer; touch-action:manipulation; -webkit-tap-highlight-color:transparent; }
-.bot-difficulty-options button { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:16px 14px; text-align:left; color:#e2e8f0; background:#16233b; border:1px solid #334766; }
-.bot-difficulty-options strong { font-size:13px; letter-spacing:.7px; }
+.bot-difficulty-options button { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:16px 14px; text-align:right; color:#e2e8f0; background:#16233b; border:1px solid #334766; }
+.bot-difficulty-options strong { font-size:13px; }
 .bot-difficulty-options span { color:#9aacc7; font-size:12px; }
 .bot-difficulty-options button[aria-pressed=true] { border:2px solid #60a5fa; padding:15px 13px; background:#203e70; }
 .bot-difficulty-options button[aria-pressed=true] span { color:#d4e7ff; }

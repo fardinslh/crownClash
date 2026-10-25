@@ -1,4 +1,5 @@
 import { FONT_FAMILY, MONO_FONT_FAMILY } from './TextStyles.js';
+import { faBattle } from '../i18n/faBattle.js';
 
 export interface Rect {
   x: number;
@@ -229,15 +230,20 @@ export function formatHudName(
   const trimmed = (rawName ?? '').trim();
   let candidate = trimmed;
 
-  if (!candidate) {
-    candidate = prefix.includes('🔴') ? 'Opponent' : 'Player';
-  } else if (candidate.startsWith('Commander_')) {
-    const id = candidate.slice(10, 14);
-    candidate = 'Cmdr ' + (id || candidate.slice(10));
-  }
-
   const prefixWidth = measureHudTextWidth(prefix, undefined, measureFn);
   const availableForName = Math.max(0, maxAvailableWidth - prefixWidth);
+
+  if (!candidate) {
+    candidate = prefix.includes('🔴') ? faBattle.names.opponent : faBattle.names.player;
+  } else if (candidate.startsWith('Commander_')) {
+    const id = candidate.slice(10, 14);
+    candidate = faBattle.names.commanderShort + (id || candidate.slice(10));
+    // A guest handle cut mid-number reads as "…فرمانده" in RTL; drop the
+    // number instead of truncating it.
+    if (measureHudTextWidth(candidate, { fontSize: 11, bold: true }, measureFn) > availableForName) {
+      candidate = faBattle.names.commander;
+    }
+  }
 
   const fittedName = fitTextToWidth(candidate, availableForName, {
     fontStyle: { fontSize: 11, bold: true },

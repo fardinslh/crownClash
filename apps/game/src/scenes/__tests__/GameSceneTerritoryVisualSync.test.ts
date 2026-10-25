@@ -823,7 +823,7 @@ describe('GameScene Bottom Legend Role Icons', () => {
 
   it('shows SHIELDS, TRAINS, MARCHES with no DEF/PROD/SPD and keeps the drag helper', () => {
     const groups = (scene as any).legendGroups as Array<{ type: string; icon: any; word: any }>;
-    expect(groups.map((g) => g.word.text)).toEqual(['SHIELDS', 'TRAINS', 'MARCHES']);
+    expect(groups.map((g) => g.word.text.replace(/[\u2067\u2069]/g, ''))).toEqual(['دفاع', 'تولید', 'سرعت']);
     for (const g of groups) {
       expect(g.word.text).not.toMatch(/DEF|PROD|SPD/);
     }
@@ -837,7 +837,7 @@ describe('GameScene Bottom Legend Role Icons', () => {
     // Second helper line must remain unchanged.
     const hint = (scene as any).bottomHintText as any;
     expect(hint).toBeDefined();
-    expect(hint.text).toContain('Drag across towers');
+    expect(hint.text).toContain('از برج‌ها بکش');
   });
 
   it('fits every legend object inside the bottom panel with >= 4px icon-word gaps, centered', () => {
@@ -889,7 +889,7 @@ describe('GameScene Bottom Legend Role Icons', () => {
     // Exactly 3 entries after recreation, not 6 accumulated ones.
     const groups = (scene as any).legendGroups as Array<{ type: string; icon: any; word: any }>;
     expect(groups, 'legend must not accumulate across restarts').toHaveLength(3);
-    expect(groups.map((g) => g.word.text)).toEqual(['SHIELDS', 'TRAINS', 'MARCHES']);
+    expect(groups.map((g) => g.word.text.replace(/[\u2067\u2069]/g, ''))).toEqual(['دفاع', 'تولید', 'سرعت']);
 
     // Every stored icon and word belongs to the current scene display list
     // and is a live (non-destroyed) object of this create pass.

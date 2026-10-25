@@ -1,5 +1,6 @@
 import type Phaser from 'phaser';
 import { findDispatchRoute, previewOrder, type GameState } from '@crown-clash/game-core';
+import { faBattle } from '../i18n/faBattle.js';
 
 export function drawTacticalDrag(
   graphics: Phaser.GameObjects.Graphics, state: GameState, sourceIds: readonly string[], targetId: string | null,
@@ -25,15 +26,15 @@ export function drawTacticalDrag(
       graphics.lineStyle(6, 0x020617, .7).lineBetween(from.u, from.v, end.u, end.v);
       graphics.lineStyle(2.5, 0x93c5fd, .8).lineBetween(from.u, from.v, end.u, end.v);
     }
-    return { label: `${sourceIds.length} TOWER${sourceIds.length === 1 ? '' : 'S'} SELECTED`, hint: 'Drag through more blue towers, then choose a target', color: 0x93c5fd, x: end.u, y: end.v - 58 };
+    return { label: faBattle.drag.towersSelected(sourceIds.length), hint: faBattle.drag.towersSelectedHint, color: 0x93c5fd, x: end.u, y: end.v - 58 };
   }
   const preview = previewOrder(state, sourceIds, target.id, 'player', speed);
-  const sourceCount = sourceIds.length > 1 ? `${preview.orders.length}/${sourceIds.length} TOWERS · ` : '';
+  const sourceCount = sourceIds.length > 1 ? faBattle.drag.partialSources(preview.orders.length, sourceIds.length) : '';
   const unreachable = sourceIds.filter(id => !findDispatchRoute(state, id, target.id, 'player')).length;
   const missing = sourceIds.length - preview.orders.length;
   const excludedReason = unreachable
-    ? `${unreachable} selected tower${unreachable === 1 ? ' has' : 's have'} no ${target.owner === 'player' ? 'friendly route' : 'direct road'}`
-    : `${missing} selected tower${missing === 1 ? ' has' : 's have'} too few troops`;
+    ? faBattle.drag.noRoute(unreachable, target.owner === 'player')
+    : faBattle.drag.tooFew(missing);
   const color = preview.orders.length ? target.owner === 'player' ? 0x34d399 : 0xfbbf24 : 0xf87171;
   for (const { army } of preview.orders) {
     const route = army.routeIds ?? [army.sourceId, target.id];
@@ -48,10 +49,10 @@ export function drawTacticalDrag(
         tip.u + Math.cos(angle - 2.5) * 7, tip.v + Math.sin(angle - 2.5) * 7);
     }
   }
-  const estimate = target.owner === 'player' ? 'REINFORCE' : preview.projected?.owner === 'player' ? 'CAPTURE LIKELY' : 'DEFENSE LIKELY';
-  return { label: preview.orders.length ? `${sourceCount}${preview.sent} SEND · ${preview.left} STAY\n${estimate} · CURRENT BOARD` : `${sourceCount}${excludedReason}`,
+  const estimate = target.owner === 'player' ? faBattle.drag.estimateReinforce : preview.projected?.owner === 'player' ? faBattle.drag.estimateCapture : faBattle.drag.estimateDefense;
+  return { label: preview.orders.length ? `${sourceCount}${faBattle.drag.sendStay(preview.sent, preview.left)}\n${estimate} · ${faBattle.drag.currentBoard}` : `${sourceCount}${excludedReason}`,
     hint: missing ? excludedReason : target.owner === 'player'
-      ? 'Release to reinforce · Keep dragging to select this tower'
-      : 'Arrivals and production can change the result',
+      ? faBattle.drag.releaseToReinforce
+      : faBattle.drag.mayChange,
     color, x: point.u, y: point.v - 65 * scale };
 }
