@@ -17,6 +17,52 @@ export class SoundEffects {
     }
   }
 
+  private master: AudioNode | null = null;
+
+  /**
+   * Master bus: every voice goes through one gain and a gentle compressor,
+   * so stacked combat sounds never clip on phone speakers.
+   */
+  private output(ctx: AudioContext): AudioNode {
+    if (this.master) return this.master;
+    try {
+      const gain = ctx.createGain();
+      gain.gain.value = 0.85;
+      const compressor = ctx.createDynamicsCompressor();
+      compressor.threshold.value = -14;
+      compressor.knee.value = 12;
+      compressor.ratio.value = 4;
+      compressor.attack.value = 0.004;
+      compressor.release.value = 0.18;
+      gain.connect(compressor);
+      compressor.connect(ctx.destination);
+      this.master = gain;
+    } catch {
+      this.master = ctx.destination;
+    }
+    return this.master;
+  }
+
+  /** Short soft UI tick for buttons and navigation. */
+  public playClick(): void {
+    const ctx = this.getContext();
+    if (!ctx || !this.enabled) return;
+    try {
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, now);
+      osc.frequency.exponentialRampToValueAtTime(620, now + 0.05);
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+      osc.connect(gain);
+      gain.connect(this.output(ctx));
+      osc.start(now);
+      osc.stop(now + 0.08);
+    } catch {}
+  }
+
   private getContext(): AudioContext | null {
     if (!this.ctx && typeof window !== 'undefined') {
       const AudioContextClass =
@@ -95,7 +141,7 @@ export class SoundEffects {
       gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
 
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.output(ctx));
 
       osc.onended = () => {
         try {
@@ -129,7 +175,7 @@ export class SoundEffects {
       gain1.gain.setValueAtTime(urgency === 'high' ? 0.18 : 0.12, now);
       gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
       osc1.connect(gain1);
-      gain1.connect(ctx.destination);
+      gain1.connect(this.output(ctx));
       osc1.start(now);
       osc1.stop(now + 0.12);
 
@@ -143,7 +189,7 @@ export class SoundEffects {
       gain2.gain.setValueAtTime(urgency === 'high' ? 0.15 : 0.09, dubTime);
       gain2.gain.exponentialRampToValueAtTime(0.001, dubTime + 0.13);
       osc2.connect(gain2);
-      gain2.connect(ctx.destination);
+      gain2.connect(this.output(ctx));
       osc2.start(dubTime);
       osc2.stop(dubTime + 0.14);
 
@@ -156,7 +202,7 @@ export class SoundEffects {
         tickGain.gain.setValueAtTime(0.06, now + 0.35);
         tickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.39);
         tickOsc.connect(tickGain);
-        tickGain.connect(ctx.destination);
+        tickGain.connect(this.output(ctx));
         tickOsc.start(now + 0.35);
         tickOsc.stop(now + 0.4);
       }
@@ -180,7 +226,7 @@ export class SoundEffects {
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
 
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.output(ctx));
 
       osc.start(now);
       osc.stop(now + 0.1);
@@ -204,7 +250,7 @@ export class SoundEffects {
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
 
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.output(ctx));
 
       osc.start(now);
       osc.stop(now + 0.15);
@@ -231,7 +277,7 @@ export class SoundEffects {
         gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.22);
 
         osc.connect(gain);
-        gain.connect(ctx.destination);
+        gain.connect(this.output(ctx));
 
         osc.start(startTime);
         osc.stop(startTime + 0.25);
@@ -267,7 +313,7 @@ export class SoundEffects {
         gain.gain.exponentialRampToValueAtTime(0.001, st + n.d);
 
         osc.connect(gain);
-        gain.connect(ctx.destination);
+        gain.connect(this.output(ctx));
 
         osc.start(st);
         osc.stop(st + n.d + 0.02);
@@ -292,7 +338,7 @@ export class SoundEffects {
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
 
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.output(ctx));
 
       osc.start(now);
       osc.stop(now + 0.08);
@@ -324,7 +370,7 @@ export class SoundEffects {
         gain.gain.exponentialRampToValueAtTime(0.001, st + n.d);
 
         osc.connect(gain);
-        gain.connect(ctx.destination);
+        gain.connect(this.output(ctx));
 
         osc.start(st);
         osc.stop(st + n.d + 0.02);
@@ -357,7 +403,7 @@ export class SoundEffects {
         gain.gain.exponentialRampToValueAtTime(0.001, st + n.d);
 
         osc.connect(gain);
-        gain.connect(ctx.destination);
+        gain.connect(this.output(ctx));
 
         osc.start(st);
         osc.stop(st + n.d + 0.02);
@@ -382,7 +428,7 @@ export class SoundEffects {
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
 
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.output(ctx));
 
       osc.start(now);
       osc.stop(now + 0.13);
@@ -411,7 +457,7 @@ export class SoundEffects {
         gain.gain.exponentialRampToValueAtTime(0.001, st + n.d);
 
         osc.connect(gain);
-        gain.connect(ctx.destination);
+        gain.connect(this.output(ctx));
 
         osc.start(st);
         osc.stop(st + n.d + 0.02);
@@ -444,7 +490,7 @@ export class SoundEffects {
         gain.gain.exponentialRampToValueAtTime(0.001, st + n.d);
 
         osc.connect(gain);
-        gain.connect(ctx.destination);
+        gain.connect(this.output(ctx));
 
         osc.start(st);
         osc.stop(st + n.d + 0.02);

@@ -96,6 +96,7 @@ export const faBattle = {
   },
   legend: { shields: 'دفاع', trains: 'تولید', marches: 'سرعت' },
   hud: {
+    loading: 'آماده‌سازی میدان نبرد…',
     battlefieldTitle: (name: string): string => `◆ ${name}`,
     draggingTeamHint: '⚔ از برج‌ها بکش — پایگاه‌ها با هم‌تیمی مشترک است',
     liveHint: (opponent: string): string => `⚔ نبرد آنلاین با ${opponent}`,
@@ -180,6 +181,8 @@ export const faBattle = {
     upgradeNext: (effect: string): string => `بعدی: ${upgradeEffectLabel(effect)}`,
     max: 'حداکثر',
     growRealm: 'قلمروت را رشد بده',
+    upgradeRowCompact: (title: string, level: number, max: number): string => `${title}  ${level}/${max}`,
+    upgradeBalance: (label: string, coins: number): string => `${label}  •  ${coins} سکه`,
     upgradeArmy: 'ارتشت را ارتقا بده',
     playAgain: 'بازی دوباره ⚔',
     scouting: 'در حال جست‌وجو…',

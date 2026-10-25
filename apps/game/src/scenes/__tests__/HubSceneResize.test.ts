@@ -149,6 +149,20 @@ const { MockScene, MockGameObject, MockGraphics, MockContainer, storage } = vi.h
     destroy() {
       this.destroyed = true;
     }
+
+    // Image/Text/kit surface used by the hub UI kit (no-op visuals).
+    setDisplaySize(w: number, h: number) {
+      this.width = w;
+      this.height = h;
+      return this;
+    }
+    setTint() { return this; }
+    setTexture() { return this; }
+    setShadow() { return this; }
+    setAngle() { return this; }
+    setName() { return this; }
+    setFontSize() { return this; }
+    setLetterSpacing() { return this; }
   }
 
   class MockContainer extends MockGameObject {
@@ -200,6 +214,10 @@ const { MockScene, MockGameObject, MockGraphics, MockContainer, storage } = vi.h
     fillEllipse() { return this; }
     fillTriangle() { return this; }
     fillRect() { return this; }
+    strokeCircle() { return this; }
+    beginPath() { return this; }
+    arc() { return this; }
+    strokePath() { return this; }
   }
 
   class MockScene {
@@ -276,8 +294,18 @@ const { MockScene, MockGameObject, MockGraphics, MockContainer, storage } = vi.h
         this.children.add(obj);
         return obj;
       },
-      graphics: () => {
-        const obj = new MockGraphics();
+      image: (x: number, y: number) => {
+        const obj = new MockGameObject(x, y, 0, 0);
+        this.children.add(obj);
+        return obj;
+      },
+      ellipse: (x: number, y: number, w: number, h: number) => {
+        const obj = new MockGameObject(x, y, w, h);
+        this.children.add(obj);
+        return obj;
+      },
+      graphics: (config?: { x?: number; y?: number }) => {
+        const obj = new MockGraphics(config?.x ?? 0, config?.y ?? 0);
         this.children.add(obj);
         return obj;
       },
@@ -407,14 +435,12 @@ describe('HubScene Live Resize Integration', () => {
       const statusText = (scene as any).statusText as TestGameObject;
       const missionCards = (scene as any).missionCards as TestContainer[];
       const chestCard = (scene as any).chestCard as TestContainer;
-      const toastBg = (scene as any).toastBg as TestGameObject;
-
       expect(bg.height).toBe(720);
       expect(resetText.y).toBe(baseLayout.resetTextY);
       expect(statusText.y).toBe(baseLayout.statusTextY);
       missionCards.forEach((c, i) => expect(c.y).toBe(baseLayout.missionYs[i]));
       expect(chestCard.y).toBe(baseLayout.chestY);
-      expect(toastBg.y).toBe(baseLayout.toastY);
+      expect((scene as any).toastY).toBe(baseLayout.toastY);
 
       const childCountBefore = scene.children.list.length;
       expect(scene.scale.listenerCount('resize')).toBe(1);
@@ -428,7 +454,7 @@ describe('HubScene Live Resize Integration', () => {
       expect(statusText.y).toBe(tallLayout.statusTextY);
       missionCards.forEach((c, i) => expect(c.y).toBe(tallLayout.missionYs[i]));
       expect(chestCard.y).toBe(tallLayout.chestY);
-      expect(toastBg.y).toBe(tallLayout.toastY);
+      expect((scene as any).toastY).toBe(tallLayout.toastY);
 
       expect(scene.children.list.length).toBe(childCountBefore);
       expect(scene.scale.listenerCount('resize')).toBe(1);
@@ -442,7 +468,7 @@ describe('HubScene Live Resize Integration', () => {
       expect(statusText.y).toBe(baseLayout.statusTextY);
       missionCards.forEach((c, i) => expect(c.y).toBe(baseLayout.missionYs[i]));
       expect(chestCard.y).toBe(baseLayout.chestY);
-      expect(toastBg.y).toBe(baseLayout.toastY);
+      expect((scene as any).toastY).toBe(baseLayout.toastY);
 
       expect(scene.children.list.length).toBe(childCountBefore);
       expect(scene.scale.listenerCount('resize')).toBe(1);
@@ -463,15 +489,14 @@ describe('HubScene Live Resize Integration', () => {
       const statusText = (scene as any).statusText as TestGameObject;
       const summaryContainer = (scene as any).summaryContainer as TestContainer;
       const tierRows = (scene as any).tierRows as TestContainer[];
-      const kingdomBtnBg = (scene as any).kingdomButtonBg as TestGameObject;
-      const toastBg = (scene as any).toastBg as TestGameObject;
+      const kingdomBtnBg = (scene as any).kingdomButton.container as TestGameObject;
 
       expect(bg.height).toBe(720);
       expect(statusText.y).toBe(baseLayout.statusTextY);
       expect(summaryContainer.y).toBe(baseLayout.summaryY);
       tierRows.forEach((r, i) => expect(r.y).toBe(baseLayout.tierYs[i]));
       expect(kingdomBtnBg.y).toBe(baseLayout.kingdomButtonY);
-      expect(toastBg.y).toBe(baseLayout.toastY);
+      expect((scene as any).toastY).toBe(baseLayout.toastY);
 
       const childCountBefore = scene.children.list.length;
       expect(scene.scale.listenerCount('resize')).toBe(1);
@@ -485,7 +510,7 @@ describe('HubScene Live Resize Integration', () => {
       expect(summaryContainer.y).toBe(tallLayout.summaryY);
       tierRows.forEach((r, i) => expect(r.y).toBe(tallLayout.tierYs[i]));
       expect(kingdomBtnBg.y).toBe(tallLayout.kingdomButtonY);
-      expect(toastBg.y).toBe(tallLayout.toastY);
+      expect((scene as any).toastY).toBe(tallLayout.toastY);
 
       expect(scene.children.list.length).toBe(childCountBefore);
       expect(scene.scale.listenerCount('resize')).toBe(1);
@@ -499,7 +524,7 @@ describe('HubScene Live Resize Integration', () => {
       expect(summaryContainer.y).toBe(baseLayout.summaryY);
       tierRows.forEach((r, i) => expect(r.y).toBe(baseLayout.tierYs[i]));
       expect(kingdomBtnBg.y).toBe(baseLayout.kingdomButtonY);
-      expect(toastBg.y).toBe(baseLayout.toastY);
+      expect((scene as any).toastY).toBe(baseLayout.toastY);
 
       expect(scene.children.list.length).toBe(childCountBefore);
       expect(scene.scale.listenerCount('resize')).toBe(1);
@@ -520,12 +545,11 @@ describe('HubScene Live Resize Integration', () => {
 
       const bg = (scene as any).background as TestGameObject;
       const progressContainer = (scene as any).progressContainer as TestContainer;
-      const toastBg = (scene as any).toastBg as TestGameObject;
       const cards = (scene as any).cards as Map<string, { container: TestContainer }>;
 
       expect(bg.height).toBe(720);
-      expect(progressContainer.y).toBe(baseLayout.panelY - 84); // 0 at 720
-      expect(toastBg.y).toBe(700);
+      expect(progressContainer.y).toBe(baseLayout.panelY);
+      expect((scene as any).toastY).toBe(700);
 
       // Verify initial card positions
       let idx = 0;
@@ -543,8 +567,8 @@ describe('HubScene Live Resize Integration', () => {
       scene.scale.emit('resize');
 
       expect(bg.height).toBe(867);
-      expect(progressContainer.y).toBe(tallLayout.panelY - 84);
-      expect(toastBg.y).toBe(tallLayout.toastY);
+      expect(progressContainer.y).toBe(tallLayout.panelY);
+      expect((scene as any).toastY).toBe(tallLayout.toastY);
       expect(tallLayout.toastY).toBe(847);
 
       idx = 0;
@@ -562,8 +586,8 @@ describe('HubScene Live Resize Integration', () => {
       scene.scale.emit('resize');
 
       expect(bg.height).toBe(720);
-      expect(progressContainer.y).toBe(baseLayout.panelY - 84);
-      expect(toastBg.y).toBe(700);
+      expect(progressContainer.y).toBe(baseLayout.panelY);
+      expect((scene as any).toastY).toBe(700);
 
       idx = 0;
       for (const card of cards.values()) {
@@ -587,7 +611,7 @@ describe('HubScene Live Resize Integration', () => {
       const tallLayout = computeCommanderLayout(867);
 
       const bg = (scene as any).background as TestGameObject;
-      const badge = (scene as any).powerBadgeText as TestGameObject;
+      const badge = (scene as any).powerBadge as TestGameObject;
       const cards = (scene as any).cards as TestContainer[];
       const helper = (scene as any).helperText as TestGameObject;
 

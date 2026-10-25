@@ -1,29 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { computeMenuLayout } from '../MenuLayout.js';
+import { computeMenuLayout, MENU_NAV_TILE_HEIGHT } from '../MenuLayout.js';
 
 describe('computeMenuLayout', () => {
   it('preserves the compact 720px layout exactly', () => {
     expect(computeMenuLayout(720)).toEqual({
-      titleY: 78,
-      subtitleY: 114,
-      crestY: 248,
-      rankY: 368,
-      statsY: 418,
-      doctrineY: 461,
-      playY: 500,
-      livePvpY: 562,
-      trainingY: 622,
-      navigationY: 680,
+      titleY: 70,
+      subtitleY: 104,
+      crestY: 206,
+      rankY: 312,
+      statsY: 368,
+      doctrineY: 418,
+      playY: 462,
+      livePvpY: 528,
+      trainingY: 594,
+      navigationY: 674,
     });
   });
 
   it('anchors navigation near the bottom and uses tall-phone surplus', () => {
     const layout = computeMenuLayout(867);
 
-    expect(layout.navigationY).toBe(827);
-    expect(867 - (layout.navigationY + 22)).toBe(18);
-    expect(layout.crestY).toBeGreaterThan(248);
-    expect(layout.playY).toBeGreaterThan(500);
+    expect(layout.navigationY).toBe(821);
+    expect(867 - (layout.navigationY + MENU_NAV_TILE_HEIGHT / 2)).toBe(15);
+    expect(layout.crestY).toBeGreaterThan(206);
+    expect(layout.playY).toBeGreaterThan(462);
   });
 
   it('keeps tall-phone controls separated', () => {

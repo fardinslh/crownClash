@@ -11,7 +11,7 @@ import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { sounds } from '../audio/SoundEffects.js';
 import { CareerManager } from '../career/CareerManager.js';
 import { DailyClaimRunner } from '../daily/DailyClaimRunner.js';
-import { THEME } from '../theme.js';
+import { THEME, UI } from '../theme.js';
 import {
   bindSceneViewportResize,
   getSceneViewport,
@@ -19,14 +19,35 @@ import {
   type SceneViewport,
 } from '../ui/Viewport.js';
 import { computeDailyLayout } from '../ui/HubLayouts.js';
-import { createText, FONT_FAMILY } from '../ui/TextStyles.js';
+import { createText } from '../ui/TextStyles.js';
+import { createIcon, type IconKey } from '../ui/icons.js';
+import {
+  anchorPillLeft,
+  createBackButton,
+  createButton,
+  createGlow,
+  createHeader,
+  createPill,
+  createProgressBar,
+  drawPanel,
+  fadeIn,
+  goToScene,
+  showRewardBurst,
+  showToast,
+  type KitButton,
+  type KitPill,
+} from '../ui/kit/index.js';
 import { fa, missionCopy } from '../i18n/fa.js';
 
-const MISSION_ICONS: Record<DailyMissionState['id'], string> = {
-  play_matches: '⚔️',
-  win_match: '👑',
-  capture_territories: '🏰',
+const MISSION_ICONS: Record<DailyMissionState['id'], IconKey> = {
+  play_matches: 'swords',
+  win_match: 'crown',
+  capture_territories: 'castle',
 };
+
+const CARD_WIDTH = 360;
+const MISSION_HEIGHT = 104;
+const CHEST_HEIGHT = 118;
 
 export class DailyScene extends Phaser.Scene {
   private platform!: PlatformAdapter;
@@ -36,21 +57,20 @@ export class DailyScene extends Phaser.Scene {
   private content?: Phaser.GameObjects.Container;
   private background!: Phaser.GameObjects.Rectangle;
   private resetText!: Phaser.GameObjects.Text;
-  private goldText!: Phaser.GameObjects.Text;
-  private goldBg!: Phaser.GameObjects.Rectangle;
+  private coinPill?: KitPill;
   private statusText!: Phaser.GameObjects.Text;
-  private retryBg?: Phaser.GameObjects.Rectangle;
-  private retryLabel?: Phaser.GameObjects.Text;
+  private retryButton?: KitButton;
   private missionCards: Phaser.GameObjects.Container[] = [];
   private chestCard?: Phaser.GameObjects.Container;
-  private toastBg!: Phaser.GameObjects.Rectangle;
-  private toastText!: Phaser.GameObjects.Text;
+  private chestIcon?: Phaser.GameObjects.Image;
+  private toastY = 690;
   private resetTimer?: Phaser.Time.TimerEvent;
   private active = true;
   private visitId = 0;
   private loadingReset = false;
   private reducedMotion = false;
   private isExiting = false;
+  private animatedEntrance = false;
 
   constructor() {
     super({ key: 'DailyScene' });
@@ -67,9 +87,11 @@ export class DailyScene extends Phaser.Scene {
     this.content = undefined;
     this.missionCards = [];
     this.chestCard = undefined;
-    this.retryBg = undefined;
-    this.retryLabel = undefined;
+    this.chestIcon = undefined;
+    this.retryButton = undefined;
+    this.coinPill = undefined;
     this.resetTimer = undefined;
+    this.animatedEntrance = false;
 
     setupSceneCamera(this);
     bindSceneViewportResize(this, (vp) => this.applyLayout(vp));
@@ -115,102 +137,34 @@ export class DailyScene extends Phaser.Scene {
 
     trackEvent({ name: 'daily_panel_viewed' });
     void this.loadState();
+    fadeIn(this);
   }
 
   private buildShell(): void {
     const vp = getSceneViewport(this);
-    this.background = this.add.rectangle(0, 0, 10, 10, 0x070b14);
-    const glow = this.add.graphics();
-    glow.fillStyle(THEME.gold, 0.08);
-    glow.fillCircle(LOGICAL_WIDTH / 2, 68, 220);
-    glow.fillStyle(0x2563eb, 0.06);
-    glow.fillCircle(LOGICAL_WIDTH / 2, 430, 260);
+    this.background = this.add.rectangle(0, 0, 10, 10, UI.bg);
+    createGlow(this, LOGICAL_WIDTH / 2, -30, vp.visibleWidth * 1.4, 280, THEME.gold, 0.14);
 
-    const backBg = this.add
-      .rectangle(34, 34, 44, 44, 0x0f172a, 0.95)
-      .setStrokeStyle(1.5, 0x334155, 0.9)
-      .setInteractive({ useHandCursor: true });
-    const backLabel = createText(this, 34, 32, '‹', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '26px',
-        fontStyle: '900',
-        color: '#e2e8f0',
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    this.bindPressFeedback(backBg, backLabel);
-    backBg.on('pointerdown', () => this.closeDaily());
-
-    createText(this, LOGICAL_WIDTH / 2, 39, fa.daily.title, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '24px',
-        fontStyle: '900',
-        color: '#f8fafc',
-        stroke: '#000000',
-        strokeThickness: 4,
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    createText(this, LOGICAL_WIDTH / 2, 66, fa.daily.subtitle, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '12px',
-        fontStyle: 'bold',
-        color: '#93c5fd',
-        stroke: '#000000',
-        strokeThickness: 2,
-        resolution: 2,
-      })
-      .setOrigin(0.5);
+    // RTL: back sits top-right, the wallet top-left.
+    createBackButton(this, LOGICAL_WIDTH - 34, 38, () => this.closeDaily());
+    createHeader(this, fa.daily.title, fa.daily.subtitle);
 
     this.resetText = createText(this, LOGICAL_WIDTH / 2, 0, fa.daily.resetPlaceholder, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '11px',
-        fontStyle: 'bold',
-        color: '#94a3b8',
-        resolution: 2,
+        fontSize: '12px',
+        fontStyle: '700',
+        color: UI.text.muted,
       })
       .setOrigin(0.5);
 
-    this.goldBg = this.add
-      .rectangle(LOGICAL_WIDTH - 24, 34, 10, 32, 0x0f172a, 0.95)
-      .setStrokeStyle(1.5, THEME.gold, 0.85);
-    this.goldText = createText(this, LOGICAL_WIDTH - 38, 34, '', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '14px',
-        fontStyle: '900',
-        color: '#fbbf24',
-        stroke: '#000000',
-        strokeThickness: 2,
-        resolution: 2,
-      })
-      .setOrigin(1, 0.5);
+    this.coinPill = createPill(this, 0, 38, 'coin', '0');
     this.refreshGold();
 
     this.statusText = createText(this, LOGICAL_WIDTH / 2, 0, fa.daily.loading, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '13px',
-        fontStyle: 'bold',
-        color: '#94a3b8',
-        resolution: 2,
+        fontSize: `${UI.type.body}px`,
+        fontStyle: '700',
+        color: UI.text.muted,
       })
       .setOrigin(0.5);
-
-    this.toastBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2, 0, 330, 42, 0x0c1322, 0.98)
-      .setStrokeStyle(1.5, 0xf87171, 0.9)
-      .setDepth(300)
-      .setAlpha(0);
-    this.toastText = createText(this, LOGICAL_WIDTH / 2, 0, '', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '12px',
-        fontStyle: 'bold',
-        color: '#fecaca',
-        align: 'center',
-        resolution: 2,
-      })
-      .setOrigin(0.5)
-      .setDepth(301)
-      .setAlpha(0);
 
     this.applyLayout(vp);
   }
@@ -220,16 +174,14 @@ export class DailyScene extends Phaser.Scene {
     this.background.setPosition(LOGICAL_WIDTH / 2, vp.visibleHeight / 2).setSize(vp.visibleWidth, vp.visibleHeight);
     this.resetText.setY(layout.resetTextY);
     this.statusText.setY(layout.statusTextY);
-    if (this.retryBg) this.retryBg.setY(layout.retryY);
-    if (this.retryLabel) this.retryLabel.setY(layout.retryY);
+    this.retryButton?.container.setY(layout.retryY);
     this.missionCards.forEach((card, index) => {
       card.setY(layout.missionYs[index]);
     });
     if (this.chestCard) {
       this.chestCard.setY(layout.chestY);
     }
-    this.toastBg.setY(layout.toastY);
-    this.toastText.setY(layout.toastY);
+    this.toastY = layout.toastY;
   }
 
   private async loadState(): Promise<void> {
@@ -260,44 +212,42 @@ export class DailyScene extends Phaser.Scene {
   }
 
   private showLoadError(message: string): void {
-    this.statusText.setText(message).setColor('#fca5a5').setVisible(true);
-    this.retryBg?.destroy();
-    this.retryLabel?.destroy();
-    this.retryBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2, 0, 160, 44, 0x2563eb, 1)
-      .setStrokeStyle(1.5, 0x60a5fa, 1)
-      .setInteractive({ useHandCursor: true });
-    this.retryLabel = createText(this, LOGICAL_WIDTH / 2, 0, fa.daily.retry, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '13px',
-        fontStyle: '900',
-        color: '#ffffff',
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    this.bindPressFeedback(this.retryBg, this.retryLabel);
-    this.retryBg.once('pointerdown', () => {
-      this.retryBg?.destroy();
-      this.retryBg = undefined;
-      this.retryLabel?.destroy();
-      this.retryLabel = undefined;
-      this.statusText.setText(fa.daily.loading).setColor('#94a3b8');
-      void this.loadState();
+    this.statusText.setText(message).setColor(UI.text.danger).setVisible(true);
+    this.retryButton?.container.destroy();
+    let retried = false;
+    this.retryButton = createButton(this, LOGICAL_WIDTH / 2, 0, {
+      width: 170,
+      height: 48,
+      label: fa.daily.retry,
+      variant: 'primary',
+      onPress: () => {
+        if (retried) return;
+        retried = true;
+        this.retryButton?.container.destroy();
+        this.retryButton = undefined;
+        this.statusText.setText(fa.daily.loading).setColor(UI.text.muted);
+        void this.loadState();
+      },
     });
     this.applyLayout(getSceneViewport(this));
   }
 
   private renderContent(): void {
     if (!this.state || !this.claimRunner?.isActive) return;
+    // The chest wiggle loops forever; stop it before its card is destroyed.
+    if (this.chestIcon) this.tweens.killTweensOf(this.chestIcon);
     this.content?.destroy(true);
     this.content = this.add.container(0, 0);
     this.missionCards = [];
+    // Cards slide in on the first render only; claim re-renders stay still.
+    const animate = !this.reducedMotion && !this.animatedEntrance;
+    this.animatedEntrance = true;
     this.state.missions.forEach((mission, index) => {
-      const card = this.buildMissionCard(mission, 0, index);
+      const card = this.buildMissionCard(mission, 0, index, animate);
       this.missionCards.push(card);
       this.content!.add(card);
     });
-    this.chestCard = this.buildChestCard(0);
+    this.chestCard = this.buildChestCard(0, animate);
     this.content.add(this.chestCard);
     this.applyLayout(getSceneViewport(this));
   }
@@ -305,164 +255,153 @@ export class DailyScene extends Phaser.Scene {
   private buildMissionCard(
     mission: DailyMissionState,
     y: number,
-    index: number
+    index: number,
+    animate: boolean
   ): Phaser.GameObjects.Container {
     const card = this.add.container(LOGICAL_WIDTH / 2, y);
     const claimable = mission.complete && !mission.claimed;
     const pending = this.claimRunner.pending === mission.id;
-    const borderColor = mission.claimed ? THEME.gold : claimable ? 0x60a5fa : 0x334155;
-    const background = this.add
-      .rectangle(0, 0, 352, 104, mission.claimed ? 0x151827 : 0x111827, 0.98)
-      .setStrokeStyle(claimable ? 2 : 1.5, borderColor, 1);
-    const iconDisc = this.add
-      .circle(-145, -20, 21, claimable ? 0x1d4ed8 : 0x0f172a, 1)
-      .setStrokeStyle(1.5, borderColor, 0.85);
-    const icon = createText(this, -145, -20, MISSION_ICONS[mission.id], { fontSize: '19px', resolution: 2 })
-      .setOrigin(0.5);
-    const title = createText(this, -114, -34, missionCopy(mission.id, mission).title, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '13px',
+    const copy = missionCopy(mission.id, mission);
+    const right = CARD_WIDTH / 2 - 14;
+    const borderColor = mission.claimed ? THEME.gold : claimable ? UI.button.success.fill : UI.border;
+
+    const background = drawPanel(this.add.graphics(), CARD_WIDTH, MISSION_HEIGHT, {
+      fill: mission.claimed ? 0x15172a : UI.surface.raised,
+      stroke: borderColor,
+      radius: UI.radius.lg,
+    });
+    const iconTile = drawPanel(this.add.graphics({ x: right - 26, y: -14 }), 52, 52, {
+      fill: claimable ? 0x0b3b2c : UI.surface.high,
+      stroke: claimable ? UI.button.success.fill : UI.borderStrong,
+      radius: UI.radius.md,
+      shadow: false,
+    });
+    const icon = createIcon(this, right - 26, -14, MISSION_ICONS[mission.id], 34);
+    const title = createText(this, right - 64, -30, copy.title, {
+        fontSize: '15px',
         fontStyle: '900',
-        color: mission.claimed ? '#fde68a' : '#f1f5f9',
-        stroke: '#000000',
-        strokeThickness: 2,
-        resolution: 2,
+        color: mission.claimed ? UI.text.gold : UI.text.primary,
       })
-      .setOrigin(0, 0.5);
-    const description = createText(this, -114, -13, missionCopy(mission.id, mission).description, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '11px',
-        fontStyle: 'bold',
-        color: '#94a3b8',
-        resolution: 2,
-      })
-      .setOrigin(0, 0.5);
-    const reward = createText(this, 145, -30, `+${mission.reward} 🪙`, {
-        fontFamily: FONT_FAMILY,
+      .setOrigin(1, 0.5);
+    const description = createText(this, right - 64, -8, copy.description, {
         fontSize: '12px',
-        fontStyle: '900',
-        color: '#fbbf24',
-        stroke: '#000000',
-        strokeThickness: 2,
-        resolution: 2,
+        fontStyle: '700',
+        color: UI.text.muted,
       })
       .setOrigin(1, 0.5);
 
-    const track = this.add.rectangle(-145, 25, 188, 8, 0x080d18, 1).setOrigin(0, 0.5);
+    // Reward chip, top-left (RTL: coin to the right of the amount).
+    const rewardCoin = createIcon(this, -CARD_WIDTH / 2 + 66, -30, 'coin', 20);
+    const reward = createText(this, -CARD_WIDTH / 2 + 54, -30, `+${mission.reward}`, {
+        fontSize: '14px',
+        fontStyle: '900',
+        color: UI.text.gold,
+      })
+      .setOrigin(1, 0.5);
+
+    // RTL progress: fills from the right; the count sits on the bar.
+    const barRight = right - 64;
+    const barLeft = -CARD_WIDTH / 2 + 150;
     const ratio = Math.min(1, mission.progress / mission.target);
-    const fill = this.add
-      .rectangle(-145, 25, Math.max(2, 188 * ratio), 6, mission.complete ? THEME.gold : 0x2563eb, 1)
-      .setOrigin(0, 0.5);
-    const progress = createText(this, 51, 25, `${mission.progress}/${mission.target}`, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '11px',
-        fontStyle: 'bold',
-        color: '#cbd5e1',
-        resolution: 2,
-      })
-      .setOrigin(1, 0.5);
-
-    const button = this.add.rectangle(121, 24, 94, 40, 0x273449, 1).setStrokeStyle(1.5, 0x475569, 1);
-    const buttonLabel = createText(this, 121, 24, mission.claimed ? fa.daily.claimed : pending ? '…' : claimable ? fa.daily.claim : fa.daily.inBattle, {
-        fontFamily: FONT_FAMILY,
+    const bar = createProgressBar(this, (barLeft + barRight) / 2, 26, barRight - barLeft, 16, mission.complete ? THEME.gold : UI.button.primary.fill);
+    bar.setProgress(ratio);
+    const progress = createText(this, (barLeft + barRight) / 2, 26, `${mission.progress}/${mission.target}`, {
         fontSize: '11px',
         fontStyle: '900',
-        color: mission.claimed ? '#fde68a' : claimable && !pending ? '#ffffff' : '#94a3b8',
-        stroke: '#000000',
-        strokeThickness: 1.5,
-        resolution: 2,
+        color: '#ffffff',
+        stroke: UI.text.stroke,
+        strokeThickness: 3,
       })
       .setOrigin(0.5);
-    if (claimable && !pending && this.claimRunner.pending === null) {
-      button.setFillStyle(0x2563eb, 1).setStrokeStyle(1.5, 0x60a5fa, 1).setInteractive({ useHandCursor: true });
-      this.bindPressFeedback(button, buttonLabel);
-      button.on('pointerdown', () => this.claimRunner.run(mission.id));
-    }
 
-    card.add([
-      background,
-      iconDisc,
-      icon,
-      title,
-      description,
-      reward,
-      track,
-      fill,
-      progress,
-      button,
-      buttonLabel,
-    ]);
-    if (!this.reducedMotion) {
-      card.setAlpha(0).setX(LOGICAL_WIDTH / 2 - 12);
+    const canClaim = claimable && !pending && this.claimRunner.pending === null;
+    const button = createButton(this, -CARD_WIDTH / 2 + 72, 22, {
+      width: 116,
+      height: 44,
+      label: mission.claimed ? fa.daily.claimed : pending ? '…' : claimable ? fa.daily.claim : fa.daily.inBattle,
+      icon: mission.claimed ? 'check' : undefined,
+      variant: 'success',
+      fontSize: 13,
+      onPress: () => this.claimRunner.run(mission.id),
+    });
+    if (!canClaim) button.setEnabled(false);
+
+    const items: Phaser.GameObjects.GameObject[] = [
+      background, iconTile, icon, title, description, rewardCoin, reward, bar.graphics, progress, button.container,
+    ];
+    if (mission.claimed) items.push(createIcon(this, right - 6, -34, 'check', 20));
+    card.add(items);
+    if (animate) {
+      card.setAlpha(0).setX(LOGICAL_WIDTH / 2 + 14);
       this.tweens.add({
         targets: card,
         alpha: 1,
         x: LOGICAL_WIDTH / 2,
-        duration: 220,
-        delay: index * 45,
+        duration: 240,
+        delay: index * 55,
         ease: 'Cubic.easeOut',
       });
     }
     return card;
   }
 
-  private buildChestCard(y: number): Phaser.GameObjects.Container {
+  private buildChestCard(y: number, animate: boolean): Phaser.GameObjects.Container {
     const chest = this.state!.chest;
     const pending = this.claimRunner.pending === 'crown_chest';
     const claimedMissions = this.state!.missions.filter((mission) => mission.claimed).length;
-    const borderColor = chest.claimed ? THEME.gold : chest.unlocked ? 0xfbbf24 : 0x475569;
+    const right = CARD_WIDTH / 2 - 14;
     const card = this.add.container(LOGICAL_WIDTH / 2, y);
-    const background = this.add
-      .rectangle(0, 0, 352, 118, chest.unlocked ? 0x1c1830 : 0x111827, 0.99)
-      .setStrokeStyle(chest.unlocked ? 2.5 : 1.5, borderColor, 1);
-    const halo = this.add.circle(-126, 0, 38, THEME.gold, chest.unlocked ? 0.12 : 0.04);
-    const icon = createText(this, -126, 0, chest.claimed ? '👑' : '🎁', { fontSize: '34px', resolution: 2 })
-      .setOrigin(0.5);
-    const title = createText(this, -77, -35, fa.daily.chestTitle, {
-        fontFamily: FONT_FAMILY,
+    const background = drawPanel(this.add.graphics(), CARD_WIDTH, CHEST_HEIGHT, {
+      fill: chest.unlocked && !chest.claimed ? 0x231a33 : UI.surface.raised,
+      stroke: chest.claimed || chest.unlocked ? THEME.gold : UI.borderStrong,
+      radius: UI.radius.lg,
+    });
+    const halo = createGlow(this, right - 44, 0, 150, 130, THEME.gold, chest.unlocked && !chest.claimed ? 0.55 : 0.18);
+    const icon = createIcon(this, right - 44, 0, chest.claimed ? 'chest_open' : 'chest', 70);
+    if (!chest.unlocked) icon.setAlpha(0.75);
+    this.chestIcon = icon;
+    const title = createText(this, right - 98, -32, fa.daily.chestTitle, {
+        fontSize: '18px',
+        fontStyle: '900',
+        color: chest.unlocked || chest.claimed ? UI.text.gold : UI.text.primary,
+        stroke: UI.text.stroke,
+        strokeThickness: 3,
+      })
+      .setOrigin(1, 0.5);
+    const detail = createText(this, right - 98, -6, chest.claimed ? fa.daily.chestClaimed : chest.unlocked ? fa.daily.chestUnlocked : fa.daily.chestProgress(claimedMissions), {
+        fontSize: '12px',
+        fontStyle: '700',
+        color: UI.text.muted,
+      })
+      .setOrigin(1, 0.5);
+    const rewardCoin = createIcon(this, right - 108, 24, 'coin', 22);
+    const reward = createText(this, right - 124, 24, `+${chest.reward}`, {
         fontSize: '16px',
         fontStyle: '900',
-        color: chest.unlocked || chest.claimed ? '#fde68a' : '#e2e8f0',
-        stroke: '#000000',
-        strokeThickness: 2.5,
-        resolution: 2,
+        color: UI.text.gold,
       })
-      .setOrigin(0, 0.5);
-    const detail = createText(this, -77, -10, chest.claimed ? fa.daily.chestClaimed : chest.unlocked ? fa.daily.chestUnlocked : fa.daily.chestProgress(claimedMissions), {
-        fontFamily: FONT_FAMILY,
-        fontSize: '11px',
-        fontStyle: 'bold',
-        color: '#94a3b8',
-        resolution: 2,
-      })
-      .setOrigin(0, 0.5);
-    const reward = createText(this, -77, 17, `+${chest.reward} 🪙`, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '14px',
-        fontStyle: '900',
-        color: '#fbbf24',
-        stroke: '#000000',
-        strokeThickness: 2,
-        resolution: 2,
-      })
-      .setOrigin(0, 0.5);
-    const button = this.add.rectangle(113, 24, 100, 42, 0x273449, 1).setStrokeStyle(1.5, borderColor, 1);
-    const buttonLabel = createText(this, 113, 24, chest.claimed ? fa.daily.opened : pending ? '…' : chest.unlocked ? fa.daily.open : fa.daily.locked, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '12px',
-        fontStyle: '900',
-        color: chest.unlocked && !pending ? '#ffffff' : chest.claimed ? '#fde68a' : '#94a3b8',
-        stroke: '#000000',
-        strokeThickness: 1.5,
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    if (chest.unlocked && !chest.claimed && !pending && this.claimRunner.pending === null) {
-      button.setFillStyle(0xb7791f, 1).setStrokeStyle(2, 0xfbbf24, 1).setInteractive({ useHandCursor: true });
-      this.bindPressFeedback(button, buttonLabel);
-      button.on('pointerdown', () => this.claimRunner.run('crown_chest'));
+      .setOrigin(1, 0.5);
+    const canOpen = chest.unlocked && !chest.claimed && !pending && this.claimRunner.pending === null;
+    const button = createButton(this, -CARD_WIDTH / 2 + 74, 20, {
+      width: 120,
+      height: 48,
+      label: chest.claimed ? fa.daily.opened : pending ? '…' : chest.unlocked ? fa.daily.open : fa.daily.locked,
+      icon: chest.claimed ? 'check' : chest.unlocked ? undefined : 'lock',
+      variant: 'gold',
+      fontSize: 14,
+      onPress: () => this.claimRunner.run('crown_chest'),
+    });
+    if (!canOpen) button.setEnabled(false);
+    card.add([background, halo, icon, title, detail, rewardCoin, reward, button.container]);
+
+    if (canOpen && !this.reducedMotion) {
+      // Unlocked chest wiggles to invite the tap.
+      this.tweens.add({ targets: icon, angle: { from: -5, to: 5 }, duration: 160, yoyo: true, repeat: -1, repeatDelay: 1100, ease: 'Sine.easeInOut' });
     }
-    card.add([background, halo, icon, title, detail, reward, button, buttonLabel]);
+    if (animate) {
+      card.setAlpha(0).setScale(0.94);
+      this.tweens.add({ targets: card, alpha: 1, scale: 1, duration: 260, delay: 180, ease: 'Back.easeOut' });
+    }
     return card;
   }
 
@@ -474,34 +413,11 @@ export class DailyScene extends Phaser.Scene {
       sounds.playCoin();
       this.platform.hapticNotification('success');
     }
-    const burst = this.add.container(LOGICAL_WIDTH / 2, isChest ? 355 : 330).setDepth(250);
-    const glow = this.add.circle(0, 0, isChest ? 82 : 62, THEME.gold, 0.18);
-    const label = createText(this, 0, 0, `${isChest ? `${fa.daily.chestTitle}\n` : ''}+${reward} 🪙`, {
-        fontFamily: FONT_FAMILY,
-        fontSize: isChest ? '22px' : '19px',
-        fontStyle: '900',
-        color: '#fde68a',
-        stroke: '#000000',
-        strokeThickness: 4,
-        align: 'center',
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    burst.add([glow, label]);
-    if (this.reducedMotion) {
-      this.time.delayedCall(900, () => burst.destroy());
-      return;
-    }
-    burst.setScale(0.75).setAlpha(0);
-    this.tweens.add({
-      targets: burst,
-      scale: 1.08,
-      alpha: 1,
-      duration: 220,
-      ease: 'Back.easeOut',
-      yoyo: true,
-      hold: 650,
-      onComplete: () => burst.destroy(),
+    const { visibleHeight } = getSceneViewport(this);
+    showRewardBurst(this, LOGICAL_WIDTH / 2, visibleHeight * 0.46, reward, {
+      title: isChest ? fa.daily.chestTitle : undefined,
+      big: isChest,
+      reducedMotion: this.reducedMotion,
     });
   }
 
@@ -516,13 +432,9 @@ export class DailyScene extends Phaser.Scene {
   }
 
   private refreshGold(): void {
-    const coins = this.careerManager.getCareer().coins;
-    this.goldText?.setText(`🪙 ${coins}`);
-    if (!this.goldText || !this.goldBg) return;
-    const width = this.goldText.width + 28;
-    this.goldBg.setSize(width, 32);
-    this.goldBg.setPosition(LOGICAL_WIDTH - 24 - width / 2, 34);
-    this.goldText.setPosition(LOGICAL_WIDTH - 38, 34);
+    if (!this.coinPill) return;
+    this.coinPill.setText(`${this.careerManager.getCareer().coins}`);
+    anchorPillLeft(this.coinPill, 16);
   }
 
   private failureMessage(reason?: string): string {
@@ -533,16 +445,8 @@ export class DailyScene extends Phaser.Scene {
   }
 
   private showToast(message: string): void {
-    this.toastText.setText(message).setAlpha(1);
-    this.toastBg.setAlpha(1);
-    this.tweens.killTweensOf([this.toastBg, this.toastText]);
-    this.tweens.add({
-      targets: [this.toastBg, this.toastText],
-      alpha: 0,
-      duration: 300,
-      delay: this.reducedMotion ? 1400 : 2200,
-      ease: 'Cubic.easeOut',
-    });
+    // Lifted off the layout anchor so the pill clears the screen's bottom edge.
+    showToast(this, message, { y: this.toastY - 14, tone: 'error', reducedMotion: this.reducedMotion });
   }
 
   private closeDaily(): void {
@@ -552,22 +456,6 @@ export class DailyScene extends Phaser.Scene {
       return;
     }
     this.isExiting = true;
-    this.scene.start('MenuScene');
-  }
-
-  private bindPressFeedback(
-    background: Phaser.GameObjects.Rectangle,
-    label: Phaser.GameObjects.Text
-  ): void {
-    const reset = (): void => {
-      background.setScale(1);
-      label.setScale(1);
-    };
-    background.on('pointerdown', () => {
-      background.setScale(0.96);
-      label.setScale(0.96);
-    });
-    background.on('pointerup', reset);
-    background.on('pointerout', reset);
+    goToScene(this, 'MenuScene');
   }
 }

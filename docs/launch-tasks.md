@@ -14,6 +14,16 @@ Status as of 2026-10-25. Source: pre-release audit (mechanic, UX, retention).
 - [x] Legibility: 9-10px labels raised by 1px in Game/Kingdom/Menu; menu mute button has a 44x44 hit area (other menu buttons were already >= 44px tall).
 - [x] Remaining English strings: loading shell status, League load/claim errors, Kingdom network error, `M0->5` milestone label (now "هدف: سطح 5" / "مرحله 5 ✓").
 
+## Overhaul (branch `feat/gameplay-depth`, release postponed for it)
+- [x] Graphify removed from the project.
+- [x] Rules v4 for bot/async: commander abilities (TS + Go, server-stored commander, parity) and fog of war (presentation only). See `docs/rules-v4.md`.
+- [x] Abilities tuned by simulation (`scripts/rules-v4-balance.mjs`): each shifts the probe win rate by 5-8 pp.
+- [x] Visual overhaul: UI tokens, `ui/kit`, vector icon set, rebuilt Menu/Kingdom/Daily/League/Commander, rounded battle HUD and modals, result screen with icons and victory confetti, capture particles, team-coloured convoy badges, battle load bar, scene fades, master audio bus + UI click.
+- [ ] Deploy order: server (migration 021, v4 negotiation) before the client.
+- [ ] Bot does not use abilities yet; Royal Ring no-contact pacing is still open.
+- [ ] MenuScene's async init keeps running after the scene stops and can auto-start training (seen with scripted scene switches; check on device).
+- [ ] Kingdom hero building sprites are 128-160px and look soft when upscaled on tall phones; export 256px runtime art.
+
 ## Needs the owner (cannot be done from code)
 - [ ] Real-device test in Bale: initData validation (`auth.go`, shared Telegram HMAC path), the query-string/`bale_guest` fallback in `BalePlatformAdapter.ts`, `bale://share`, `openInvoice` payment.
 - [ ] Decide `ENABLE_REALM_PILOT` / `ENABLE_COIN_PAYMENTS` (both off by default, so revenge/shop/starter pack do not exist in the default build).
@@ -24,6 +34,7 @@ Status as of 2026-10-25. Source: pre-release audit (mechanic, UX, retention).
 ## Later
 - [ ] Analytics still missing: checkout (only matters once coin payments are on), chest open, FTUE timing, client error reporting.
 - [ ] Haptics toggle (sound mute already exists and persists).
+- [ ] Some emoji remain inside battle copy strings (result stats line, share text, difficulty picker).
 - [ ] `PrototypeScene.ts` + `src/prototype/` are unregistered (not in the bundle). Delete them or wire them back together with `scripts/crown-prototype-qa.mjs`.
 - [ ] `.opencode/*` deletions in the working tree are not part of these changes; commit or restore them separately.
 - [ ] Main JS chunk is 505 kB (123 kB gzip) plus Phaser 381 kB gzip; consider lazy-loading non-first-screen scenes.

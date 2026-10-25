@@ -108,14 +108,16 @@ describe('HubLayouts', () => {
   describe('KingdomLayout', () => {
     it('preserves exact baseline coordinates at 720 logical height', () => {
       const layout = computeKingdomLayout(720);
-      expect(layout.panelY).toBe(84);
-      expect(layout.gridTop).toBe(166);
-      expect(layout.rowGap).toBe(16);
+      expect(layout.panelY).toBe(86);
+      expect(layout.heroHeight).toBe(112);
+      expect(layout.gridTop).toBe(210);
+      expect(layout.rowGap).toBe(12);
+      // RTL: the first upgrade card is the top-right one.
       expect(layout.cardPositions).toEqual([
-        { x: 103, y: 290 },
-        { x: 297, y: 290 },
-        { x: 103, y: 554 },
-        { x: 297, y: 554 },
+        { x: 295, y: 312 },
+        { x: 105, y: 312 },
+        { x: 295, y: 528 },
+        { x: 105, y: 528 },
       ]);
       expect(layout.toastY).toBe(700);
     });
@@ -124,24 +126,26 @@ describe('HubLayouts', () => {
       expect(computeKingdomLayout(667)).toEqual(computeKingdomLayout(720));
     });
 
-    it('expands row gap and anchors toast at 867', () => {
+    it('keeps the card grid compact and grows the hero on tall phones', () => {
+      const base = computeKingdomLayout(720);
       const layout = computeKingdomLayout(867);
 
-      // Panel (height 70)
-      const panelBottom = layout.panelY + 70;
-      expect(layout.gridTop).toBeGreaterThan(panelBottom);
+      // Hero panel sits below the header and above the grid.
+      expect(layout.panelY).toBeGreaterThanOrEqual(base.panelY);
+      expect(layout.heroHeight).toBeGreaterThan(base.heroHeight);
+      expect(layout.gridTop).toBeGreaterThan(layout.panelY + layout.heroHeight);
 
-      // Row 0 cards (height 248)
-      const row0Top = layout.cardPositions[0].y - 124;
+      // Row 0 cards (height 204)
+      const row0Top = layout.cardPositions[0].y - 102;
       expect(row0Top).toBe(layout.gridTop);
-      const row0Bottom = layout.cardPositions[0].y + 124;
+      const row0Bottom = layout.cardPositions[0].y + 102;
 
-      // Row 1 cards (height 248)
-      const row1Top = layout.cardPositions[2].y - 124;
+      // The row gap never stretches with surplus height.
+      const row1Top = layout.cardPositions[2].y - 102;
       expect(row1Top - row0Bottom).toBe(layout.rowGap);
-      expect(layout.rowGap).toBeGreaterThan(16);
+      expect(layout.rowGap).toBe(base.rowGap);
 
-      const row1Bottom = layout.cardPositions[2].y + 124;
+      const row1Bottom = layout.cardPositions[2].y + 102;
       const toastTop = layout.toastY - 20;
       expect(toastTop).toBeGreaterThan(row1Bottom);
 

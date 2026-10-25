@@ -149,6 +149,20 @@ const { MockScene, MockGameObject, MockGraphics, MockContainer, storage } = vi.h
     destroy() {
       this.destroyed = true;
     }
+
+    // Image/Text/kit surface used by the hub UI kit (no-op visuals).
+    setDisplaySize(w: number, h: number) {
+      this.width = w;
+      this.height = h;
+      return this;
+    }
+    setTint() { return this; }
+    setTexture() { return this; }
+    setShadow() { return this; }
+    setAngle() { return this; }
+    setName() { return this; }
+    setFontSize() { return this; }
+    setLetterSpacing() { return this; }
   }
 
   class MockContainer extends MockGameObject {
@@ -200,6 +214,10 @@ const { MockScene, MockGameObject, MockGraphics, MockContainer, storage } = vi.h
     fillEllipse() { return this; }
     fillTriangle() { return this; }
     fillRect() { return this; }
+    strokeCircle() { return this; }
+    beginPath() { return this; }
+    arc() { return this; }
+    strokePath() { return this; }
   }
 
   class MockScene {
@@ -276,8 +294,18 @@ const { MockScene, MockGameObject, MockGraphics, MockContainer, storage } = vi.h
         this.children.add(obj);
         return obj;
       },
-      graphics: () => {
-        const obj = new MockGraphics();
+      image: (x: number, y: number) => {
+        const obj = new MockGameObject(x, y, 0, 0);
+        this.children.add(obj);
+        return obj;
+      },
+      ellipse: (x: number, y: number, w: number, h: number) => {
+        const obj = new MockGameObject(x, y, w, h);
+        this.children.add(obj);
+        return obj;
+      },
+      graphics: (config?: { x?: number; y?: number }) => {
+        const obj = new MockGraphics(config?.x ?? 0, config?.y ?? 0);
         this.children.add(obj);
         return obj;
       },
@@ -344,6 +372,9 @@ let mockSoundsMuted = false;
 vi.mock('../../audio/SoundEffects.js', () => ({
   sounds: {
     playReinforce: vi.fn(),
+    playClick: vi.fn(),
+    playCoin: vi.fn(),
+    playTrophy: vi.fn(),
     playTerritoryCaptured: vi.fn(),
     playMarch: vi.fn(),
     playVictory: vi.fn(),
@@ -366,6 +397,12 @@ import { BrowserPlatformAdapter } from '@crown-clash/platform';
 import { MatchMenuController } from '../../match/MatchMenuController.js';
 import { computeHudLayout } from '../../ui/HudLayout.js';
 import { sounds } from '../../audio/SoundEffects.js';
+
+/** A full tap: kit buttons act on release, like native mobile buttons. */
+function tap(target: { emit(event: string): void }): void {
+  target.emit('pointerdown');
+  target.emit('pointerup');
+}
 
 describe('Navigation & Mobile Lifecycle Hardening Pass', () => {
   beforeEach(() => {
@@ -393,8 +430,8 @@ describe('Navigation & Mobile Lifecycle Hardening Pass', () => {
       expect(backBg!.width).toBeGreaterThanOrEqual(44);
       expect(backBg!.height).toBeGreaterThanOrEqual(44);
 
-      backBg!.emit('pointerdown');
-      backBg!.emit('pointerdown');
+      tap(backBg!);
+      tap(backBg!);
       expect(scene.scene.start).toHaveBeenCalledTimes(1);
       expect(scene.scene.start).toHaveBeenCalledWith('MenuScene');
 
@@ -428,8 +465,8 @@ describe('Navigation & Mobile Lifecycle Hardening Pass', () => {
       expect(backBg!.width).toBeGreaterThanOrEqual(44);
       expect(backBg!.height).toBeGreaterThanOrEqual(44);
 
-      backBg!.emit('pointerdown');
-      backBg!.emit('pointerdown');
+      tap(backBg!);
+      tap(backBg!);
       expect(scene.scene.start).toHaveBeenCalledTimes(1);
       expect(scene.scene.start).toHaveBeenCalledWith('MenuScene');
 
@@ -466,12 +503,12 @@ describe('Navigation & Mobile Lifecycle Hardening Pass', () => {
       // If a purchase is in-flight, close request is rejected
       const runner = (scene as any).purchaseRunner;
       vi.spyOn(runner, 'requestClose').mockReturnValueOnce(false);
-      backBg!.emit('pointerdown');
+      tap(backBg!);
       expect(scene.scene.start).not.toHaveBeenCalled();
 
       // Once purchase settles, exit proceeds and is idempotent
-      backBg!.emit('pointerdown');
-      backBg!.emit('pointerdown');
+      tap(backBg!);
+      tap(backBg!);
       expect(scene.scene.start).toHaveBeenCalledTimes(1);
       expect(scene.scene.start).toHaveBeenCalledWith('MenuScene');
 
@@ -506,8 +543,8 @@ describe('Navigation & Mobile Lifecycle Hardening Pass', () => {
       expect(backBg!.width).toBeGreaterThanOrEqual(44);
       expect(backBg!.height).toBeGreaterThanOrEqual(44);
 
-      backBg!.emit('pointerdown');
-      backBg!.emit('pointerdown');
+      tap(backBg!);
+      tap(backBg!);
       expect(scene.scene.start).toHaveBeenCalledTimes(1);
       expect(scene.scene.start).toHaveBeenCalledWith('MenuScene');
 

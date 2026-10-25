@@ -22,6 +22,15 @@ export interface CommanderCopy {
   readonly tradeoff: string;
 }
 
+/**
+ * Left-to-right isolate for a signed number ("+15%", "-3") inside Persian
+ * copy, so the sign stays attached to its number instead of drifting to
+ * the far end of the RTL line.
+ */
+export function ltr(value: string): string {
+  return `\u2066${value}\u2069`;
+}
+
 const COMMANDER_COPY: Readonly<Record<string, CommanderCopy>> = {
   crown_guard: {
     name: 'نگهبان تاج',
@@ -32,14 +41,14 @@ const COMMANDER_COPY: Readonly<Record<string, CommanderCopy>> = {
   quartermaster: {
     name: 'سرتدارکات',
     role: 'ارتش را سریع‌تر می‌سازد',
-    strength: '+15٪ تولید',
-    tradeoff: '−10٪ سرعت حرکت',
+    strength: `${ltr('+15%')} تولید`,
+    tradeoff: `${ltr('-10%')} سرعت حرکت`,
   },
   vanguard: {
     name: 'پیشتاز',
     role: 'پیش از حریف حمله می‌کند',
-    strength: '+15٪ سرعت حرکت',
-    tradeoff: '−3 سرباز اولیه',
+    strength: `${ltr('+15%')} سرعت حرکت`,
+    tradeoff: `${ltr('-3')} سرباز اولیه`,
   },
 };
 
@@ -105,10 +114,11 @@ export function upgradeCopy(
  */
 export function upgradeEffectLabel(label: string): string {
   return label
+    .replace(/^([+\-−]?\d+(?:\.\d+)?%?)/, (value) => ltr(value))
     .replace(/ troops$/, ' سرباز')
-    .replace(/% production$/, '٪ تولید')
-    .replace(/% march$/, '٪ سرعت حرکت')
-    .replace(/% coins$/, '٪ سکه');
+    .replace(/ production$/, ' تولید')
+    .replace(/ march$/, ' سرعت حرکت')
+    .replace(/ coins$/, ' سکه');
 }
 
 export const fa = {
@@ -123,11 +133,12 @@ export const fa = {
     maxed: 'این ارتقا به حداکثر رسیده است.',
     finishingUpgrade: 'در حال نهایی کردن ارتقا…',
     unreachable: 'به قلمرو وصل نشدیم. دوباره تلاش کن.',
-    level: (level: number, max: number): string => `سطح ${level} / ${max}`,
-    now: (label: string): string => `الان   ${label}`,
-    next: (label: string): string => `بعدی  ${label}`,
-    fullyUpgraded: '🏆 کاملاً ارتقا یافته',
+    level: (level: number, max: number): string => `سطح ${ltr(`${level} / ${max}`)}`,
+    now: 'الان',
+    next: 'بعدی',
+    fullyUpgraded: 'کامل',
     max: 'حداکثر',
+    milestone: (level: number): string => `مرحلهٔ ${level} کامل شد!`,
   },
   training: {
     victory: '👑 پیروزی!',
@@ -153,11 +164,11 @@ export const fa = {
     progressNext: (trophies: number, toNext: number, next: string): string =>
       `${trophies} جام  •  ${toNext} تا ${next}`,
     progressMax: (trophies: number): string => `${trophies} جام  •  استاد قلمرو`,
-    improveKingdom: 'ارتقای قلمرو  🏰',
+    improveKingdom: 'ارتقای قلمرو',
     currentLeague: 'لیگ فعلی',
     trophies: (n: number): string => `${n} جام`,
-    begun: 'شروع ✓',
-    claimed: 'گرفته شد ✓',
+    begun: 'آغاز',
+    claimed: 'گرفته شد',
     claim: 'دریافت',
     locked: 'قفل',
     bounty: 'جایزه لیگ',
@@ -196,14 +207,14 @@ export const fa = {
     loading: 'در حال خواندن دستورهای امروز…',
     loadError: 'دستورهای امروز بارگذاری نشد.',
     retry: 'تلاش دوباره',
-    claimed: 'گرفته شد ✓',
+    claimed: 'گرفته شد',
     claim: 'دریافت',
     inBattle: 'در نبرد',
     chestTitle: 'صندوق تاج',
     chestClaimed: 'جایزهٔ سلطنتی گرفته شد',
     chestUnlocked: 'همهٔ دستورها انجام شد',
     chestProgress: (done: number): string => `همهٔ دستورها را بگیر  ${done}/3`,
-    opened: 'باز شد ✓',
+    opened: 'باز شد',
     open: 'باز کن',
     locked: 'قفل',
     notComplete: 'اول این دستور را کامل کن.',
@@ -216,13 +227,13 @@ export const fa = {
     title: 'کرون کلش',
     subtitle: 'قلمرو را تسخیر کن',
     coins: 'سکه',
-    coinsRealm: 'سکه · قلمرو ›',
+    coinsRealm: 'سکه · قلمرو',
     wins: 'برد',
     commanderLine: (name: string): string => `فرمانده  •  ${name}`,
-    play: 'بازی  ⚔',
+    play: 'بازی',
     scouting: 'در حال جست‌وجو…',
     tryAgain: 'تلاش دوباره',
-    livePvp: 'نبرد آنلاین  ⚔',
+    livePvp: 'نبرد آنلاین',
     livePvpOffline: 'نبرد آنلاین (آفلاین)',
     trainingRequired: 'آموزش  •  الزامی',
     daily: 'روزانه',
@@ -236,31 +247,31 @@ export const fa = {
   lobby: {
     title: 'نبرد آنلاین',
     subtitle: 'همین حالا با یک فرمانده رقابت کن',
-    quickMatch: 'بازی سریع  ⚔',
-    twoVTwo: '۲ در ۲ دوستانه  🛡',
+    quickMatch: 'بازی سریع',
+    twoVTwo: '۲ در ۲ دوستانه',
     twoVTwoSub: 'هم‌تیمی شو · بدون تغییر جام',
-    createBattle: 'ساخت اتاق نبرد  🔗',
-    joinBattle: 'ورود به اتاق  ↗',
+    createBattle: 'ساخت اتاق نبرد',
+    joinBattle: 'ورود به اتاق',
     roomCreated: 'اتاق نبرد ساخته شد',
     shareCode: 'این کد را برای حریفت بفرست',
-    copy: '📋  کپی',
-    copied: 'کپی شد ✓',
-    share: '🔗  اشتراک',
+    copy: 'کپی',
+    copied: 'کپی شد',
+    share: 'اشتراک',
     waitingOpponent: 'منتظر حریف…',
-    leaveRoom: '✕  خروج از اتاق',
+    leaveRoom: 'خروج از اتاق',
     enterCode: 'کد دعوت را وارد کن',
     codeHint: 'کد ۸ حرفی که دوستت فرستاده',
     tapToType: 'برای تایپ بزن',
     inviteCodeLabel: 'کد دعوت',
-    join: 'ورود  ↗',
+    join: 'ورود',
     cancel: 'انصراف',
     connecting: 'در حال اتصال…',
     creatingRoom: 'در حال ساخت اتاق…',
     joiningRoom: 'در حال ورود به اتاق…',
     findingOpponent: 'در حال یافتن حریف…',
     finding2v2: 'در حال یافتن نبرد ۲ در ۲…\nبه ۴ فرمانده نیاز است',
-    retry: '↺  تلاش دوباره',
-    back: '←  بازگشت',
+    retry: 'تلاش دوباره',
+    back: 'بازگشت',
     connectFailed: 'اتصال به نبرد آنلاین برقرار نشد.',
     invalidCode: 'کد نامعتبر است.',
     shareText: (code: string): string => `به نبرد آنلاین من در کرون کلش بپیوند! کد: ${code}`,
@@ -270,7 +281,7 @@ export const fa = {
 /** game-core milestone labels ("M5 ✓", "M5→10") in Persian. */
 export function upgradeMilestoneLabel(label: string): string {
   const done = /^M(\d+) ✓$/.exec(label);
-  if (done) return `مرحله ${done[1]} ✓`;
+  if (done) return `مرحلهٔ ${done[1]} کامل`;
   const next = /^M\d+→(\d+)$/.exec(label);
   if (next) return `هدف: سطح ${next[1]}`;
   return label;

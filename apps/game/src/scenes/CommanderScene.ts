@@ -8,7 +8,7 @@ import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { trackEvent } from '../analytics/Analytics.js';
 import { sounds } from '../audio/SoundEffects.js';
 import { CareerManager } from '../career/CareerManager.js';
-import { THEME } from '../theme.js';
+import { UI } from '../theme.js';
 import {
   bindSceneViewportResize,
   getSceneViewport,
@@ -16,8 +16,23 @@ import {
   setupSceneCamera,
 } from '../ui/Viewport.js';
 import { computeCommanderLayout } from '../ui/HubLayouts.js';
-import { createText, FONT_FAMILY as FONT } from '../ui/TextStyles.js';
+import { createText } from '../ui/TextStyles.js';
+import { commanderIcon, createIcon } from '../ui/icons.js';
+import {
+  createBackButton,
+  createButton,
+  createGlow,
+  createHeader,
+  createPill,
+  drawPanel,
+  fadeIn,
+  goToScene,
+  showToast,
+} from '../ui/kit/index.js';
 import { commanderCopy, fa } from '../i18n/fa.js';
+
+const CARD_WIDTH = 360;
+const CARD_HEIGHT = 138;
 
 export class CommanderScene extends Phaser.Scene {
   private platform!: PlatformAdapter;
@@ -25,11 +40,11 @@ export class CommanderScene extends Phaser.Scene {
   private active = true;
   private pending = false;
   private isExiting = false;
+  private reducedMotion = false;
   private background!: Phaser.GameObjects.Rectangle;
-  private powerBadgeText!: Phaser.GameObjects.Text;
+  private powerBadge!: Phaser.GameObjects.Container;
   private cards: Phaser.GameObjects.Container[] = [];
   private helperText!: Phaser.GameObjects.Text;
-  private toast?: Phaser.GameObjects.Text;
 
   constructor() { super({ key: 'CommanderScene' }); }
 
@@ -40,6 +55,11 @@ export class CommanderScene extends Phaser.Scene {
     this.careerManager = CareerManager.getInstance(this.platform.getUser().id);
     this.active = true;
     this.isExiting = false;
+    this.pending = false;
+    this.cards = [];
+    this.reducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
     this.buildScene();
     this.platform.showBackButton(() => this.close());
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -47,6 +67,7 @@ export class CommanderScene extends Phaser.Scene {
       this.platform.hideBackButton();
     });
     trackEvent({ name: 'commander_panel_viewed' });
+    fadeIn(this);
   }
 
   private buildScene(): void {
@@ -57,26 +78,17 @@ export class CommanderScene extends Phaser.Scene {
       viewport.visibleHeight / 2,
       viewport.visibleWidth,
       viewport.visibleHeight,
-      THEME.background
+      UI.bg
     );
-    const glow = this.add.graphics();
-    glow.fillStyle(0x172554, 0.4).fillCircle(200, 72, 180);
-    const back = this.add.rectangle(42, 42, 48, 44, 0x111827).setStrokeStyle(1.5, 0x475569);
-    back.setInteractive({ useHandCursor: true }).on('pointerdown', () => this.close());
-    createText(this, 42, 40, '<', { fontFamily: FONT, fontSize: '25px', fontStyle: 'bold', color: '#e2e8f0', resolution: 2 }).setOrigin(0.5);
-    createText(this, 200, 35, fa.council.title, {
-      fontFamily: FONT, fontSize: '25px', fontStyle: '900', color: '#f8fafc', stroke: '#000000', strokeThickness: 4, resolution: 2,
-    }).setOrigin(0.5);
-    createText(this, 200, 68, fa.council.subtitle, {
-      fontFamily: FONT, fontSize: '12px', fontStyle: 'bold', color: '#93c5fd', resolution: 2,
-    }).setOrigin(0.5);
+    createGlow(this, LOGICAL_WIDTH / 2, -30, viewport.visibleWidth * 1.4, 300, 0x2563eb, 0.24);
+    // RTL: back sits top-right.
+    createBackButton(this, LOGICAL_WIDTH - 34, 38, () => this.close());
+    createHeader(this, fa.council.title, fa.council.subtitle);
     const level = getKingdomLevel(this.careerManager.getCareer());
-    this.powerBadgeText = createText(this, 200, layout.powerBadgeY, fa.council.power(level), {
-      fontFamily: FONT, fontSize: '11px', fontStyle: '900', color: '#fbbf24', backgroundColor: '#1c1917', padding: { x: 12, y: 6 }, resolution: 2,
-    }).setOrigin(0.5);
-    COMMANDERS.forEach((commander, index) => this.createCard(commander, layout.cardYs[index]));
-    this.helperText = createText(this, 200, layout.helperTextY, fa.council.helper, {
-      fontFamily: FONT, fontSize: '11px', color: '#64748b', fontStyle: 'bold', resolution: 2,
+    this.powerBadge = createPill(this, LOGICAL_WIDTH / 2, layout.powerBadgeY, 'castle', fa.council.power(level)).container;
+    COMMANDERS.forEach((commander, index) => this.createCard(commander, layout.cardYs[index], index, !this.reducedMotion));
+    this.helperText = createText(this, LOGICAL_WIDTH / 2, layout.helperTextY, fa.council.helper, {
+      fontSize: '12px', color: UI.text.muted, fontStyle: '700', align: 'center', wordWrap: { width: 340 },
     }).setOrigin(0.5);
     this.applyLayout(viewport);
   }
@@ -86,51 +98,80 @@ export class CommanderScene extends Phaser.Scene {
     this.background
       .setPosition(LOGICAL_WIDTH / 2, viewport.visibleHeight / 2)
       .setSize(viewport.visibleWidth, viewport.visibleHeight);
-    this.powerBadgeText.setY(layout.powerBadgeY);
+    this.powerBadge.setY(layout.powerBadgeY);
     this.cards.forEach((card, index) => {
       if (layout.cardYs[index] !== undefined) {
         card.setY(layout.cardYs[index]);
       }
     });
     this.helperText.setY(layout.helperTextY);
-    if (this.toast) {
-      this.toast.setY(layout.toastY);
-    }
   }
 
-  private createCard(commander: CommanderDefinition, y: number): void {
+  private createCard(commander: CommanderDefinition, y: number, index: number, animate: boolean): void {
     const career = this.careerManager.getCareer();
     const unlocked = isCommanderUnlocked(commander.id, getKingdomLevel(career));
     const selected = career.selectedCommanderId === commander.id;
-    const container = this.add.container(200, y);
-    container.add(this.add.rectangle(0, 0, 356, 138, selected ? 0x14213d : 0x0f172a, 0.98)
-      .setStrokeStyle(selected ? 2.5 : 1.5, selected ? commander.accent : unlocked ? 0x334155 : 0x1e293b));
-    container.add(this.add.circle(-132, -20, 30, unlocked ? commander.accent : 0x334155, unlocked ? 0.22 : 0.35)
-      .setStrokeStyle(2, unlocked ? commander.accent : 0x475569));
-    const initials = commander.name.split(' ').map((word) => word[0]).join('');
-    container.add(createText(this, -132, -20, unlocked ? initials : 'X', {
-      fontFamily: FONT, fontSize: '17px', fontStyle: '900', color: unlocked ? '#f8fafc' : '#64748b', resolution: 2,
-    }).setOrigin(0.5));
-    container.add(createText(this, -92, -54, commanderCopy(commander.id, commander).name, {
-      fontFamily: FONT, fontSize: '15px', fontStyle: '900', color: unlocked ? '#f8fafc' : '#64748b', resolution: 2,
+    const copy = commanderCopy(commander.id, commander);
+    const right = CARD_WIDTH / 2 - 16;
+    const container = this.add.container(LOGICAL_WIDTH / 2, y);
+    const dim = unlocked ? 1 : 0.55;
+
+    container.add(drawPanel(this.add.graphics(), CARD_WIDTH, CARD_HEIGHT, {
+      fill: selected ? UI.surface.high : UI.surface.raised,
+      stroke: selected ? commander.accent : UI.border,
+      strokeAlpha: selected ? 1 : 0.9,
+      radius: UI.radius.lg,
     }));
-    container.add(createText(this, -92, -32, commanderCopy(commander.id, commander).role, {
-      fontFamily: FONT, fontSize: '11px', fontStyle: 'bold', color: unlocked ? '#94a3b8' : '#64748b', resolution: 2,
-    }));
-    container.add(createText(this, -92, -5, commanderCopy(commander.id, commander).strength, {
-      fontFamily: FONT, fontSize: '11px', fontStyle: 'bold', color: unlocked ? '#86efac' : '#64748b', resolution: 2,
-    }));
-    container.add(createText(this, -92, 15, commanderCopy(commander.id, commander).tradeoff, {
-      fontFamily: FONT, fontSize: '11px', fontStyle: 'bold', color: unlocked ? '#fca5a5' : '#64748b', resolution: 2,
-    }));
-    const buttonLabel = selected ? fa.council.equipped : unlocked ? fa.council.equip : fa.council.unlockAt(commander.unlockKingdomLevel);
-    const button = this.add.rectangle(92, 45, 142, 44, selected ? commander.accent : unlocked ? 0x2563eb : 0x1e293b)
-      .setStrokeStyle(1.5, selected ? 0xf8fafc : unlocked ? 0x60a5fa : 0x334155);
-    container.add(button);
-    container.add(createText(this, 92, 45, buttonLabel, {
-      fontFamily: FONT, fontSize: unlocked ? '11px' : '10px', fontStyle: '900', color: selected ? '#07111f' : unlocked ? '#ffffff' : '#64748b', resolution: 2,
-    }).setOrigin(0.5));
-    if (unlocked && !selected) button.setInteractive({ useHandCursor: true }).on('pointerdown', () => void this.select(commander.id));
+    // Top: emblem (right) with name and role; bottom: trade-off lines on the
+    // right and the action on the left, so long copy never runs under it.
+    const emblemX = right - 34;
+    if (selected) container.add(createGlow(this, emblemX, -26, 150, 130, commander.accent, 0.45));
+    const emblem = createIcon(this, emblemX, -26, commanderIcon(commander.id), 64).setAlpha(unlocked ? 1 : 0.45);
+    container.add(emblem);
+    if (!unlocked) container.add(createIcon(this, emblemX + 22, -6, 'lock', 26));
+
+    const textRight = right - 78;
+    container.add(createText(this, textRight, -42, copy.name, {
+      fontSize: '18px', fontStyle: '900', color: unlocked ? UI.text.primary : UI.text.muted,
+    }).setOrigin(1, 0.5).setAlpha(dim));
+    container.add(createText(this, textRight, -18, copy.role, {
+      fontSize: '12px', fontStyle: '700', color: UI.text.muted,
+    }).setOrigin(1, 0.5).setAlpha(dim));
+    container.add(this.add.rectangle(0, 8, CARD_WIDTH - 32, 1, UI.border, 0.9));
+    container.add(createText(this, right, 28, copy.strength, {
+      fontSize: '13px', fontStyle: '800', color: UI.text.success,
+    }).setOrigin(1, 0.5).setAlpha(dim));
+    container.add(createText(this, right, 50, copy.tradeoff, {
+      fontSize: '13px', fontStyle: '800', color: UI.text.danger,
+    }).setOrigin(1, 0.5).setAlpha(dim));
+
+    const buttonX = -CARD_WIDTH / 2 + 82;
+    const buttonY = 38;
+    if (selected) {
+      // Equipped is a state, not an action: a badge instead of a button.
+      const badge = this.add.container(buttonX, buttonY, [
+        drawPanel(this.add.graphics(), 140, 40, { fill: 0x0b3b2c, stroke: UI.button.success.fill, radius: 20, shadow: false }),
+        createIcon(this, 46, 0, 'check', 20),
+        createText(this, 32, 0, fa.council.equipped, { fontSize: '13px', fontStyle: '900', color: UI.text.success }).setOrigin(1, 0.5),
+      ]);
+      container.add(badge);
+    } else {
+      const button = createButton(this, buttonX, buttonY - 2, {
+        width: 140,
+        height: 44,
+        label: unlocked ? fa.council.equip : fa.council.unlockAt(commander.unlockKingdomLevel),
+        icon: unlocked ? undefined : 'castle',
+        variant: 'primary',
+        fontSize: 13,
+        onPress: () => void this.select(commander.id),
+      });
+      if (!unlocked) button.setEnabled(false);
+      container.add(button.container);
+    }
+    if (animate) {
+      container.setAlpha(0).setScale(0.95);
+      this.tweens.add({ targets: container, alpha: 1, scale: 1, duration: 260, delay: 60 + index * 60, ease: 'Back.easeOut' });
+    }
     this.cards.push(container);
   }
 
@@ -151,7 +192,12 @@ export class CommanderScene extends Phaser.Scene {
       this.cards = [];
       const { visibleHeight } = getSceneViewport(this);
       const layout = computeCommanderLayout(visibleHeight);
-      COMMANDERS.forEach((commander, index) => this.createCard(commander, layout.cardYs[index]));
+      COMMANDERS.forEach((commander, index) => this.createCard(commander, layout.cardYs[index], index, false));
+      const chosen = COMMANDERS.findIndex((commander) => commander.id === commanderId);
+      const card = this.cards[chosen];
+      if (card && !this.reducedMotion) {
+        this.tweens.add({ targets: card, scale: 1.04, duration: 140, yoyo: true, ease: 'Cubic.easeOut' });
+      }
     } catch (error) {
       console.error('[CommanderScene] Selection failed:', error);
       if (this.active) this.showToast(fa.council.equipFailed);
@@ -161,10 +207,7 @@ export class CommanderScene extends Phaser.Scene {
   private showToast(message: string): void {
     const { visibleHeight } = getSceneViewport(this);
     const layout = computeCommanderLayout(visibleHeight);
-    this.toast?.destroy();
-    this.toast = createText(this, LOGICAL_WIDTH / 2, layout.toastY, message, {
-      fontFamily: FONT, fontSize: '11px', fontStyle: 'bold', color: '#fecaca', backgroundColor: '#450a0a', padding: { x: 12, y: 7 }, resolution: 2,
-    }).setOrigin(0.5).setDepth(20);
+    showToast(this, message, { y: layout.toastY, tone: 'error', reducedMotion: this.reducedMotion });
   }
 
   private close(): void {
@@ -172,6 +215,6 @@ export class CommanderScene extends Phaser.Scene {
     if (this.pending) return this.showToast(fa.council.equipping);
     this.isExiting = true;
     this.platform.hapticSelection();
-    this.scene.start('MenuScene');
+    goToScene(this, 'MenuScene');
   }
 }

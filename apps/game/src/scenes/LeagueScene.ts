@@ -11,7 +11,7 @@ import { trackEvent } from '../analytics/Analytics.js';
 import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { sounds } from '../audio/SoundEffects.js';
 import { CareerManager } from '../career/CareerManager.js';
-import { THEME } from '../theme.js';
+import { THEME, UI } from '../theme.js';
 import {
   bindSceneViewportResize,
   getSceneViewport,
@@ -19,8 +19,31 @@ import {
   type SceneViewport,
 } from '../ui/Viewport.js';
 import { computeLeagueLayout } from '../ui/HubLayouts.js';
-import { createText, FONT_FAMILY } from '../ui/TextStyles.js';
+import { createText } from '../ui/TextStyles.js';
+import { createIcon, rankIcon } from '../ui/icons.js';
+import {
+  anchorPillLeft,
+  createBackButton,
+  createButton,
+  createGlow,
+  createHeader,
+  createPill,
+  createProgressBar,
+  drawPanel,
+  fadeIn,
+  goToScene,
+  showRewardBurst,
+  showToast,
+  type KitButton,
+  type KitPill,
+} from '../ui/kit/index.js';
 import { fa, rankName } from '../i18n/fa.js';
+
+/** RTL: the league road runs down the right edge; rows extend to its left. */
+const ROAD_X = 356;
+const ROW_LEFT = 18;
+const ROW_RIGHT = 330;
+const ROW_HEIGHT = 58;
 
 export class LeagueScene extends Phaser.Scene {
   private platform!: PlatformAdapter;
@@ -29,21 +52,19 @@ export class LeagueScene extends Phaser.Scene {
   private content?: Phaser.GameObjects.Container;
   private background!: Phaser.GameObjects.Rectangle;
   private statusText!: Phaser.GameObjects.Text;
-  private coinText!: Phaser.GameObjects.Text;
-  private retryBg?: Phaser.GameObjects.Rectangle;
-  private retryText?: Phaser.GameObjects.Text;
+  private coinPill?: KitPill;
+  private retryButton?: KitButton;
   private summaryContainer?: Phaser.GameObjects.Container;
   private roadGraphics?: Phaser.GameObjects.Graphics;
   private tierRows: Phaser.GameObjects.Container[] = [];
-  private kingdomButtonBg?: Phaser.GameObjects.Rectangle;
-  private kingdomButtonText?: Phaser.GameObjects.Text;
-  private toastBg!: Phaser.GameObjects.Rectangle;
-  private toastText!: Phaser.GameObjects.Text;
+  private kingdomButton?: KitButton;
+  private toastY = 690;
   private pendingRankId: string | null = null;
   private active = false;
   private visitId = 0;
   private reducedMotion = false;
   private isExiting = false;
+  private animatedEntrance = false;
 
   constructor() {
     super({ key: 'LeagueScene' });
@@ -58,11 +79,11 @@ export class LeagueScene extends Phaser.Scene {
     this.summaryContainer = undefined;
     this.roadGraphics = undefined;
     this.tierRows = [];
-    this.kingdomButtonBg = undefined;
-    this.kingdomButtonText = undefined;
-    this.retryBg = undefined;
-    this.retryText = undefined;
+    this.kingdomButton = undefined;
+    this.retryButton = undefined;
+    this.coinPill = undefined;
     this.pendingRankId = null;
+    this.animatedEntrance = false;
     this.reducedMotion =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
@@ -80,50 +101,24 @@ export class LeagueScene extends Phaser.Scene {
     });
     trackEvent({ name: 'league_panel_viewed' });
     void this.loadState();
+    fadeIn(this);
   }
 
   private buildShell(): void {
     const vp = getSceneViewport(this);
-    this.background = this.add.rectangle(0, 0, 10, 10, 0x070b14);
-    const glow = this.add.graphics();
-    glow.fillStyle(THEME.gold, 0.1);
-    glow.fillCircle(LOGICAL_WIDTH / 2, 30, 210);
-    glow.fillStyle(0x2563eb, 0.06);
-    glow.fillCircle(LOGICAL_WIDTH / 2, 430, 260);
+    this.background = this.add.rectangle(0, 0, 10, 10, UI.bg);
+    createGlow(this, LOGICAL_WIDTH / 2, -30, vp.visibleWidth * 1.4, 280, 0x6366f1, 0.2);
 
-    const backBg = this.add.rectangle(34, 34, 44, 44, 0x0f172a, 0.95)
-      .setStrokeStyle(1.5, 0x334155, 0.9).setInteractive({ useHandCursor: true });
-    const backText = createText(this, 34, 32, '‹', {
-      fontFamily: FONT_FAMILY, fontSize: '26px', fontStyle: '900', color: '#e2e8f0', resolution: 2,
-    }).setOrigin(0.5);
-    this.bindPressFeedback(backBg, backText);
-    backBg.on('pointerdown', () => this.closeLeague());
+    // RTL: back sits top-right, the wallet top-left.
+    createBackButton(this, LOGICAL_WIDTH - 34, 38, () => this.closeLeague());
+    createHeader(this, fa.league.title, fa.league.subtitle);
 
-    createText(this, LOGICAL_WIDTH / 2, 35, fa.league.title, {
-      fontFamily: FONT_FAMILY, fontSize: '24px', fontStyle: '900', color: '#f8fafc',
-      stroke: '#000000', strokeThickness: 4, resolution: 2,
-    }).setOrigin(0.5);
-    createText(this, LOGICAL_WIDTH / 2, 63, fa.league.subtitle, {
-      fontFamily: FONT_FAMILY, fontSize: '12px', fontStyle: 'bold', color: '#93c5fd',
-      stroke: '#000000', strokeThickness: 2, resolution: 2,
-    }).setOrigin(0.5);
-
-    this.coinText = createText(this, LOGICAL_WIDTH - 24, 34, '', {
-      fontFamily: FONT_FAMILY, fontSize: '13px', fontStyle: '900', color: '#fbbf24',
-      stroke: '#000000', strokeThickness: 2, resolution: 2,
-    }).setOrigin(1, 0.5);
+    this.coinPill = createPill(this, 0, 38, 'coin', '0');
     this.refreshCoins();
 
     this.statusText = createText(this, LOGICAL_WIDTH / 2, 0, fa.league.loading, {
-      fontFamily: FONT_FAMILY, fontSize: '13px', fontStyle: 'bold', color: '#94a3b8', resolution: 2,
+      fontSize: `${UI.type.body}px`, fontStyle: '700', color: UI.text.muted,
     }).setOrigin(0.5);
-
-    this.toastBg = this.add.rectangle(LOGICAL_WIDTH / 2, 0, 330, 42, 0x0c1322, 0.98)
-      .setStrokeStyle(1.5, 0xf87171, 0.9).setDepth(300).setAlpha(0);
-    this.toastText = createText(this, LOGICAL_WIDTH / 2, 0, '', {
-      fontFamily: FONT_FAMILY, fontSize: '12px', fontStyle: 'bold', color: '#fecaca',
-      align: 'center', resolution: 2,
-    }).setOrigin(0.5).setDepth(301).setAlpha(0);
 
     this.applyLayout(vp);
   }
@@ -132,21 +127,33 @@ export class LeagueScene extends Phaser.Scene {
     const layout = computeLeagueLayout(vp.visibleHeight);
     this.background.setPosition(LOGICAL_WIDTH / 2, vp.visibleHeight / 2).setSize(vp.visibleWidth, vp.visibleHeight);
     this.statusText.setY(layout.statusTextY);
-    if (this.retryBg) this.retryBg.setY(layout.retryY);
-    if (this.retryText) this.retryText.setY(layout.retryY);
+    this.retryButton?.container.setY(layout.retryY);
     if (this.summaryContainer) this.summaryContainer.setY(layout.summaryY);
-    if (this.roadGraphics) {
-      this.roadGraphics.clear();
-      this.roadGraphics.lineStyle(4, 0x334155, 0.8);
-      this.roadGraphics.lineBetween(53, layout.roadStartY, 53, layout.roadEndY);
-    }
+    if (this.roadGraphics) this.drawRoad(layout.tierYs);
     this.tierRows.forEach((row, index) => {
       row.setY(layout.tierYs[index]);
     });
-    if (this.kingdomButtonBg) this.kingdomButtonBg.setY(layout.kingdomButtonY);
-    if (this.kingdomButtonText) this.kingdomButtonText.setY(layout.kingdomButtonY);
-    this.toastBg.setY(layout.toastY);
-    this.toastText.setY(layout.toastY);
+    this.kingdomButton?.container.setY(layout.kingdomButtonY);
+    this.toastY = layout.toastY;
+  }
+
+  /** Thick rounded road; the reached stretch glows in the current rank colour. */
+  private drawRoad(tierYs: readonly number[]): void {
+    const g = this.roadGraphics;
+    if (!g || !this.state) return;
+    const top = tierYs[0];
+    const bottom = tierYs[tierYs.length - 1];
+    const currentIndex = Math.max(0, this.state.tiers.findIndex((tier) => tier.rankId === this.state!.currentRankId));
+    const reachedY = tierYs[currentIndex] ?? top;
+    const color = RANK_TIERS.find((rank) => rank.id === this.state!.currentRankId)?.color ?? THEME.gold;
+    g.clear();
+    g.fillStyle(0x000000, 0.35).fillRoundedRect(ROAD_X - 8, top, 16, bottom - top + 4, 8);
+    g.fillStyle(UI.surface.base, 1).fillRoundedRect(ROAD_X - 7, top - 2, 14, bottom - top + 4, 7);
+    g.lineStyle(1.5, UI.borderStrong, 1).strokeRoundedRect(ROAD_X - 7, top - 2, 14, bottom - top + 4, 7);
+    if (reachedY > top) {
+      g.fillStyle(color, 1).fillRoundedRect(ROAD_X - 4, top, 8, reachedY - top, 4);
+      g.fillStyle(0xffffff, 0.3).fillRoundedRect(ROAD_X - 3, top, 2, reachedY - top, 1);
+    }
   }
 
   private async loadState(): Promise<void> {
@@ -169,22 +176,22 @@ export class LeagueScene extends Phaser.Scene {
   }
 
   private showLoadError(): void {
-    this.statusText.setText(fa.league.loadFailed).setColor('#fca5a5').setVisible(true);
-    this.retryBg?.destroy();
-    this.retryText?.destroy();
-    this.retryBg = this.add.rectangle(LOGICAL_WIDTH / 2, 0, 160, 44, 0x2563eb, 1)
-      .setStrokeStyle(1.5, 0x60a5fa, 1).setInteractive({ useHandCursor: true });
-    this.retryText = createText(this, LOGICAL_WIDTH / 2, 0, fa.league.retry, {
-      fontFamily: FONT_FAMILY, fontSize: '13px', fontStyle: '900', color: '#ffffff', resolution: 2,
-    }).setOrigin(0.5);
-    this.bindPressFeedback(this.retryBg, this.retryText);
-    this.retryBg.once('pointerdown', () => {
-      this.retryBg?.destroy();
-      this.retryBg = undefined;
-      this.retryText?.destroy();
-      this.retryText = undefined;
-      this.statusText.setText(fa.league.loading).setColor('#94a3b8');
-      void this.loadState();
+    this.statusText.setText(fa.league.loadFailed).setColor(UI.text.danger).setVisible(true);
+    this.retryButton?.container.destroy();
+    let retried = false;
+    this.retryButton = createButton(this, LOGICAL_WIDTH / 2, 0, {
+      width: 170,
+      height: 48,
+      label: fa.league.retry,
+      variant: 'primary',
+      onPress: () => {
+        if (retried) return;
+        retried = true;
+        this.retryButton?.container.destroy();
+        this.retryButton = undefined;
+        this.statusText.setText(fa.league.loading).setColor(UI.text.muted);
+        void this.loadState();
+      },
     });
     this.applyLayout(getSceneViewport(this));
   }
@@ -194,90 +201,122 @@ export class LeagueScene extends Phaser.Scene {
     this.content?.destroy(true);
     this.content = this.add.container(0, 0);
     const progress = getLeagueProgress(this.state.trophies);
+    const animate = !this.reducedMotion && !this.animatedEntrance;
+    this.animatedEntrance = true;
 
     this.summaryContainer = this.add.container(LOGICAL_WIDTH / 2, 0);
     const rankColor = progress.current.color;
-    const summaryBg = this.add.rectangle(0, 0, 352, 88, 0x111827, 0.98)
-      .setStrokeStyle(2, rankColor, 0.95);
-    const title = createText(this, -156, -27, `${progress.current.badge}  ${rankName(progress.current.id, progress.current.name)}`, {
-      fontFamily: FONT_FAMILY, fontSize: '16px', fontStyle: '900', color: '#f8fafc',
-      stroke: '#000000', strokeThickness: 2, resolution: 2,
-    }).setOrigin(0, 0.5);
-    const power = createText(this, 156, -27, fa.league.power(this.state.kingdomPower), {
-      fontFamily: FONT_FAMILY, fontSize: '11px', fontStyle: '900', color: '#c7d2fe', resolution: 2,
+    const summaryBg = drawPanel(this.add.graphics(), 364, 92, {
+      fill: UI.surface.raised, stroke: rankColor, strokeAlpha: 0.9, radius: UI.radius.lg,
+    });
+    const glow = createGlow(this, 146, 0, 150, 120, rankColor, 0.35);
+    const badge = createIcon(this, 146, 0, rankIcon(progress.current.id), 60);
+    const title = createText(this, 106, -24, rankName(progress.current.id, progress.current.name), {
+      fontSize: '19px', fontStyle: '900', color: UI.text.primary, stroke: UI.text.stroke, strokeThickness: 4,
     }).setOrigin(1, 0.5);
-    const track = this.add.rectangle(-156, 7, 312, 10, 0x080d18, 1).setOrigin(0, 0.5);
-    const fill = this.add.rectangle(-156, 7, Math.max(3, 312 * progress.progress), 8, rankColor, 1).setOrigin(0, 0.5);
-    const detail = createText(this, 0, 28,
+    const power = createText(this, -166, -24, fa.league.power(this.state.kingdomPower), {
+      fontSize: '12px', fontStyle: '800', color: '#c7d2fe',
+    }).setOrigin(0, 0.5);
+    const bar = createProgressBar(this, -30, 4, 272, 12, rankColor);
+    bar.setProgress(progress.progress);
+    const detail = createText(this, 106, 28,
       progress.next ? fa.league.progressNext(this.state.trophies, progress.trophiesToNext, rankName(progress.next.id, progress.next.name)) : fa.league.progressMax(this.state.trophies), {
-        fontFamily: FONT_FAMILY, fontSize: '11px', fontStyle: 'bold', color: '#94a3b8', resolution: 2,
-      }).setOrigin(0.5);
-    this.summaryContainer.add([summaryBg, title, power, track, fill, detail]);
+        fontSize: '12px', fontStyle: '700', color: UI.text.muted,
+      }).setOrigin(1, 0.5);
+    this.summaryContainer.add([summaryBg, glow, badge, title, power, bar.graphics, detail]);
     this.content.add(this.summaryContainer);
+    if (animate) {
+      this.summaryContainer.setAlpha(0).setScale(0.96);
+      this.tweens.add({ targets: this.summaryContainer, alpha: 1, scale: 1, duration: 240, ease: 'Back.easeOut' });
+    }
 
     this.roadGraphics = this.add.graphics();
     this.content.add(this.roadGraphics);
     this.tierRows = [];
     this.state.tiers.forEach((tier, index) => {
-      const row = this.buildTierRow(tier, 0, index);
+      const row = this.buildTierRow(tier, 0, index, animate);
       this.tierRows.push(row);
       this.content!.add(row);
     });
 
-    this.kingdomButtonBg = this.add.rectangle(LOGICAL_WIDTH / 2, 0, 220, 42, 0x111c33, 1)
-      .setStrokeStyle(1.5, THEME.gold, 0.8).setInteractive({ useHandCursor: true });
-    this.kingdomButtonText = createText(this, LOGICAL_WIDTH / 2, 0, fa.league.improveKingdom, {
-      fontFamily: FONT_FAMILY, fontSize: '12px', fontStyle: '900', color: '#fde68a',
-      stroke: '#000000', strokeThickness: 2, resolution: 2,
-    }).setOrigin(0.5);
-    this.bindPressFeedback(this.kingdomButtonBg, this.kingdomButtonText);
-    this.kingdomButtonBg.on('pointerdown', () => {
-      sounds.playReinforce();
-      this.platform.hapticSelection();
-      this.scene.start('KingdomScene');
+    this.kingdomButton = createButton(this, LOGICAL_WIDTH / 2, 0, {
+      width: 250,
+      height: 48,
+      label: fa.league.improveKingdom,
+      icon: 'castle',
+      variant: 'secondary',
+      onPress: () => {
+        if (this.isExiting) return;
+        this.isExiting = true;
+        sounds.playReinforce();
+        this.platform.hapticSelection();
+        goToScene(this, 'KingdomScene');
+      },
     });
-    this.content.add([this.kingdomButtonBg, this.kingdomButtonText]);
+    this.content.add(this.kingdomButton.container);
 
     this.applyLayout(getSceneViewport(this));
   }
 
-  private buildTierRow(tier: LeagueTierState, y: number, index: number): Phaser.GameObjects.Container {
+  private buildTierRow(tier: LeagueTierState, y: number, index: number, animate: boolean): Phaser.GameObjects.Container {
     const rank = RANK_TIERS.find((item) => item.id === tier.rankId)!;
     const current = this.state?.currentRankId === tier.rankId;
     const claimable = tier.unlocked && !tier.claimed && tier.reward > 0;
     const pending = this.pendingRankId === tier.rankId;
     const row = this.add.container(0, y);
-    const card = this.add.rectangle(214, 0, 320, 58, current ? 0x151d31 : 0x101725, 0.98)
-      .setStrokeStyle(current ? 2 : 1, current ? rank.color : 0x334155, current ? 1 : 0.8);
-    const node = this.add.circle(53, 0, current ? 18 : 15, tier.unlocked ? rank.color : 0x1e293b, 1)
-      .setStrokeStyle(2, tier.unlocked ? rank.color : 0x475569, 1);
-    const badge = createText(this, 53, 0, tier.badge, { fontSize: '15px', resolution: 2 }).setOrigin(0.5);
-    const name = createText(this, 78, -13, tier.name.toUpperCase(), {
-      fontFamily: FONT_FAMILY, fontSize: '12px', fontStyle: '900',
-      color: tier.unlocked ? '#f8fafc' : '#64748b', stroke: '#000000', strokeThickness: 2, resolution: 2,
-    }).setOrigin(0, 0.5);
-    const rewardText = tier.reward > 0 ? `  •  +${tier.reward} 🪙` : '';
-    const requirement = createText(this, 78, 12, `${current ? fa.league.currentLeague : fa.league.trophies(tier.minTrophies)}${rewardText}`, {
-      fontFamily: FONT_FAMILY, fontSize: '11px', fontStyle: 'bold',
-      color: current ? '#93c5fd' : '#94a3b8', resolution: 2,
-    }).setOrigin(0, 0.5);
-    const button = this.add.rectangle(326, 0, 86, 36, claimable ? 0x2563eb : 0x202b3d, 1)
-      .setStrokeStyle(1.5, claimable ? 0x60a5fa : tier.claimed ? THEME.gold : 0x475569, 1);
-    const buttonText = createText(this, 326, 0,
-      pending ? '…' : tier.reward === 0 ? fa.league.begun : tier.claimed ? fa.league.claimed : claimable ? fa.league.claim : fa.league.locked, {
-        fontFamily: FONT_FAMILY, fontSize: '11px', fontStyle: '900',
-        color: tier.claimed ? '#fde68a' : claimable ? '#ffffff' : '#94a3b8',
-        stroke: '#000000', strokeThickness: 1.5, resolution: 2,
-      }).setOrigin(0.5);
-    if (claimable && !pending && this.pendingRankId === null) {
-      button.setInteractive({ useHandCursor: true });
-      this.bindPressFeedback(button, buttonText);
-      button.on('pointerdown', () => void this.claimReward(tier.rankId));
+    const rowWidth = ROW_RIGHT - ROW_LEFT;
+    const card = drawPanel(this.add.graphics({ x: ROW_LEFT + rowWidth / 2, y: 0 }), rowWidth, ROW_HEIGHT, {
+      fill: current ? UI.surface.high : UI.surface.raised,
+      stroke: current ? rank.color : claimable ? UI.button.success.fill : UI.border,
+      strokeAlpha: current || claimable ? 1 : 0.8,
+      radius: UI.radius.md,
+      alpha: tier.unlocked ? 0.98 : 0.8,
+    });
+    const items: Phaser.GameObjects.GameObject[] = [card];
+    if (current) items.push(createGlow(this, ROAD_X, 0, 96, 96, rank.color, 0.5));
+    const badge = createIcon(this, ROAD_X, 0, rankIcon(tier.rankId), current ? 48 : 38);
+    if (!tier.unlocked) badge.setAlpha(0.45);
+    items.push(badge);
+
+    const textRight = ROW_RIGHT - 14;
+    const name = createText(this, textRight, -12, rankName(tier.rankId, tier.name), {
+      fontSize: '15px', fontStyle: '900',
+      color: tier.unlocked ? UI.text.primary : UI.text.muted,
+    }).setOrigin(1, 0.5);
+    const requirement = createText(this, textRight - 18, 12, current ? fa.league.currentLeague : fa.league.trophies(tier.minTrophies), {
+      fontSize: '12px', fontStyle: '700',
+      color: current ? UI.text.accent : UI.text.muted,
+    }).setOrigin(1, 0.5);
+    const requirementIcon = createIcon(this, textRight - 6, 12, current ? 'star' : 'trophy', 14);
+    items.push(name, requirement, requirementIcon);
+
+    if (tier.reward > 0) {
+      items.push(
+        createIcon(this, 190, 0, 'coin', 20),
+        createText(this, 178, 0, `+${tier.reward}`, {
+          fontSize: '14px', fontStyle: '900', color: tier.claimed ? UI.text.muted : UI.text.gold,
+        }).setOrigin(1, 0.5),
+      );
     }
-    row.add([card, node, badge, name, requirement, button, buttonText]);
-    if (!this.reducedMotion) {
-      row.setAlpha(0).setX(-10);
-      this.tweens.add({ targets: row, alpha: 1, x: 0, duration: 200, delay: index * 35, ease: 'Cubic.easeOut' });
+
+    const label = pending ? '…' : tier.reward === 0 ? fa.league.begun : tier.claimed ? fa.league.claimed : claimable ? fa.league.claim : fa.league.locked;
+    const icon = !pending && (tier.claimed || tier.reward === 0) ? 'check' : !tier.unlocked ? 'lock' : undefined;
+    const button = createButton(this, ROW_LEFT + 52, -1, {
+      width: 92,
+      height: 44,
+      label,
+      icon,
+      variant: 'success',
+      fontSize: 12,
+      onPress: () => void this.claimReward(tier.rankId),
+    });
+    if (!(claimable && !pending && this.pendingRankId === null)) button.setEnabled(false);
+    items.push(button.container);
+
+    row.add(items);
+    if (animate) {
+      row.setAlpha(0).setX(14);
+      this.tweens.add({ targets: row, alpha: 1, x: 0, duration: 220, delay: 80 + index * 40, ease: 'Cubic.easeOut' });
     }
     return row;
   }
@@ -315,23 +354,17 @@ export class LeagueScene extends Phaser.Scene {
   private playClaimCelebration(reward: number): void {
     sounds.playCoin();
     this.platform.hapticNotification('success');
-    const burst = this.add.container(LOGICAL_WIDTH / 2, 350).setDepth(250);
-    const glow = this.add.circle(0, 0, 72, THEME.gold, 0.2);
-    const text = createText(this, 0, 0, `${fa.league.bounty}\n+${reward} 🪙`, {
-      fontFamily: FONT_FAMILY, fontSize: '20px', fontStyle: '900', color: '#fde68a',
-      stroke: '#000000', strokeThickness: 4, align: 'center', resolution: 2,
-    }).setOrigin(0.5);
-    burst.add([glow, text]);
-    if (this.reducedMotion) {
-      this.time.delayedCall(900, () => burst.destroy());
-      return;
-    }
-    burst.setScale(0.75).setAlpha(0);
-    this.tweens.add({ targets: burst, scale: 1.08, alpha: 1, duration: 220, ease: 'Back.easeOut', yoyo: true, hold: 650, onComplete: () => burst.destroy() });
+    const { visibleHeight } = getSceneViewport(this);
+    showRewardBurst(this, LOGICAL_WIDTH / 2, visibleHeight * 0.46, reward, {
+      title: fa.league.bounty,
+      reducedMotion: this.reducedMotion,
+    });
   }
 
   private refreshCoins(): void {
-    this.coinText?.setText(`🪙 ${this.careerManager.getCareer().coins}`);
+    if (!this.coinPill) return;
+    this.coinPill.setText(`${this.careerManager.getCareer().coins}`);
+    anchorPillLeft(this.coinPill, 16);
   }
 
   private failureMessage(reason?: string): string {
@@ -341,10 +374,8 @@ export class LeagueScene extends Phaser.Scene {
   }
 
   private showToast(message: string): void {
-    this.toastText.setText(message).setAlpha(1);
-    this.toastBg.setAlpha(1);
-    this.tweens.killTweensOf([this.toastBg, this.toastText]);
-    this.tweens.add({ targets: [this.toastBg, this.toastText], alpha: 0, duration: 300, delay: 2000 });
+    // Lifted off the layout anchor so the pill clears the screen's bottom edge.
+    showToast(this, message, { y: this.toastY - 14, tone: 'error', reducedMotion: this.reducedMotion });
   }
 
   private closeLeague(): void {
@@ -354,13 +385,6 @@ export class LeagueScene extends Phaser.Scene {
       return;
     }
     this.isExiting = true;
-    this.scene.start('MenuScene');
-  }
-
-  private bindPressFeedback(background: Phaser.GameObjects.Rectangle, label: Phaser.GameObjects.Text): void {
-    const reset = (): void => { background.setScale(1); label.setScale(1); };
-    background.on('pointerdown', () => { background.setScale(0.96); label.setScale(0.96); });
-    background.on('pointerup', reset);
-    background.on('pointerout', reset);
+    goToScene(this, 'MenuScene');
   }
 }

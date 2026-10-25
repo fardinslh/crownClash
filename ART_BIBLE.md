@@ -443,26 +443,57 @@ texture memory separately.
 Fonts are bundled and self-hosted (`apps/game/public/fonts`), registered via
 `@font-face` in `index.html`, and loaded before Phaser boots (`loadGameFonts` in
 `main.ts`). Never load them from a CDN: players on Bale/Eitaa sit in Iran, where
-third-party font CDNs are unreliable. Both families are SIL OFL licensed.
+third-party font CDNs are unreliable. All families are SIL OFL licensed.
 
 | Face | Weights bundled | Role |
 | :--- | :--- | :--- |
-| Baloo 2 (`FONT_FAMILY`) | 700, 800 | Every label, button, title, and HUD string — chunky rounded display text |
+| Vazirmatn (first in `FONT_FAMILY`) | variable 100–900 | All Persian UI text and player names; Latin glyphs in the same string use it too |
+| Baloo 2 (`FONT_FAMILY` fallback) | 700, 800 | Latin-only display fallback |
 | JetBrains Mono (`MONO_FONT_FAMILY`) | 400, 700 | Width-stable digits: timers, unit counts, score pills |
 
 Rules:
 
-* All canvas text is created through `createText` (`src/ui/TextStyles.ts`), which
-  injects the display font, a default weight of 700, and `resolution: renderScale`
-  so glyph textures stay crisp under the camera zoom on high-DPI phones. Callers
-  override for weight-800 titles (`fontStyle: '900'` maps to the 800 face) or mono
-  digits (`fontFamily: MONO_FONT_FAMILY`).
-* Never request a weight that is neither bundled nor a CSS alias of one: the font
-  shorthand would silently fall back to a system face. Requested 900 resolves to the
-  bundled 800; use 700/800 explicitly where possible.
-* The loading shell in `index.html` uses the same stack (Baloo 2 800 for the title)
-  so the first frame matches in-game typography.
-* Persian/Arabic-script player names are not covered by the bundled Latin faces:
-  they render through the per-glyph system fallback, exactly as before.
+* All canvas text is created through `createText` (`src/ui/TextStyles.ts`). It
+  injects the font stack, weight 700 and `resolution: renderScale`. Do not pass a
+  fixed `resolution: 2`: it doubles glyph textures on canvas-mode devices.
+* `createText` wraps every Persian line in RTL isolates (U+2067…U+2069) so
+  trailing punctuation and embedded numbers order correctly. Phaser's `rtl`
+  style renders nothing in Phaser 4.2 and must not be used.
+* Never letter-space Persian text: it breaks Arabic-script joining.
+* Use Latin digits; never put a +/− sign next to Persian digits (bidi reorders it).
+* Persian copy lives in `src/i18n/fa.ts` / `faBattle.ts`, never inline.
 * Strokes on gameplay-critical text follow section 13's line-weight rules
   (single dark stroke, no stacked outlines).
+
+## 17. Hub UI
+
+Hub screens (menu, kingdom, daily, league, council) and battle overlays share one
+kit so they read as one game with the rendered battlefield.
+
+* **Tokens** — `UI` in `src/theme.ts`: background, three surface levels, borders,
+  radius (8/12/16), spacing, type scale (11/13/15/20/28), text colours and button
+  variants (primary, gold, success, secondary, danger). No hand-picked hex values
+  in scenes.
+* **Components** — `src/ui/kit`: `drawPanel`/`createPanel` (rounded, soft shadow,
+  top highlight), `createButton` (chunky rounded body pressing into a darker lip,
+  click sound, ≥44px target), `createPill`, one fading `showToast`,
+  `createBackButton` (RTL: top-right, chevron points right), `goToScene`/`fadeIn`
+  (170 ms camera fade between scenes).
+* **Icons** — `src/ui/icons.ts`: flat vector icons authored on a 64-unit grid and
+  rasterised once into 128px canvas textures (dark rounded outline, top-lit
+  gradient fill, light highlight). Use them instead of emoji, which render
+  differently on every WebView. Commander emblems are medallions in the
+  commander accent: `cmd_crown_guard` (shield), `cmd_quartermaster` (crate),
+  `cmd_vanguard` (arrow). Rank badges (`rank_<id>`, via `rankIcon`) are heater
+  shields in the rank colour with a white glyph.
+* **Layout** — RTL: reading order and navigation start on the right; icons sit to
+  the right of their label; back is top-right, the coin pill top-left; progress
+  bars fill from the right. Signed numbers in Persian copy are wrapped with
+  `ltr()` (`src/i18n/fa.ts`) so the sign stays on its number.
+* **Glows** — soft radial-gradient textures (`createGlow`, `createRays`), never
+  flat alpha circles.
+* **Kingdom art** — the Kingdom hero uses the rendered Crown Cross player
+  buildings (outpost → barracks → crown keep → citadel, crowned at the final
+  tier), not code-drawn shapes.
+* **Motion** — entrance pops ≤ 300 ms with Back.easeOut; respect reduced motion
+  and the reduced-effects render profile (no particles there).

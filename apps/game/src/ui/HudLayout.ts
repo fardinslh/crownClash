@@ -277,9 +277,10 @@ export function formatCompactNumber(value: number): string {
 export function formatHudTrophies(
   trophies: number,
   maxAvailableWidth: number,
-  measureFn?: (t: string) => number
+  measureFn?: (t: string) => number,
+  /** '' when the caller draws a vector icon beside the value. */
+  prefix = '🏆 '
 ): string {
-  const prefix = '🏆 ';
   const numStr = formatCompactNumber(trophies);
   const full = `${prefix}${numStr}`;
   if (measureHudTextWidth(full, undefined, measureFn) <= maxAvailableWidth) {
@@ -299,9 +300,10 @@ export function formatHudTrophies(
 export function formatHudCoins(
   coins: number,
   maxAvailableWidth: number,
-  measureFn?: (t: string) => number
+  measureFn?: (t: string) => number,
+  /** '' when the caller draws a vector icon beside the value. */
+  prefix = '🪙 '
 ): string {
-  const prefix = '🪙 ';
   const numStr = formatCompactNumber(coins);
   const full = `${prefix}${numStr}`;
   if (measureHudTextWidth(full, undefined, measureFn) <= maxAvailableWidth) {

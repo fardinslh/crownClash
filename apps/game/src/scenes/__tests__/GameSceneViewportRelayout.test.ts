@@ -753,7 +753,7 @@ describe('GameScene viewport relayout (map uses the live mobile height)', () => 
           const art = territoryArtFootprint(battlefieldId, territory);
           expect(visual.sprite.width).toBeCloseTo(art.spriteSize * layout.scale, 6);
           expect(visual.sprite.height).toBeCloseTo(art.spriteSize * layout.scale, 6);
-          expect(visual.sprite.y).toBeCloseTo((art.spriteY - 2) * layout.scale, 6);
+          expect(visual.sprite.y).toBeCloseTo(art.spriteY * layout.scale, 6);
           expect(visual.unitBadge.parentContainer).toBeNull();
           expect(visual.unitBadge.x).toBeCloseTo(lifted.u, 6);
           expect(visual.unitBadge.y).toBeCloseTo(lifted.v + art.badgeY * layout.scale, 6);

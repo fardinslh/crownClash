@@ -13,29 +13,32 @@ export interface MenuLayout {
   navigationY: number;
 }
 
+/** Bottom navigation tile height (centre is `navigationY`). */
+export const MENU_NAV_TILE_HEIGHT = 62;
+
 const BASE_LAYOUT: MenuLayout = {
-  titleY: 78,
-  subtitleY: 114,
-  crestY: 248,
-  rankY: 368,
-  statsY: 418,
-  doctrineY: 461,
-  playY: 500,
-  livePvpY: 562,
-  trainingY: 622,
-  navigationY: 680,
+  titleY: 70,
+  subtitleY: 104,
+  crestY: 206,
+  rankY: 312,
+  statsY: 368,
+  doctrineY: 418,
+  playY: 462,
+  livePvpY: 528,
+  trainingY: 594,
+  navigationY: 674,
 };
 
 const SURPLUS_WEIGHTS: Record<keyof MenuLayout, number> = {
-  titleY: 0.08,
-  subtitleY: 0.08,
-  crestY: 0.2,
-  rankY: 0.35,
+  titleY: 0.06,
+  subtitleY: 0.06,
+  crestY: 0.22,
+  rankY: 0.38,
   statsY: 0.45,
-  doctrineY: 0.54,
-  playY: 0.63,
-  livePvpY: 0.75,
-  trainingY: 0.88,
+  doctrineY: 0.52,
+  playY: 0.6,
+  livePvpY: 0.72,
+  trainingY: 0.84,
   navigationY: 1,
 };
 

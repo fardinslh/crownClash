@@ -183,6 +183,8 @@ import {
   DustPuffSimulator,
 } from '../combat/SmoothnessHelpers.js';
 import { createText, FONT_FAMILY, MONO_FONT_FAMILY } from '../ui/TextStyles.js';
+import { createIcon, type IconKey } from '../ui/icons.js';
+import { drawPanel, fadeIn } from '../ui/kit/index.js';
 import { battlefieldName, faBattle, upgradeEffectLabel } from '../i18n/faBattle.js';
 import { rankName, upgradeMilestoneLabel } from '../i18n/fa.js';
 
@@ -194,6 +196,13 @@ import { rankName, upgradeMilestoneLabel } from '../i18n/fa.js';
  * the viewport to settle (interactive resizes, Bale expand animation).
  */
 const VIEWPORT_RELAYOUT_DEBOUNCE_MS = 200;
+/** Rounds a Rectangle shape where the renderer supports it (no-op in test doubles). */
+function roundedCorners(shape: { setRounded?: (radius: number) => unknown; height?: number }, radius: number): void {
+  if (typeof shape.setRounded !== 'function') return;
+  shape.setRounded(Math.min(radius, (shape.height ?? radius * 2) / 2));
+}
+/** Width reserved inside a HUD pill for its vector icon. */
+const HUD_ICON_ROOM = 18;
 /** Bot difficulty of the match that directly follows the tutorial. */
 const FIRST_MATCH_DIFFICULTY: BotDifficulty = 'easy';
 
@@ -359,7 +368,7 @@ export class GameScene extends Phaser.Scene {
   private neutralBar!: Phaser.GameObjects.Rectangle;
   private playerDomText!: Phaser.GameObjects.Text;
   private enemyDomText!: Phaser.GameObjects.Text;
-  private tugCrown!: Phaser.GameObjects.Text;
+  private tugCrown!: Phaser.GameObjects.Image;
   private bottomHintText!: Phaser.GameObjects.Text;
   private legendGroups: Array<{ type: TerritoryType; icon: Phaser.GameObjects.Graphics; word: Phaser.GameObjects.Text }> = [];
   private hudCoinsText!: Phaser.GameObjects.Text;
@@ -459,6 +468,7 @@ export class GameScene extends Phaser.Scene {
     // procedural fallbacks instead of rendering broken sprites (the game must
     // never depend on the Blender source pipeline being present).
     this.missingTerritoryTextures.clear();
+    this.createLoadProgressBar();
     this.load.on('loaderror', (file: Phaser.Loader.File) => {
       if (typeof file?.key === 'string') {
         this.missingTerritoryTextures.add(file.key);
@@ -779,7 +789,6 @@ export class GameScene extends Phaser.Scene {
         color: '#ffffff',
         stroke: '#000000',
         strokeThickness: 2.5,
-        resolution: 2,
       })
       .setOrigin(0.5);
     this.dragBadgeContainer.add([this.dragBadgeShadow, this.dragBadgeBg, this.dragBadgeText]);
@@ -819,6 +828,7 @@ export class GameScene extends Phaser.Scene {
     // of scene construction, with input listeners attached and the training
     // overlay up. The call is idempotent for every other entry path.
     dismissStartupLoadingShell();
+    fadeIn(this);
   }
 
   /**
@@ -1163,12 +1173,9 @@ export class GameScene extends Phaser.Scene {
       vis.ring.setPosition(0, 4 * verticalScale).setSize(art.ringRadius * 2 * scale, art.ringRadius * 2 * verticalScale);
       vis.groundShadow?.setPosition(0, territory.radius * .5 * verticalScale)
         .setSize(art.shadowWidth * scale, art.shadowHeight * verticalScale);
+      // Buildings sit on their baked plinths: no idle float.
       this.tweens.killTweensOf(vis.sprite);
       vis.sprite.setPosition(0, art.spriteY * scale).setDisplaySize(art.spriteSize * scale, art.spriteSize * scale);
-      if (!this.reducedMotion) {
-        this.tweens.add({ targets: vis.sprite, y: (art.spriteY - 2) * scale,
-          duration: 1500, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-      }
       vis.unitBadge.setPosition(anchor.u, anchor.v + art.badgeY * scale);
       vis.unitText.setPosition(anchor.u, anchor.v + art.badgeY * scale);
       vis.typeIcon.setPosition(anchor.u + art.roleIconX * scale, anchor.v + art.badgeY * scale + (art.roleIconY - art.badgeY));
@@ -1868,7 +1875,6 @@ export class GameScene extends Phaser.Scene {
           color: '#ffffff',
           stroke: '#000000',
           strokeThickness: 3,
-          resolution: 2,
         })
         .setOrigin(0.5);
 
@@ -1894,7 +1900,6 @@ export class GameScene extends Phaser.Scene {
             color: '#c7d2fe',
             stroke: '#030712',
             strokeThickness: 1.5,
-            resolution: 2,
           })
           .setOrigin(0.5)
           .setDepth(1);
@@ -1954,15 +1959,6 @@ export class GameScene extends Phaser.Scene {
           delay: 50 + index * 42,
           ease: 'Back.easeOut',
         });
-        this.tweens.add({
-          targets: sprite,
-          y: (art.spriteY - 2) * scale,
-          duration: 1500 + index * 45,
-          delay: 320 + index * 70,
-          yoyo: true,
-          repeat: -1,
-          ease: 'Sine.easeInOut',
-        });
       }
     });
     this.markTerritoriesDirty();
@@ -1978,7 +1974,6 @@ export class GameScene extends Phaser.Scene {
       fontFamily: FONT_FAMILY,
       fontSize: '11px',
       fontStyle: 'bold',
-      resolution: 2,
     }).setVisible(false);
     const textWidth = Math.ceil(tempText.width);
     tempText.destroy();
@@ -2038,17 +2033,8 @@ export class GameScene extends Phaser.Scene {
     // strip owns the entire left side of this row, so no 1v1 profile layer
     // may be rendered beneath it.
     if (!this.is2v2) {
-      this.add
-        .rectangle(
-          hudLayout.playerPill.center.x,
-          hudLayout.playerPill.center.y,
-          hudLayout.playerPill.visibleBounds.width,
-          hudLayout.playerPill.visibleBounds.height,
-          0x0f172a,
-          0.95
-        )
-        .setStrokeStyle(1.5, 0x3b82f6, 0.9)
-        .setDepth(95);
+      this.drawHudPill(hudLayout.playerPill.center.x, hudLayout.playerPill.center.y,
+        hudLayout.playerPill.visibleBounds.width, hudLayout.playerPill.visibleBounds.height, 0x0f172a, 0x3b82f6);
 
       const playerMaxW = getPillMaxContentWidth(hudLayout.playerPill.visibleBounds.width);
       const playerLabel = this.computePlayerHudLabel(playerMaxW);
@@ -2060,7 +2046,6 @@ export class GameScene extends Phaser.Scene {
           color: '#93c5fd',
           stroke: '#030712',
           strokeThickness: 2,
-          resolution: 2,
         })
         .setOrigin(0.5)
         .setDepth(96);
@@ -2068,23 +2053,15 @@ export class GameScene extends Phaser.Scene {
 
     // Trophies Pill (skipped in 2v2: casual matches never stake trophies)
     if (!this.is2v2) {
-      this.add
-        .rectangle(
-          hudLayout.trophyPill.center.x,
-          hudLayout.trophyPill.center.y,
-          hudLayout.trophyPill.visibleBounds.width,
-          hudLayout.trophyPill.visibleBounds.height,
-          0x0f172a,
-          0.95
-        )
-        .setStrokeStyle(1.5, 0x818cf8, 0.9)
-        .setDepth(95);
-
-      const trophyMaxW = getPillMaxContentWidth(hudLayout.trophyPill.visibleBounds.width);
+      this.drawHudPill(hudLayout.trophyPill.center.x, hudLayout.trophyPill.center.y,
+        hudLayout.trophyPill.visibleBounds.width, hudLayout.trophyPill.visibleBounds.height, 0x0f172a, 0x818cf8);
+      const trophyMaxW = getPillMaxContentWidth(hudLayout.trophyPill.visibleBounds.width) - HUD_ICON_ROOM;
+      createIcon(this, hudLayout.trophyPill.center.x + hudLayout.trophyPill.visibleBounds.width / 2 - 13,
+        hudLayout.trophyPill.center.y, 'trophy', 16).setDepth(96);
       this.hudTrophiesText = createText(this,
-          hudLayout.trophyPill.center.x,
+          hudLayout.trophyPill.center.x - HUD_ICON_ROOM / 2,
           hudLayout.trophyPill.center.y,
-          formatHudTrophies(career.trophies, trophyMaxW),
+          formatHudTrophies(career.trophies, trophyMaxW, undefined, ''),
           {
             fontFamily: FONT_FAMILY,
             fontSize: '11px',
@@ -2092,7 +2069,6 @@ export class GameScene extends Phaser.Scene {
             color: '#c7d2fe',
             stroke: '#030712',
             strokeThickness: 2,
-            resolution: 2,
           }
         )
         .setOrigin(0.5)
@@ -2102,25 +2078,21 @@ export class GameScene extends Phaser.Scene {
     // Gold Coins Pill (or Live Opponent Pill in Live PvP) — also skipped in
     // 2v2: the slot badge strip occupies this row instead.
     if (!this.is2v2) {
-      this.add
-        .rectangle(
-          hudLayout.coinPill.center.x,
-          hudLayout.coinPill.center.y,
-          hudLayout.coinPill.visibleBounds.width,
-          hudLayout.coinPill.visibleBounds.height,
-          this.liveMode ? 0x1e1520 : 0x0f172a,
-          0.95
-        )
-        .setStrokeStyle(1.5, this.liveMode ? 0xf87171 : 0xf59e0b, 0.9)
-        .setDepth(95);
-
-      const coinMaxW = getPillMaxContentWidth(hudLayout.coinPill.visibleBounds.width);
+      this.drawHudPill(hudLayout.coinPill.center.x, hudLayout.coinPill.center.y,
+        hudLayout.coinPill.visibleBounds.width, hudLayout.coinPill.visibleBounds.height,
+        this.liveMode ? 0x1e1520 : 0x0f172a, this.liveMode ? 0xf87171 : 0xf59e0b);
+      const showCoinIcon = !this.liveMode && !this.realmTicket;
+      const coinMaxW = getPillMaxContentWidth(hudLayout.coinPill.visibleBounds.width) - (showCoinIcon ? HUD_ICON_ROOM : 0);
+      if (showCoinIcon) {
+        createIcon(this, hudLayout.coinPill.center.x + hudLayout.coinPill.visibleBounds.width / 2 - 13,
+          hudLayout.coinPill.center.y, 'coin', 16).setDepth(96);
+      }
       const coinOrOpponentLabel = this.liveMode
         ? formatHudName(this.liveOpponentName, coinMaxW, '🔴 ')
-        : this.realmTicket ? formatHudName(this.realmTicket.defender.displayName, coinMaxW, '⚔ ') : formatHudCoins(career.coins, coinMaxW);
+        : this.realmTicket ? formatHudName(this.realmTicket.defender.displayName, coinMaxW, '⚔ ') : formatHudCoins(career.coins, coinMaxW, undefined, '');
 
       this.hudCoinsText = createText(this,
-          hudLayout.coinPill.center.x,
+          hudLayout.coinPill.center.x - (showCoinIcon ? HUD_ICON_ROOM / 2 : 0),
           hudLayout.coinPill.center.y,
           coinOrOpponentLabel,
           {
@@ -2130,7 +2102,6 @@ export class GameScene extends Phaser.Scene {
             color: this.liveMode ? '#fca5a5' : '#fef08a',
             stroke: '#030712',
             strokeThickness: 2,
-            resolution: 2,
           }
         )
         .setOrigin(0.5)
@@ -2138,22 +2109,13 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Royal Match Clock Pill (2v2 uses the re-aligned 2v2 clock position)
-    this.add
-      .rectangle(
-        twoVTwoClock.center.x,
-        twoVTwoClock.center.y,
-        twoVTwoClock.visibleBounds.width,
-        twoVTwoClock.visibleBounds.height,
-        0x111827,
-        0.95
-      )
-      .setStrokeStyle(1.5, 0xf59e0b, 0.9)
-      .setDepth(95);
+    this.drawHudPill(twoVTwoClock.center.x, twoVTwoClock.center.y,
+      twoVTwoClock.visibleBounds.width, twoVTwoClock.visibleBounds.height, 0x111827, 0xf59e0b);
 
     this.timerText = createText(this,
         twoVTwoClock.center.x,
         twoVTwoClock.center.y,
-        '⏱ 01:30',
+        '01:30',
         {
           fontFamily: MONO_FONT_FAMILY,
           fontSize: '12px',
@@ -2161,7 +2123,6 @@ export class GameScene extends Phaser.Scene {
           color: '#fbbf24',
           stroke: '#030712',
           strokeThickness: 2,
-          resolution: 2,
         }
       )
       .setOrigin(0.5)
@@ -2177,9 +2138,9 @@ export class GameScene extends Phaser.Scene {
     const menuHitH = hudLayout.menuButton.hitBounds.height;
 
     const menuBg = this.add
-      .rectangle(menuBtnX, menuBtnY, menuVisW, menuVisH, 0x0f172a, 0.95)
-      .setStrokeStyle(1.5, 0x334155, 0.9)
+      .rectangle(menuBtnX, menuBtnY, menuVisW, menuVisH, 0x0f172a, 0.001)
       .setDepth(95);
+    this.drawHudPill(menuBtnX, menuBtnY, menuVisW, menuVisH, 0x0f172a, 0x334155, 10);
 
     const menuIcon = this.add.graphics().setDepth(96);
     menuIcon.setPosition(menuBtnX, menuBtnY);
@@ -2233,7 +2194,6 @@ export class GameScene extends Phaser.Scene {
               color: badge.isYou ? '#fbbf24' : isAllyBadge ? '#93c5fd' : '#fca5a5',
               stroke: '#030712',
               strokeThickness: 1.5,
-              resolution: 2,
             }
           )
           .setOrigin(0.5)
@@ -2257,7 +2217,6 @@ export class GameScene extends Phaser.Scene {
             color: '#93c5fd',
             stroke: '#030712',
             strokeThickness: 1.5,
-            resolution: 2,
           }
         )
         .setOrigin(0.5)
@@ -2268,11 +2227,11 @@ export class GameScene extends Phaser.Scene {
     this.careerSubscription = this.careerManager.subscribe((updatedCareer) => {
       if (this.hudCoinsText && this.hudCoinsText.active && !this.liveMode) {
         const coinPillMaxW = getPillMaxContentWidth(hudLayout.coinPill.visibleBounds.width);
-        this.hudCoinsText.setText(formatHudCoins(updatedCareer.coins, coinPillMaxW));
+        this.hudCoinsText.setText(formatHudCoins(updatedCareer.coins, coinPillMaxW - HUD_ICON_ROOM, undefined, ''));
       }
       if (this.hudTrophiesText && this.hudTrophiesText.active) {
         const trophyPillMaxW = getPillMaxContentWidth(hudLayout.trophyPill.visibleBounds.width);
-        this.hudTrophiesText.setText(formatHudTrophies(updatedCareer.trophies, trophyPillMaxW));
+        this.hudTrophiesText.setText(formatHudTrophies(updatedCareer.trophies, trophyPillMaxW - HUD_ICON_ROOM, undefined, ''));
       }
     });
 
@@ -2311,7 +2270,6 @@ export class GameScene extends Phaser.Scene {
         color: '#ffffff',
         stroke: '#030712',
         strokeThickness: 2.5,
-        resolution: 2,
       })
       .setOrigin(0, 0.5)
       .setDepth(96);
@@ -2323,18 +2281,12 @@ export class GameScene extends Phaser.Scene {
         color: '#ffffff',
         stroke: '#030712',
         strokeThickness: 2.5,
-        resolution: 2,
       })
       .setOrigin(1, 0.5)
       .setDepth(96);
 
     // The Tug-of-War Crown Needle!
-    this.tugCrown = createText(this, hudLayout.dominanceBar.center.x, barY - 1, '👑', {
-        fontSize: '14px',
-        resolution: 2,
-      })
-      .setOrigin(0.5)
-      .setDepth(98);
+    this.tugCrown = createIcon(this, hudLayout.dominanceBar.center.x, barY - 1, 'crown', 18).setDepth(98);
 
     // 4. Bottom Tactical Control Hint Bar
     const bottomBarY = Math.max(691, visibleHeight - 28);
@@ -2345,6 +2297,9 @@ export class GameScene extends Phaser.Scene {
       .rectangle(LOGICAL_WIDTH / 2, bottomBarY, Math.min(360, visibleWidth - 40), 40, 0x090f1d, 0.94)
       .setStrokeStyle(1.5, 0x334155, 0.92)
       .setDepth(95);
+    for (const bar of [this.bottomBarShadow, this.bottomBarBg]) {
+      if (typeof bar.setRounded === 'function') bar.setRounded(14);
+    }
 
     // Legend: three compact role-icon + word groups on one centered row.
     // Created once here; never redrawn per frame. Reset first: the scene
@@ -2366,7 +2321,6 @@ export class GameScene extends Phaser.Scene {
           fontSize: '11px',
           fontStyle: 'bold',
           color: '#f8c76a',
-          resolution: 2,
         })
         .setOrigin(0, 0.5)
         .setDepth(96)
@@ -2396,7 +2350,6 @@ export class GameScene extends Phaser.Scene {
         color: this.liveMode ? '#93c5fd' : '#cbd5e1',
         stroke: '#030712',
         strokeThickness: 2,
-        resolution: 2,
       })
       .setOrigin(0.5)
       .setDepth(96);
@@ -3148,9 +3101,11 @@ export class GameScene extends Phaser.Scene {
     // transient map label belongs in the gap between them, not over a base.
     const reveal = this.add.container(this.battlefieldId === 'quad_citadel' ? 200 : 82, 92).setDepth(94);
     const shadow = this.add.rectangle(0, 2, 132, 30, 0x000000, 0.38);
+    roundedCorners(shadow, 18);
     const panel = this.add
       .rectangle(0, 0, 132, 28, 0x0b1220, 0.96)
       .setStrokeStyle(1.5, battlefield.accent, 0.95);
+    roundedCorners(panel, 18);
     const title = createText(this, 0, 0, faBattle.hud.battlefieldTitle(battlefieldName(battlefield.id, battlefield.name)), {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
@@ -3158,7 +3113,6 @@ export class GameScene extends Phaser.Scene {
         color: '#ffffff',
         stroke: '#000000',
         strokeThickness: 2,
-        resolution: 2,
       })
       .setOrigin(0.5);
     reveal.add([shadow, panel, title]);
@@ -3176,6 +3130,18 @@ export class GameScene extends Phaser.Scene {
       ease: 'Sine.easeIn',
       onComplete: () => reveal.destroy(),
     });
+  }
+
+  /** Rounded HUD pill (shadow, fill, stroke) drawn once at depth 95. */
+  private drawHudPill(x: number, y: number, width: number, height: number, fill: number, stroke: number, radius = height / 2): void {
+    const g = this.add.graphics().setDepth(95);
+    if (typeof g.fillRoundedRect !== 'function') return;
+    g.fillStyle(0x000000, 0.35);
+    g.fillRoundedRect(x - width / 2, y - height / 2 + 2, width, height, radius);
+    g.fillStyle(fill, 0.95);
+    g.fillRoundedRect(x - width / 2, y - height / 2, width, height, radius);
+    g.lineStyle(1.5, stroke, 0.9);
+    g.strokeRoundedRect(x - width / 2, y - height / 2, width, height, radius);
   }
 
   /** v4 commander ability button (bot/async tickets that carry a commander). */
@@ -3560,8 +3526,68 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  /**
+   * First-entry asset load feedback (instead of a blank frame): a slim
+   * rounded progress bar. Cached revisits finish before it is visible.
+   */
+  private createLoadProgressBar(): void {
+    if (typeof this.load?.on !== 'function' || typeof this.load.once !== 'function' || typeof this.add?.graphics !== 'function') return;
+    const { visibleHeight } = getSceneViewport(this);
+    const y = visibleHeight / 2;
+    const width = 180;
+    const bar = this.add.graphics().setDepth(1000);
+    const label = createText(this, LOGICAL_WIDTH / 2, y - 22, faBattle.hud.loading, {
+      fontSize: '13px',
+      color: '#94a3b8',
+    }).setOrigin(0.5).setDepth(1000);
+    const draw = (progress: number): void => {
+      bar.clear()
+        .fillStyle(0x0f172a, 1).fillRoundedRect(LOGICAL_WIDTH / 2 - width / 2, y - 3, width, 6, 3)
+        .fillStyle(0x3b82f6, 1).fillRoundedRect(LOGICAL_WIDTH / 2 - width / 2, y - 3, Math.max(6, width * progress), 6, 3);
+    };
+    draw(0);
+    this.load.on('progress', draw);
+    this.load.once('complete', () => {
+      this.load.off('progress', draw);
+      bar.destroy();
+      label.destroy();
+    });
+  }
+
+  private captureEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
+
+  /**
+   * Additive spark burst on capture (one pooled emitter, explode only).
+   * Skipped on reduced-effects devices, which keep the tweened sparks.
+   */
+  private emitCaptureParticles(x: number, y: number, color: number): boolean {
+    if (this.registry.get('reducedEffects') === true || typeof this.add.particles !== 'function') return false;
+    try {
+      if (!this.captureEmitter || !this.captureEmitter.active) {
+        const key = this.ensureRadialGradientTexture('cc_spark', '255, 255, 255', [[0, 1], [0.35, 0.8], [1, 0]], 32);
+        if (!key) return false;
+        this.captureEmitter = this.add.particles(0, 0, key, {
+          speed: { min: 70, max: 190 },
+          angle: { min: 0, max: 360 },
+          lifespan: { min: 380, max: 680 },
+          scale: { start: 0.55, end: 0 },
+          alpha: { start: 1, end: 0 },
+          gravityY: 180,
+          blendMode: 'ADD',
+          emitting: false,
+        }).setDepth(this.boardLayout.overlayDepth(33));
+      }
+      this.captureEmitter.setParticleTint(color);
+      this.captureEmitter.explode(18, x, y);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private spawnCaptureBurst(x: number, y: number, color: number): void {
     if (this.reducedMotion) return;
+    this.emitCaptureParticles(x, y, color);
 
     for (let index = 0; index < 8; index++) {
       const angle = (Math.PI * 2 * index) / 8 - Math.PI / 2;
@@ -3617,7 +3643,6 @@ export class GameScene extends Phaser.Scene {
         color,
         stroke: '#000000',
         strokeThickness: 3,
-        resolution: 2,
       })
       .setOrigin(0.5)
       .setDepth(this.boardLayout.overlayDepth(60));
@@ -4192,14 +4217,17 @@ export class GameScene extends Phaser.Scene {
           : `${army.units}`;
         const badgeWidth = Math.max(42, initialUnits.length * 7 + 28);
 
-        const badgeKey = this.getOrCreateBadgeTexture(roleStyle.color, badgeWidth, sourceType);
+        // The convoy badge carries team colour (who); the role icon inside
+        // and the aura carry the tower role (what).
+        const teamBadgeColor = THEME.teams[army.owner].primary;
+        const badgeKey = this.getOrCreateBadgeTexture(teamBadgeColor, badgeWidth, sourceType);
         let badgeBg: Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle;
         if (badgeKey && this.textures?.exists(badgeKey)) {
           badgeBg = this.add.image(0, badgeY, badgeKey).setDisplaySize(badgeWidth, 18);
         } else {
           badgeBg = this.add
             .rectangle(0, badgeY, badgeWidth, 18, 0x090d16, 0.94)
-            .setStrokeStyle(1.5, roleStyle.color, 1);
+            .setStrokeStyle(1.5, teamBadgeColor, 1);
         }
 
         const badgeText = createText(this, 7, badgeY, initialUnits, {
@@ -4209,7 +4237,6 @@ export class GameScene extends Phaser.Scene {
             color: '#ffffff',
             stroke: '#000000',
             strokeThickness: 2.5,
-            resolution: 2,
           })
           .setOrigin(0.5);
 
@@ -4262,7 +4289,7 @@ export class GameScene extends Phaser.Scene {
           leaderShadow,
           badgeBg,
           badgeText,
-          badgeColor: roleStyle.color,
+          badgeColor: teamBadgeColor,
           // Reserve two extra digits; the 2v2 glyph is already in badgeWidth.
           // Store in board-scale units so viewport relayout stays continuous.
           badgeOffset: { x: badgeOffset.x / scale, y: badgeOffset.y / scale },
@@ -4443,7 +4470,7 @@ export class GameScene extends Phaser.Scene {
       this.lastTimerSeconds = roundedSecs;
       const mins = Math.floor(remaining / 60);
       const secs = roundedSecs % 60;
-      this.timerText.setText(`⏱ ${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
+      this.timerText.setText(`${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
     }
 
     if (remaining <= 15 && this.gameState.status === 'playing') {
@@ -4654,11 +4681,13 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, 0, visibleWidth, visibleHeight, 0x000000, 0.78)
       .setInteractive();
 
-    // Modal Card
+    // Modal Card: rounded panel with a result-coloured header glow.
     const cardHeight = 640;
-    const card = this.add
-      .rectangle(0, 0, 330, cardHeight, 0x0c1322, 0.98)
-      .setStrokeStyle(2, isWin ? 0xf59e0b : isDraw ? 0x60a5fa : 0xef4444, 0.95);
+    const resultAccent = isWin ? 0xf59e0b : isDraw ? 0x60a5fa : 0xef4444;
+    const card = drawPanel(this.add.graphics(), 330, cardHeight, { fill: 0x0c1322, stroke: resultAccent, strokeAlpha: 0.95, radius: 18, alpha: 0.98 });
+    const headerGlowKey = this.ensureRadialGradientTexture(`cc_result_glow_${resultAccent.toString(16)}`,
+      `${(resultAccent >> 16) & 255}, ${(resultAccent >> 8) & 255}, ${resultAccent & 255}`, [[0, 0.42], [0.5, 0.16], [1, 0]]);
+    if (headerGlowKey) card.setData('glow', this.add.image(0, -262, headerGlowKey).setDisplaySize(320, 150));
 
     // Header Title & Subtitle
     const titleText = isWin ? faBattle.result.victory : status === 'draw' ? faBattle.result.draw : faBattle.result.defeat;
@@ -4668,6 +4697,7 @@ export class GameScene extends Phaser.Scene {
       : this.pinnedPracticeModifiers ? faBattle.result.botPractice
       : isWin ? faBattle.result.winSub : status === 'draw' ? faBattle.result.drawSub : faBattle.result.loseSub;
 
+    const headerGlow = card.getData('glow') as Phaser.GameObjects.Image | undefined;
     const title = createText(this, 0, -275, titleText, {
         fontFamily: FONT_FAMILY,
         fontSize: '32px',
@@ -4675,7 +4705,6 @@ export class GameScene extends Phaser.Scene {
         color: titleColor,
         stroke: '#000000',
         strokeThickness: 4,
-        resolution: 2,
       })
       .setOrigin(0.5);
 
@@ -4686,7 +4715,6 @@ export class GameScene extends Phaser.Scene {
         color: isWin || isDraw ? '#93c5fd' : '#f87171',
         stroke: '#000000',
         strokeThickness: 2,
-        resolution: 2,
       })
       .setOrigin(0.5);
 
@@ -4697,6 +4725,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, rankPresentation.rankY, 280, 36, 0x111c33, 0.95)
       .setStrokeStyle(1.5, rankTier.color, 0.9)
       .setVisible(rankPresentation.showRankSummary);
+    roundedCorners(rankBanner, 12);
 
     const rankText = createText(this, 0, rankPresentation.rankY - 6, faBattle.result.rank(rankTier.badge, rankName(rankTier.id, rankTier.name), settlement.newCareer.trophies), {
         fontFamily: FONT_FAMILY,
@@ -4705,7 +4734,6 @@ export class GameScene extends Phaser.Scene {
         color: '#f8fafc',
         stroke: '#000000',
         strokeThickness: 2,
-        resolution: 2,
       })
       .setOrigin(0.5)
       .setVisible(rankPresentation.showRankSummary);
@@ -4732,6 +4760,8 @@ export class GameScene extends Phaser.Scene {
       .rectangle(trophyCardX, trophyCardY, 130, 64, 0x111827, 0.95)
       .setStrokeStyle(1.5, isWin ? 0xf59e0b : 0x374151, 0.85);
 
+    roundedCorners(trophyCardBg, 12);
+
     const trophyLabel = createText(this, trophyCardX, trophyCardY - 17, faBattle.result.trophies, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
@@ -4739,20 +4769,19 @@ export class GameScene extends Phaser.Scene {
         color: '#94a3b8',
         stroke: '#000000',
         strokeThickness: 1.5,
-        resolution: 2,
       })
       .setOrigin(0.5);
 
-    const trophyValue = createText(this, trophyCardX, trophyCardY + 10, `${trophyDeltaStr} 🏆`, {
+    const trophyIcon = createIcon(this, trophyCardX + 30, trophyCardY + 10, 'trophy', 22);
+    const trophyValue = createText(this, trophyCardX + 14, trophyCardY + 10, trophyDeltaStr, {
         fontFamily: FONT_FAMILY,
         fontSize: '19px',
         fontStyle: '900',
         color: trophyColor,
         stroke: '#000000',
         strokeThickness: 3,
-        resolution: 2,
       })
-      .setOrigin(0.5);
+      .setOrigin(1, 0.5);
 
     // Gold Card (right)
     const goldCardX = 72;
@@ -4760,6 +4789,7 @@ export class GameScene extends Phaser.Scene {
     const goldCardBg = this.add
       .rectangle(goldCardX, goldCardY, 130, 64, 0x111827, 0.95)
       .setStrokeStyle(1.5, 0xf59e0b, 0.85);
+    roundedCorners(goldCardBg, 12);
 
     const goldLabel = createText(this, goldCardX, goldCardY - 17, faBattle.result.goldReward, {
         fontFamily: FONT_FAMILY,
@@ -4768,20 +4798,19 @@ export class GameScene extends Phaser.Scene {
         color: '#94a3b8',
         stroke: '#000000',
         strokeThickness: 1.5,
-        resolution: 2,
       })
       .setOrigin(0.5);
 
-    const goldValue = createText(this, goldCardX, goldCardY + 10, `+${settlement.breakdown.totalCoins} 🪙`, {
+    const goldIcon = createIcon(this, goldCardX + 30, goldCardY + 10, 'coin', 22);
+    const goldValue = createText(this, goldCardX + 14, goldCardY + 10, `+${settlement.breakdown.totalCoins}`, {
         fontFamily: FONT_FAMILY,
         fontSize: '19px',
         fontStyle: '900',
         color: '#f59e0b',
         stroke: '#000000',
         strokeThickness: 3,
-        resolution: 2,
       })
-      .setOrigin(0.5);
+      .setOrigin(1, 0.5);
 
     // Bonus Breakdown Chip
     const primaryBreakdown: string[] = [faBattle.result.base(settlement.breakdown.baseCoins)];
@@ -4791,7 +4820,7 @@ export class GameScene extends Phaser.Scene {
     if (settlement.breakdown.streakBonus > 0) secondaryBreakdown.push(faBattle.result.streak(settlement.breakdown.streakBonus));
     if (settlement.breakdown.treasuryBonus > 0) secondaryBreakdown.push(faBattle.result.treasury(settlement.breakdown.treasuryBonus));
 
-    const bonusChipText = createText(this, 0, -108, this.realmResult?.rewarded === false ? faBattle.result.noRepeatReward : [primaryBreakdown.join('  •  '), secondaryBreakdown.join('  •  ')].filter(Boolean).join('\n'), {
+    const bonusChipText = createText(this, 0, -110, this.realmResult?.rewarded === false ? faBattle.result.noRepeatReward : [primaryBreakdown.join('  •  '), secondaryBreakdown.join('  •  ')].filter(Boolean).join('\n'), {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -4800,18 +4829,18 @@ export class GameScene extends Phaser.Scene {
         strokeThickness: 1.5,
         align: 'center',
         lineSpacing: 3,
-        resolution: 2,
       })
       .setOrigin(0.5);
 
     // Match Stats Summary Section
     const statsBox = this.add
-      .rectangle(0, -68, 280, 52, 0x0f172a, 0.9)
+      .rectangle(0, -64, 280, 50, 0x0f172a, 0.9)
       .setStrokeStyle(1, 0x1e293b, 1);
+    roundedCorners(statsBox, 12);
 
     const matchStatsText = createText(this,
         0,
-        -68,
+        -64,
         faBattle.result.stats(duration, stats.territoriesCapturedByPlayer, stats.playerUnitsDispatched, settlement.newCareer.currentStreak, settlement.newCareer.matchesWon),
         {
           fontFamily: FONT_FAMILY,
@@ -4822,7 +4851,6 @@ export class GameScene extends Phaser.Scene {
           strokeThickness: 2,
           align: 'center',
           lineSpacing: 4,
-          resolution: 2,
         }
       )
       .setOrigin(0.5);
@@ -4841,7 +4869,6 @@ export class GameScene extends Phaser.Scene {
           color: '#fef08a',
           stroke: '#000000',
           strokeThickness: 2.5,
-          resolution: 2,
         })
         .setOrigin(0.5);
       promoContainer.add([promoGlow, promoText]);
@@ -4861,7 +4888,6 @@ export class GameScene extends Phaser.Scene {
         color: '#fbbf24',
         stroke: '#000000',
         strokeThickness: 2,
-        resolution: 2,
       })
       .setOrigin(0.5);
 
@@ -4878,13 +4904,13 @@ export class GameScene extends Phaser.Scene {
       type: UpgradeType;
       x: number;
       y: number;
-      icon: string;
+      iconKey: IconKey;
       title: string;
     }> = [
-      { type: 'starting_garrison', x: -72, y: 7, icon: '🏰', title: faBattle.result.upgrades.starting_garrison },
-      { type: 'production', x: 72, y: 7, icon: '⚒', title: faBattle.result.upgrades.production },
-      { type: 'army_speed', x: -72, y: 57, icon: '⚡', title: faBattle.result.upgrades.army_speed },
-      { type: 'treasury', x: 72, y: 57, icon: '🪙', title: faBattle.result.upgrades.treasury },
+      { type: 'starting_garrison', x: 72, y: 7, iconKey: 'castle', title: faBattle.result.upgrades.starting_garrison },
+      { type: 'production', x: -72, y: 7, iconKey: 'hammer', title: faBattle.result.upgrades.production },
+      { type: 'army_speed', x: 72, y: 57, iconKey: 'bolt', title: faBattle.result.upgrades.army_speed },
+      { type: 'treasury', x: -72, y: 57, iconKey: 'coin', title: faBattle.result.upgrades.treasury },
     ];
 
     const displayedUpgrades = emphasizeReplay
@@ -4894,28 +4920,30 @@ export class GameScene extends Phaser.Scene {
       const rowBg = this.add
         .rectangle(row.x, row.y, emphasizeReplay ? 280 : 134, emphasizeReplay ? 72 : 44, 0x111827, 0.96)
         .setStrokeStyle(1, 0x334155, 1);
-      const label = createText(this, row.x, row.y - (emphasizeReplay ? 14 : 7), '', {
+      roundedCorners(rowBg, 12);
+      const label = createText(this, row.x - (emphasizeReplay ? 0 : 10), row.y - (emphasizeReplay ? 14 : 9), '', {
           fontFamily: FONT_FAMILY,
-          fontSize: emphasizeReplay ? '12px' : '8px',
+          fontSize: emphasizeReplay ? '12px' : '11px',
           fontStyle: 'bold',
           color: '#e2e8f0',
           stroke: '#000000',
           strokeThickness: 1,
           lineSpacing: 1,
-          resolution: 2,
         })
         .setOrigin(0.5);
       const buyBg = this.add
-        .rectangle(row.x, row.y + (emphasizeReplay ? 16 : 13), emphasizeReplay ? 110 : 76, emphasizeReplay ? 28 : 16, 0x2563eb, 1)
+        .rectangle(row.x, row.y + (emphasizeReplay ? 16 : 12), emphasizeReplay ? 110 : 84, emphasizeReplay ? 28 : 18, 0x2563eb, 1)
         .setStrokeStyle(1, 0x60a5fa, 1);
-      const buyText = createText(this, row.x, row.y + (emphasizeReplay ? 16 : 13), '', {
+      roundedCorners(buyBg, 12);
+      const rowIcon = createIcon(this, row.x + (emphasizeReplay ? 118 : 52), row.y - (emphasizeReplay ? 14 : 9), row.iconKey, emphasizeReplay ? 22 : 16);
+      const buyCoin = createIcon(this, row.x + (emphasizeReplay ? 34 : 24), row.y + (emphasizeReplay ? 16 : 12), 'coin', emphasizeReplay ? 16 : 13);
+      const buyText = createText(this, row.x - 6, row.y + (emphasizeReplay ? 16 : 12), '', {
           fontFamily: FONT_FAMILY,
-          fontSize: emphasizeReplay ? '12px' : '8px',
+          fontSize: emphasizeReplay ? '12px' : '11px',
           fontStyle: '900',
           color: '#ffffff',
           stroke: '#000000',
           strokeThickness: 1.5,
-          resolution: 2,
         })
         .setOrigin(0.5);
       this.bindPressFeedback(rowBg, buyText);
@@ -4924,11 +4952,12 @@ export class GameScene extends Phaser.Scene {
         const career = this.careerManager.getCareer();
         const card = getUpgradeCardViewModel(career, row.type);
 
-        label.setText(
-          faBattle.result.upgradeRow(row.icon, row.title, card.level, card.maxLevel, this.registry.get('realmPilot') && card.nextEffectLabel ? faBattle.result.upgradeNext(card.nextEffectLabel) : `${upgradeEffectLabel(card.currentEffectLabel)} • ${upgradeMilestoneLabel(card.milestoneLabel)}`)
-        );
-        buyText.setText(card.nextCost === null ? faBattle.result.max : `${card.nextCost} 🪙`);
-        upgradeBalanceText.setText(`${this.registry.get('realmPilot') ? faBattle.result.growRealm : faBattle.result.upgradeArmy}  •  ${career.coins} 🪙`);
+        label.setText(emphasizeReplay
+          ? faBattle.result.upgradeRow('', row.title, card.level, card.maxLevel, this.registry.get('realmPilot') && card.nextEffectLabel ? faBattle.result.upgradeNext(card.nextEffectLabel) : `${upgradeEffectLabel(card.currentEffectLabel)} • ${upgradeMilestoneLabel(card.milestoneLabel)}`)
+          : faBattle.result.upgradeRowCompact(row.title, card.level, card.maxLevel));
+        buyText.setText(card.nextCost === null ? faBattle.result.max : `${card.nextCost}`);
+        buyCoin.setVisible(card.nextCost !== null);
+        upgradeBalanceText.setText(faBattle.result.upgradeBalance(this.registry.get('realmPilot') ? faBattle.result.growRealm : faBattle.result.upgradeArmy, career.coins));
 
         if (goalProgressFill) goalProgressFill.setSize(Math.max(1, 280 * (card.nextCost === null ? 1 : Math.min(1,career.coins/card.nextCost))), 6);
 
@@ -4949,7 +4978,7 @@ export class GameScene extends Phaser.Scene {
       });
 
       refreshUpgradeRows.push(refresh);
-      upgradeObjects.push(rowBg, label, buyBg, buyText);
+      upgradeObjects.push(rowBg, label, rowIcon, buyBg, buyText, buyCoin);
     }
     refreshUpgradeRows.forEach((refresh) => refresh());
     trackUpgradeEvent({
@@ -4963,6 +4992,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, btnY, 240, emphasizeReplay ? 56 : 50, isWin || emphasizeReplay ? 0x2563eb : 0x374151, 1)
       .setStrokeStyle(2, isWin || emphasizeReplay ? 0x60a5fa : 0x9ca3af, 1)
       .setInteractive({ useHandCursor: true });
+    roundedCorners(btnBg, 12);
 
     const btnText = createText(this, 0, btnY, faBattle.result.playAgain, {
         fontFamily: FONT_FAMILY,
@@ -4971,7 +5001,6 @@ export class GameScene extends Phaser.Scene {
         color: '#ffffff',
         stroke: '#000000',
         strokeThickness: 2.5,
-        resolution: 2,
       })
       .setOrigin(0.5);
     this.bindPressFeedback(btnBg, btnText);
@@ -5005,6 +5034,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, shareY, 240, emphasizeReplay ? 56 : 46, 0x1e293b, 1)
       .setStrokeStyle(1.5, 0x475569, 1)
       .setInteractive({ useHandCursor: true });
+    roundedCorners(shareBg, 12);
 
     const shareText = createText(this, 0, shareY, faBattle.result.shareResult, {
         fontFamily: FONT_FAMILY,
@@ -5013,7 +5043,6 @@ export class GameScene extends Phaser.Scene {
         color: '#94a3b8',
         stroke: '#000000',
         strokeThickness: 2,
-        resolution: 2,
       })
       .setOrigin(0.5);
     this.bindPressFeedback(shareBg, shareText);
@@ -5047,6 +5076,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, menuY, 240, emphasizeReplay ? 56 : 46, 0x0f172a, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
+    roundedCorners(menuBg, 12);
     const menuText = createText(this, 0, menuY, faBattle.result.mainMenu, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
@@ -5054,7 +5084,6 @@ export class GameScene extends Phaser.Scene {
         color: '#bfdbfe',
         stroke: '#000000',
         strokeThickness: 2,
-        resolution: 2,
       })
       .setOrigin(0.5);
     this.bindPressFeedback(menuBg, menuText);
@@ -5075,6 +5104,7 @@ export class GameScene extends Phaser.Scene {
     modal.add([
       backdrop,
       card,
+      ...(headerGlow ? [headerGlow] : []),
       title,
       subtitle,
       rankBanner,
@@ -5084,9 +5114,11 @@ export class GameScene extends Phaser.Scene {
       trophyCardBg,
       trophyLabel,
       trophyValue,
+      trophyIcon,
       goldCardBg,
       goldLabel,
       goldValue,
+      goldIcon,
       bonusChipText,
       statsBox,
       matchStatsText,
@@ -5114,20 +5146,21 @@ export class GameScene extends Phaser.Scene {
         if (settlement.rankPromoted) {
           sounds.playRankUp();
         }
+        if (isWin) this.spawnResultConfetti(modal.y - 262);
         const totalCoins = settlement.breakdown.totalCoins;
         if (totalCoins > 0) {
           sounds.playCoin();
           if (!this.reducedMotion) {
             // Reward beat: count the server-settled coins up, then pop.
-            goldValue.setText('+0 🪙');
+            goldValue.setText('+0');
             this.tweens.addCounter({
               from: 0,
               to: totalCoins,
               duration: Math.min(900, 300 + totalCoins * 8),
               ease: 'Cubic.easeOut',
-              onUpdate: (tween) => goldValue.setText(`+${Math.round(tween.getValue() ?? 0)} 🪙`),
+              onUpdate: (tween) => goldValue.setText(`+${Math.round(tween.getValue() ?? 0)}`),
               onComplete: () => {
-                goldValue.setText(`+${totalCoins} 🪙`);
+                goldValue.setText(`+${totalCoins}`);
                 this.platform.hapticImpact('light');
                 this.tweens.add({targets:goldValue,scale:1.18,duration:150,yoyo:true,ease:'Sine.easeInOut'});
               },
@@ -5141,6 +5174,31 @@ export class GameScene extends Phaser.Scene {
     this.resultModalContainer = modal;
   }
 
+  /** Victory burst from the result title (skipped with reduced motion/effects). */
+  private spawnResultConfetti(originY: number): void {
+    if (this.reducedMotion || this.registry.get('reducedEffects') === true) return;
+    const colors = [THEME.gold, 0xffffff, THEME.teams.player.primary, 0x34d399, 0xfbbf24];
+    for (let index = 0; index < 42; index += 1) {
+      const piece = this.add
+        .rectangle(LOGICAL_WIDTH / 2, originY, 5 + Math.random() * 4, 8 + Math.random() * 6, colors[index % colors.length], 1)
+        .setDepth(260)
+        .setRotation(Math.random() * Math.PI);
+      const angle = -Math.PI / 2 + (Math.random() - 0.5) * 2.6;
+      const speed = 140 + Math.random() * 170;
+      this.tweens.add({
+        targets: piece,
+        x: piece.x + Math.cos(angle) * speed,
+        y: originY + Math.sin(angle) * speed + 220,
+        rotation: piece.rotation + (Math.random() - 0.5) * 8,
+        alpha: 0,
+        delay: index * 10,
+        duration: 1100 + Math.random() * 500,
+        ease: 'Cubic.easeOut',
+        onComplete: () => piece.destroy(),
+      });
+    }
+  }
+
   private showSettlementError(error: unknown): void {
     console.error('[GameScene] Match settlement failed:', error);
 
@@ -5151,6 +5209,8 @@ export class GameScene extends Phaser.Scene {
     const card = this.add
       .rectangle(0, 0, 300, 270, 0x0c1322, 0.99)
       .setStrokeStyle(2, 0xef4444, 0.95);
+
+    roundedCorners(card, 18);
     const liveConnectionLost = this.liveMode;
     const title = createText(this, 0, -62, liveConnectionLost ? faBattle.result.connectionLost : faBattle.result.syncFailed, {
         fontFamily: FONT_FAMILY,
@@ -5159,7 +5219,6 @@ export class GameScene extends Phaser.Scene {
         color: '#f87171',
         stroke: '#000000',
         strokeThickness: 3,
-        resolution: 2,
       })
       .setOrigin(0.5);
     const message = createText(this,
@@ -5175,7 +5234,6 @@ export class GameScene extends Phaser.Scene {
         color: '#cbd5e1',
         align: 'center',
         lineSpacing: 5,
-        resolution: 2,
         }
       )
       .setOrigin(0.5);
@@ -5183,6 +5241,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, 55, 190, 50, 0x2563eb, 1)
       .setStrokeStyle(2, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
+    roundedCorners(retryBg, 12);
     const retryText = createText(this, 0, 55, liveConnectionLost ? faBattle.result.mainMenu : faBattle.result.retrySync, {
         fontFamily: FONT_FAMILY,
         fontSize: '14px',
@@ -5190,7 +5249,6 @@ export class GameScene extends Phaser.Scene {
         color: '#ffffff',
         stroke: '#000000',
         strokeThickness: 2,
-        resolution: 2,
       })
       .setOrigin(0.5);
     this.bindPressFeedback(retryBg, retryText);
@@ -5211,6 +5269,8 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, 105, 190, 46, 0x0f172a, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
+
+    roundedCorners(menuBg, 12);
     const menuText = createText(this, 0, 105, faBattle.result.mainMenu, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
@@ -5218,7 +5278,6 @@ export class GameScene extends Phaser.Scene {
         color: '#bfdbfe',
         stroke: '#000000',
         strokeThickness: 2,
-        resolution: 2,
       })
       .setOrigin(0.5);
     this.bindPressFeedback(menuBg, menuText);
@@ -5250,6 +5309,7 @@ export class GameScene extends Phaser.Scene {
     const card = this.add
       .rectangle(0, 0, 280, 140, 0x0c1322, 0.98)
       .setStrokeStyle(2, 0x3b82f6, 0.9);
+    roundedCorners(card, 18);
     const title = createText(this, 0, -25, faBattle.result.battleComplete, {
         fontFamily: FONT_FAMILY,
         fontSize: '18px',
@@ -5257,7 +5317,6 @@ export class GameScene extends Phaser.Scene {
         color: '#fbbf24',
         stroke: '#000000',
         strokeThickness: 3,
-        resolution: 2,
       })
       .setOrigin(0.5);
     const subtitle = createText(this, 0, 15, faBattle.result.syncing, {
@@ -5265,7 +5324,6 @@ export class GameScene extends Phaser.Scene {
         fontSize: '13px',
         fontStyle: 'bold',
         color: '#93c5fd',
-        resolution: 2,
       })
       .setOrigin(0.5);
 
@@ -5402,6 +5460,7 @@ export class GameScene extends Phaser.Scene {
     const card = this.add
       .rectangle(0, 0, 276, cardHeight, 0x0c1322, 0.98)
       .setStrokeStyle(1.5, 0x2563eb, 0.95);
+    roundedCorners(card, 18);
     const cardGlow = this.add
       .rectangle(0, 0, 276, cardHeight, 0x111c33, 0.35)
       .setStrokeStyle(1, 0x60a5fa, 0.35);
@@ -5415,7 +5474,6 @@ export class GameScene extends Phaser.Scene {
         color: '#f8fafc',
         stroke: '#030712',
         strokeThickness: 3,
-        resolution: 2,
       })
       .setOrigin(0.5);
 
@@ -5427,12 +5485,12 @@ export class GameScene extends Phaser.Scene {
       const warningBg = this.add
         .rectangle(0, startBtnY + 4, 234, 26, 0x450a0a, 0.95)
         .setStrokeStyle(1, 0xef4444, 0.9);
+      roundedCorners(warningBg, 12);
       const warningText = createText(this, 0, startBtnY + 4, faBattle.menu.liveContinues, {
           fontFamily: FONT_FAMILY,
           fontSize: '11px',
           fontStyle: 'bold',
           color: '#fca5a5',
-          resolution: 2,
         })
         .setOrigin(0.5);
       elements.push(warningBg, warningText);
@@ -5445,6 +5503,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, resumeY, 234, 44, 0x2563eb, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
+    roundedCorners(resumeBg, 12);
     const resumeText = createText(this, 0, resumeY, faBattle.menu.resume, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
@@ -5452,7 +5511,6 @@ export class GameScene extends Phaser.Scene {
         color: '#ffffff',
         stroke: '#000000',
         strokeThickness: 2,
-        resolution: 2,
       })
       .setOrigin(0.5);
     this.bindPressFeedback(resumeBg, resumeText);
@@ -5468,6 +5526,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, soundY, 234, 44, 0x111c33, 1)
       .setStrokeStyle(1.5, 0x334155, 1)
       .setInteractive({ useHandCursor: true });
+    roundedCorners(soundBg, 12);
     const soundText = createText(this, 0, soundY, sounds.isMuted() ? faBattle.menu.soundOff : faBattle.menu.soundOn, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
@@ -5475,7 +5534,6 @@ export class GameScene extends Phaser.Scene {
         color: '#cbd5e1',
         stroke: '#000000',
         strokeThickness: 2,
-        resolution: 2,
       })
       .setOrigin(0.5);
     this.bindPressFeedback(soundBg, soundText);
@@ -5493,6 +5551,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, leaveY, 234, 44, 0x1e1520, 1)
       .setStrokeStyle(1.5, 0xef4444, 0.9)
       .setInteractive({ useHandCursor: true });
+    roundedCorners(leaveBg, 12);
     const leaveText = createText(this, 0, leaveY, this.is2v2 ? faBattle.menu.surrender : faBattle.menu.leaveMatch, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
@@ -5500,7 +5559,6 @@ export class GameScene extends Phaser.Scene {
         color: '#f87171',
         stroke: '#000000',
         strokeThickness: 2,
-        resolution: 2,
       })
       .setOrigin(0.5);
     this.bindPressFeedback(leaveBg, leaveText);
@@ -5541,6 +5599,7 @@ export class GameScene extends Phaser.Scene {
     const card = this.add
       .rectangle(0, 0, 276, cardHeight, 0x0c1322, 0.98)
       .setStrokeStyle(1.5, 0xef4444, 0.95);
+    roundedCorners(card, 18);
     const cardGlow = this.add
       .rectangle(0, 0, 276, cardHeight, 0x22131b, 0.35)
       .setStrokeStyle(1, 0xf87171, 0.35);
@@ -5553,7 +5612,6 @@ export class GameScene extends Phaser.Scene {
         color: '#f8fafc',
         stroke: '#030712',
         strokeThickness: 3,
-        resolution: 2,
       })
       .setOrigin(0.5);
 
@@ -5566,7 +5624,6 @@ export class GameScene extends Phaser.Scene {
         align: 'center',
         stroke: '#000000',
         strokeThickness: 2,
-        resolution: 2,
       })
       .setOrigin(0.5);
 
@@ -5578,12 +5635,12 @@ export class GameScene extends Phaser.Scene {
       const warningBg = this.add
         .rectangle(0, btnStartY + 4, 234, 26, 0x450a0a, 0.95)
         .setStrokeStyle(1, 0xef4444, 0.9);
+      roundedCorners(warningBg, 12);
       const warningText = createText(this, 0, btnStartY + 4, faBattle.menu.liveContinues, {
           fontFamily: FONT_FAMILY,
           fontSize: '11px',
           fontStyle: 'bold',
           color: '#fca5a5',
-          resolution: 2,
         })
         .setOrigin(0.5);
       elements.push(warningBg, warningText);
@@ -5596,6 +5653,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, keepY, 234, 44, 0x2563eb, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
+    roundedCorners(keepBg, 12);
     const keepText = createText(this, 0, keepY, faBattle.menu.keepPlaying, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
@@ -5603,7 +5661,6 @@ export class GameScene extends Phaser.Scene {
         color: '#ffffff',
         stroke: '#000000',
         strokeThickness: 2,
-        resolution: 2,
       })
       .setOrigin(0.5);
     this.bindPressFeedback(keepBg, keepText);
@@ -5620,6 +5677,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, confirmLeaveY, 234, 44, 0xdc2626, 1)
       .setStrokeStyle(1.5, 0xf87171, 1)
       .setInteractive({ useHandCursor: true });
+    roundedCorners(confirmLeaveBg, 12);
     const confirmLeaveText = createText(this, 0, confirmLeaveY, this.is2v2 ? faBattle.menu.surrender : faBattle.menu.leaveMatch, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
@@ -5627,7 +5685,6 @@ export class GameScene extends Phaser.Scene {
         color: '#ffffff',
         stroke: '#000000',
         strokeThickness: 2,
-        resolution: 2,
       })
       .setOrigin(0.5);
     this.bindPressFeedback(confirmLeaveBg, confirmLeaveText);
@@ -6101,7 +6158,6 @@ export class GameScene extends Phaser.Scene {
         color: '#c7d2fe',
         stroke: '#000000',
         strokeThickness: 2,
-        resolution: 2,
       })
       .setOrigin(0.5);
     this.resultModalContainer.add(pending);
@@ -6125,6 +6181,8 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, 0, 330, 640, 0x0c1322, 0.98)
       .setStrokeStyle(2, model.cancelled ? 0x64748b : THEME.twoVTwoAccent, 0.95);
 
+    roundedCorners(card, 18);
+
     const title = createText(this, 0, -275, headline.title, {
         fontFamily: FONT_FAMILY,
         fontSize: '30px',
@@ -6132,7 +6190,6 @@ export class GameScene extends Phaser.Scene {
         color: headline.color,
         stroke: '#000000',
         strokeThickness: 4,
-        resolution: 2,
       })
       .setOrigin(0.5);
 
@@ -6145,7 +6202,6 @@ export class GameScene extends Phaser.Scene {
         strokeThickness: 2,
         align: 'center',
         lineSpacing: 4,
-        resolution: 2,
       })
       .setOrigin(0.5);
 
@@ -6157,7 +6213,6 @@ export class GameScene extends Phaser.Scene {
         color: '#94a3b8',
         stroke: '#000000',
         strokeThickness: 1.5,
-        resolution: 2,
       })
       .setOrigin(0.5);
 
@@ -6192,7 +6247,6 @@ export class GameScene extends Phaser.Scene {
           color: row.group.isWinner ? '#fbbf24' : '#94a3b8',
           stroke: '#000000',
           strokeThickness: 1.5,
-          resolution: 2,
         })
         .setOrigin(0.5);
       elements.push(teamLabel);
@@ -6221,7 +6275,6 @@ export class GameScene extends Phaser.Scene {
               color: '#f8fafc',
               stroke: '#000000',
               strokeThickness: 1.5,
-              resolution: 2,
             }
           )
           .setOrigin(0.5);
@@ -6237,7 +6290,6 @@ export class GameScene extends Phaser.Scene {
                   : '#cbd5e1',
             stroke: '#000000',
             strokeThickness: 2,
-            resolution: 2,
           })
           .setOrigin(0.5);
         const statsLabel = createText(this,
@@ -6253,7 +6305,6 @@ export class GameScene extends Phaser.Scene {
               color: participant.abandoned ? '#f87171' : '#94a3b8',
               stroke: '#000000',
               strokeThickness: 1,
-              resolution: 2,
             }
           )
           .setOrigin(0.5);
@@ -6269,7 +6320,6 @@ export class GameScene extends Phaser.Scene {
           color: '#94a3b8',
           stroke: '#000000',
           strokeThickness: 1.5,
-          resolution: 2,
         })
         .setOrigin(0.5);
       elements.push(cancelledNote);
@@ -6282,6 +6332,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, rematchY, 240, 50, 0x17123a, 1)
       .setStrokeStyle(2, THEME.twoVTwoAccent, 1)
       .setInteractive({ useHandCursor: true });
+    roundedCorners(rematchBg, 12);
     const rematchText = createText(this, 0, rematchY, twoVTwoRematchButtonLabel(this.twoVTwoRematchVoteSent), {
         fontFamily: FONT_FAMILY,
         fontSize: '12px',
@@ -6290,7 +6341,6 @@ export class GameScene extends Phaser.Scene {
         stroke: '#000000',
         strokeThickness: 2,
         align: 'center',
-        resolution: 2,
       })
       .setOrigin(0.5);
     this.bindPressFeedback(rematchBg, rematchText);
@@ -6318,6 +6368,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, shareY, 240, 46, 0x1e293b, 1)
       .setStrokeStyle(1.5, 0x475569, 1)
       .setInteractive({ useHandCursor: true });
+    roundedCorners(shareBg, 12);
     const shareText = createText(this, 0, shareY, faBattle.result.shareResult, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
@@ -6325,7 +6376,6 @@ export class GameScene extends Phaser.Scene {
         color: '#94a3b8',
         stroke: '#000000',
         strokeThickness: 2,
-        resolution: 2,
       })
       .setOrigin(0.5);
     this.bindPressFeedback(shareBg, shareText);
@@ -6345,6 +6395,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(0, menuY, 240, 46, 0x0f172a, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
+    roundedCorners(menuBg, 12);
     const menuText = createText(this, 0, menuY, faBattle.result.mainMenu, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
@@ -6352,7 +6403,6 @@ export class GameScene extends Phaser.Scene {
         color: '#bfdbfe',
         stroke: '#000000',
         strokeThickness: 2,
-        resolution: 2,
       })
       .setOrigin(0.5);
     this.bindPressFeedback(menuBg, menuText);
@@ -6388,6 +6438,7 @@ export class GameScene extends Phaser.Scene {
     const card = this.add
       .rectangle(0, 0, 290, 170, 0x0c1322, 0.99)
       .setStrokeStyle(2, 0xf59e0b, 0.95);
+    roundedCorners(card, 18);
     const title = createText(this, 0, -50, faBattle.reconnect.title, {
         fontFamily: FONT_FAMILY,
         fontSize: '19px',
@@ -6395,7 +6446,6 @@ export class GameScene extends Phaser.Scene {
         color: '#fbbf24',
         stroke: '#000000',
         strokeThickness: 3,
-        resolution: 2,
       })
       .setOrigin(0.5);
     const subtitle = createText(this, 0, -8, faBattle.reconnect.subtitle(attempt + 1), {
@@ -6407,10 +6457,9 @@ export class GameScene extends Phaser.Scene {
         lineSpacing: 5,
         stroke: '#000000',
         strokeThickness: 1.5,
-        resolution: 2,
       })
       .setOrigin(0.5);
-    const spinner = createText(this, 0, 48, '⏳', { fontSize: '22px', resolution: 2 })
+    const spinner = createText(this, 0, 48, '⏳', { fontSize: '22px' })
       .setOrigin(0.5);
     this.tweens.add({
       targets: spinner,
@@ -6440,6 +6489,7 @@ export class GameScene extends Phaser.Scene {
     const card = this.add
       .rectangle(0, 0, 300, 220, 0x0c1322, 0.99)
       .setStrokeStyle(2, 0xef4444, 0.95);
+    roundedCorners(card, 18);
     const title = createText(this, 0, -75, faBattle.reconnect.abandonedTitle, {
         fontFamily: FONT_FAMILY,
         fontSize: '19px',
@@ -6447,7 +6497,6 @@ export class GameScene extends Phaser.Scene {
         color: '#f87171',
         stroke: '#000000',
         strokeThickness: 3,
-        resolution: 2,
       })
       .setOrigin(0.5);
     const subtitle = createText(this, 0, -25, faBattle.reconnect.abandonedSubtitle, {
@@ -6459,7 +6508,6 @@ export class GameScene extends Phaser.Scene {
         lineSpacing: 5,
         stroke: '#000000',
         strokeThickness: 1.5,
-        resolution: 2,
       })
       .setOrigin(0.5);
     const codeText = createText(this, 0, 22, code.replaceAll('_', ' '), {
@@ -6469,13 +6517,13 @@ export class GameScene extends Phaser.Scene {
         color: '#64748b',
         stroke: '#000000',
         strokeThickness: 1,
-        resolution: 2,
       })
       .setOrigin(0.5);
     const menuBg = this.add
       .rectangle(0, 70, 200, 48, 0x0f172a, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
+    roundedCorners(menuBg, 12);
     const menuText = createText(this, 0, 70, faBattle.reconnect.returnToMenu, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
@@ -6483,7 +6531,6 @@ export class GameScene extends Phaser.Scene {
         color: '#bfdbfe',
         stroke: '#000000',
         strokeThickness: 2,
-        resolution: 2,
       })
       .setOrigin(0.5);
     this.bindPressFeedback(menuBg, menuText);

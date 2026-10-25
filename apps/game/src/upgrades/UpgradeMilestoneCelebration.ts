@@ -1,7 +1,8 @@
 import type Phaser from 'phaser';
 import type { PlatformAdapter } from '@crown-clash/platform';
 import { sounds } from '../audio/SoundEffects.js';
-import { createText, FONT_FAMILY } from '../ui/TextStyles.js';
+import { createText } from '../ui/TextStyles.js';
+import { fa } from '../i18n/fa.js';
 
 /**
  * Shared milestone celebration (every 5th upgrade level), so the result
@@ -15,14 +16,12 @@ export function playUpgradeMilestoneCelebration(
   position: { x: number; y: number },
   reducedMotion: boolean
 ): void {
-  const celebration = createText(scene, position.x, position.y, `✦ MILESTONE ${level} REACHED ✦`, {
-      fontFamily: FONT_FAMILY,
-      fontSize: '11px',
+  const celebration = createText(scene, position.x, position.y, fa.kingdom.milestone(level), {
+      fontSize: '13px',
       fontStyle: '900',
       color: '#fef08a',
       stroke: '#000000',
-      strokeThickness: 2,
-      resolution: 2,
+      strokeThickness: 3,
     })
     .setDepth(230)
     .setOrigin(0.5);

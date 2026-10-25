@@ -52,3 +52,37 @@ export const THEME = {
     },
   } as Record<Team, TeamVisualTheme>,
 };
+
+/**
+ * Hub/HUD design tokens (Art Bible "Hub UI"). Scenes and the ui/kit
+ * components read these instead of hand-picking hex values.
+ */
+export const UI = {
+  bg: 0x070b14,
+  bgHex: '#070b14',
+  surface: { base: 0x0c1322, raised: 0x111c33, high: 0x18264a },
+  border: 0x24324d,
+  borderStrong: 0x3b4d70,
+  radius: { sm: 8, md: 12, lg: 16 },
+  space: { xs: 4, sm: 8, md: 12, lg: 16, xl: 24 },
+  type: { caption: 11, body: 13, label: 15, title: 20, display: 28 },
+  text: {
+    primary: '#f8fafc',
+    secondary: '#cbd5e1',
+    muted: '#94a3b8',
+    accent: '#93c5fd',
+    gold: '#fde68a',
+    danger: '#fca5a5',
+    success: '#6ee7b7',
+    stroke: '#030712',
+  },
+  button: {
+    primary: { fill: 0x2563eb, lip: 0x1e3a8a, gloss: 0x60a5fa, text: '#ffffff' },
+    gold: { fill: 0xf59e0b, lip: 0x92400e, gloss: 0xfde68a, text: '#1c1206' },
+    success: { fill: 0x10b981, lip: 0x065f46, gloss: 0x6ee7b7, text: '#04130d' },
+    secondary: { fill: 0x1e293b, lip: 0x0b1220, gloss: 0x475569, text: '#e2e8f0' },
+    danger: { fill: 0xdc2626, lip: 0x7f1d1d, gloss: 0xfca5a5, text: '#ffffff' },
+  },
+} as const;
+
+export type ButtonVariant = keyof typeof UI.button;

@@ -11,7 +11,7 @@ import { trackEvent } from '../analytics/Analytics.js';
 import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { CareerManager } from '../career/CareerManager.js';
 import { sounds } from '../audio/SoundEffects.js';
-import { THEME } from '../theme.js';
+import { THEME, UI, type ButtonVariant } from '../theme.js';
 import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
 import { LiveMatchClient } from '../api/LiveMatchClient.js';
 import { LivePvpController, isValidRoomCode, sanitizeRoomCode } from '../pvp/LivePvpController.js';
@@ -27,9 +27,25 @@ import {
   getSceneViewport,
   setupSceneCamera,
 } from '../ui/Viewport.js';
-import { computeMenuLayout } from '../ui/MenuLayout.js';
-import { createText, FONT_FAMILY } from '../ui/TextStyles.js';
+import { computeMenuLayout, MENU_NAV_TILE_HEIGHT } from '../ui/MenuLayout.js';
+import { createText, MONO_FONT_FAMILY } from '../ui/TextStyles.js';
+import { commanderIcon, createIcon, rankIcon, type IconKey } from '../ui/icons.js';
+import {
+  bindPressFeedback,
+  createButton,
+  createGlow,
+  createIconButton,
+  createRays,
+  drawPanel,
+  fadeIn,
+  goToScene,
+  type KitButton,
+} from '../ui/kit/index.js';
 import { commanderCopy, fa, rankName } from '../i18n/fa.js';
+
+const prefersReducedMotion = (): boolean =>
+  typeof window !== 'undefined' &&
+  window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
 
 export class MenuScene extends Phaser.Scene {
   private liveClient?: LiveMatchClient;
@@ -54,7 +70,7 @@ export class MenuScene extends Phaser.Scene {
     this.registry.set('trainingLaunchedThisSession', true);
     sounds.playReinforce();
     this.platformHapticSelection();
-    this.scene.start('GameScene', { source: 'menu', mode: 'bot', training: true });
+    goToScene(this, 'GameScene', { source: 'menu', mode: 'bot', training: true });
   }
 
   private platformHapticSelection(): void {
@@ -150,229 +166,140 @@ export class MenuScene extends Phaser.Scene {
 
     const { visibleWidth, visibleHeight } = getSceneViewport(this);
     const layout = computeMenuLayout(visibleHeight);
-    this.add.rectangle(
-      LOGICAL_WIDTH / 2,
-      visibleHeight / 2,
-      visibleWidth,
-      visibleHeight,
-      0x070b14
-    );
+    const reducedMotion = prefersReducedMotion();
+    const surplus = Math.max(0, visibleHeight - LOGICAL_HEIGHT);
+    const cx = LOGICAL_WIDTH / 2;
+    this.add.rectangle(cx, visibleHeight / 2, visibleWidth, visibleHeight, UI.bg);
+    createGlow(this, cx, -40, visibleWidth * 1.5, 300, UI.button.primary.fill, 0.22);
 
-    const glow = this.add.graphics();
-    glow.fillStyle(0x1d4ed8, 0.16);
-    glow.fillCircle(LOGICAL_WIDTH / 2, layout.crestY, 118);
-    glow.fillStyle(THEME.gold, 0.08);
-    glow.fillCircle(LOGICAL_WIDTH / 2, layout.crestY, 168);
+    // ---------------------------------------------------------------- crest
+    const crestSize = Math.round(Math.min(128, 96 + surplus * 0.2));
+    createGlow(this, cx, layout.crestY, crestSize * 3.8, crestSize * 3.8, 0x1d4ed8, 0.5);
+    const rays = createRays(this, cx, layout.crestY, crestSize * 2.9, 0xfde68a, 0.16);
+    createGlow(this, cx, layout.crestY, crestSize * 2.1, crestSize * 2.1, THEME.gold, 0.38);
+    const crestShadow = this.add.ellipse(cx, layout.crestY + crestSize * 0.58, crestSize * 0.8, crestSize * 0.16, 0x000000, 0.35);
+    const crest = createIcon(this, cx, layout.crestY, 'crown', crestSize);
+    if (!reducedMotion) {
+      this.tweens.add({ targets: rays, angle: 360, duration: 40000, repeat: -1 });
+      this.tweens.add({ targets: crest, y: layout.crestY - 7, duration: 1800, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+      this.tweens.add({ targets: crestShadow, scaleX: 0.86, alpha: 0.22, duration: 1800, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    }
 
-    const crest = this.add.container(LOGICAL_WIDTH / 2, layout.crestY);
-    const crestRing = this.add.circle(0, 0, 78, 0x0c1322, 0.96).setStrokeStyle(2.5, THEME.gold, 0.95);
-    const innerRing = this.add.circle(0, 0, 62, 0x111c33, 0.9).setStrokeStyle(1.5, 0x60a5fa, 0.55);
-    const crown = createText(this, 0, -4, '👑', {
-        fontSize: '54px',
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    crest.add([crestRing, innerRing, crown]);
-    this.tweens.add({
-      targets: crest,
-      y: layout.crestY - 8,
-      duration: 1800,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-    });
+    createText(this, cx, layout.titleY, fa.menu.title, {
+      fontSize: '38px',
+      fontStyle: '900',
+      color: UI.text.primary,
+      stroke: UI.text.stroke,
+      strokeThickness: 7,
+    }).setOrigin(0.5).setShadow(0, 4, '#000000', 0, true, true);
+    createText(this, cx, layout.subtitleY, fa.menu.subtitle, {
+      fontSize: `${UI.type.label}px`,
+      fontStyle: '800',
+      color: UI.text.gold,
+      stroke: UI.text.stroke,
+      strokeThickness: 3,
+    }).setOrigin(0.5);
 
-    createText(this, LOGICAL_WIDTH / 2, layout.titleY, fa.menu.title, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '34px',
-        fontStyle: '900',
-        color: '#f8fafc',
-        stroke: '#000000',
-        strokeThickness: 5,
-        resolution: 2,
-      })
-      .setOrigin(0.5);
+    // ------------------------------------------------------------ rank chip
+    const rankChip = this.add.container(cx, layout.rankY);
+    rankChip.add([
+      drawPanel(this.add.graphics(), 244, 42, { fill: UI.surface.base, stroke: rank.color, strokeAlpha: 0.85, radius: 21 }),
+      createIcon(this, 100, 0, rankIcon(rank.id), 30),
+      createText(this, 80, 0, rankName(rank.id, rank.name), {
+        fontSize: `${UI.type.label}px`, fontStyle: '800', color: UI.text.primary,
+      }).setOrigin(1, 0.5),
+      createIcon(this, -100, 0, 'trophy', 24),
+      createText(this, -84, 1, `${career.trophies}`, {
+        fontSize: `${UI.type.label}px`, fontStyle: '800', color: UI.text.gold,
+      }).setOrigin(0, 0.5),
+    ]);
 
-    createText(this, LOGICAL_WIDTH / 2, layout.subtitleY, fa.menu.subtitle, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '13px',
-        fontStyle: 'bold',
-        color: '#93c5fd',
-        stroke: '#000000',
-        strokeThickness: 2,
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-
-    this.add
-      .rectangle(LOGICAL_WIDTH / 2, layout.rankY, 280, 34, 0x111c33, 0.95)
-      .setStrokeStyle(1.5, rank.color, 0.9);
-    createText(this, LOGICAL_WIDTH / 2, layout.rankY, `${rank.badge}  ${rankName(rank.id, rank.name)}  •  🏆 ${career.trophies}`, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '12px',
-        fontStyle: 'bold',
-        color: '#f8fafc',
-        stroke: '#000000',
-        strokeThickness: 2,
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-
-    const goldBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2 - 72, layout.statsY, 124, 44, 0x0f172a, 0.95)
-      .setStrokeStyle(1.5, 0xf59e0b, 0.85);
-    if (this.registry.get('realmPilot')) {
-      goldBg.setName('realm-entry').setInteractive({ useHandCursor: true });
-      goldBg.on('pointerdown', () => {
+    // ---------------------------------------------------------- stat cards
+    // RTL: coins (the spendable currency) is the first card, on the right.
+    const realmPilot = Boolean(this.registry.get('realmPilot'));
+    const statCard = (x: number, icon: IconKey, label: string, value: string, color: string, stroke: number): Phaser.GameObjects.Container =>
+      this.add.container(x, layout.statsY, [
+        drawPanel(this.add.graphics(), 156, 56, { fill: UI.surface.raised, stroke, strokeAlpha: 0.7, radius: UI.radius.lg }),
+        createIcon(this, 52, 0, icon, 34),
+        createText(this, 28, -11, label, { fontSize: `${UI.type.caption}px`, fontStyle: '700', color: UI.text.muted }).setOrigin(1, 0.5),
+        createText(this, 28, 10, value, { fontSize: '19px', fontStyle: '900', color, stroke: UI.text.stroke, strokeThickness: 3 }).setOrigin(1, 0.5),
+      ]).setSize(156, 56);
+    const coinCard = statCard(cx + 82, 'coin', realmPilot ? fa.menu.coinsRealm : fa.menu.coins, `${career.coins}`, UI.text.gold, 0xb45309);
+    const winsCard = statCard(cx - 82, 'crown', fa.menu.wins, `${career.matchesWon}`, '#c7d2fe', 0x6366f1);
+    if (realmPilot) {
+      coinCard.setName('realm-entry').setInteractive({ useHandCursor: true });
+      bindPressFeedback(coinCard);
+      coinCard.on('pointerdown', () => {
         if (this.isTransitioning) return;
         this.isTransitioning = true;
         platform.hapticSelection();
-        this.scene.start('RealmScene');
+        goToScene(this, 'RealmScene');
       });
     }
-    createText(this, LOGICAL_WIDTH / 2 - 72, layout.statsY - 10, this.registry.get('realmPilot') ? fa.menu.coinsRealm : fa.menu.coins, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '11px',
-        fontStyle: 'bold',
-        color: '#94a3b8',
-        stroke: '#000000',
-        strokeThickness: 1.5,
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    createText(this, LOGICAL_WIDTH / 2 - 72, layout.statsY + 8, `🪙 ${career.coins}`, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '16px',
-        fontStyle: '900',
-        color: '#fbbf24',
-        stroke: '#000000',
-        strokeThickness: 2.5,
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-
-    this.add
-      .rectangle(LOGICAL_WIDTH / 2 + 72, layout.statsY, 124, 44, 0x0f172a, 0.95)
-      .setStrokeStyle(1.5, 0x818cf8, 0.85);
-    createText(this, LOGICAL_WIDTH / 2 + 72, layout.statsY - 10, fa.menu.wins, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '11px',
-        fontStyle: 'bold',
-        color: '#94a3b8',
-        stroke: '#000000',
-        strokeThickness: 1.5,
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    createText(this, LOGICAL_WIDTH / 2 + 72, layout.statsY + 8, `👑 ${career.matchesWon}`, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '16px',
-        fontStyle: '900',
-        color: '#c7d2fe',
-        stroke: '#000000',
-        strokeThickness: 2.5,
-        resolution: 2,
-      })
-      .setOrigin(0.5);
 
     const commander = getCommander(career.selectedCommanderId);
-    createText(this, LOGICAL_WIDTH / 2, layout.doctrineY, fa.menu.commanderLine(commanderCopy(commander.id, commander).name), {
-        fontFamily: FONT_FAMILY,
-        fontSize: '11px',
-        fontStyle: '900',
-        color: '#93c5fd',
-        resolution: 2,
-      })
-      .setOrigin(0.5);
+    const doctrine = createText(this, cx - 11, layout.doctrineY, fa.menu.commanderLine(commanderCopy(commander.id, commander).name), {
+      fontSize: `${UI.type.body}px`,
+      fontStyle: '800',
+      color: UI.text.accent,
+    }).setOrigin(0.5);
+    createIcon(this, doctrine.x + doctrine.width / 2 + 13, layout.doctrineY, commanderIcon(commander.id), 22);
 
-    const playBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2, layout.playY, 250, 56, 0x2563eb, 1)
-      .setStrokeStyle(2.5, 0x60a5fa, 1)
-      .setInteractive({ useHandCursor: true });
-    const playText = createText(this, LOGICAL_WIDTH / 2, layout.playY, fa.menu.play, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '22px',
-        fontStyle: '900',
-        color: '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 3,
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    this.bindPressFeedback(playBg, playText);
-
-    playBg.on('pointerover', () => {
-      playBg.setScale(1.03);
-      playText.setScale(1.03);
-    });
-    playBg.on('pointerout', () => {
-      playBg.setScale(1);
-      playText.setScale(1);
-    });
-    playBg.on('pointerdown', () => {
-      if (this.isTransitioning) return;
-      // Ordinary bot entry routes through training first while the
-      // account-wide tutorial flag is incomplete (the server rejects bot
-      // tickets and matchmaker tickets on the same flag; the flag itself
-      // is honest-client reported — see TutorialStatus).
-      if (resolvePlayEntryAction(careerManager.isTutorialCompleted()) === 'training') {
-        this.startTrainingBattle();
-        return;
-      }
-      this.isTransitioning = true;
-      playBg.disableInteractive();
-      playText.setText(fa.menu.scouting);
-      const startMatch = async () => {
-        if (!this.registry.get('realmPilot')) return { botMatch: await startChosenBotMatch(this, careerManager, platform) };
-        return new PilotClient(platform).nextMatch(() => startChosenBotMatch(this, careerManager, platform));
-      };
-      void startMatch().then((match) => {
-        if (!this.scene.isActive()) return;
-        sounds.playDispatch();
-        platform.hapticImpact('medium');
-        this.scene.start('GameScene', { source: 'menu', ...match });
-      }).catch((error: unknown) => {
-        const cancelled = String(error).includes('bot_difficulty_cancelled');
-        if (!cancelled) console.error('[MenuScene] Match start failed:', error);
-        this.isTransitioning = false;
-        if (!this.scene.isActive()) return;
-        playText.setText(cancelled ? fa.menu.play : fa.menu.tryAgain);
-        playBg.setInteractive({ useHandCursor: true });
-        if (!cancelled) platform.hapticNotification('error');
-      });
-    });
-
-    const secondaryButtonStyle = (online: boolean): { fill: number; stroke: number } => ({
-      fill: online ? 0x111c33 : 0x273449,
-      stroke: online ? 0x60a5fa : 0x475569,
-    });
-
-    const liveStyle = secondaryButtonStyle(careerManager.isRemoteConnected());
-    const liveBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2, layout.livePvpY, 250, 48, liveStyle.fill, 1)
-      .setStrokeStyle(1.5, liveStyle.stroke, 1)
-      .setInteractive({ useHandCursor: true });
-    const liveText = createText(this,
-        LOGICAL_WIDTH / 2,
-        layout.livePvpY,
-        careerManager.isRemoteConnected() ? fa.menu.livePvp : fa.menu.livePvpOffline,
-        {
-          fontFamily: FONT_FAMILY,
-          fontSize: '14px',
-          fontStyle: '900',
-          color: careerManager.isRemoteConnected() ? '#bfdbfe' : '#94a3b8',
-          stroke: '#000000',
-          strokeThickness: 2,
-          resolution: 2,
+    // --------------------------------------------------------------- play
+    const playButton = createButton(this, cx, layout.playY, {
+      width: 268,
+      height: 62,
+      label: fa.menu.play,
+      icon: 'swords',
+      fontSize: 24,
+      variant: 'primary',
+      onPress: () => {
+        if (this.isTransitioning) return;
+        // Ordinary bot entry routes through training first while the
+        // account-wide tutorial flag is incomplete (the server rejects bot
+        // tickets and matchmaker tickets on the same flag; the flag itself
+        // is honest-client reported — see TutorialStatus).
+        if (resolvePlayEntryAction(careerManager.isTutorialCompleted()) === 'training') {
+          this.startTrainingBattle();
+          return;
         }
-      )
-      .setOrigin(0.5);
-    this.bindPressFeedback(liveBg, liveText);
+        this.isTransitioning = true;
+        this.tweens.killTweensOf(playButton.container);
+        playButton.container.setScale(1).disableInteractive();
+        playButton.setLabel(fa.menu.scouting);
+        const startMatch = async () => {
+          if (!this.registry.get('realmPilot')) return { botMatch: await startChosenBotMatch(this, careerManager, platform) };
+          return new PilotClient(platform).nextMatch(() => startChosenBotMatch(this, careerManager, platform));
+        };
+        void startMatch().then((match) => {
+          if (!this.scene.isActive()) return;
+          sounds.playDispatch();
+          platform.hapticImpact('medium');
+          goToScene(this, 'GameScene', { source: 'menu', ...match });
+        }).catch((error: unknown) => {
+          const cancelled = String(error).includes('bot_difficulty_cancelled');
+          if (!cancelled) console.error('[MenuScene] Match start failed:', error);
+          this.isTransitioning = false;
+          if (!this.scene.isActive()) return;
+          playButton.setLabel(cancelled ? fa.menu.play : fa.menu.tryAgain);
+          playButton.container.setInteractive({ useHandCursor: true });
+          if (!cancelled) platform.hapticNotification('error');
+        });
+      },
+    });
+    if (!reducedMotion) {
+      this.tweens.add({ targets: playButton.container, scale: 1.035, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut', delay: 600 });
+    }
 
-    if (!careerManager.isRemoteConnected()) {
-      liveBg.disableInteractive();
-    } else {
-      liveBg.on('pointerdown', () => {
+    // -------------------------------------------------------------- live
+    const online = careerManager.isRemoteConnected();
+    const liveButton = createButton(this, cx, layout.livePvpY, {
+      width: 268,
+      height: 50,
+      label: online ? fa.menu.livePvp : fa.menu.livePvpOffline,
+      icon: 'bolt',
+      variant: 'secondary',
+      onPress: () => {
         // PvP entry (the lobby gates the 1v1 queue, invites, and the 2v2
         // queue button) routes through training first while the flag is
         // incomplete — same honest-client flag the server gates on.
@@ -380,176 +307,109 @@ export class MenuScene extends Phaser.Scene {
           this.startTrainingBattle();
           return;
         }
-        liveBg.disableInteractive();
-        this.openLivePvpLobby(platform, careerManager, liveBg, liveText);
-      });
-    }
+        liveButton.container.disableInteractive();
+        this.openLivePvpLobby(platform, careerManager, liveButton);
+      },
+    });
+    if (!online) liveButton.setEnabled(false);
 
     if (!careerManager.isTutorialCompleted()) {
-      const trainingBg = this.add
-        .rectangle(LOGICAL_WIDTH / 2, layout.trainingY, 250, 44, 0x1c1830, 1)
-        .setStrokeStyle(1.5, THEME.gold, 0.9)
-        .setInteractive({ useHandCursor: true });
-      const trainingText = createText(this, LOGICAL_WIDTH / 2, layout.trainingY, fa.menu.trainingRequired, {
-          fontFamily: FONT_FAMILY,
-          fontSize: '12px',
-          fontStyle: '900',
-          color: '#fde68a',
-          stroke: '#000000',
-          strokeThickness: 2,
-          resolution: 2,
-        })
-        .setOrigin(0.5);
-      this.bindPressFeedback(trainingBg, trainingText);
-      trainingBg.on('pointerdown', () => this.startTrainingBattle());
-    }
-
-    const dailyAvailable = careerManager.isRemoteConnected() || isLocalCareerFallbackAllowed();
-    const dailyBg = this.add
-      .rectangle(56, layout.navigationY, 82, 44, dailyAvailable ? 0x1c1830 : 0x273449, 1)
-      .setStrokeStyle(1.5, dailyAvailable ? THEME.gold : 0x475569, 0.9)
-      .setInteractive({ useHandCursor: true });
-    const dailyText = createText(this, 56, layout.navigationY, dailyAvailable ? fa.menu.daily : fa.menu.offline, {
-        fontFamily: FONT_FAMILY,
-        fontSize: dailyAvailable ? '12px' : '10px',
-        fontStyle: '900',
-        color: dailyAvailable ? '#fde68a' : '#94a3b8',
-        stroke: '#000000',
-        strokeThickness: 2,
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    this.bindPressFeedback(dailyBg, dailyText);
-    if (dailyAvailable) {
-      dailyBg.on('pointerdown', () => {
-        if (this.isTransitioning) return;
-        this.isTransitioning = true;
-        dailyBg.disableInteractive();
-        sounds.playReinforce();
-        platform.hapticSelection();
-        this.scene.start('DailyScene');
+      createButton(this, cx, layout.trainingY, {
+        width: 268,
+        height: 46,
+        label: fa.menu.trainingRequired,
+        icon: 'scroll',
+        variant: 'gold',
+        fontSize: 14,
+        onPress: () => this.startTrainingBattle(),
       });
-    } else {
-      dailyBg.disableInteractive();
     }
 
-    const leagueBg = this.add
-      .rectangle(152, layout.navigationY, 82, 44, 0x151d31, 1)
-      .setStrokeStyle(1.5, 0x818cf8, 0.9)
-      .setInteractive({ useHandCursor: true });
-    const leagueText = createText(this, 152, layout.navigationY, fa.menu.league, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '12px',
-        fontStyle: '900',
-        color: '#c7d2fe',
-        stroke: '#000000',
-        strokeThickness: 2,
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    this.bindPressFeedback(leagueBg, leagueText);
-    leagueBg.on('pointerdown', () => {
+    // ------------------------------------------------------- bottom nav
+    // RTL: the first destination (daily) is the rightmost tile.
+    const dailyAvailable = careerManager.isRemoteConnected() || isLocalCareerFallbackAllowed();
+    const navigate = (key: string, sound: () => void): void => {
       if (this.isTransitioning) return;
       this.isTransitioning = true;
-      leagueBg.disableInteractive();
-      sounds.playTrophy();
+      sound();
       platform.hapticSelection();
-      this.scene.start('LeagueScene');
+      goToScene(this, key);
+    };
+    const navTiles: Array<{ icon: IconKey; label: string; accent: number; enabled: boolean; onPress: () => void }> = [
+      { icon: 'chest', label: dailyAvailable ? fa.menu.daily : fa.menu.offline, accent: THEME.gold, enabled: dailyAvailable, onPress: () => navigate('DailyScene', () => sounds.playReinforce()) },
+      { icon: 'trophy', label: fa.menu.league, accent: 0x818cf8, enabled: true, onPress: () => navigate('LeagueScene', () => sounds.playTrophy()) },
+      { icon: 'castle', label: fa.menu.kingdom, accent: THEME.gold, enabled: true, onPress: () => navigate('KingdomScene', () => sounds.playReinforce()) },
+      { icon: commanderIcon(commander.id), label: fa.menu.council, accent: 0x60a5fa, enabled: true, onPress: () => navigate('CommanderScene', () => sounds.playReinforce()) },
+    ];
+    const tileWidth = 86;
+    const tileGap = 8;
+    navTiles.forEach((tile, index) => {
+      const x = LOGICAL_WIDTH - 16 - tileWidth / 2 - index * (tileWidth + tileGap);
+      this.createNavTile(x, layout.navigationY, tileWidth, tile);
     });
 
-    const kingdomBg = this.add
-      .rectangle(248, layout.navigationY, 82, 44, 0x111c33, 1)
-      .setStrokeStyle(1.5, THEME.gold, 0.8)
-      .setInteractive({ useHandCursor: true });
-    const kingdomText = createText(this, 248, layout.navigationY, fa.menu.kingdom, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '11px',
-        fontStyle: '900',
-        color: '#fde68a',
-        stroke: '#000000',
-        strokeThickness: 2,
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    this.bindPressFeedback(kingdomBg, kingdomText);
-    kingdomBg.on('pointerdown', () => {
-      if (this.isTransitioning) return;
-      this.isTransitioning = true;
-      kingdomBg.disableInteractive();
-      sounds.playReinforce();
-      platform.hapticSelection();
-      this.scene.start('KingdomScene');
-    });
-
-    const commanderBg = this.add
-      .rectangle(344, layout.navigationY, 82, 44, 0x172033, 1)
-      .setStrokeStyle(1.5, 0x60a5fa, 0.85)
-      .setInteractive({ useHandCursor: true });
-    const commanderText = createText(this, 344, layout.navigationY, fa.menu.council, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '11px',
-        fontStyle: '900',
-        color: '#bfdbfe',
-        stroke: '#000000',
-        strokeThickness: 2,
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    this.bindPressFeedback(commanderBg, commanderText);
-    commanderBg.on('pointerdown', () => {
-      if (this.isTransitioning) return;
-      this.isTransitioning = true;
-      commanderBg.disableInteractive();
-      sounds.playReinforce();
-      platform.hapticSelection();
-      this.scene.start('CommanderScene');
-    });
-
-    const muteX = LOGICAL_WIDTH - 28;
-    const muteBg = this.add
-      .rectangle(muteX, 28, 40, 36, 0x0f172a, 0.95)
-      .setStrokeStyle(1.5, 0x334155, 0.8);
-    const muteBtn = createText(this, muteX, 28, sounds.isMuted() ? '🔇' : '🔊', {
-        fontSize: '14px',
-        resolution: 2,
-      })
-      .setOrigin(0.5)
-    // 44x44 touch target around the smaller 40x36 visual.
-    muteBg.setInteractive({
-      hitArea: new Phaser.Geom.Rectangle(-2, -4, 44, 44),
-      hitAreaCallback: Phaser.Geom.Rectangle.Contains,
-      useHandCursor: true,
-    });
-    muteBg.on('pointerdown', () => {
+    const muteButton = createIconButton(this, 32, 32, sounds.isMuted() ? 'sound_off' : 'sound_on', () => {
       const muted = sounds.toggleMute();
-      muteBtn.setText(muted ? '🔇' : '🔊');
+      muteButton.setIcon(muted ? 'sound_off' : 'sound_on');
       platform.hapticSelection();
     });
-    this.bindPressFeedback(muteBg, muteBtn);
+
+    this.playMenuEntrance(reducedMotion, [rankChip, coinCard, winsCard, playButton.container, liveButton.container]);
     dismissStartupLoadingShell();
+    fadeIn(this);
   }
 
-  private bindPressFeedback(
-    background: Phaser.GameObjects.Rectangle,
-    label: Phaser.GameObjects.Text
-  ): void {
-    const reset = (): void => {
-      background.setScale(1);
-      label.setScale(1);
-    };
-    background.on('pointerdown', () => {
-      background.setScale(0.96);
-      label.setScale(0.96);
+  private createNavTile(
+    x: number,
+    y: number,
+    width: number,
+    tile: { icon: IconKey; label: string; accent: number; enabled: boolean; onPress: () => void }
+  ): Phaser.GameObjects.Container {
+    const height = MENU_NAV_TILE_HEIGHT;
+    const container = this.add.container(x, y, [
+      drawPanel(this.add.graphics(), width, height, {
+        fill: UI.surface.raised,
+        stroke: tile.enabled ? tile.accent : UI.border,
+        strokeAlpha: tile.enabled ? 0.75 : 1,
+        radius: UI.radius.lg,
+      }),
+      createIcon(this, 0, -9, tile.icon, 32),
+      createText(this, 0, 19, tile.label, {
+        fontSize: '12px',
+        fontStyle: '800',
+        color: tile.enabled ? UI.text.primary : UI.text.muted,
+      }).setOrigin(0.5),
+    ]).setSize(width, height);
+    if (!tile.enabled) {
+      container.setAlpha(0.55);
+      return container;
+    }
+    container.setInteractive({ useHandCursor: true });
+    bindPressFeedback(container);
+    let down = false;
+    container.on('pointerdown', () => { down = true; sounds.playClick(); });
+    container.on('pointerout', () => { down = false; });
+    container.on('pointerup', () => {
+      if (!down) return;
+      down = false;
+      tile.onPress();
     });
-    background.on('pointerup', reset);
-    background.on('pointerout', reset);
+    return container;
+  }
+
+  private playMenuEntrance(reducedMotion: boolean, targets: Phaser.GameObjects.Container[]): void {
+    if (reducedMotion) return;
+    targets.forEach((target, index) => {
+      const y = target.y;
+      target.setAlpha(0).setY(y + 14);
+      this.tweens.add({ targets: target, alpha: 1, y, duration: 260, delay: 60 + index * 45, ease: 'Back.easeOut' });
+    });
   }
 
   private openLivePvpLobby(
     platform: PlatformAdapter,
     careerManager: CareerManager,
-    raidButton: Phaser.GameObjects.Rectangle,
-    raidText: Phaser.GameObjects.Text
+    liveButton: KitButton
   ): void {
     // ------------------------------------------------------------------ setup
     const controller = new LivePvpController();
@@ -593,46 +453,38 @@ export class MenuScene extends Phaser.Scene {
       extra: Partial<Phaser.Types.GameObjects.Text.TextStyle> = {}
     ) =>
       createText(this, x, y, txt, {
-          fontFamily: FONT_FAMILY,
           fontSize: size,
-          fontStyle: 'bold',
+          fontStyle: '700',
           color,
-          stroke: '#000000',
-          strokeThickness: 2,
-          resolution: 2,
           align: 'center',
           ...extra,
         })
         .setOrigin(0.5);
 
+    // Kit buttons emit 'press' on release; handlers below subscribe to it.
     const makeBtn = (
       x: number,
       y: number,
       w: number,
       h: number,
-      fill: number,
-      strokeColor: number,
+      variant: ButtonVariant,
       label: string,
-      labelColor: string,
-      labelSize = '14px'
-    ): { bg: Phaser.GameObjects.Rectangle; txt: Phaser.GameObjects.Text } => {
-      const bg = this.add
-        .rectangle(x, y, w, h, fill, 1)
-        .setStrokeStyle(1.5, strokeColor, 1)
-        .setInteractive({ useHandCursor: true });
-      const txt = createText(this, x, y, label, {
-          fontFamily: FONT_FAMILY,
-          fontSize: labelSize,
-          fontStyle: '900',
-          color: labelColor,
-          stroke: '#000000',
-          strokeThickness: 2,
-          resolution: 2,
-        })
-        .setOrigin(0.5);
-      this.bindPressFeedback(bg, txt);
-      return { bg, txt };
+      icon?: IconKey,
+      fontSize = 14
+    ): { bg: Phaser.GameObjects.Container; button: KitButton } => {
+      const button: KitButton = createButton(this, x, y, {
+        width: w,
+        height: h,
+        label,
+        variant,
+        icon,
+        fontSize,
+        onPress: () => button.container.emit('press'),
+      });
+      return { bg: button.container, button };
     };
+    const card = (y: number, height: number, accent: number): Phaser.GameObjects.Graphics =>
+      drawPanel(this.add.graphics({ x: 0, y }), 320, height, { fill: UI.surface.base, stroke: accent, strokeAlpha: 0.9, radius: 20, alpha: 0.99 });
 
     // --------------------------------------------------- CLOSE / BACK helper
     const closeLobby = (): void => {
@@ -643,128 +495,96 @@ export class MenuScene extends Phaser.Scene {
       platform.hideBackButton();
       cleanupJoinInput();
       overlay.destroy();
-      raidButton.setInteractive({ useHandCursor: true });
-      raidText.setText(fa.menu.livePvp);
+      liveButton.container.setInteractive({ useHandCursor: true });
+      liveButton.setLabel(fa.menu.livePvp);
     };
 
     // ---------------------------------------------------------------- LOBBY VIEW
     // With the 2v2 flag enabled the card grows one button taller; with it
-    // disabled the lobby is byte-for-byte the 1v1 geometry (flag boundary).
+    // disabled the lobby keeps the 1v1 geometry (flag boundary).
     const show2v2Entry = featureFlags.enable2v2;
-    const lobbyCardHeight = show2v2Entry ? 352 : 300;
-    const lobbyCard = this.add
-      .rectangle(0, 0, 320, lobbyCardHeight, 0x0c1322, 0.99)
-      .setStrokeStyle(2, show2v2Entry ? THEME.twoVTwoAccent : 0x60a5fa, 0.95);
+    const lobbyCardHeight = show2v2Entry ? 360 : 304;
+    const lobbyCard = card(0, lobbyCardHeight, show2v2Entry ? THEME.twoVTwoAccent : 0x60a5fa);
 
-    const lobbyTitleY = show2v2Entry ? -148 : -120;
-    const lobbyTitle = TS(fa.lobby.title, 0, lobbyTitleY, '22px', '#bfdbfe', { fontStyle: '900', strokeThickness: 3 });
-    const lobbySubtitle = TS(fa.lobby.subtitle, 0, lobbyTitleY + 28, '10px', '#94a3b8', { strokeThickness: 1 });
+    const lobbyTitleY = show2v2Entry ? -150 : -122;
+    const lobbyIcon = createIcon(this, 0, lobbyTitleY - 4, 'swords', 34);
+    const lobbyTitle = TS(fa.lobby.title, 0, lobbyTitleY + 30, '22px', UI.text.primary, { fontStyle: '900', stroke: UI.text.stroke, strokeThickness: 4 });
+    const lobbySubtitle = TS(fa.lobby.subtitle, 0, lobbyTitleY + 56, '12px', UI.text.muted);
 
-    const quickMatchY = show2v2Entry ? -76 : -42;
-    const { bg: queueBg, txt: queueTxt } = makeBtn(
-      0, quickMatchY, 260, 52, 0x2563eb, 0x60a5fa, fa.lobby.quickMatch, '#ffffff', '14px'
-    );
+    const quickMatchY = show2v2Entry ? -54 : -26;
+    const { bg: queueBg } = makeBtn(0, quickMatchY, 260, 52, 'primary', fa.lobby.quickMatch, 'bolt', 16);
     // 2v2 CASUAL entry — reachable only when the flag is on (Phase 5).
-    const twoVTwoY = quickMatchY + 58;
+    const twoVTwoY = quickMatchY + 60;
     const twoVTwoEntry = show2v2Entry
-      ? makeBtn(
-          0, twoVTwoY, 260, 48, 0x17123a, THEME.twoVTwoAccent,
-          fa.lobby.twoVTwo, '#c7d2fe', '13px'
-        )
+      ? makeBtn(0, twoVTwoY, 260, 46, 'secondary', fa.lobby.twoVTwo, 'shield', 14)
       : null;
     const twoVTwoSub = show2v2Entry
-      ? TS(fa.lobby.twoVTwoSub, 0, twoVTwoY + 31, '9px', '#818cf8', { strokeThickness: 1 })
+      ? TS(fa.lobby.twoVTwoSub, 0, twoVTwoY + 33, '10px', '#a5b4fc')
       : null;
-    const createY = show2v2Entry ? twoVTwoY + 56 : 20;
-    const { bg: createBg, txt: createTxt } = makeBtn(
-      0, createY, 260, 48, 0x0e2a1a, 0x34d399, fa.lobby.createBattle, '#6ee7b7', '13px'
-    );
-    const joinY = createY + 55;
-    const { bg: joinBg, txt: joinTxt } = makeBtn(
-      0, joinY, 260, 48, 0x11153a, 0x818cf8, fa.lobby.joinBattle, '#c7d2fe', '13px'
-    );
+    const createY = show2v2Entry ? twoVTwoY + 62 : quickMatchY + 60;
+    const { bg: createBg } = makeBtn(0, createY, 260, 46, 'success', fa.lobby.createBattle, 'castle', 14);
+    const joinY = createY + 56;
+    const { bg: joinBg } = makeBtn(0, joinY, 260, 46, 'secondary', fa.lobby.joinBattle, 'scroll', 14);
 
-    // Close ✕ in top-right of lobby card
-    const lobbyCloseY = lobbyTitleY - 15;
-    const lobbyCloseBg = this.add
-      .rectangle(145, lobbyCloseY, 44, 44, 0x000000, 0)
-      .setInteractive({ useHandCursor: true });
-    const lobbyCloseBtn = TS('✕', 145, lobbyCloseY, '20px', '#94a3b8');
-    this.bindPressFeedback(lobbyCloseBg, lobbyCloseBtn);
-    lobbyCloseBg.on('pointerdown', closeLobby);
+    // RTL: the modal close sits top-left (the back chevron owns top-right).
+    const lobbyClose = createIconButton(this, -132, -lobbyCardHeight / 2 + 30, 'close', closeLobby, 18);
 
     lobbyView.add([
-      lobbyCard, lobbyTitle, lobbySubtitle,
-      queueBg, queueTxt, createBg, createTxt, joinBg, joinTxt,
-      lobbyCloseBg, lobbyCloseBtn,
+      lobbyCard, lobbyIcon, lobbyTitle, lobbySubtitle,
+      queueBg, createBg, joinBg,
+      lobbyClose.container,
       ...(twoVTwoEntry && twoVTwoSub
-        ? [twoVTwoEntry.bg, twoVTwoEntry.txt, twoVTwoSub]
+        ? [twoVTwoEntry.bg, twoVTwoSub]
         : []),
     ]);
 
     // -------------------------------------------------------- WAITING VIEW (room host)
-    const waitCard = this.add
-      .rectangle(0, 0, 320, 340, 0x0c1322, 0.99)
-      .setStrokeStyle(2, 0x34d399, 0.9);
-    const waitTitle = TS(fa.lobby.roomCreated, 0, -145, '14px', '#6ee7b7', { fontStyle: '900', strokeThickness: 2 });
-    const waitSubtitle = TS(fa.lobby.shareCode, 0, -122, '10px', '#94a3b8', { strokeThickness: 1 });
+    const waitCard = card(0, 340, 0x34d399);
+    const waitTitle = TS(fa.lobby.roomCreated, 0, -140, '17px', UI.text.success, { fontStyle: '900', stroke: UI.text.stroke, strokeThickness: 3 });
+    const waitSubtitle = TS(fa.lobby.shareCode, 0, -114, '12px', UI.text.muted);
 
     // Big mono room-code badge
-    const codeBadgeBg = this.add
-      .rectangle(0, -75, 260, 54, 0x071a10, 0.98)
-      .setStrokeStyle(2, 0x34d399, 0.85);
-    const codeText = createText(this, 0, -75, '--------', {
-        fontFamily: '"Courier New", Courier, monospace',
-        fontSize: '26px',
-        fontStyle: 'bold',
+    const codeBadgeBg = drawPanel(this.add.graphics({ x: 0, y: -68 }), 260, 56, { fill: 0x04140c, stroke: 0x34d399, strokeAlpha: 0.85, radius: 14, shadow: false });
+    const codeText = createText(this, 0, -68, '--------', {
+        fontFamily: MONO_FONT_FAMILY,
+        fontSize: '28px',
+        fontStyle: '700',
         color: '#86efac',
-        stroke: '#000000',
-        strokeThickness: 2,
-        resolution: 2,
         letterSpacing: 6,
       })
       .setOrigin(0.5);
 
-    const { bg: copyBg, txt: copyTxt } = makeBtn(
-      -67, -5, 120, 44, 0x1c2a1c, 0x34d399, fa.lobby.copy, '#86efac', '12px'
-    );
-    const { bg: shareBg, txt: shareTxt } = makeBtn(
-      67, -5, 120, 44, 0x111c33, 0x60a5fa, fa.lobby.share, '#93c5fd', '12px'
-    );
+    const { bg: copyBg, button: copyButton } = makeBtn(67, 0, 120, 46, 'secondary', fa.lobby.copy, undefined, 13);
+    const { bg: shareBg } = makeBtn(-67, 0, 120, 46, 'primary', fa.lobby.share, undefined, 13);
 
     // Pulsing waiting indicator
-    const waitDot = TS('⏳', 0, 52, '18px', '#fbbf24');
-    const waitStatus = TS(fa.lobby.waitingOpponent, 0, 80, '11px', '#94a3b8', { strokeThickness: 1 });
+    const waitDot = createIcon(this, 0, 56, 'swords', 30);
+    const waitStatus = TS(fa.lobby.waitingOpponent, 0, 86, '12px', UI.text.muted);
     this.tweens.add({
       targets: waitDot,
-      alpha: 0.3,
+      alpha: 0.35,
       duration: 900,
       yoyo: true,
       repeat: -1,
       ease: 'Sine.easeInOut',
     });
 
-    const { bg: leaveRoomBg, txt: leaveRoomTxt } = makeBtn(
-      0, 130, 180, 42, 0x1f0a0a, 0xf87171, fa.lobby.leaveRoom, '#fca5a5', '12px'
-    );
+    const { bg: leaveRoomBg } = makeBtn(0, 132, 190, 44, 'danger', fa.lobby.leaveRoom, undefined, 13);
 
     waitingView.add([
       waitCard, waitTitle, waitSubtitle,
       codeBadgeBg, codeText,
-      copyBg, copyTxt,
-      shareBg, shareTxt,
+      copyBg, shareBg,
       waitDot, waitStatus,
-      leaveRoomBg, leaveRoomTxt,
+      leaveRoomBg,
     ]);
 
     // -------------------------------------------------------- JOIN CODE VIEW
     // Position panel high (y = -120 from screen centre) so it sits above
     // the virtual keyboard (typically 280–350 px tall on mobile)
-    const joinCard = this.add
-      .rectangle(0, -110, 300, 210, 0x0c1322, 0.99)
-      .setStrokeStyle(2, 0x818cf8, 0.9);
-    const joinTitle = TS(fa.lobby.enterCode, 0, -200, '14px', '#c7d2fe', { fontStyle: '900', strokeThickness: 2 });
-    const joinSubtitle = TS(fa.lobby.codeHint, 0, -182, '10px', '#94a3b8', { strokeThickness: 1 });
+    const joinCard = card(-110, 220, 0x818cf8);
+    const joinTitle = TS(fa.lobby.enterCode, 0, -196, '16px', '#c7d2fe', { fontStyle: '900', stroke: UI.text.stroke, strokeThickness: 3 });
+    const joinSubtitle = TS(fa.lobby.codeHint, 0, -174, '11px', UI.text.muted);
 
     // Keep the keyboard input invisible. Phaser renders the visible field so
     // it always shares the modal's coordinate system on every viewport.
@@ -805,76 +625,60 @@ export class MenuScene extends Phaser.Scene {
 
     this.joinCodeInput = joinInput;
     this.joinCodeInputCleanup = cleanupJoinInput;
-    const joinInputBg = this.add
-      .rectangle(0, -123, 230, 46, 0x0f172a, 1)
-      .setStrokeStyle(2, 0x818cf8, 1)
-      .setInteractive({ useHandCursor: true });
-    const joinInputText = createText(this, 0, -123, fa.lobby.tapToType, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '11px',
+    const joinInputBg = drawPanel(this.add.graphics({ x: 0, y: -126 }), 236, 50, { fill: 0x050913, stroke: 0x818cf8, radius: 14, shadow: false })
+      .setInteractive(new Phaser.Geom.Rectangle(-118, -25, 236, 50), Phaser.Geom.Rectangle.Contains);
+    const setJoinInputStroke = (color: number): void => {
+      drawPanel(joinInputBg, 236, 50, { fill: 0x050913, stroke: color, radius: 14, shadow: false });
+    };
+    const joinInputText = createText(this, 0, -126, fa.lobby.tapToType, {
+        fontSize: '12px',
         fontStyle: '700',
-        color: '#94a3b8',
-        resolution: 2,
+        color: UI.text.muted,
       })
       .setOrigin(0.5);
-    const joinErrorText = TS('', 0, -87, '10px', '#f87171', { strokeThickness: 1 });
+    const joinErrorText = TS('', 0, -89, '11px', UI.text.danger);
 
-    const { bg: joinSubmitBg, txt: joinSubmitTxt } = makeBtn(
-      55, -50, 130, 42, 0x2563eb, 0x60a5fa, fa.lobby.join, '#ffffff', '13px'
-    );
-    const { bg: joinCancelBg, txt: joinCancelTxt } = makeBtn(
-      -75, -50, 100, 42, 0x1a1a2e, 0x475569, fa.lobby.cancel, '#94a3b8', '12px'
-    );
+    const { bg: joinSubmitBg, button: joinSubmitButton } = makeBtn(55, -46, 130, 46, 'secondary', fa.lobby.join, undefined, 14);
+    const { bg: joinCancelBg } = makeBtn(-77, -46, 104, 46, 'secondary', fa.lobby.cancel, undefined, 13);
 
     joinView.add([
       joinCard, joinTitle, joinSubtitle,
       joinInputBg, joinInputText,
       joinErrorText,
-      joinSubmitBg, joinSubmitTxt,
-      joinCancelBg, joinCancelTxt,
+      joinSubmitBg,
+      joinCancelBg,
     ]);
 
     // -------------------------------------------------------- LOADING VIEW
-    const loadCard = this.add
-      .rectangle(0, 0, 280, 160, 0x0c1322, 0.99)
-      .setStrokeStyle(2, 0x60a5fa, 0.8);
-    const loadSpinner = TS('⏳', 0, -30, '32px', '#60a5fa');
-    const loadText = TS(fa.lobby.connecting, 0, 18, '13px', '#93c5fd', { strokeThickness: 2 });
+    const loadCard = card(0, 170, 0x60a5fa);
+    // Spinner: one arc drawn once, rotated by a tween (no per-frame redraw).
+    const loadSpinner = this.add.graphics({ x: 0, y: -34 });
+    loadSpinner.lineStyle(5, UI.border, 1).strokeCircle(0, 0, 16);
+    loadSpinner.lineStyle(5, 0x60a5fa, 1).beginPath().arc(0, 0, 16, 0, Math.PI * 1.2).strokePath();
+    const loadText = TS(fa.lobby.connecting, 0, 10, '14px', UI.text.accent, { fontStyle: '800' });
     this.tweens.add({
       targets: loadSpinner,
       angle: 360,
-      duration: 1200,
+      duration: 900,
       repeat: -1,
     });
-    const { bg: loadCancelBg, txt: loadCancelTxt } = makeBtn(
-      0, 58, 140, 38, 0x1f0a0a, 0xf87171, fa.lobby.cancel, '#fca5a5', '12px'
-    );
-    loadingView.add([loadCard, loadSpinner, loadText, loadCancelBg, loadCancelTxt]);
+    const { bg: loadCancelBg } = makeBtn(0, 54, 150, 44, 'danger', fa.lobby.cancel, undefined, 13);
+    loadingView.add([loadCard, loadSpinner, loadText, loadCancelBg]);
 
     // -------------------------------------------------------- ERROR VIEW
-    const errCard = this.add
-      .rectangle(0, 0, 300, 220, 0x0c1322, 0.99)
-      .setStrokeStyle(2, 0xf87171, 0.9);
-    const errIcon = TS('⚠', 0, -85, '28px', '#f87171');
-    const errMsg = createText(this, 0, -38, '', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '12px',
-        fontStyle: 'bold',
-        color: '#fca5a5',
-        stroke: '#000000',
-        strokeThickness: 1,
-        resolution: 2,
+    const errCard = card(0, 230, 0xf87171);
+    const errIcon = createIcon(this, 0, -78, 'warning', 40);
+    const errMsg = createText(this, 0, -26, '', {
+        fontSize: '13px',
+        fontStyle: '700',
+        color: UI.text.danger,
         align: 'center',
         wordWrap: { width: 260 },
       })
       .setOrigin(0.5);
-    const { bg: retryBg, txt: retryTxt } = makeBtn(
-      -70, 62, 120, 42, 0x2563eb, 0x60a5fa, fa.lobby.retry, '#ffffff', '12px'
-    );
-    const { bg: errBackBg, txt: errBackTxt } = makeBtn(
-      70, 62, 120, 42, 0x111c33, 0x475569, fa.lobby.back, '#94a3b8', '12px'
-    );
-    errorView.add([errCard, errIcon, errMsg, retryBg, retryTxt, errBackBg, errBackTxt]);
+    const { bg: retryBg } = makeBtn(68, 64, 124, 46, 'primary', fa.lobby.retry, undefined, 13);
+    const { bg: errBackBg } = makeBtn(-68, 64, 124, 46, 'secondary', fa.lobby.back, undefined, 13);
+    errorView.add([errCard, errIcon, errMsg, retryBg, errBackBg]);
 
     // ------------------------------------------------ VIEW RENDERER
     let lastRetryMode: 'queue' | 'queue_2v2' | 'create' | 'join' = 'queue';
@@ -916,11 +720,11 @@ export class MenuScene extends Phaser.Scene {
             : '--------';
           codeText.setText(formatted);
           if (opts.copied) {
-            copyTxt.setText(fa.lobby.copied);
-            copyBg.setFillStyle(0x065f46, 1);
+            copyButton.setLabel(fa.lobby.copied);
+            copyButton.setVariant('success');
           } else {
-            copyTxt.setText(fa.lobby.copy);
-            copyBg.setFillStyle(0x1c2a1c, 1);
+            copyButton.setLabel(fa.lobby.copy);
+            copyButton.setVariant('secondary');
           }
           const backToLobby = (): void => controller.cancel();
           platform.showBackButton(backToLobby);
@@ -1050,24 +854,24 @@ export class MenuScene extends Phaser.Scene {
     };
 
     // ------------------------------------------------ LOBBY BUTTON HANDLERS
-    queueBg.on('pointerdown', () => {
+    queueBg.on('press', () => {
       if (!controller.startQueueing()) return;
       startClient('queue');
     });
 
     // 2v2 CASUAL — queued through the version-2 path; the button only
     // exists when the feature flag is on, and the ticket path re-checks it.
-    twoVTwoEntry?.bg.on('pointerdown', () => {
+    twoVTwoEntry?.bg.on('press', () => {
       if (!controller.startQueueing2v2()) return;
       startClient('queue_2v2');
     });
 
-    createBg.on('pointerdown', () => {
+    createBg.on('press', () => {
       if (!controller.startCreating()) return;
       startClient('create');
     });
 
-    joinBg.on('pointerdown', () => {
+    joinBg.on('press', () => {
       const linked = new URLSearchParams(window.location.search).get('liveRoom');
       if (linked) {
         if (!controller.startJoining(linked).success) return;
@@ -1079,15 +883,15 @@ export class MenuScene extends Phaser.Scene {
         joinInput.value = '';
         joinInputText
           .setText(fa.lobby.tapToType)
-          .setFontSize('11px')
-          .setColor('#94a3b8')
+          .setFontSize('12px')
+          .setColor(UI.text.muted)
           .setLetterSpacing(0);
         joinInput.focus();
       }, 80);
     });
 
     // ------------------------------------------------ WAITING VIEW HANDLERS
-    copyBg.on('pointerdown', () => {
+    copyBg.on('press', () => {
       const state = controller.getState();
       if (!state.roomCode) return;
       const bare = state.roomCode;
@@ -1108,7 +912,7 @@ export class MenuScene extends Phaser.Scene {
       }
     });
 
-    shareBg.on('pointerdown', () => {
+    shareBg.on('press', () => {
       const state = controller.getState();
       if (!state.roomCode) return;
       const code = state.roomCode;
@@ -1122,7 +926,7 @@ export class MenuScene extends Phaser.Scene {
       platform.hapticSelection();
     });
 
-    leaveRoomBg.on('pointerdown', () => {
+    leaveRoomBg.on('press', () => {
       this.liveClient?.close();
       this.liveClient = undefined;
       controller.cancel();
@@ -1137,24 +941,24 @@ export class MenuScene extends Phaser.Scene {
       if (joinInputEl.value !== sanitized) joinInputEl.value = sanitized;
       joinInputText
         .setText(sanitized || fa.lobby.tapToType)
-        .setFontSize(sanitized ? '22px' : '11px')
-        .setColor(sanitized ? '#ffffff' : '#94a3b8')
+        .setFontSize(sanitized ? '24px' : '12px')
+        .setColor(sanitized ? '#ffffff' : UI.text.muted)
         .setLetterSpacing(sanitized ? 5 : 0);
       joinErrorText.setText('');
       const valid = isValidRoomCode(sanitized);
-      joinSubmitBg.setFillStyle(valid ? 0x2563eb : 0x1e293b, 1);
+      joinSubmitButton.setVariant(valid ? 'primary' : 'secondary');
     });
     joinInputEl.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') joinSubmitBg.emit('pointerdown');
+      if (e.key === 'Enter') joinSubmitBg.emit('press');
     });
     joinInputEl.addEventListener('focus', () => {
-      joinInputBg.setStrokeStyle(2, 0xa5b4fc, 1);
+      setJoinInputStroke(0xc7d2fe);
     });
     joinInputEl.addEventListener('blur', () => {
-      joinInputBg.setStrokeStyle(2, 0x818cf8, 1);
+      setJoinInputStroke(0x818cf8);
     });
 
-    joinSubmitBg.on('pointerdown', () => {
+    joinSubmitBg.on('press', () => {
       const code = sanitizeRoomCode(joinInputEl.value);
       const result = controller.startJoining(code);
       if (!result.success) {
@@ -1165,13 +969,13 @@ export class MenuScene extends Phaser.Scene {
       startClient('join', code);
     });
 
-    joinCancelBg.on('pointerdown', () => {
+    joinCancelBg.on('press', () => {
       controller.cancel();
       platform.hapticSelection();
     });
 
     // ------------------------------------------------ LOADING CANCEL
-    loadCancelBg.on('pointerdown', () => {
+    loadCancelBg.on('press', () => {
       this.liveClient?.close();
       this.liveClient = undefined;
       controller.cancel();
@@ -1179,7 +983,7 @@ export class MenuScene extends Phaser.Scene {
     });
 
     // ------------------------------------------------ ERROR VIEW HANDLERS
-    retryBg.on('pointerdown', () => {
+    retryBg.on('press', () => {
       if (this.liveClient) return;
       if (lastRetryMode === 'join') {
         if (!controller.startJoining(lastRetryCode).success) return;
@@ -1194,7 +998,7 @@ export class MenuScene extends Phaser.Scene {
       platform.hapticSelection();
     });
 
-    errBackBg.on('pointerdown', () => {
+    errBackBg.on('press', () => {
       this.liveClient?.close();
       this.liveClient = undefined;
       controller.returnToLobby();
@@ -1203,48 +1007,35 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private showBackendUnavailable(): void {
-    this.add.rectangle(
-      LOGICAL_WIDTH / 2,
-      LOGICAL_HEIGHT / 2,
-      LOGICAL_WIDTH,
-      LOGICAL_HEIGHT,
-      0x070b14
-    );
-    createText(this, LOGICAL_WIDTH / 2, 250, fa.menu.title, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '30px',
+    const { visibleWidth, visibleHeight } = getSceneViewport(this);
+    const cx = LOGICAL_WIDTH / 2;
+    this.add.rectangle(cx, visibleHeight / 2, visibleWidth, visibleHeight, UI.bg);
+    createGlow(this, cx, 210, 420, 420, 0x1d4ed8, 0.3);
+    createIcon(this, cx, 200, 'crown', 84);
+    createText(this, cx, 280, fa.menu.title, {
+        fontSize: '32px',
         fontStyle: '900',
-        color: '#f8fafc',
-        stroke: '#000000',
-        strokeThickness: 4,
-        resolution: 2,
+        color: UI.text.primary,
+        stroke: UI.text.stroke,
+        strokeThickness: 6,
       })
       .setOrigin(0.5);
-    createText(this, LOGICAL_WIDTH / 2, 330, fa.menu.connectionRequired, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '13px',
-        fontStyle: 'bold',
-        color: '#cbd5e1',
+    createText(this, cx, 336, fa.menu.connectionRequired, {
+        fontSize: `${UI.type.label - 1}px`,
+        fontStyle: '700',
+        color: UI.text.secondary,
         align: 'center',
-        resolution: 2,
+        wordWrap: { width: 300 },
       })
       .setOrigin(0.5);
-    const retryBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2, 410, 190, 50, 0x2563eb, 1)
-      .setStrokeStyle(2, 0x60a5fa, 1)
-      .setInteractive({ useHandCursor: true });
-    const retryText = createText(this, LOGICAL_WIDTH / 2, 410, fa.menu.retry, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '15px',
-        fontStyle: '900',
-        color: '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 2,
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    this.bindPressFeedback(retryBg, retryText);
-    retryBg.on('pointerdown', () => this.scene.restart());
+    createButton(this, cx, 410, {
+      width: 200,
+      height: 52,
+      label: fa.menu.retry,
+      variant: 'primary',
+      onPress: () => this.scene.restart(),
+    });
     dismissStartupLoadingShell();
+    fadeIn(this);
   }
 }

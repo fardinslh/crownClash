@@ -34,6 +34,12 @@ import { TUTORIAL_STEPS } from '../tutorial/TutorialController.js';
 import { createText, FONT_FAMILY } from '../ui/TextStyles.js';
 import { fa } from '../i18n/fa.js';
 
+/** Rounds a Rectangle where the renderer supports it (no-op in test doubles). */
+function rounded<T extends { setRounded?: (radius: number) => unknown }>(shape: T, radius: number): T {
+  if (typeof shape.setRounded === 'function') shape.setRounded(radius);
+  return shape;
+}
+
 /** Overlay depth layering: above the board, below the instruction panel. */
 const SPOTLIGHT_DEPTH = 6;
 const HINT_PATH_DEPTH = 57;
@@ -86,9 +92,9 @@ export class TrainingOverlayUI {
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
     this.container = scene.add.container(0, 0).setDepth(PANEL_DEPTH);
-    this.panel = scene.add
+    this.panel = rounded(scene.add
       .rectangle(LOGICAL_WIDTH / 2, 0, 364, 46, 0x0b1220, 0.96)
-      .setStrokeStyle(2.5, THEME.gold, 0.95);
+      .setStrokeStyle(2.5, THEME.gold, 0.95), 16);
     this.instruction = createText(scene, LOGICAL_WIDTH / 2, 0, '', {
         fontFamily: FONT_FAMILY,
         fontSize: '14px',
@@ -96,7 +102,6 @@ export class TrainingOverlayUI {
         color: '#fde68a',
         stroke: '#000000',
         strokeThickness: 3,
-        resolution: 2,
         align: 'center',
         wordWrap: { width: 286 },
       })
@@ -546,10 +551,10 @@ export class TrainingOverlayUI {
     this.celebration = scene.add.container(LOGICAL_WIDTH / 2, bannerY).setDepth(CELEBRATION_DEPTH);
 
     const bannerW = 300;
-    const shadow = scene.add.rectangle(0, 4, bannerW, 84, 0x000000, 0.45);
-    const banner = scene.add
+    const shadow = rounded(scene.add.rectangle(0, 4, bannerW, 84, 0x000000, 0.45), 20);
+    const banner = rounded(scene.add
       .rectangle(0, 0, bannerW, 84, 0x0b1220, 0.97)
-      .setStrokeStyle(3, THEME.gold, 1);
+      .setStrokeStyle(3, THEME.gold, 1), 20);
     const title = createText(scene, 0, -14, fa.training.victory, {
         fontFamily: FONT_FAMILY,
         fontSize: '27px',
@@ -557,7 +562,6 @@ export class TrainingOverlayUI {
         color: '#fde68a',
         stroke: '#000000',
         strokeThickness: 4,
-        resolution: 2,
       })
       .setOrigin(0.5);
     const subtitle = createText(scene, 0, 22, fa.training.savingSub, {
@@ -565,7 +569,6 @@ export class TrainingOverlayUI {
         fontSize: '11px',
         fontStyle: 'bold',
         color: '#93c5fd',
-        resolution: 2,
       })
       .setOrigin(0.5);
     this.celebrationSubtitle = subtitle;
@@ -666,7 +669,6 @@ export class TrainingOverlayUI {
           color: '#ffffff',
           stroke: '#000000',
           strokeThickness: 2.5,
-          resolution: 2,
         }
       )
       .setOrigin(0.5);
