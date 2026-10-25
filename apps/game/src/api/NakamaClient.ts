@@ -189,7 +189,7 @@ export class NakamaClient implements CareerApi {
   }
 
   public async startBotMatch(botDifficulty: import('@crown-clash/game-core').BotDifficulty = 'normal'): Promise<BotMatchTicket> {
-    const result = await this.rpc('match/start', JSON.stringify({ botDifficulty, supportedGameplayRulesVersions: [1, 2, 3] }));
+    const result = await this.rpc('match/start', JSON.stringify({ botDifficulty, supportedGameplayRulesVersions: [1, 2, 3, 4] }));
     return (JSON.parse(result) as { ticket: BotMatchTicket }).ticket;
   }
 

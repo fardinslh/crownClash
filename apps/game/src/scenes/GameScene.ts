@@ -8,7 +8,7 @@ import { anchoredArmyBadge, planArmyBadgeOffset, type ArmyBadgeOffset, type Army
 import type { Rect } from '../ui/HudLayout.js';
 import {
   getCaptureProductionMultiplier,
-  evaluateTacticalMoves, previewOrder, armyDestination, type GameplayRulesVersion,
+  evaluateTacticalMoves, previewOrder, armyDestination, usesTacticalRules, type GameplayRulesVersion,
   getTerritoryProductionMultiplier,
   getTerritoryDefenseMultiplier,
   getTerritoryArmySpeedMultiplier,
@@ -842,7 +842,7 @@ export class GameScene extends Phaser.Scene {
           trackEvent(tutorialQuitEvent(event.stepId ?? null));
         }
       },
-      { startStep: progress, quick: this.registry.get('realmPilot') === true, tactical: this.gameState.gameplayRulesVersion === 3 }
+      { startStep: progress, quick: this.registry.get('realmPilot') === true, tactical: usesTacticalRules(this.gameState.gameplayRulesVersion) }
     );
     this.trainingOverlay = new TrainingOverlayUI(this);
     this.renderTrainingStep();
@@ -891,7 +891,7 @@ export class GameScene extends Phaser.Scene {
   private trainingGuidanceRefreshSeconds = 0;
 
   private resolveTrainingGuidanceNow(stepId: TutorialStepId): TrainingGuidance {
-    return this.gameState.gameplayRulesVersion === 3
+    return usesTacticalRules(this.gameState.gameplayRulesVersion)
       ? resolveTacticalTrainingGuidance(this.gameState, stepId)
       : resolveTrainingGuidance(this.gameState.territories, stepId);
   }
@@ -2642,7 +2642,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     const target = this.hoveredTargetId ? this.gameState.territories[this.hoveredTargetId] : null;
-    if (this.gameState.gameplayRulesVersion === 3) {
+    if (usesTacticalRules(this.gameState.gameplayRulesVersion)) {
       pointer.positionToCamera(this.cameras.main, this.pointerWorldPoint);
       const view = drawTacticalDrag(this.dragGraphics, this.gameState, this.selectedSourceIds, target?.id ?? null,
         (x, y) => this.projectSocketPoint(x, y), this.boardLayout.scale, this.playerArmySpeedMultiplier,
@@ -3152,7 +3152,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private executeAiTurn(): void {
-    if (this.gameState.gameplayRulesVersion === 3) {
+    if (usesTacticalRules(this.gameState.gameplayRulesVersion)) {
       for (const move of evaluateTacticalMoves(this.gameState, 'enemy', this.enemyArmySpeedMultiplier)) {
         const dispatch = dispatchArmy(this.gameState.territories[move.fromId], this.gameState.territories[move.toId], 'enemy', .5, undefined, this.enemyArmySpeedMultiplier, this.gameState);
         if (!dispatch.success || !dispatch.army || !dispatch.sourceTerritory) continue;

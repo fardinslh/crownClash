@@ -11,7 +11,7 @@ describe('NakamaClient settle transport payload', () => {
       const rpc = vi.fn().mockResolvedValue({ payload: JSON.stringify({ ticket }) });
       (client as unknown as { socket: unknown }).socket = { rpc };
       await expect(client.startBotMatch(botDifficulty)).resolves.toEqual(ticket);
-      expect(rpc).toHaveBeenCalledExactlyOnceWith('match/start', JSON.stringify({ botDifficulty, supportedGameplayRulesVersions: [1, 2, 3] }));
+      expect(rpc).toHaveBeenCalledExactlyOnceWith('match/start', JSON.stringify({ botDifficulty, supportedGameplayRulesVersions: [1, 2, 3, 4] }));
     }
   });
   function clientWithRecordedRpc() {

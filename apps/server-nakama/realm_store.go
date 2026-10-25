@@ -480,7 +480,7 @@ func (s *Store) StartRealmAttack(ctx context.Context, user string, req RealmStar
 	if err != nil {
 		return RealmTicket{}, err
 	}
-	t := RealmTicket{RewardTreasuryLevel: c.TreasuryLevel, MatchID: id, Source: req.Source, CombatPolicy: policy, BattlefieldID: "crown_cross", GameplayRulesVersion: negotiatedAsyncRules(req.SupportedGameplayRulesVersions), ConfigVersion: realmConfigVersion, Defender: d, PlayerModifiers: pm, EnemyModifiers: em, EffectiveLevels: levels, CreatedAt: s.nowFn().UnixMilli(), ExpiresAt: s.nowFn().UnixMilli() + realmTicketLifetimeMs, RewardEligible: eligible, OriginID: origin}
+	t := RealmTicket{RewardTreasuryLevel: c.TreasuryLevel, MatchID: id, Source: req.Source, CombatPolicy: policy, BattlefieldID: "crown_cross", GameplayRulesVersion: negotiatedAsyncRulesUpTo(req.SupportedGameplayRulesVersions, min(asyncGameplayRulesVersion, TacticalRulesVersion)), ConfigVersion: realmConfigVersion, Defender: d, PlayerModifiers: pm, EnemyModifiers: em, EffectiveLevels: levels, CreatedAt: s.nowFn().UnixMilli(), ExpiresAt: s.nowFn().UnixMilli() + realmTicketLifetimeMs, RewardEligible: eligible, OriginID: origin}
 	raw, err := json.Marshal(t)
 	if err != nil {
 		return t, err

@@ -4,7 +4,7 @@ import { createDefaultTerritories } from './map.js';
 import { CombatResult, GameState, MarchingArmy, MatchStatus, Territory } from './types.js';
 import type { PlayerUpgradeModifiers } from './upgrades.js';
 import { normalizeBattlefieldId, type BattlefieldId } from './battlefields.js';
-import { CAPTURE_RECOVERY_MS, GAMEPLAY_RULES_VERSION, TACTICAL_CONFIG, hasCaptureRecovery, getCaptureProductionMultiplier, validateGameplayRulesVersion, type GameplayRulesVersion } from './gameplay-rules.js';
+import { CAPTURE_RECOVERY_MS, GAMEPLAY_RULES_VERSION, TACTICAL_CONFIG, hasCaptureRecovery, usesTacticalRules, getCaptureProductionMultiplier, validateGameplayRulesVersion, type GameplayRulesVersion } from './gameplay-rules.js';
 import { advanceRoutedArmy, TACTICAL_SUPPORTS } from './tactical-routes.js';
 
 export interface StepResult {
@@ -33,7 +33,7 @@ export function createInitialGameState(options: number | InitialGameOptions = DE
 
   const version = validateGameplayRulesVersion(typeof options === 'number' ? GAMEPLAY_RULES_VERSION : (options.gameplayRulesVersion ?? GAMEPLAY_RULES_VERSION));
   const territories = createDefaultTerritories(playerModifiers, enemyModifiers, battlefieldId);
-  if (version === 3) {
+  if (usesTacticalRules(version)) {
     if (battlefieldId === 'quad_citadel') throw new Error('tactical_rules_require_1v1');
     territories.p_base.units += TACTICAL_CONFIG.baseBonus;
     territories.e_base.units += TACTICAL_CONFIG.baseBonus;
@@ -95,7 +95,7 @@ export function stepSimulation(
   const stats = { ...currentState.stats, matchDurationSeconds: newElapsed };
 
   for (const originalArmy of currentState.armies) {
-    const routed = currentState.gameplayRulesVersion === 3 ? advanceRoutedArmy(originalArmy, territories, deltaSeconds) : null;
+    const routed = usesTacticalRules(currentState.gameplayRulesVersion) ? advanceRoutedArmy(originalArmy, territories, deltaSeconds) : null;
     const army = routed?.army ?? originalArmy;
     const nextProgress = routed ? (routed.arrived ? 1 : army.progress) : army.progress + army.speed * deltaSeconds;
 

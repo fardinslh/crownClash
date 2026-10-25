@@ -6,7 +6,7 @@ WITH starts AS (
  to_timestamp(occurred_at/1000.0) at,
  (to_timestamp(occurred_at/1000.0) AT TIME ZONE 'Asia/Tehran')::date AS day
  FROM analytics_events WHERE name='match_start' AND props->>'mode' IN ('bot','async')
- AND props->>'gameplayRulesVersion' IN ('2','3')
+ AND props->>'gameplayRulesVersion' IN ('2','3','4')
  ORDER BY player_id,props->>'matchId',occurred_at
 ), ends AS (
  SELECT DISTINCT ON (player_id,props->>'matchId') player_id,props->>'matchId' match_id,props->>'result' result,

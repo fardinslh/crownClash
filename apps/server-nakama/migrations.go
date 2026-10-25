@@ -427,4 +427,12 @@ END $$;
 ALTER TABLE bot_matches ADD COLUMN bot_difficulty TEXT NOT NULL DEFAULT 'normal'
  CHECK (bot_difficulty IN ('easy','normal','hard'));
 `})
+	// Rules v4 (commander abilities + fog of war). commander_id is the
+	// player's commander captured at ticket issue; settlement replays the
+	// ability with this value, never a client-sent one. NULL for older rows.
+	migrations = append(migrations, migration{name: "021_rules_v4_commander", sql: `
+ALTER TABLE bot_matches DROP CONSTRAINT bot_matches_gameplay_rules_version_check;
+ALTER TABLE bot_matches ADD CONSTRAINT bot_matches_gameplay_rules_version_check CHECK (gameplay_rules_version IN (1,2,3,4));
+ALTER TABLE bot_matches ADD COLUMN commander_id TEXT CHECK (commander_id IN ('crown_guard','quartermaster','vanguard'));
+`})
 }

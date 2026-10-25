@@ -38,7 +38,7 @@ for (const c of cases) {
     expected[c.id].push(structuredClone({ state, accumulators, moves }));
   }
 }
-for (const battlefieldId of ['crown_cross', 'twin_passes', 'royal_ring']) for (const version of [1, 2, 3]) for (const upgraded of [false, true]) for (const botDifficulty of ['easy', 'normal', 'hard']) {
+for (const battlefieldId of ['crown_cross', 'twin_passes', 'royal_ring']) for (const version of [1, 2, 3, 4]) for (const upgraded of [false, true]) for (const botDifficulty of ['easy', 'normal', 'hard']) {
   const playerModifiers = upgraded ? { startingUnits: 32, productionRateMultiplier: 1.4, armySpeedMultiplier: 1.495 } : mods;
   const ids = core.getBattlefield(battlefieldId).territories.map(t => t.id);
   const actions = Array.from({ length: 100 }, (_, sequence) => ({ sequence, atSeconds: sequence * .8,
@@ -73,5 +73,5 @@ try {
   compare(normalized(expected),normalized(actual));
   fs.mkdirSync('qa-artifacts/tactical',{recursive:true});
   fs.writeFileSync('qa-artifacts/tactical/parity.json',JSON.stringify({cases:cases.length,checkpoints:Object.values(expected).filter(Array.isArray).reduce((n,a)=>n+a.length,0),passed:true},null,2));
-  console.log(`PASS: ${cases.length} cross-engine cases, full state/route/AI checkpoints and authoritative replay, v1/v2/v3`);
+  console.log(`PASS: ${cases.length} cross-engine cases, full state/route/AI checkpoints and authoritative replay, v1/v2/v3/v4`);
 } finally { fs.rmSync(dir,{recursive:true,force:true}); }

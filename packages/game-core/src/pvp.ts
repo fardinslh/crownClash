@@ -1,4 +1,4 @@
-import type { GameplayRulesVersion } from './gameplay-rules.js';
+import { usesTacticalRules, type GameplayRulesVersion } from './gameplay-rules.js';
 import { dispatchArmy } from './dispatch.js';
 import { evaluateAiMove } from './ai.js';
 import { evaluateTacticalMoves } from './tactical-ai.js';
@@ -209,7 +209,7 @@ export function simulatePvpBattle(options: PvpSimulationOptions): PvpSimulationR
   let accumulators: Record<string, number> = {};
   let currentTime = 0;
   let currentTick = 0;
-  const currentRules = state.gameplayRulesVersion === 2 || state.gameplayRulesVersion === 3;
+  const currentRules = state.gameplayRulesVersion === 2 || usesTacticalRules(state.gameplayRulesVersion);
   const clockEpsilon = currentRules ? 1e-9 : 0;
   const aiTickSeconds = getBotAiTickSeconds(options.botDifficulty);
   let nextAiTick = aiTickSeconds;
@@ -252,7 +252,7 @@ export function simulatePvpBattle(options: PvpSimulationOptions): PvpSimulationR
 
   const executeAiAction = (): void => {
     if (state.status !== 'playing') return;
-    if (state.gameplayRulesVersion === 3) {
+    if (usesTacticalRules(state.gameplayRulesVersion)) {
       for (const move of evaluateTacticalMoves(state, 'enemy', options.enemyModifiers?.armySpeedMultiplier ?? 1)) {
         state = dispatchFromState(state, move.fromId, move.toId, 'enemy', options.enemyModifiers?.armySpeedMultiplier ?? 1, `pvp_ai_${aiActionIndex++}`);
       }

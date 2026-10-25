@@ -8,15 +8,44 @@ import (
 
 const TacticalRulesVersion = 3
 
-var asyncGameplayRulesVersion = TacticalRulesVersion
+// TacticalV4RulesVersion adds commander abilities and fog of war to v3
+// tactics. It is async/bot only; live matches stay on v2.
+const TacticalV4RulesVersion = 4
 
-func hasCaptureRecovery(version int) bool     { return version == 2 || version == 3 }
+var asyncGameplayRulesVersion = TacticalV4RulesVersion
+
+func hasCaptureRecovery(version int) bool     { return version >= 2 && version <= 4 }
 func supportedGameplayRules(version int) bool { return version == 1 || hasCaptureRecovery(version) }
+
+// usesTacticalRules: road-routed supply, one-road attacks and the tactical
+// opening (v3 and later).
+func usesTacticalRules(version int) bool     { return version == 3 || version == 4 }
+func hasCommanderAbilities(version int) bool { return version == 4 }
+
+// negotiatedAsyncRules picks the highest tactical version that both the
+// server configuration and the client support, falling back to v2.
 func negotiatedAsyncRules(supported []int) int {
-	if asyncGameplayRulesVersion == 3 {
+	return negotiatedAsyncRulesUpTo(supported, asyncGameplayRulesVersion)
+}
+
+// parseAsyncGameplayRulesVersion reads ASYNC_GAMEPLAY_RULES_VERSION: unset
+// means v4, "3" pins new tickets to v3, any other value rolls back to v2.
+func parseAsyncGameplayRulesVersion(value string) int {
+	switch value {
+	case "", "4":
+		return TacticalV4RulesVersion
+	case "3":
+		return TacticalRulesVersion
+	default:
+		return 2
+	}
+}
+
+func negotiatedAsyncRulesUpTo(supported []int, ceiling int) int {
+	for version := ceiling; version >= 3; version-- {
 		for _, v := range supported {
-			if v == 3 {
-				return 3
+			if v == version {
+				return version
 			}
 		}
 	}
@@ -63,7 +92,7 @@ func findDispatchRoute(state GameState, sourceID, targetID string, owner Team) [
 	if !a || !b || sourceID == targetID || source.Owner != owner {
 		return nil
 	}
-	if state.GameplayRulesVersion != 3 {
+	if !usesTacticalRules(state.GameplayRulesVersion) {
 		return []string{sourceID, targetID}
 	}
 	if target.Owner != owner {

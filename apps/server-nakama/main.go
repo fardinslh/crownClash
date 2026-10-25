@@ -162,7 +162,7 @@ func loadServerConfig(initializer runtime.Initializer) {
 	serverConfig.AllowGuestAuth = false
 	serverConfig.InitDataMaxAge = 86400
 	serverConfig.TwoVTwoRollout = map[string]int{}
-	asyncGameplayRulesVersion = 3
+	asyncGameplayRulesVersion = TacticalV4RulesVersion
 
 	if config, err := initializer.GetConfig(); err == nil {
 		env := make(map[string]string)
@@ -180,9 +180,7 @@ func loadServerConfig(initializer runtime.Initializer) {
 		pilotRuntime.WebhookSecret = env["BALE_PAYMENT_WEBHOOK_SECRET"]
 		pilotRuntime.RefundSecret = env["COIN_REFUND_OPERATOR_SECRET"]
 		serverConfig.AllowGuestAuth = env["ALLOW_GUEST_AUTH"] == "true"
-		if value := env["ASYNC_GAMEPLAY_RULES_VERSION"]; value != "" && value != "3" {
-			asyncGameplayRulesVersion = 2
-		}
+		asyncGameplayRulesVersion = parseAsyncGameplayRulesVersion(env["ASYNC_GAMEPLAY_RULES_VERSION"])
 		serverConfig.Enable2v2 = env["ENABLE_2V2"] == "true"
 		for _, platform := range supportedRolloutPlatforms {
 			key := "ENABLE_2V2_ROLLOUT_" + strings.ToUpper(platform)
@@ -513,7 +511,7 @@ func rpcStartBotMatch(store *Store) rpcFn {
 		if payload != "" {
 			decoder := json.NewDecoder(strings.NewReader(payload))
 			decoder.DisallowUnknownFields()
-			if len(payload) > 1024 || !json.Valid([]byte(payload)) || decoder.Decode(&request) != nil || len(request.SupportedGameplayRulesVersions) > 3 {
+			if len(payload) > 1024 || !json.Valid([]byte(payload)) || decoder.Decode(&request) != nil || len(request.SupportedGameplayRulesVersions) > 4 {
 				return "", errors.New("invalid_payload")
 			}
 		}

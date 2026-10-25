@@ -39,7 +39,7 @@ it('starts the next public opponent and uses explicit practice only when none ex
  const ticket={matchId:'realm_next'};request.mockResolvedValueOnce({}).mockResolvedValueOnce(ticket);
  const practice=vi.fn().mockResolvedValue({matchId:'practice_next'});
  expect(await new PilotClient(platform).nextMatch(practice)).toEqual({botMatch:ticket,realmTicket:ticket});
- expect(request.mock.calls[1]).toEqual(['attack/start',{source:'ranked',supportedGameplayRulesVersions:[1,2,3]}]);expect(practice).not.toHaveBeenCalled();
+ expect(request.mock.calls[1]).toEqual(['attack/start',{source:'ranked',supportedGameplayRulesVersions:[1,2,3,4]}]);expect(practice).not.toHaveBeenCalled();
  request.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('no_realm_opponent'));
  expect(await new PilotClient(platform).nextMatch(practice)).toEqual({botMatch:{matchId:'practice_next'}});expect(practice).toHaveBeenCalledOnce();
 });

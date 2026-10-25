@@ -1,5 +1,5 @@
 import { getBattlefield } from './battlefields.js';
-import { TACTICAL_CONFIG } from './gameplay-rules.js';
+import { TACTICAL_CONFIG, usesTacticalRules } from './gameplay-rules.js';
 import type { GameState, MarchingArmy, Team, Territory } from './types.js';
 
 export const TACTICAL_SUPPORTS = {
@@ -16,7 +16,7 @@ export function tacticalNeighbors(state: GameState, id: string): string[] {
 export function findDispatchRoute(state: GameState, sourceId: string, targetId: string, owner: Team): string[] | null {
   const source = state.territories[sourceId], target = state.territories[targetId];
   if (!source || !target || sourceId === targetId || source.owner !== owner) return null;
-  if (state.gameplayRulesVersion !== 3) return [sourceId, targetId];
+  if (!usesTacticalRules(state.gameplayRulesVersion)) return [sourceId, targetId];
   if (target.owner !== owner) return tacticalNeighbors(state, sourceId).includes(targetId) ? [sourceId, targetId] : null;
   const queue = [{ id: sourceId, cost: 0, path: [sourceId] }];
   const visited = new Set<string>();

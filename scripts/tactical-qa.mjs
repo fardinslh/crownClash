@@ -48,9 +48,9 @@ for(const [width,height] of [[360,640],[390,844]]){
   await wait(`!!document.querySelector('.bot-difficulty-overlay')`);
   await evaluate(`document.querySelector('[data-difficulty=normal]').click();document.querySelector('.bot-difficulty-play').click()`);
   await wait(`${game}.scene.isActive('GameScene') && ${scene}.territoryVisuals.size>0`);
-  const state=await evaluate(`${scene}.gameState`);assert.equal(state.gameplayRulesVersion,3);
+  const state=await evaluate(`${scene}.gameState`);assert.equal(state.gameplayRulesVersion,4);
   const matchId=await evaluate(`${scene}.activeMatchId`);assert.match(matchId,/^bot_[a-f0-9]{32}$/);
-  assert.equal(sql(`SELECT gameplay_rules_version FROM bot_matches WHERE match_id='${matchId}' AND player_id='${session.user_id}'`),'3');
+  assert.equal(sql(`SELECT gameplay_rules_version FROM bot_matches WHERE match_id='${matchId}' AND player_id='${session.user_id}'`),'4');
   await drag('p_base','e_base','illegal-attack');assert.equal(await evaluate(`${scene}.matchActions.length`),0);
   const roads=maps.find(m=>m.id===state.battlefieldId).roads;
   const adjacent=roads.flatMap(([a,b])=>a==='p_base'?[b]:b==='p_base'?[a]:[]);

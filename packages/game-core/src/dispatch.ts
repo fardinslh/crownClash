@@ -1,6 +1,7 @@
 import { GameState, MarchingArmy, Team, Territory } from './types.js';
 import { findDispatchRoute, setArmyLeg } from './tactical-routes.js';
 import { getTerritoryArmySpeedMultiplier } from './territory-types.js';
+import { usesTacticalRules } from './gameplay-rules.js';
 
 export interface DispatchResult {
   success: boolean;
@@ -89,7 +90,7 @@ export function dispatchArmy(
   return {
     success: true,
     sourceTerritory: updatedSource,
-    army: state?.gameplayRulesVersion === 3
+    army: state && usesTacticalRules(state.gameplayRulesVersion)
       ? setArmyLeg({ ...army, routeIds: route, routeSpeedMultiplier: safeSpeedMultiplier * sourceSpeedMultiplier }, source, state.territories[route[1]], 0)
       : army,
   };

@@ -80,7 +80,7 @@ func (s *Store) CreatePilotPracticeWithDifficulty(ctx context.Context, user, dif
 	}
 	_, mods := realmModifiers(combatLevels(c), combatLevels(c), c.SelectedCommanderID, "bounded")
 	now := s.nowFn().UnixMilli()
-	ticket := BotMatchTicket{BotDifficulty: difficulty, MatchID: id, BattlefieldID: "crown_cross", GameplayRulesVersion: negotiatedAsyncRules(supported), PlayerModifiers: &mods, ExpiresAt: now + realmTicketLifetimeMs}
+	ticket := BotMatchTicket{BotDifficulty: difficulty, MatchID: id, BattlefieldID: "crown_cross", GameplayRulesVersion: negotiatedAsyncRulesUpTo(supported, min(asyncGameplayRulesVersion, TacticalRulesVersion)), PlayerModifiers: &mods, ExpiresAt: now + realmTicketLifetimeMs}
 	p := pilotPractice{RewardTreasuryLevel: c.TreasuryLevel, Ticket: ticket, CreatedAt: now, ExpiresAt: ticket.ExpiresAt, Modifiers: mods}
 	raw, err := json.Marshal(p)
 	if err != nil {

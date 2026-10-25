@@ -6,7 +6,7 @@ assert.ok(process.env.TEST_POSTGRES_DSN, 'real PostgreSQL is required for the se
 const controls = [
   { file:'apps/game/src/scenes/GameScene.ts', from:'chooseBotDifficulty(this).then', to:"Promise.resolve('normal' as const).then", command:'npm', args:['--workspace=apps/game','test','--','src/scenes/__tests__/GameSceneInitializationParity.test.ts','-t','first bot match waits'], expected:'first bot match waits for a difficulty choice' },
   { file:'packages/game-core/src/bot-difficulty.ts', from:"case 'easy': return 3.6;", to:"case 'easy': return 1.8;", command:'npm', args:['--workspace=packages/game-core','test','--','src/__tests__/bot-difficulty.test.ts'], expected:'changes reaction time' },
-  { file:'apps/game/src/api/NakamaClient.ts', from:'JSON.stringify({ botDifficulty, supportedGameplayRulesVersions: [1, 2, 3] })', to:'JSON.stringify({ supportedGameplayRulesVersions: [1, 2, 3] })', command:'npm', args:['--workspace=apps/game','test','--','src/api/__tests__/NakamaClient.test.ts'], expected:'sends the selected bot level' },
+  { file:'apps/game/src/api/NakamaClient.ts', from:'JSON.stringify({ botDifficulty, supportedGameplayRulesVersions: [1, 2, 3, 4] })', to:'JSON.stringify({ supportedGameplayRulesVersions: [1, 2, 3] })', command:'npm', args:['--workspace=apps/game','test','--','src/api/__tests__/NakamaClient.test.ts'], expected:'sends the selected bot level' },
   { file:'apps/server-nakama/store.go', from:'battlefieldID, rulesVersion, difficulty)', to:'battlefieldID, rulesVersion, "normal")', command:'go', args:['test','-count=1','-run','^TestBotDifficultyPostgresTicketsAndSettlement$','.'], cwd:'apps/server-nakama', expected:'settlement ignored pinned difficulty' },
 ];
 const evidence = [];

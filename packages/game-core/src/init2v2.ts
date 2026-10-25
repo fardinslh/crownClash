@@ -67,7 +67,7 @@ export function createInitial2v2GameState(
 ): GameState {
   validateSpawnAssignments(options);
   const version = validateGameplayRulesVersion(options.gameplayRulesVersion ?? GAMEPLAY_RULES_VERSION);
-  if (version === 3) throw new Error('unsupported_gameplay_rules_version');
+  if (version >= 3) throw new Error('unsupported_gameplay_rules_version');
 
   const territories: Record<string, Territory> = {};
   for (const [id, territory] of Object.entries(options.territories)) {

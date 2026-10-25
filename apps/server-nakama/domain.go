@@ -758,7 +758,7 @@ func dispatchArmy(state *GameState, sourceID, targetID string, owner Team, multi
 		StartX: source.X, StartY: source.Y, TargetX: target.X, TargetY: target.Y,
 		Speed: 1 / duration, Distance: distance,
 	}
-	if state.GameplayRulesVersion == 3 {
+	if usesTacticalRules(state.GameplayRulesVersion) {
 		army.RouteIDs = route
 		army.RouteSpeedMultiplier = multiplier * territoryArmySpeedMultiplier(source.Type)
 		army = setArmyLeg(army, source, state.Territories[route[1]], 0)
@@ -841,7 +841,7 @@ func stepSimulation(state GameState, accumulators map[string]float64, delta floa
 	remaining := make([]MarchingArmy, 0, len(state.Armies))
 	for _, army := range state.Armies {
 		nextProgress := army.Progress + army.Speed*delta
-		if state.GameplayRulesVersion == 3 {
+		if usesTacticalRules(state.GameplayRulesVersion) {
 			var arrived bool
 			army, arrived = advanceRoutedArmy(army, state.Territories, delta)
 			nextProgress = army.Progress
@@ -1033,7 +1033,7 @@ func simulateBotBattleWithDifficulty(actions []PvpAction, player, enemy PlayerUp
 	}
 	state := CreateInitialGameStateForBattlefield(player, enemy, battlefieldID)
 	state.GameplayRulesVersion = rulesVersion
-	if rulesVersion == 3 {
+	if usesTacticalRules(rulesVersion) {
 		if battlefieldID == "quad_citadel" {
 			return GameState{}, PvpBattleSummary{}, errors.New("tactical_rules_require_1v1")
 		}
@@ -1078,7 +1078,7 @@ func simulateBotBattleWithDifficulty(actions []PvpAction, player, enemy PlayerUp
 		if state.Status != "playing" {
 			return
 		}
-		if state.GameplayRulesVersion == 3 {
+		if usesTacticalRules(state.GameplayRulesVersion) {
 			for _, move := range evaluateTacticalMoves(state, TeamEnemy, enemy.ArmySpeedMultiplier) {
 				_ = dispatchArmy(&state, move.FromID, move.ToID, TeamEnemy, enemy.ArmySpeedMultiplier, "pvp_ai_"+itoa(int64(aiActionIndex)))
 				aiActionIndex++
