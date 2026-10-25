@@ -77,19 +77,11 @@ The smoke test requires the Docker services to be running.
 
 Configure these independently on the Mac:
 
-- Graphify installation and Google API key;
 - Dokploy MCP endpoint and credential;
 - Bale and Telegram bot tokens when real authentication testing is required;
 - GitHub and server SSH private keys;
 - Cloudflare or DNS credentials;
 - any other MCP tokens.
-
-The Graphify hook uses `graphify` from `PATH`, so confirm this succeeds after installation:
-
-```bash
-graphify --help
-graphify update .
-```
 
 ## Normal work cycle
 

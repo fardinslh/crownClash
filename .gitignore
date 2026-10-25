@@ -20,14 +20,6 @@ coverage/
 # Existing tracked reports remain available in Git.
 qa-artifacts/
 
-# Graphify dated backups, extraction caches and internal learning state.
-graphify-out/20??-??-??/
-graphify-out/cache/
-graphify-out/memory/
-graphify-out/reflections/
-graphify-out/.graphify_learning.json
-graphify-out/.graphify_python
-graphify-out/.vocab.txt
 scenarios.json
 
 # Generated Blender output and Python caches; keep source scripts and assets.

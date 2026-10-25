@@ -419,11 +419,9 @@ Work on one explicitly defined task at a time.
 ## TOOLING DISCIPLINE
 
 - Use `rg` / `rg --files` for focused searches and known-file work.
-- Use Graphify only for unfamiliar architecture, cross-system relationships, or broad impact analysis.
-- Query an existing graph before rebuilding it. Run `graphify update .` only after meaningful architectural changes or when explicitly required.
-- Never commit dated Graphify backups, extraction caches, or temporary browser profiles.
+- Never commit temporary browser profiles.
 - Use RTK for commands with large output, such as full tests and large diffs. Prefer direct PowerShell or the underlying command for short operations or when RTK harms quoting or clarity.
-- Keep all `qa-artifacts/chrome-*` browser profiles outside Git and Graphify input.
+- Keep all `qa-artifacts/chrome-*` browser profiles outside Git.
 
 Do not opportunistically add unrelated features.
 
