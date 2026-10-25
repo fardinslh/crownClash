@@ -1015,9 +1015,11 @@ var analyticsEventDefinitions = map[string]analyticsEventDefinition{
 	"commander_selected":         {properties: analyticsProperties("commanderId")},
 	"rank_promoted":              {properties: analyticsProperties("matchId")},
 	"live_queue_joined":          {properties: map[string]analyticsPropertyKind{}},
+	"live_queue_2v2_joined":      {properties: map[string]analyticsPropertyKind{}},
 	"live_invite_created":        {properties: map[string]analyticsPropertyKind{}},
 	"live_invite_joined":         {properties: map[string]analyticsPropertyKind{}},
-	"live_match_started":         {properties: analyticsProperties("matchId")},
+	"share_opened":               {properties: analyticsProperties("source")},
+	"live_match_started":         {properties: analyticsProperties("matchId"), optionalProperties: analyticsProperties("mode")},
 	"live_match_ended":           {properties: analyticsProperties("matchId", "status")},
 	"live_match_disconnected":    {properties: analyticsProperties("matchId")},
 	"tutorial_started":           {properties: map[string]analyticsPropertyKind{}},
@@ -1029,6 +1031,9 @@ var analyticsEventDefinitions = map[string]analyticsEventDefinition{
 	"tutorial_leave_requested":   {properties: map[string]analyticsPropertyKind{}},
 	"tutorial_leave_cancelled":   {properties: map[string]analyticsPropertyKind{}},
 }
+
+// tutorialStepIDs mirrors TUTORIAL_STEPS in the game client.
+var tutorialStepIDs = []string{"drag_to_attack", "preview_result", "tower_roles", "multi_dispatch", "destroy_base"}
 
 func analyticsProperties(keys ...string) map[string]analyticsPropertyKind {
 	properties := make(map[string]analyticsPropertyKind, len(keys))
@@ -1222,12 +1227,19 @@ func hasValidAnalyticsPropertyEnums(event AnalyticsEventRecord) bool {
 	case "upgrade_purchase_failed":
 		return oneOf(value("upgradeType"), "starting_garrison", "production", "army_speed", "treasury") &&
 			oneOf(value("reason"), "insufficient_coins", "max_level")
+	case "share_opened":
+		return oneOf(value("source"), "live_invite", "result", "result_2v2")
+	case "live_match_started":
+		if _, present := event.Props["mode"]; !present {
+			return true
+		}
+		return oneOf(value("mode"), "1v1", "2v2")
 	case "live_match_ended":
 		return oneOf(value("status"), "victory", "defeat", "draw")
 	case "tutorial_step_completed":
-		return oneOf(value("stepId"), "drag_to_attack", "preview_result", "tower_roles", "multi_dispatch")
+		return oneOf(value("stepId"), tutorialStepIDs...)
 	case "tutorial_skipped":
-		return oneOf(value("lastStepId"), "drag_to_attack", "preview_result", "tower_roles", "multi_dispatch")
+		return oneOf(value("lastStepId"), tutorialStepIDs...)
 	case "commander_selected":
 		return oneOf(value("commanderId"), "crown_guard", "quartermaster", "vanguard")
 	default:

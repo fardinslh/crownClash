@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"regexp"
 	"testing"
 
@@ -224,7 +225,7 @@ func TestAnalyticsPayloadAcceptsLeagueEvents(t *testing.T) {
 }
 
 func TestAnalyticsPayloadAcceptsTutorialEvents(t *testing.T) {
-	steps := []string{"drag_to_attack", "preview_result", "tower_roles", "multi_dispatch"}
+	steps := []string{"drag_to_attack", "preview_result", "tower_roles", "multi_dispatch", "destroy_base"}
 	var eventRecords []AnalyticsEventRecord
 
 	eventRecords = append(eventRecords, analyticsTestEvent("tutorial_started", map[string]any{}))
@@ -832,6 +833,77 @@ func TestAnalyticsPayloadRejectsInvalidMatchQuitShapes(t *testing.T) {
 			analyticsTestEvent("match_quit", caseItem.props),
 		}), analyticsTestNow); err == nil {
 			t.Fatalf("match_quit case %q must be rejected", caseItem.name)
+		}
+	}
+}
+
+// The analytics sink retries a rejected batch, so one event the server does
+// not know blocks every later event. Keep the server schema in step with
+// the client's event names and tutorial step ids.
+func TestAnalyticsSchemaCoversClientEvents(t *testing.T) {
+	read := func(path string) string {
+		source, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		return string(source)
+	}
+	analyticsSource := read("../game/src/analytics/Analytics.ts")
+	namesBlock := regexp.MustCompile(`(?s)const EVENT_NAMES[^=]*= new Set\(\[(.*?)\]\)`).FindStringSubmatch(analyticsSource)
+	if namesBlock == nil {
+		t.Fatal("EVENT_NAMES not found in client Analytics.ts")
+	}
+	names := regexp.MustCompile(`'([a-z0-9_]+)'`).FindAllStringSubmatch(namesBlock[1], -1)
+	if len(names) == 0 {
+		t.Fatal("no client event names parsed")
+	}
+	for _, match := range names {
+		if _, ok := analyticsEventDefinitions[match[1]]; !ok {
+			t.Errorf("client event %q is not accepted by the server", match[1])
+		}
+	}
+
+	tutorialSource := read("../game/src/tutorial/TutorialController.ts")
+	stepsBlock := regexp.MustCompile(`(?s)export const TUTORIAL_STEPS = \[(.*?)\]`).FindStringSubmatch(tutorialSource)
+	if stepsBlock == nil {
+		t.Fatal("TUTORIAL_STEPS not found in client TutorialController.ts")
+	}
+	for _, match := range regexp.MustCompile(`'([a-z_]+)'`).FindAllStringSubmatch(stepsBlock[1], -1) {
+		for _, event := range []AnalyticsEventRecord{
+			analyticsTestEvent("tutorial_step_completed", map[string]any{"stepId": match[1]}),
+			analyticsTestEvent("tutorial_skipped", map[string]any{"lastStepId": match[1]}),
+		} {
+			if err := validateAnalyticsEvent(event, analyticsTestNow); err != nil {
+				t.Errorf("%s with step %q rejected: %v", event.Name, match[1], err)
+			}
+		}
+	}
+}
+
+func TestAnalyticsLiveMatchStartedAcceptsOptionalMode(t *testing.T) {
+	for _, props := range []map[string]any{
+		{"matchId": "m1"},
+		{"matchId": "m1", "mode": "1v1"},
+		{"matchId": "m1", "mode": "2v2"},
+	} {
+		if err := validateAnalyticsEvent(analyticsTestEvent("live_match_started", props), analyticsTestNow); err != nil {
+			t.Errorf("props %v rejected: %v", props, err)
+		}
+	}
+	if err := validateAnalyticsEvent(analyticsTestEvent("live_match_started", map[string]any{"matchId": "m1", "mode": "3v3"}), analyticsTestNow); err == nil {
+		t.Error("unknown live mode accepted")
+	}
+}
+
+func TestAnalyticsShareOpenedSources(t *testing.T) {
+	for _, source := range []string{"live_invite", "result", "result_2v2"} {
+		if err := validateAnalyticsEvent(analyticsTestEvent("share_opened", map[string]any{"source": source}), analyticsTestNow); err != nil {
+			t.Errorf("source %q rejected: %v", source, err)
+		}
+	}
+	for _, props := range []map[string]any{{}, {"source": "spam"}} {
+		if err := validateAnalyticsEvent(analyticsTestEvent("share_opened", props), analyticsTestNow); err == nil {
+			t.Errorf("props %v accepted", props)
 		}
 	}
 }

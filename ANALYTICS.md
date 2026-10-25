@@ -23,9 +23,11 @@ derives player identity from authentication and records receipt time separately.
 | `commander_selected` | Server confirms a commander selection | `commanderId` | Server-confirmed selection | Loadout adoption |
 | `rank_promoted` | A settled match crosses a rank boundary | Client: `matchId`. Server: `rankId`, `resultingTrophies` | Server-confirmed settlement | Rank progression |
 | `live_queue_joined` | Server accepts queue entry | None | Server-confirmed client response | Live queue starts |
+| `live_queue_2v2_joined` | Server accepts 2v2 queue entry | None | Server-confirmed client response | 2v2 queue starts |
 | `live_invite_created` | Server creates and joins invite | None | Server-confirmed client response | Invite creation |
 | `live_invite_joined` | Server accepts invite join | None | Server-confirmed client response | Invite conversion |
-| `live_match_started` | Nakama match starts | `matchId` | Nakama match event | Live matches started |
+| `share_opened` | Player taps a share button (before the platform share sheet) | `source` (`live_invite`, `result`, `result_2v2`) | Client action | Share intent per surface |
+| `live_match_started` | Nakama match starts | `matchId`, optional `mode` (`1v1`, `2v2`) | Nakama match event | Live matches started |
 | `live_match_ended` | Server live result arrives | `matchId`, `status` | Server-confirmed result | Live completion and win rate |
 | `live_match_disconnected` | Connection ends before a result | `matchId` | Client connection state | Live connection reliability |
 | `tutorial_started` | First-time player enters the guided training battle | None | Client action | Onboarding start |
