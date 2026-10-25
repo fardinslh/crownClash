@@ -137,6 +137,9 @@ type PvpAction struct {
 	AtSeconds float64 `json:"atSeconds"`
 	SourceID  string  `json:"sourceId"`
 	TargetID  string  `json:"targetId"`
+	// Kind is empty for an ordinary dispatch or "ability" for the v4
+	// commander ability (self-targeted abilities use TargetID == SourceID).
+	Kind string `json:"kind,omitempty"`
 }
 
 type BotMatchTicket struct {
@@ -146,6 +149,9 @@ type BotMatchTicket struct {
 	GameplayRulesVersion int                     `json:"gameplayRulesVersion"`
 	MatchID              string                  `json:"matchId"`
 	BattlefieldID        string                  `json:"battlefieldId"`
+	// CommanderID is set on v4 tickets: the commander whose ability the
+	// settlement replays (captured server-side at ticket issue).
+	CommanderID string `json:"commanderId,omitempty"`
 }
 
 type PvpDefenseSnapshot struct {
@@ -337,4 +343,7 @@ type GameState struct {
 	Stats                MatchStats           `json:"stats"`
 	GameplayRulesVersion int                  `json:"gameplayRulesVersion,omitempty"`
 	ProductionReadyAtMs  map[string]int64     `json:"productionReadyAtMs,omitempty"`
+	// v4 royal shield: territory id -> match ms until which defence is boosted.
+	ShieldedUntilMs   map[string]int64 `json:"shieldedUntilMs,omitempty"`
+	PlayerAbilityUsed bool             `json:"playerAbilityUsed,omitempty"`
 }

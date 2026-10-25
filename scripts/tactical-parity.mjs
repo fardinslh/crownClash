@@ -47,6 +47,27 @@ for (const battlefieldId of ['crown_cross', 'twin_passes', 'royal_ring']) for (c
   const id = `${battlefieldId}-v${version}-${upgraded}-${botDifficulty}`;
   cases.push({ id, replay }); expected[id] = core.simulatePvpBattle(replay);
 }
+// v4 commander abilities: every commander, early/mid/late use, mixed with
+// ordinary dispatches and a duplicate (ignored) second use.
+for (const battlefieldId of ['crown_cross', 'twin_passes', 'royal_ring']) for (const commanderId of ['crown_guard', 'quartermaster', 'vanguard']) for (const abilityAt of [15, 31.3, 62]) {
+  const map = core.getBattlefield(battlefieldId);
+  const ids = map.territories.map(t => t.id);
+  const neighbours = map.roads.flatMap(([a, b]) => a === 'p_base' ? [b] : b === 'p_base' ? [a] : []);
+  const abilityTarget = commanderId === 'vanguard' ? neighbours[0] : 'p_base';
+  const actions = [];
+  for (let i = 0; i < 60; i++) {
+    const atSeconds = i * 1.2;
+    if (actions.every(a => a.kind !== 'ability') && atSeconds >= abilityAt) {
+      actions.push({ sequence: actions.length, atSeconds: abilityAt, sourceId: 'p_base', targetId: abilityTarget, kind: 'ability' });
+      actions.push({ sequence: actions.length, atSeconds: abilityAt + .5, sourceId: 'p_base', targetId: abilityTarget, kind: 'ability' });
+    }
+    actions.push({ sequence: actions.length, atSeconds, sourceId: ids[(i * 3) % ids.length], targetId: ids[(i * 7 + 1) % ids.length] });
+  }
+  actions.sort((a, b) => a.atSeconds - b.atSeconds).forEach((a, i) => { a.sequence = i; });
+  const replay = { botDifficulty: 'normal', battlefieldId, gameplayRulesVersion: 4, playerModifiers: mods, enemyModifiers: mods, actions, commanderId };
+  const id = `${battlefieldId}-v4-ability-${commanderId}-${abilityAt}`;
+  cases.push({ id, replay }); expected[id] = core.simulatePvpBattle(replay);
+}
 function normalized(value) {
   if (Array.isArray(value)) return value.map(normalized);
   if (value && typeof value === 'object') {

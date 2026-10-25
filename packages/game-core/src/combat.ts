@@ -8,7 +8,8 @@ import { getRemainingDefenders, getTerritoryDefenseStrength } from './territory-
 export function resolveArrival(
   target: Territory,
   incomingUnits: number,
-  attackerOwner: Team
+  attackerOwner: Team,
+  defenseBonus = 1
 ): CombatResult {
   if (incomingUnits <= 0) {
     return {
@@ -44,7 +45,7 @@ export function resolveArrival(
   }
 
   // Case 2: Hostile territory (Enemy or Neutral) -> Combat
-  const defenseStrength = getTerritoryDefenseStrength(target);
+  const defenseStrength = getTerritoryDefenseStrength(target, defenseBonus);
 
   if (incomingUnits > defenseStrength) {
     // Attacker overpowers defender: territory is captured!
@@ -64,7 +65,7 @@ export function resolveArrival(
 
   if (incomingUnits < defenseStrength) {
     // Defender repels the attack with remaining units
-    const remainingUnits = getRemainingDefenders(target.type, defenseStrength - incomingUnits);
+    const remainingUnits = getRemainingDefenders(target.type, defenseStrength - incomingUnits, defenseBonus);
     return {
       targetId: target.id,
       attackerOwner,

@@ -74,6 +74,10 @@ export interface GameState {
   /** Missing on historical snapshots: version 1 (instant production after capture). */
   gameplayRulesVersion?: import('./gameplay-rules.js').GameplayRulesVersion;
   productionReadyAtMs?: Record<string, number>;
+  /** v4 royal shield: territory id -> integer match-ms until which its defence is boosted. */
+  shieldedUntilMs?: Record<string, number>;
+  /** v4: the player's one commander ability has been used. */
+  playerAbilityUsed?: boolean;
   battlefieldId?: import('./battlefields.js').BattlefieldId;
   territories: Record<string, Territory>;
   armies: MarchingArmy[];

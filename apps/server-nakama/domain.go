@@ -291,6 +291,7 @@ var ErrPvpActionAfterBattleEnd = errors.New("action_after_battle_end")
 var ErrPvpInvalidSource = errors.New("invalid_source")
 var ErrPvpInvalidTarget = errors.New("invalid_target")
 var ErrPvpInvalidDispatch = errors.New("invalid_dispatch")
+var ErrPvpInvalidActionKind = errors.New("invalid_action_kind")
 
 func CreateDefaultCareer(playerID string) PlayerCareer {
 	return PlayerCareer{PlayerID: playerID, Coins: 100, Gems: 10, SelectedCommanderID: "crown_guard"}
@@ -665,10 +666,14 @@ func CreateInitialGameStateForBattlefield(player, enemy PlayerUpgradeModifiers, 
 }
 
 func calculateDispatchUnits(units int) int {
+	return calculateDispatchUnitsWithRatio(units, 0.5)
+}
+
+func calculateDispatchUnitsWithRatio(units int, ratio float64) int {
 	if units <= 1 {
 		return 0
 	}
-	return maxInt(1, int(math.Floor(float64(units)*0.5)))
+	return maxInt(1, int(math.Floor(float64(units)*ratio)))
 }
 
 type combatResult struct {
@@ -691,11 +696,17 @@ func territoryDefenseMultiplier(territoryType TerritoryType) float64 {
 }
 
 func territoryDefenseStrength(territory Territory) int {
-	return int(math.Ceil(float64(territory.Units) * territoryDefenseMultiplier(territory.Type)))
+	return territoryDefenseStrengthWithBonus(territory, 1)
 }
 
-func remainingDefenders(territoryType TerritoryType, effectiveUnits int) int {
-	return int(math.Ceil(float64(effectiveUnits) / territoryDefenseMultiplier(territoryType)))
+// bonus is an extra defence multiplier (the v4 royal shield); 1 keeps the
+// base rule. The product is formed first, matching the TypeScript engine.
+func territoryDefenseStrengthWithBonus(territory Territory, bonus float64) int {
+	return int(math.Ceil(float64(territory.Units) * (territoryDefenseMultiplier(territory.Type) * bonus)))
+}
+
+func remainingDefenders(territoryType TerritoryType, effectiveUnits int, bonus float64) int {
+	return int(math.Ceil(float64(effectiveUnits) / (territoryDefenseMultiplier(territoryType) * bonus)))
 }
 
 func territoryProductionMultiplier(territoryType TerritoryType) float64 {
@@ -713,20 +724,28 @@ func territoryArmySpeedMultiplier(territoryType TerritoryType) float64 {
 }
 
 func resolveArrival(target Territory, incoming int, attacker Team) combatResult {
+	return resolveArrivalWithBonus(target, incoming, attacker, 1)
+}
+
+func resolveArrivalWithBonus(target Territory, incoming int, attacker Team, defenseBonus float64) combatResult {
 	if incoming <= 0 {
 		return combatResult{newOwner: target.Owner, remaining: target.Units}
 	}
 	if attacker == target.Owner {
 		return combatResult{newOwner: target.Owner, remaining: target.Units + incoming}
 	}
-	defenseStrength := territoryDefenseStrength(target)
+	defenseStrength := territoryDefenseStrengthWithBonus(target, defenseBonus)
 	if incoming > defenseStrength {
 		return combatResult{newOwner: attacker, remaining: incoming - defenseStrength, captured: true}
 	}
-	return combatResult{newOwner: target.Owner, remaining: remainingDefenders(target.Type, defenseStrength-incoming)}
+	return combatResult{newOwner: target.Owner, remaining: remainingDefenders(target.Type, defenseStrength-incoming, defenseBonus)}
 }
 
 func dispatchArmy(state *GameState, sourceID, targetID string, owner Team, multiplier float64, id string) error {
+	return dispatchArmyWithRatio(state, sourceID, targetID, owner, multiplier, id, 0.5)
+}
+
+func dispatchArmyWithRatio(state *GameState, sourceID, targetID string, owner Team, multiplier float64, id string, ratio float64) error {
 	source, ok := state.Territories[sourceID]
 	if !ok {
 		return ErrPvpInvalidSource
@@ -742,7 +761,7 @@ func dispatchArmy(state *GameState, sourceID, targetID string, owner Team, multi
 	if route == nil {
 		return ErrPvpInvalidDispatch
 	}
-	units := calculateDispatchUnits(source.Units)
+	units := calculateDispatchUnitsWithRatio(source.Units, ratio)
 	if units <= 0 {
 		return ErrPvpInvalidDispatch
 	}
@@ -852,7 +871,11 @@ func stepSimulation(state GameState, accumulators map[string]float64, delta floa
 		if nextProgress >= 1 {
 			target, exists := state.Territories[army.TargetID]
 			if exists {
-				combat := resolveArrival(target, army.Units, army.Owner)
+				defenseBonus := 1.0
+				if state.ShieldedUntilMs[target.ID] > int64(math.Round(state.ElapsedTimeSeconds*1000)) {
+					defenseBonus = abilityShieldDefenseMultiplier
+				}
+				combat := resolveArrivalWithBonus(target, army.Units, army.Owner, defenseBonus)
 				target.Owner = combat.newOwner
 				target.Units = combat.remaining
 				state.Territories[army.TargetID] = target
@@ -1010,6 +1033,12 @@ func simulateBattleWithRules(actions []PvpAction, player, enemy PlayerUpgradeMod
 }
 
 func simulateBotBattleWithDifficulty(actions []PvpAction, player, enemy PlayerUpgradeModifiers, battlefieldID string, rulesVersion int, difficulty string) (GameState, PvpBattleSummary, error) {
+	return simulateBotBattleWithCommander(actions, player, enemy, battlefieldID, rulesVersion, difficulty, "")
+}
+
+// simulateBotBattleWithCommander replays a bot match; commanderID is the
+// ticket's server-stored commander and enables its v4 ability.
+func simulateBotBattleWithCommander(actions []PvpAction, player, enemy PlayerUpgradeModifiers, battlefieldID string, rulesVersion int, difficulty, commanderID string) (GameState, PvpBattleSummary, error) {
 	difficulty, err := normalizeBotDifficulty(difficulty)
 	if err != nil {
 		return GameState{}, PvpBattleSummary{}, err
@@ -1025,6 +1054,9 @@ func simulateBotBattleWithDifficulty(actions []PvpAction, player, enemy PlayerUp
 	for index, action := range actions {
 		if action.Sequence != index {
 			return GameState{}, PvpBattleSummary{}, ErrPvpInvalidSequence
+		}
+		if action.Kind != "" && action.Kind != pvpActionKindAbility {
+			return GameState{}, PvpBattleSummary{}, ErrPvpInvalidActionKind
 		}
 		if !isFinite(action.AtSeconds) || action.AtSeconds < 0 || action.AtSeconds > PvpTimeLimitSeconds || action.AtSeconds < previousTime {
 			return GameState{}, PvpBattleSummary{}, ErrPvpInvalidTimestamp
@@ -1103,6 +1135,13 @@ func simulateBotBattleWithDifficulty(actions []PvpAction, player, enemy PlayerUp
 		stepTo(action.AtSeconds)
 		if state.Status != "playing" {
 			break
+		}
+		if action.Kind == pvpActionKindAbility {
+			// Illegal ability uses are ignored, like illegal dispatches.
+			if applyPlayerAbility(&state, commanderID, action.SourceID, action.TargetID, player.ArmySpeedMultiplier, "pvp_player_"+itoa(int64(action.Sequence))) {
+				actionsProcessed++
+			}
+			continue
 		}
 		if err := dispatchArmy(&state, action.SourceID, action.TargetID, TeamPlayer, player.ArmySpeedMultiplier, "pvp_player_"+itoa(int64(action.Sequence))); err != nil {
 			continue

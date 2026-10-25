@@ -6,6 +6,8 @@ import { createInitialGameState, stepSimulation } from './simulation.js';
 import type { PlayerUpgradeModifiers } from './upgrades.js';
 import type { GameState, MatchStats } from './types.js';
 import type { BattlefieldId } from './battlefields.js';
+import { applyPlayerAbility } from './abilities.js';
+import type { CommanderId } from './commanders.js';
 
 export const PVP_TIME_LIMIT_SECONDS = 90;
 import { getBotAiTickSeconds, type BotDifficulty } from './bot-difficulty.js';
@@ -43,6 +45,11 @@ export interface PvpAction {
   atSeconds: number;
   sourceId: string;
   targetId: string;
+  /**
+   * Missing = an ordinary dispatch. 'ability' = the v4 commander ability:
+   * self-targeted abilities use targetId === sourceId.
+   */
+  kind?: 'ability';
 }
 
 export interface PvpDefenseSnapshot {
@@ -94,6 +101,7 @@ export interface PvpAttackResult {
 
 export type PvpSimulationErrorCode =
   | 'too_many_actions'
+  | 'invalid_action_kind'
   | 'invalid_sequence'
   | 'invalid_timestamp'
   | 'action_after_battle_end'
@@ -114,6 +122,8 @@ export interface PvpSimulationOptions {
   enemyModifiers?: PlayerUpgradeModifiers;
   actions: readonly PvpAction[];
   battlefieldId?: BattlefieldId;
+  /** The ticket's (server-stored) commander; enables its v4 ability. */
+  commanderId?: CommanderId;
 }
 
 export interface PvpSimulationResult {
@@ -178,6 +188,9 @@ function validateActions(actions: readonly PvpAction[]): void {
     const action = actions[index];
     if (action.sequence !== index) {
       throw new PvpSimulationError('invalid_sequence');
+    }
+    if (action.kind !== undefined && action.kind !== 'ability') {
+      throw new PvpSimulationError('invalid_action_kind');
     }
     if (
       !Number.isFinite(action.atSeconds) ||
@@ -281,6 +294,17 @@ export function simulatePvpBattle(options: PvpSimulationOptions): PvpSimulationR
 
     stepTo(action.atSeconds);
     if (state.status !== 'playing') break;
+
+    if (action.kind === 'ability') {
+      // Illegal ability uses (wrong rules, already used, too early, not
+      // the player's tower) are ignored, like illegal dispatches.
+      const ability = applyPlayerAbility(
+        state, options.commanderId, action.sourceId, action.targetId,
+        options.playerModifiers?.armySpeedMultiplier ?? 1, `pvp_player_${action.sequence}`,
+      );
+      if (ability) { state = ability.state; actionIndex++; }
+      continue;
+    }
 
     try {
       state = dispatchFromState(

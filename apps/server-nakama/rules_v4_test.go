@@ -1,6 +1,12 @@
 package main
 
-import "testing"
+import (
+	"context"
+	"regexp"
+	"testing"
+
+	"github.com/DATA-DOG/go-sqlmock"
+)
 
 func TestNegotiatedAsyncRulesPicksHighestSharedVersion(t *testing.T) {
 	old := asyncGameplayRulesVersion
@@ -42,5 +48,111 @@ func TestRulesV4CapabilitiesKeepTacticalBehaviour(t *testing.T) {
 	}
 	if hasCommanderAbilities(3) || usesTacticalRules(2) {
 		t.Fatal("older versions must not gain v4 or tactical behaviour")
+	}
+}
+
+func v4AbilityState() GameState {
+	state := CreateInitialGameStateForBattlefield(DefaultModifiers(), DefaultModifiers(), "crown_cross")
+	state.GameplayRulesVersion = TacticalV4RulesVersion
+	applyTacticalOpening(&state, DefaultModifiers(), DefaultModifiers())
+	state.ElapsedTimeSeconds = abilityUnlockSeconds
+	return state
+}
+
+func TestApplyPlayerAbilityRules(t *testing.T) {
+	shield := v4AbilityState()
+	if !applyPlayerAbility(&shield, "crown_guard", "p_base", "p_base", 1, "a") || !shield.PlayerAbilityUsed {
+		t.Fatal("royal shield should apply once")
+	}
+	if shield.ShieldedUntilMs["p_base"] != 15000+abilityShieldDurationMs {
+		t.Fatalf("shield deadline %d", shield.ShieldedUntilMs["p_base"])
+	}
+	if applyPlayerAbility(&shield, "crown_guard", "p_base", "p_base", 1, "b") {
+		t.Fatal("ability must be single use")
+	}
+	base := shield.Territories["p_base"]
+	incoming := base.Units * 3 / 2
+	if !resolveArrival(base, incoming, TeamEnemy).captured || resolveArrivalWithBonus(base, incoming, TeamEnemy, abilityShieldDefenseMultiplier).captured {
+		t.Fatal("shield must turn a capture into a hold")
+	}
+
+	supply := v4AbilityState()
+	before := supply.Territories["p_base"].Units
+	if !applyPlayerAbility(&supply, "quartermaster", "p_base", "p_base", 1, "a") || supply.Territories["p_base"].Units != before+abilitySupplyUnits {
+		t.Fatal("supply drop should add units")
+	}
+
+	charge := v4AbilityState()
+	units := charge.Territories["p_base"].Units
+	if !applyPlayerAbility(&charge, "vanguard", "p_base", "n_bot_left", 1, "c") || charge.Territories["p_base"].Units != 0 || charge.Armies[len(charge.Armies)-1].Units != units {
+		t.Fatal("vanguard charge should send the full garrison")
+	}
+	remote := v4AbilityState()
+	if applyPlayerAbility(&remote, "vanguard", "p_base", "e_base", 1, "c") || remote.PlayerAbilityUsed {
+		t.Fatal("charge must follow the one-road attack rule")
+	}
+
+	early := v4AbilityState()
+	early.ElapsedTimeSeconds = abilityUnlockSeconds - 0.02
+	v3 := v4AbilityState()
+	v3.GameplayRulesVersion = TacticalRulesVersion
+	enemyTower := v4AbilityState()
+	for name, c := range map[string]struct {
+		state     *GameState
+		commander string
+		source    string
+	}{"early": {&early, "quartermaster", "p_base"}, "v3": {&v3, "quartermaster", "p_base"}, "enemy tower": {&enemyTower, "quartermaster", "e_base"}, "no commander": {&enemyTower, "", "p_base"}} {
+		if applyPlayerAbility(c.state, c.commander, c.source, c.source, 1, "x") {
+			t.Errorf("%s: ability must be rejected", name)
+		}
+	}
+}
+
+func TestReplayUsesStoredCommanderAndRejectsUnknownKinds(t *testing.T) {
+	actions := []PvpAction{
+		{Sequence: 0, AtSeconds: 16, SourceID: "p_base", TargetID: "p_base", Kind: pvpActionKindAbility},
+		{Sequence: 1, AtSeconds: 17, SourceID: "p_base", TargetID: "p_base", Kind: pvpActionKindAbility},
+	}
+	_, with, err := simulateBotBattleWithCommander(actions, DefaultModifiers(), DefaultModifiers(), "crown_cross", TacticalV4RulesVersion, "normal", "quartermaster")
+	if err != nil || with.ActionsProcessed != 1 {
+		t.Fatalf("with commander: %+v %v", with, err)
+	}
+	_, without, err := simulateBotBattleWithCommander(actions, DefaultModifiers(), DefaultModifiers(), "crown_cross", TacticalV4RulesVersion, "normal", "")
+	if err != nil || without.ActionsProcessed != 0 {
+		t.Fatalf("without commander: %+v %v", without, err)
+	}
+	_, _, err = simulateBotBattleWithCommander([]PvpAction{{Sequence: 0, AtSeconds: 1, SourceID: "p_base", TargetID: "p_base", Kind: "bogus"}}, DefaultModifiers(), DefaultModifiers(), "crown_cross", TacticalV4RulesVersion, "normal", "")
+	if err != ErrPvpInvalidActionKind {
+		t.Fatalf("unknown kind: %v", err)
+	}
+}
+
+func TestCreateBotMatchStoresCommanderOnV4Tickets(t *testing.T) {
+	old := asyncGameplayRulesVersion
+	t.Cleanup(func() { asyncGameplayRulesVersion = old })
+	asyncGameplayRulesVersion = TacticalV4RulesVersion
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO players (id, coins, gems, trophies)")).
+		WithArgs("player_1", 100, 10, 0).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(regexp.QuoteMeta("FROM players WHERE id = $1")).
+		WithArgs("player_1").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "coins", "gems", "trophies", "starting_garrison_level", "production_level",
+			"army_speed_level", "treasury_level", "selected_commander", "matches_played", "matches_won",
+			"current_streak", "best_streak", "last_match_timestamp", "tutorial_completed",
+		}).AddRow("player_1", 100, 10, 0, 0, 0, 0, 0, "quartermaster", 0, 0, 0, 0, 0, true))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO bot_matches (match_id, player_id, battlefield_id, gameplay_rules_version, bot_difficulty, commander_id)")).
+		WithArgs(sqlmock.AnyArg(), "player_1", sqlmock.AnyArg(), TacticalV4RulesVersion, "normal", "quartermaster").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	ticket, err := NewStore(db).CreateBotMatch(context.Background(), "player_1", 1, 2, 3, 4)
+	if err != nil || ticket.GameplayRulesVersion != TacticalV4RulesVersion || ticket.CommanderID != "quartermaster" {
+		t.Fatalf("ticket %+v %v", ticket, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }

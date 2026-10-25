@@ -19,12 +19,13 @@ export function getTerritoryDefenseMultiplier(type: TerritoryType): number {
   return type === 'fortress' ? FORTRESS_DEFENSE_MULTIPLIER : 1;
 }
 
-export function getTerritoryDefenseStrength(territory: Territory): number {
-  return Math.ceil(territory.units * getTerritoryDefenseMultiplier(territory.type));
+/** `bonus` is an extra defence multiplier (the v4 royal shield); 1 keeps the base rule. */
+export function getTerritoryDefenseStrength(territory: Territory, bonus = 1): number {
+  return Math.ceil(territory.units * (getTerritoryDefenseMultiplier(territory.type) * bonus));
 }
 
-export function getRemainingDefenders(type: TerritoryType, effectiveUnits: number): number {
-  return Math.ceil(effectiveUnits / getTerritoryDefenseMultiplier(type));
+export function getRemainingDefenders(type: TerritoryType, effectiveUnits: number, bonus = 1): number {
+  return Math.ceil(effectiveUnits / (getTerritoryDefenseMultiplier(type) * bonus));
 }
 
 export function getTerritoryProductionMultiplier(type: TerritoryType): number {

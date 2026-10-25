@@ -12,6 +12,17 @@ export const usesTacticalRules = (version: number | undefined): boolean => versi
 export const hasCommanderAbilities = (version: number | undefined): boolean => version === 4;
 export const hasFogOfWar = (version: number | undefined): boolean => version === 4;
 export const CAPTURE_RECOVERY_MS = 3000;
+/**
+ * v4 commander abilities: one use per match, unlocked at `unlockSeconds`.
+ * Mirrored in Go (abilities.go); change both together.
+ */
+export const ABILITY_CONFIG = Object.freeze({
+  unlockSeconds: 15,
+  shieldDefenseMultiplier: 2,
+  shieldDurationMs: 8000,
+  supplyUnits: 10,
+  chargeRatio: 1,
+});
 export const CAPTURE_INITIAL_PRODUCTION_MULTIPLIER = 0.5;
 
 export function validateGameplayRulesVersion(value: number): GameplayRulesVersion {

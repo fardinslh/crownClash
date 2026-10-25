@@ -4,7 +4,7 @@ import { createDefaultTerritories } from './map.js';
 import { CombatResult, GameState, MarchingArmy, MatchStatus, Territory } from './types.js';
 import type { PlayerUpgradeModifiers } from './upgrades.js';
 import { normalizeBattlefieldId, type BattlefieldId } from './battlefields.js';
-import { CAPTURE_RECOVERY_MS, GAMEPLAY_RULES_VERSION, TACTICAL_CONFIG, hasCaptureRecovery, usesTacticalRules, getCaptureProductionMultiplier, validateGameplayRulesVersion, type GameplayRulesVersion } from './gameplay-rules.js';
+import { ABILITY_CONFIG, CAPTURE_RECOVERY_MS, GAMEPLAY_RULES_VERSION, TACTICAL_CONFIG, hasCaptureRecovery, usesTacticalRules, getCaptureProductionMultiplier, validateGameplayRulesVersion, type GameplayRulesVersion } from './gameplay-rules.js';
 import { advanceRoutedArmy, TACTICAL_SUPPORTS } from './tactical-routes.js';
 
 export interface StepResult {
@@ -103,7 +103,8 @@ export function stepSimulation(
       // Army arrived at target!
       const target = territories[army.targetId];
       if (target) {
-        const combat = resolveArrival(target, army.units, army.owner);
+        const shielded = (currentState.shieldedUntilMs?.[target.id] ?? 0) > nowMs;
+        const combat = resolveArrival(target, army.units, army.owner, shielded ? ABILITY_CONFIG.shieldDefenseMultiplier : 1);
         if (army.routeIds && army.targetId !== army.routeIds[army.routeIds.length - 1]) combat.routeInterrupted = true;
         target.owner = combat.newOwner;
         target.units = combat.remainingUnits;
@@ -176,6 +177,8 @@ export function stepSimulation(
       stats,
       ...(currentState.gameplayRulesVersion !== undefined ? { gameplayRulesVersion: currentState.gameplayRulesVersion } : {}),
       ...(readyTimes && Object.keys(readyTimes).length ? { productionReadyAtMs: readyTimes } : {}),
+      ...(currentState.shieldedUntilMs ? { shieldedUntilMs: currentState.shieldedUntilMs } : {}),
+      ...(currentState.playerAbilityUsed ? { playerAbilityUsed: true } : {}),
     },
     accumulators: genResult.accumulators,
     resolvedArrivals,
