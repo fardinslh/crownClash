@@ -38,4 +38,4 @@ Status as of 2026-10-25. Source: pre-release audit (mechanic, UX, retention).
 - [ ] Some emoji remain inside battle copy strings (result stats line, share text, difficulty picker).
 - [ ] `PrototypeScene.ts` + `src/prototype/` are unregistered (not in the bundle). Delete them or wire them back together with `scripts/crown-prototype-qa.mjs`.
 - [ ] `.opencode/*` deletions in the working tree are not part of these changes; commit or restore them separately.
-- [ ] Main JS chunk is 505 kB (123 kB gzip) plus Phaser 381 kB gzip; consider lazy-loading non-first-screen scenes.
+- [x] Hub scenes (Realm, Kingdom, Daily, League, Commander) are lazy chunks, prefetched when the menu is idle (`scenes/lazyScenes.ts`). Main JS chunk went from 533 kB to 482 kB (gzip 135 to 122) plus Phaser 381 kB gzip. `GameScene` (6.7k lines) is still in the main chunk because new players go straight into it.

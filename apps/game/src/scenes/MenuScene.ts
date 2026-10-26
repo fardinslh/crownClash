@@ -42,6 +42,7 @@ import {
   type KitButton,
 } from '../ui/kit/index.js';
 import { commanderCopy, fa, rankName } from '../i18n/fa.js';
+import { prefetchLazyScenes, startScene } from './lazyScenes.js';
 
 const prefersReducedMotion = (): boolean =>
   typeof window !== 'undefined' &&
@@ -141,7 +142,7 @@ export class MenuScene extends Phaser.Scene {
             const home = await pilot.home();
             if (isStale()) return;
             if (!home.activeTicket && !home.activePractice) {
-              this.scene.start('RealmScene');
+              startScene(this, 'RealmScene');
               return;
             }
             pilot.clearChallenge();
@@ -244,7 +245,7 @@ export class MenuScene extends Phaser.Scene {
         if (this.isTransitioning) return;
         this.isTransitioning = true;
         platform.hapticSelection();
-        goToScene(this, 'RealmScene');
+        goToScene(this, 'RealmScene', undefined, () => { this.isTransitioning = false; });
       });
     }
 
@@ -344,7 +345,7 @@ export class MenuScene extends Phaser.Scene {
       this.isTransitioning = true;
       sound();
       platform.hapticSelection();
-      goToScene(this, key);
+      goToScene(this, key, undefined, () => { this.isTransitioning = false; });
     };
     const navTiles: Array<{ icon: IconKey; label: string; accent: number; enabled: boolean; onPress: () => void }> = [
       { icon: 'chest', label: dailyAvailable ? fa.menu.daily : fa.menu.offline, accent: THEME.gold, enabled: dailyAvailable, onPress: () => navigate('DailyScene', () => sounds.playReinforce()) },
@@ -368,6 +369,7 @@ export class MenuScene extends Phaser.Scene {
     this.playMenuEntrance(reducedMotion, [rankChip, coinCard, winsCard, playButton.container, liveButton.container]);
     dismissStartupLoadingShell();
     fadeIn(this);
+    prefetchLazyScenes(this.scene.manager);
   }
 
   private createNavTile(

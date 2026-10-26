@@ -5,6 +5,7 @@ import { UI, type ButtonVariant } from '../../theme.js';
 import { createText } from '../TextStyles.js';
 import { createIcon, iconTexture, type IconKey } from '../icons.js';
 import { sounds } from '../../audio/SoundEffects.js';
+import { startScene } from '../../scenes/lazyScenes.js';
 
 /**
  * Shared hub UI kit: rounded panels, chunky casual buttons with a pressed
@@ -425,19 +426,17 @@ export function bindPressFeedback(target: Phaser.GameObjects.GameObject & { setS
 
 const FADE_MS = 170;
 
-const startScene = (scene: Phaser.Scene, key: string, data?: object): void => {
-  if (data === undefined) scene.scene.start(key);
-  else scene.scene.start(key, data);
-};
-
-/** Fade the camera out, then start `key`. The target scene fades itself in. */
-export function goToScene(scene: Phaser.Scene, key: string, data?: object): void {
+/**
+ * Fade the camera out, then start `key`. The target scene fades itself in.
+ * `onFail` runs if a lazily loaded scene chunk cannot be fetched.
+ */
+export function goToScene(scene: Phaser.Scene, key: string, data?: object, onFail?: () => void): void {
   const camera = scene.cameras?.main;
   if (!camera || typeof camera.fadeOut !== 'function') {
-    startScene(scene, key, data);
+    startScene(scene, key, data, onFail);
     return;
   }
-  camera.once('camerafadeoutcomplete', () => startScene(scene, key, data));
+  camera.once('camerafadeoutcomplete', () => startScene(scene, key, data, onFail));
   camera.fadeOut(FADE_MS, 7, 11, 20);
 }
 

@@ -8,6 +8,7 @@ import { CareerManager } from '../career/CareerManager.js';
 import { PilotClient } from '../realm/PilotClient.js';
 import { realmMarkup, escapeText, number } from '../realm/RealmView.js';
 import '../realm/realm.css';
+import { startScene } from './lazyScenes.js';
 
 const errors: Record<string,string> = { revenge_unavailable:'مهلت یا فرصت انتقام این نبرد تمام شده است.', realm_practice_active:'تمرین ناتمام داری؛ اول همان نبرد را ادامه بده.', pvp_cannot_attack_self:'این دعوت متعلق به قلمروی خودت است.', challenge_expired:'این دعوت منقضی شده؛ از دوستت لینک تازه بگیر.', challenge_not_found:'دعوت پیدا نشد.', defense_changed:'دفاع حریف تغییر کرده؛ دوباره پیش‌نمایش را باز کن.', coin_shop_locked:'خرید بعد از سه نبرد کامل و انتخاب هدف ارتقا باز می‌شود.', payments_disabled:'پرداخت هنوز برای این حساب فعال نیست.', realm_settlement_too_early:'ثبت نتیجه زودتر از زمان نبرد ممکن نیست؛ چند لحظه دیگر تلاش کن.', challenge_link_unavailable:'لینک دعوت هنوز تنظیم نشده است.', realm_ticket_expired:'مهلت این نبرد تمام شده است.' };
 export function realmErrorMessage(error: unknown): string { const message = String(error); for (const [key,value] of Object.entries(errors)) if (message.includes(key)) return value; return 'ارتباط کامل نشد. دوباره تلاش کن؛ پاداش و خرید تکراری ثبت نمی‌شود.'; }
@@ -85,8 +86,8 @@ export class RealmScene extends Phaser.Scene {
     }
     else if (action === 'practice') await this.practice();
     else if (action === 'menu') this.scene.start('MenuScene');
-    else if (action === 'daily') this.scene.start('DailyScene');
-    else if (action === 'commander') this.scene.start('CommanderScene');
+    else if (action === 'daily') startScene(this, 'DailyScene');
+    else if (action === 'commander') startScene(this, 'CommanderScene');
   }
   private chooseCommander(title: string, action: (commander: CommanderId)=>Promise<void>): void {
     this.openDialog(`<h2>${escapeText(title)}</h2><p>این انتخاب فقط برای نبرد با قدرت برابر است و مالکیت دائمی فرمانده را تغییر نمی‌دهد.</p><select><option value="crown_guard">نگهبان تاج · متعادل</option><option value="quartermaster">تدارکات · تولید بیشتر، حرکت کندتر</option><option value="vanguard">پیشرو · حرکت سریع‌تر، سرباز کمتر</option></select><button class="realm-primary" data-loadout>ادامه</button>`);

@@ -1,4 +1,3 @@
-import { RealmScene } from './scenes/RealmScene.js';
 import { PilotClient } from './realm/PilotClient.js';
 import Phaser from 'phaser';
 import { LOGICAL_HEIGHT, LOGICAL_WIDTH } from '@crown-clash/game-core';
@@ -7,11 +6,7 @@ import { AnalyticsSink } from './analytics/AnalyticsSink.js';
 import { trackSessionStart } from './analytics/Analytics.js';
 import { getSharedGameApiClient } from './api/sharedClient.js';
 import { GameScene } from './scenes/GameScene.js';
-import { DailyScene } from './scenes/DailyScene.js';
-import { KingdomScene } from './scenes/KingdomScene.js';
-import { LeagueScene } from './scenes/LeagueScene.js';
 import { MenuScene } from './scenes/MenuScene.js';
-import { CommanderScene } from './scenes/CommanderScene.js';
 import { selectRenderProfile } from './render/RenderProfile.js';
 
 // 1. Initialize Platform Adapter (Bale -> Eitaa -> Telegram -> Browser).
@@ -89,7 +84,7 @@ const startApp = async (): Promise<void> => {
     backgroundColor: '#070b14',
     scene: [
       MenuScene,
-      GameScene, RealmScene, KingdomScene, DailyScene, LeagueScene, CommanderScene,
+      GameScene,
     ],
     render: {
       antialias: true,
