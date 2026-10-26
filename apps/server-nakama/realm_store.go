@@ -437,9 +437,9 @@ func (s *Store) StartRealmAttack(ctx context.Context, user string, req RealmStar
 		lo, hi := realmDay(s.nowFn())
 		var raw []byte
 		err = tx.QueryRowContext(ctx, `SELECT d.document FROM realm_defenses d JOIN players p ON p.id=d.player_id
-   WHERE d.player_id<>$1 AND p.tutorial_completed AND ABS(p.trophies-$2)<=250
+   WHERE d.player_id<>$1 AND p.tutorial_completed AND ABS(p.trophies-$2)<=250 AND (NOT p.is_bot OR $5)
    AND NOT EXISTS(SELECT 1 FROM realm_tickets t WHERE ((t.player_id=$1 AND t.defender_id=d.player_id) OR (t.defender_id=$1 AND t.player_id=d.player_id)) AND t.state='settled' AND t.settled_at>=$3 AND t.settled_at<$4)
-   ORDER BY ABS(p.trophies-$2),d.updated_at DESC LIMIT 1`, user, c.Trophies, lo, hi).Scan(&raw)
+   ORDER BY p.is_bot,ABS(p.trophies-$2),d.updated_at DESC LIMIT 1`, user, c.Trophies, lo, hi, serverConfig.SeedBots).Scan(&raw)
 		if errors.Is(err, sql.ErrNoRows) {
 			return RealmTicket{}, errors.New("no_realm_opponent")
 		}

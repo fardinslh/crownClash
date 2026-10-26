@@ -35,6 +35,7 @@ var serverConfig struct {
 	AllowGuestAuth   bool
 	InitDataMaxAge   int64
 	Enable2v2        bool
+	SeedBots         bool
 	TwoVTwoRollout   map[string]int
 }
 
@@ -59,6 +60,15 @@ func InitModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runti
 	}
 
 	store := NewStore(db)
+	if serverConfig.SeedBots {
+		created, err := store.EnsureSeedBots(ctx)
+		if err != nil {
+			// Opponents are a convenience; never block the server on them.
+			logger.WithField("error", err).Warn("seed bots failed")
+		} else if created > 0 {
+			logger.WithField("created", created).Info("seed bots created")
+		}
+	}
 	if err := registerRealmRPCs(initializer, store); err != nil {
 		return err
 	}
@@ -162,6 +172,7 @@ func loadServerConfig(initializer runtime.Initializer) {
 	serverConfig.TelegramBotToken = ""
 	serverConfig.BaleBotToken = ""
 	serverConfig.AllowGuestAuth = false
+	serverConfig.SeedBots = false
 	serverConfig.InitDataMaxAge = 86400
 	serverConfig.TwoVTwoRollout = map[string]int{}
 	asyncGameplayRulesVersion = TacticalV4RulesVersion
@@ -184,6 +195,7 @@ func loadServerConfig(initializer runtime.Initializer) {
 		serverConfig.AllowGuestAuth = env["ALLOW_GUEST_AUTH"] == "true"
 		asyncGameplayRulesVersion = parseAsyncGameplayRulesVersion(env["ASYNC_GAMEPLAY_RULES_VERSION"])
 		serverConfig.Enable2v2 = env["ENABLE_2V2"] == "true"
+		serverConfig.SeedBots = env["ENABLE_SEED_BOTS"] == "true"
 		for _, platform := range supportedRolloutPlatforms {
 			key := "ENABLE_2V2_ROLLOUT_" + strings.ToUpper(platform)
 			percent, err := strconv.Atoi(env[key])

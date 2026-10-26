@@ -47,9 +47,15 @@ entry; server cohorts count first-day second completions. Judge the effect with
 actual second-match completion, session match count and D1/D7 returns. Local
 verification demonstrates the loop, not an increase in player retention.
 
-- Public attacks select an actual published player defense within 250 trophies.
-  If none is available, the UI explicitly offers a **bot practice**, not a fake
-  human. There is no passive trophy loss, stolen currency or building damage.
+- Public attacks select an actual published player defense within 250 trophies,
+  real defenders first. With `ENABLE_SEED_BOTS=true`, a roster of seed opponents
+  (`players.is_bot`, names in `seed_bots.go`) fills the gap while the player base
+  is small; they are ordinary async defenses, never in the leaderboard, revenge,
+  friend lists or any "online" count, and hold no currency. The attack screen does
+  not label them. Reports over `players` must filter `NOT is_bot`. Turn the flag
+  off (they disappear from matchmaking, nothing is deleted) once real defenders
+  are plentiful. If no opponent is available at all, the UI offers a **bot
+  practice**. There is no passive trophy loss, stolen currency or building damage.
 - Public attacks use Crown Cross and bounded base levels per combat track.
   Friend battles and friend revenge chains use equal base levels. Public revenge
   retains the bounded combat policy but has social rewards. Live 1v1/2v2 also

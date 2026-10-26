@@ -435,4 +435,8 @@ ALTER TABLE bot_matches DROP CONSTRAINT bot_matches_gameplay_rules_version_check
 ALTER TABLE bot_matches ADD CONSTRAINT bot_matches_gameplay_rules_version_check CHECK (gameplay_rules_version IN (1,2,3,4));
 ALTER TABLE bot_matches ADD COLUMN commander_id TEXT CHECK (commander_id IN ('crown_guard','quartermaster','vanguard'));
 `})
+	// Seed opponents (see seed_bots.go). Real players default to FALSE.
+	migrations = append(migrations, migration{name: "022_player_is_bot", sql: `
+ALTER TABLE players ADD COLUMN IF NOT EXISTS is_bot BOOLEAN NOT NULL DEFAULT FALSE;
+`})
 }
