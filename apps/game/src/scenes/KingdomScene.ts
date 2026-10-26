@@ -57,15 +57,17 @@ const UPGRADE_ICONS: Record<UpgradeType, IconKey> = {
 
 /**
  * Rendered Crown Cross buildings (same rig as the battlefield) that stand in
- * for the player's kingdom, one per evolution stage.
+ * for the player's kingdom, one per evolution stage. These are 256 px hub-only
+ * exports of the 512 px masters; the 128-160 px battle sprites stay untouched
+ * so battle texture memory does not grow.
  */
 const KINGDOM_ART = [
-  { key: 'hub_kingdom_outpost', file: 'outpost_player.webp' },
-  { key: 'hub_kingdom_barracks', file: 'barracks_player.webp' },
-  { key: 'hub_kingdom_keep', file: 'crown_keep_player.webp' },
-  { key: 'hub_kingdom_citadel', file: 'citadel_player.webp' },
+  { key: 'hub_kingdom_outpost', file: 'kingdom_outpost.webp' },
+  { key: 'hub_kingdom_barracks', file: 'kingdom_barracks.webp' },
+  { key: 'hub_kingdom_keep', file: 'kingdom_crown_keep.webp' },
+  { key: 'hub_kingdom_citadel', file: 'kingdom_citadel.webp' },
 ] as const;
-const KINGDOM_ART_VERSION = 'cartoon-meadow-v1.6';
+const KINGDOM_ART_VERSION = 'hub-256-v1';
 
 interface CardHandle {
   container: Phaser.GameObjects.Container;
@@ -102,7 +104,7 @@ export class KingdomScene extends Phaser.Scene {
   preload(): void {
     for (const art of KINGDOM_ART) {
       if (!this.textures.exists(art.key)) {
-        this.load.image(art.key, `assets/territories/crown_cross/${art.file}?v=${KINGDOM_ART_VERSION}`);
+        this.load.image(art.key, `assets/hub/${art.file}?v=${KINGDOM_ART_VERSION}`);
       }
     }
   }

@@ -22,7 +22,7 @@ Status as of 2026-10-25. Source: pre-release audit (mechanic, UX, retention).
 - [ ] Deploy order: server (migration 021, v4 negotiation) before the client.
 - [ ] Bot does not use abilities yet; Royal Ring no-contact pacing is still open.
 - [x] MenuScene's async init no longer keeps running after the scene stops (generation guard, regression test `MenuSceneStaleInit`). Still worth a check on device.
-- [ ] Kingdom hero building sprites are 128-160px and look soft when upscaled on tall phones; export 256px runtime art.
+- [x] Kingdom hero uses 256px hub-only sprites (`apps/game/public/assets/hub`, built by `scripts/export-hub-art.mjs` from the 512px masters). Battle sprites stay 128-160px.
 
 ## Needs the owner (cannot be done from code)
 - [ ] Real-device test in Bale: initData validation (`auth.go`, shared Telegram HMAC path), the query-string/`bale_guest` fallback in `BalePlatformAdapter.ts`, `bale://share`, `openInvoice` payment.
