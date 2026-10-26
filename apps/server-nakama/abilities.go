@@ -25,7 +25,20 @@ var commanderAbility = map[string]string{
 // applyPlayerAbility applies the player's one ability and reports whether it
 // was legal. An illegal use leaves the state untouched.
 func applyPlayerAbility(state *GameState, commanderID, sourceID, targetID string, speedMultiplier float64, armyID string) bool {
-	if !hasCommanderAbilities(state.GameplayRulesVersion) || state.Status != "playing" || state.PlayerAbilityUsed {
+	return applyTeamAbility(state, TeamPlayer, commanderID, sourceID, targetID, speedMultiplier, armyID)
+}
+
+func abilityUsed(state *GameState, team Team) bool {
+	if team == TeamPlayer {
+		return state.PlayerAbilityUsed
+	}
+	return state.EnemyAbilityUsed
+}
+
+// applyTeamAbility applies a team's one ability and reports whether it was
+// legal. Mirrors applyTeamAbility in abilities.ts.
+func applyTeamAbility(state *GameState, team Team, commanderID, sourceID, targetID string, speedMultiplier float64, armyID string) bool {
+	if !hasCommanderAbilities(state.GameplayRulesVersion) || state.Status != "playing" || abilityUsed(state, team) {
 		return false
 	}
 	if state.ElapsedTimeSeconds+1e-9 < abilityUnlockSeconds {
@@ -36,7 +49,7 @@ func applyPlayerAbility(state *GameState, commanderID, sourceID, targetID string
 		return false
 	}
 	source, ok := state.Territories[sourceID]
-	if !ok || source.Owner != TeamPlayer {
+	if !ok || source.Owner != team {
 		return false
 	}
 	nowMs := int64(math.Round(state.ElapsedTimeSeconds * 1000))
@@ -61,17 +74,26 @@ func applyPlayerAbility(state *GameState, commanderID, sourceID, targetID string
 		if targetID == sourceID {
 			return false
 		}
-		if err := dispatchArmyWithRatio(state, sourceID, targetID, TeamPlayer, speedMultiplier*abilityChargeSpeedMultiplier, armyID, 0.5); err != nil {
+		if err := dispatchArmyWithRatio(state, sourceID, targetID, team, speedMultiplier*abilityChargeSpeedMultiplier, armyID, 0.5); err != nil {
 			return false
 		}
 		last := len(state.Armies) - 1
 		boosted := int(math.Floor(float64(state.Armies[last].Units) * abilityChargeUnitMultiplier))
-		state.Stats.PlayerUnitsDispatched += float64(boosted - state.Armies[last].Units)
+		extra := float64(boosted - state.Armies[last].Units)
+		if team == TeamPlayer {
+			state.Stats.PlayerUnitsDispatched += extra
+		} else {
+			state.Stats.EnemyUnitsDispatched += extra
+		}
 		state.Armies[last].Units = boosted
 	default:
 		return false
 	}
-	state.PlayerAbilityUsed = true
+	if team == TeamPlayer {
+		state.PlayerAbilityUsed = true
+	} else {
+		state.EnemyAbilityUsed = true
+	}
 	return true
 }
 

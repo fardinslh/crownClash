@@ -38,8 +38,14 @@ Each ability can be used once per match, from 15 s of match time. It is recorded
 - TS: `packages/game-core/src/abilities.ts`, with constants in `ABILITY_CONFIG` (`gameplay-rules.ts`).
 - Go: `apps/server-nakama/abilities.go`. Its constants must match the TS ones.
 
-**Out of scope**
-- The bot does not use abilities in v4. This is a known asymmetry, measured below. The planned follow-up is to let the bot use its own ability.
+**The bot's ability**
+- Easy has none, so new players meet a gentler opponent. Normal brings `quartermaster`, hard brings `vanguard` (`BOT_COMMANDER`). The choice depends only on the pinned difficulty, so the server replays it with no extra ticket field.
+- One use per match, from 15 s, decided at the bot's own AI ticks before that tick's dispatches (`chooseBotAbility`):
+  - vanguard: the first planned attack becomes the charge;
+  - quartermaster: +5 on a tower that the incoming armies would capture and the extra units save; otherwise on the source of the first planned attack;
+  - royal shield (supported by the engine, unused by the default mapping): only on a threatened tower that a shield would save, and only once the first hostile army is within the shield window.
+- The client shows the cue "دشمن ..." with a floating label, a warning haptic and sound and a red ring for a shield. It does not add an analytics event: it is not a player action.
+- Code: TS `packages/game-core/src/bot-abilities.ts`, Go `apps/server-nakama/bot_abilities.go`. `scripts/tactical-parity.mjs` checks both engines agree.
 
 **Analytics**
 - `ability_used` with `matchId`, `commanderId` and `atSeconds`.
@@ -62,6 +68,19 @@ Each ability can be used once per match, from 15 s of match time. It is recorded
 - The dominance bar still reflects total units on both sides.
 
 ## Balance probe
+
+`BOT_ABILITY=off node scripts/rules-v4-balance.mjs` reproduces the old baseline where the bot had no ability and writes `balance-no-bot-ability.json`.
+
+**With the bot's ability (current default)**
+
+| Player commander | No bot ability | Bot ability |
+|---|---:|---:|
+| none | 26.9% | 22.2% |
+| crown_guard | 34.3% | 31.5% |
+| quartermaster | 32.4% | 28.7% |
+| vanguard | 35.2% | 31.5% |
+
+By difficulty, a player with no commander: normal 13.9% → 8.3%, hard 13.9% → 5.6% (easy unchanged at 52.8%). The bot spent its ability in 144 of 144 normal games and 144 of 144 hard games. Each player commander still adds 6.5-9.3 pp over none, so the player ability keeps its value. The probe policies are scripted and weaker than people, so these are relative shifts, not expected human win rates.
 
 Run `node scripts/rules-v4-balance.mjs`. The output goes to the git-ignored file `qa-artifacts/rules-v4/balance.json`.
 
@@ -91,5 +110,4 @@ The probe pits 4 scripted player policies × 3 player cadences against the real 
 
 **Still open**
 - Royal Ring still has 22 of 144 probe games with no direct clash between the two sides. This matches the v3 pacing warning, and abilities do not fix it.
-- The bot does not use abilities.
 - Human playtests and real-device checks are pending.

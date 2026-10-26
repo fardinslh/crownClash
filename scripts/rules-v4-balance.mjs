@@ -9,6 +9,8 @@ const built = await build({ entryPoints: ['packages/game-core/src/index.ts'], bu
 const c = await import('data:text/javascript;base64,' + Buffer.from(built.outputFiles[0].text).toString('base64'));
 const policies = ['center', 'flank', 'split', 'counter'];
 const commanders = [null, 'crown_guard', 'quartermaster', 'vanguard'];
+// BOT_ABILITY=off reproduces the earlier baseline where the bot had no ability.
+const botAbility = process.env.BOT_ABILITY !== 'off';
 
 function choose(state, policy, turn) {
   if (policy === 'counter') return c.evaluateTacticalMoves(state, 'player');
@@ -57,7 +59,7 @@ for (const map of ['crown_cross', 'twin_passes', 'royal_ring']) for (const diffi
   let state = c.createInitialGameState({ gameplayRulesVersion: 4, battlefieldId: map }), acc = {}, sequence = 0, turn = 0;
   const every = { enemy: Math.round(c.getBotAiTickSeconds(difficulty) / .02), player: Math.round(cadence / .02) };
   const next = { ...every };
-  let abilityAt = null, firstContact = null;
+  let abilityAt = null, botAbilityAt = null, firstContact = null;
   for (let tick = 1; tick <= 4500 && state.status === 'playing'; tick++) {
     const step = c.stepSimulation(state, acc, .02); state = step.state; acc = step.accumulators;
     if (firstContact === null && step.resolvedArrivals.some(r => r.previousOwner !== 'neutral' && r.attackerOwner !== r.previousOwner)) firstContact = state.elapsedTimeSeconds;
@@ -70,7 +72,13 @@ for (const map of ['crown_cross', 'twin_passes', 'royal_ring']) for (const diffi
           if (r) { state = r.state; abilityAt = state.elapsedTimeSeconds; }
         }
       }
-      const moves = team === 'enemy' ? c.evaluateTacticalMoves(state, 'enemy') : choose(state, policy, turn++);
+      let moves = team === 'enemy' ? c.evaluateTacticalMoves(state, 'enemy') : choose(state, policy, turn++);
+      if (team === 'enemy' && botAbility) {
+        const botCommander = c.BOT_COMMANDER[difficulty];
+        const choice = c.chooseBotAbility(state, 'enemy', botCommander, moves);
+        const r = choice && c.applyTeamAbility(state, 'enemy', botCommander, choice.sourceId, choice.targetId, 1, `bot_ability_${sequence++}`);
+        if (choice && r) { state = r.state; moves = choice.moves; botAbilityAt = state.elapsedTimeSeconds; }
+      }
       for (const move of moves) {
         const d = c.dispatchArmy(state.territories[move.fromId], state.territories[move.toId], team, .5, () => `v4_${sequence++}`, 1, state);
         if (!d.success) continue;
@@ -80,7 +88,7 @@ for (const map of ['crown_cross', 'twin_passes', 'royal_ring']) for (const diffi
     }
   }
   assert.notEqual(state.status, 'playing');
-  results.push({ map, difficulty, policy, cadence, commanderId: commanderId ?? 'none', result: state.status, playerWon: state.status === 'victory', abilityAt, firstContact });
+  results.push({ map, difficulty, policy, cadence, commanderId: commanderId ?? 'none', result: state.status, playerWon: state.status === 'victory', abilityAt, botAbilityAt, firstContact });
 }
 
 const rate = games => ({ games: games.length, wins: games.filter(g => g.playerWon).length, winRate: +(games.filter(g => g.playerWon).length / games.length).toFixed(3) });
@@ -90,8 +98,12 @@ const abilityUse = Object.fromEntries(commanders.filter(Boolean).map(id => {
   const games = results.filter(r => r.commanderId === id);
   return [id, { used: games.filter(g => g.abilityAt !== null).length, games: games.length }];
 }));
+const botAbilityUse = Object.fromEntries(c.BOT_DIFFICULTIES.map(d => {
+  const games = results.filter(r => r.difficulty === d);
+  return [d, { commander: c.BOT_COMMANDER[d] ?? null, used: games.filter(g => g.botAbilityAt !== null).length, games: games.length }];
+}));
 const noContact = Object.fromEntries(['crown_cross', 'twin_passes', 'royal_ring'].map(m => [m, results.filter(r => r.map === m && r.firstContact === null).length]));
-const report = { assumptions: 'Scripted player policies vs the tactical bot; equal troops; fog does not affect the simulation. Not a model of human skill.', config: c.ABILITY_CONFIG, games: results.length, byCommander, byDifficulty, abilityUse, noContact, results };
+const report = { assumptions: 'Scripted player policies vs the tactical bot; equal troops; fog does not affect the simulation. Not a model of human skill.', config: c.ABILITY_CONFIG, botAbility, games: results.length, byCommander, byDifficulty, abilityUse, botAbilityUse, noContact, results };
 fs.mkdirSync('qa-artifacts/rules-v4', { recursive: true });
-fs.writeFileSync('qa-artifacts/rules-v4/balance.json', JSON.stringify(report, null, 2));
+fs.writeFileSync(botAbility ? 'qa-artifacts/rules-v4/balance.json' : 'qa-artifacts/rules-v4/balance-no-bot-ability.json', JSON.stringify(report, null, 2));
 console.log(JSON.stringify({ ...report, results: undefined }, null, 2));

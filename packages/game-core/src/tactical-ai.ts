@@ -5,21 +5,29 @@ import { armyArrivalSeconds, armyDestination, tacticalNeighbors } from './tactic
 import type { AiMove } from './ai.js';
 import type { GameState, Territory } from './types.js';
 
+/** Armies heading for `id`, soonest first (ties keep army order). */
+export function tacticalIncoming(state: GameState, id: string) {
+  return state.armies.filter(a => armyDestination(a, state) === id)
+    .map((army, index) => ({ army, index, eta: armyArrivalSeconds(army, state) }))
+    .sort((a, b) => a.eta - b.eta || a.index - b.index);
+}
+
+/** The tower as it will stand once every army due within `seconds` has resolved. */
+export function tacticalForecast(state: GameState, t: Territory, seconds: number, units = t.units, defenseMultiplier = 1): Territory {
+  let projected = { ...t, units };
+  for (const { army, eta } of tacticalIncoming(state, t.id)) if (eta <= seconds + 1e-9) {
+    const r = resolveArrival(projected, army.units, army.owner, defenseMultiplier);
+    projected = { ...projected, owner: r.newOwner, units: r.remainingUnits };
+  }
+  return projected;
+}
+
 /** Deterministic v3 policy. Uses visible armies only; the same policy runs on the server. */
 export function evaluateTacticalMoves(state: GameState, team: 'player' | 'enemy' = 'enemy', speedMultiplier = 1): AiMove[] {
   if (state.status !== 'playing') return [];
   const towers = Object.values(state.territories).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-  const incoming = (id: string) => state.armies.filter(a => armyDestination(a, state) === id)
-    .map((army, index) => ({ army, index, eta: armyArrivalSeconds(army, state) }))
-    .sort((a, b) => a.eta - b.eta || a.index - b.index);
-  const forecast = (t: Territory, seconds: number, units = t.units): Territory => {
-    let projected = { ...t, units };
-    for (const { army, eta } of incoming(t.id)) if (eta <= seconds + 1e-9) {
-      const r = resolveArrival(projected, army.units, army.owner);
-      projected = { ...projected, owner: r.newOwner, units: r.remainingUnits };
-    }
-    return projected;
-  };
+  const incoming = (id: string) => tacticalIncoming(state, id);
+  const forecast = (t: Territory, seconds: number, units = t.units): Territory => tacticalForecast(state, t, seconds, units);
   const candidates = (target: Territory) => towers.filter(s => s.owner === team && s.units >= 4 && s.id !== target.id)
     .flatMap(source => {
       const d = dispatchArmy(source, target, team, .5, () => 'candidate', speedMultiplier, state);

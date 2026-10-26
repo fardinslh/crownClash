@@ -179,6 +179,7 @@ export function stepSimulation(
       ...(readyTimes && Object.keys(readyTimes).length ? { productionReadyAtMs: readyTimes } : {}),
       ...(currentState.shieldedUntilMs ? { shieldedUntilMs: currentState.shieldedUntilMs } : {}),
       ...(currentState.playerAbilityUsed ? { playerAbilityUsed: true } : {}),
+      ...(currentState.enemyAbilityUsed ? { enemyAbilityUsed: true } : {}),
     },
     accumulators: genResult.accumulators,
     resolvedArrivals,

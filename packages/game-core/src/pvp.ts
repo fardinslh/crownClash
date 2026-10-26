@@ -6,11 +6,12 @@ import { createInitialGameState, stepSimulation } from './simulation.js';
 import type { PlayerUpgradeModifiers } from './upgrades.js';
 import type { GameState, MatchStats } from './types.js';
 import type { BattlefieldId } from './battlefields.js';
-import { applyPlayerAbility } from './abilities.js';
+import { applyPlayerAbility, applyTeamAbility } from './abilities.js';
+import { chooseBotAbility } from './bot-abilities.js';
 import type { CommanderId } from './commanders.js';
 
 export const PVP_TIME_LIMIT_SECONDS = 90;
-import { getBotAiTickSeconds, type BotDifficulty } from './bot-difficulty.js';
+import { BOT_COMMANDER, getBotAiTickSeconds, type BotDifficulty } from './bot-difficulty.js';
 export const PVP_AI_TICK_SECONDS = getBotAiTickSeconds();
 /** Fixed deterministic clock shared by local prediction and server replay. */
 export const PVP_SIMULATION_TICK_SECONDS = 0.02;
@@ -266,8 +267,19 @@ export function simulatePvpBattle(options: PvpSimulationOptions): PvpSimulationR
   const executeAiAction = (): void => {
     if (state.status !== 'playing') return;
     if (usesTacticalRules(state.gameplayRulesVersion)) {
-      for (const move of evaluateTacticalMoves(state, 'enemy', options.enemyModifiers?.armySpeedMultiplier ?? 1)) {
-        state = dispatchFromState(state, move.fromId, move.toId, 'enemy', options.enemyModifiers?.armySpeedMultiplier ?? 1, `pvp_ai_${aiActionIndex++}`);
+      const speed = options.enemyModifiers?.armySpeedMultiplier ?? 1;
+      let moves = evaluateTacticalMoves(state, 'enemy', speed);
+      // v4: the bot spends its one ability before this tick's dispatches.
+      const botCommander = BOT_COMMANDER[options.botDifficulty ?? 'normal'];
+      const choice = chooseBotAbility(state, 'enemy', botCommander, moves);
+      const ability = choice && applyTeamAbility(state, 'enemy', botCommander, choice.sourceId, choice.targetId, speed, `pvp_ai_${aiActionIndex}`);
+      if (choice && ability) {
+        state = ability.state;
+        aiActionIndex++;
+        moves = choice.moves;
+      }
+      for (const move of moves) {
+        state = dispatchFromState(state, move.fromId, move.toId, 'enemy', speed, `pvp_ai_${aiActionIndex++}`);
       }
       return;
     }

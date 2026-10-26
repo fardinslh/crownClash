@@ -223,10 +223,13 @@ func tacticalIncomingAt(state GameState, id string) []tacticalIncoming {
 	return result
 }
 func tacticalForecast(state GameState, t Territory, seconds float64, units int) Territory {
+	return tacticalForecastWithDefense(state, t, seconds, units, 1)
+}
+func tacticalForecastWithDefense(state GameState, t Territory, seconds float64, units int, defenseBonus float64) Territory {
 	t.Units = units
 	for _, a := range tacticalIncomingAt(state, t.ID) {
 		if a.eta <= seconds+1e-9 {
-			r := resolveArrival(t, a.army.Units, a.army.Owner)
+			r := resolveArrivalWithBonus(t, a.army.Units, a.army.Owner, defenseBonus)
 			t.Owner = r.newOwner
 			t.Units = r.remaining
 		}

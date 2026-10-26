@@ -346,4 +346,5 @@ type GameState struct {
 	// v4 royal shield: territory id -> match ms until which defence is boosted.
 	ShieldedUntilMs   map[string]int64 `json:"shieldedUntilMs,omitempty"`
 	PlayerAbilityUsed bool             `json:"playerAbilityUsed,omitempty"`
+	EnemyAbilityUsed  bool             `json:"enemyAbilityUsed,omitempty"`
 }

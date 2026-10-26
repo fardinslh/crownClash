@@ -78,6 +78,8 @@ export interface GameState {
   shieldedUntilMs?: Record<string, number>;
   /** v4: the player's one commander ability has been used. */
   playerAbilityUsed?: boolean;
+  /** v4: the bot's one commander ability has been used. */
+  enemyAbilityUsed?: boolean;
   battlefieldId?: import('./battlefields.js').BattlefieldId;
   territories: Record<string, Territory>;
   armies: MarchingArmy[];

@@ -20,7 +20,8 @@ Status as of 2026-10-25. Source: pre-release audit (mechanic, UX, retention).
 - [x] Abilities tuned by simulation (`scripts/rules-v4-balance.mjs`): each shifts the probe win rate by 5-8 pp.
 - [x] Visual overhaul: UI tokens, `ui/kit`, vector icon set, rebuilt Menu/Kingdom/Daily/League/Commander, rounded battle HUD and modals, result screen with icons and victory confetti, capture particles, team-coloured convoy badges, battle load bar, scene fades, master audio bus + UI click.
 - [ ] Deploy order: server (migration 021, v4 negotiation) before the client.
-- [ ] Bot does not use abilities yet; Royal Ring no-contact pacing is still open.
+- [x] The bot uses its own ability on normal (quartermaster) and hard (vanguard); easy has none. TS + Go parity, tests and probe numbers in `docs/rules-v4.md`. Needs a human playtest to confirm normal/hard did not get too hard (probe shift: -5.6 pp normal, -8.3 pp hard for the weakest scripted player).
+- [ ] Royal Ring no-contact pacing is still open.
 - [x] MenuScene's async init no longer keeps running after the scene stops (generation guard, regression test `MenuSceneStaleInit`). Still worth a check on device.
 - [x] Kingdom hero uses 256px hub-only sprites (`apps/game/public/assets/hub`, built by `scripts/export-hub-art.mjs` from the 512px masters). Battle sprites stay 128-160px.
 

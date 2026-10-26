@@ -1111,7 +1111,16 @@ func simulateBotBattleWithCommander(actions []PvpAction, player, enemy PlayerUpg
 			return
 		}
 		if usesTacticalRules(state.GameplayRulesVersion) {
-			for _, move := range evaluateTacticalMoves(state, TeamEnemy, enemy.ArmySpeedMultiplier) {
+			moves := evaluateTacticalMoves(state, TeamEnemy, enemy.ArmySpeedMultiplier)
+			// v4: the bot spends its one ability before this tick's dispatches.
+			botCommander := botCommanderID(difficulty)
+			if choice, ok := chooseBotAbility(state, TeamEnemy, botCommander, moves); ok {
+				if applyTeamAbility(&state, TeamEnemy, botCommander, choice.sourceID, choice.targetID, enemy.ArmySpeedMultiplier, "pvp_ai_"+itoa(int64(aiActionIndex))) {
+					aiActionIndex++
+					moves = choice.moves
+				}
+			}
+			for _, move := range moves {
 				_ = dispatchArmy(&state, move.FromID, move.ToID, TeamEnemy, enemy.ArmySpeedMultiplier, "pvp_ai_"+itoa(int64(aiActionIndex)))
 				aiActionIndex++
 			}

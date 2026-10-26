@@ -118,6 +118,12 @@ export const faBattle = {
     cancelled: 'لغو شد',
     invalid: 'این‌جا نمی‌شود — برج خودت را انتخاب کن',
     chargeLabel: 'یورش',
+    /** Shown when the bot spends its own commander ability. */
+    enemyUsed: {
+      royal_shield: 'دشمن سپر زد!',
+      supply_drop: 'دشمن سرباز گرفت!',
+      vanguard_charge: 'یورش دشمن!',
+    },
   },
   drag: {
     reinforce: (n: number, src: string): string => `+${n} تقویت${src}`,

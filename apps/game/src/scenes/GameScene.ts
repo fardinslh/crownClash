@@ -10,7 +10,7 @@ import type { Rect } from '../ui/HudLayout.js';
 import {
   getCaptureProductionMultiplier,
   evaluateTacticalMoves, previewOrder, armyDestination, usesTacticalRules, type GameplayRulesVersion,
-  ABILITY_CONFIG, COMMANDER_ABILITY, abilityNeedsTarget, applyPlayerAbility, hasCommanderAbilities, isShielded, type CommanderId,
+  ABILITY_CONFIG, COMMANDER_ABILITY, BOT_COMMANDER, abilityNeedsTarget, applyPlayerAbility, applyTeamAbility, chooseBotAbility, hasCommanderAbilities, isShielded, type CommanderId,
   hasFogOfWar, computeVisibleTerritoryIds, isArmyCountVisible,
   getTerritoryProductionMultiplier,
   getTerritoryDefenseMultiplier,
@@ -3204,7 +3204,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
     for (const [id, ring] of this.shieldVisuals) {
-      if (isShielded(this.gameState, id) && this.gameState.territories[id]?.owner === 'player') continue;
+      if (isShielded(this.gameState, id) && this.gameState.territories[id]?.owner === ring.getData('team')) continue;
       this.tweens.killTweensOf(ring);
       ring.destroy();
       this.shieldVisuals.delete(id);
@@ -3240,19 +3240,41 @@ export class GameScene extends Phaser.Scene {
       if (!this.reducedMotion) {
         this.tweens.add({ targets: vis.container, scale: 1.12, duration: 140, yoyo: true, ease: 'Sine.easeOut' });
       }
-      if (ability === 'royal_shield') {
-        const ring = this.add
-          .circle(vis.container.x, vis.container.y, (territory.radius + 14) * this.boardLayout.scale, 0xfbbf24, 0.12)
-          .setStrokeStyle(3, 0xfde68a, 0.95)
-          .setDepth(vis.container.depth + 0.5);
-        if (!this.reducedMotion) this.tweens.add({ targets: ring, alpha: 0.55, duration: 600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-        this.shieldVisuals.get(sourceId)?.destroy();
-        this.shieldVisuals.set(sourceId, ring);
-      }
+      if (ability === 'royal_shield') this.addShieldRing(sourceId, 'player');
     }
     this.bottomHintText?.setText(faBattle.ability[ability].used).setColor('#fde68a');
     this.markTerritoriesDirty();
     this.updateTerritoryVisuals();
+  }
+
+  /** Pulsing ring on a shielded tower: gold for the player, red for the bot. */
+  private addShieldRing(territoryId: string, team: 'player' | 'enemy'): void {
+    const vis = this.territoryVisuals.get(territoryId);
+    const territory = this.gameState.territories[territoryId];
+    if (!vis || !territory) return;
+    const fill = team === 'player' ? 0xfbbf24 : 0xf87171;
+    const stroke = team === 'player' ? 0xfde68a : 0xfecaca;
+    const ring = this.add
+      .circle(vis.container.x, vis.container.y, (territory.radius + 14) * this.boardLayout.scale, fill, 0.12)
+      .setStrokeStyle(3, stroke, 0.95)
+      .setDepth(vis.container.depth + 0.5)
+      .setData('team', team);
+    if (!this.reducedMotion) this.tweens.add({ targets: ring, alpha: 0.55, duration: 600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    this.shieldVisuals.get(territoryId)?.destroy();
+    this.shieldVisuals.set(territoryId, ring);
+  }
+
+  /** The player must see when the bot spends its ability, even under fog. */
+  private announceBotAbility(ability: keyof typeof faBattle.ability.enemyUsed, sourceId: string): void {
+    const vis = this.territoryVisuals.get(sourceId);
+    const text = faBattle.ability.enemyUsed[ability];
+    this.platform.hapticNotification('warning');
+    sounds.playCombatHit();
+    this.bottomHintText?.setText(text).setColor('#fca5a5');
+    if (vis) {
+      this.spawnFloatingText(vis.container.x, vis.container.y - 46 * this.boardLayout.scale, text, '#fca5a5', 500);
+      if (ability === 'royal_shield') this.addShieldRing(sourceId, 'enemy');
+    }
   }
 
   private recordDispatchActions(armies: readonly MarchingArmy[]): void {
@@ -3274,7 +3296,17 @@ export class GameScene extends Phaser.Scene {
 
   private executeAiTurn(): void {
     if (usesTacticalRules(this.gameState.gameplayRulesVersion)) {
-      for (const move of evaluateTacticalMoves(this.gameState, 'enemy', this.enemyArmySpeedMultiplier)) {
+      let moves = evaluateTacticalMoves(this.gameState, 'enemy', this.enemyArmySpeedMultiplier);
+      // v4: the bot spends its one ability first, exactly as the server replays it.
+      const botCommander = BOT_COMMANDER[this.botDifficulty];
+      const choice = chooseBotAbility(this.gameState, 'enemy', botCommander, moves);
+      const ability = choice && applyTeamAbility(this.gameState, 'enemy', botCommander, choice.sourceId, choice.targetId, this.enemyArmySpeedMultiplier, `enemy_ability_${this.gameState.armies.length}`);
+      if (choice && botCommander && ability) {
+        this.gameState = ability.state;
+        moves = choice.moves;
+        this.announceBotAbility(COMMANDER_ABILITY[botCommander], choice.sourceId);
+      }
+      for (const move of moves) {
         const dispatch = dispatchArmy(this.gameState.territories[move.fromId], this.gameState.territories[move.toId], 'enemy', .5, undefined, this.enemyArmySpeedMultiplier, this.gameState);
         if (!dispatch.success || !dispatch.army || !dispatch.sourceTerritory) continue;
         this.gameState.territories[move.fromId] = dispatch.sourceTerritory;

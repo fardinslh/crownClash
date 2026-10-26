@@ -159,3 +159,48 @@ func TestCreateBotMatchStoresCommanderOnV4Tickets(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestBotSpendsItsAbilityByDifficultyOnV4Only(t *testing.T) {
+	player, enemy := DefaultModifiers(), DefaultModifiers()
+	run := func(rules int, difficulty string) GameState {
+		state, _, err := simulateBotBattleWithDifficulty(nil, player, enemy, "crown_cross", rules, difficulty)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return state
+	}
+	if !run(4, "hard").EnemyAbilityUsed {
+		t.Error("hard v4 bot should have spent its vanguard charge")
+	}
+	if run(4, "easy").EnemyAbilityUsed {
+		t.Error("easy bot must stay ability-free")
+	}
+	if run(3, "hard").EnemyAbilityUsed {
+		t.Error("v3 has no abilities")
+	}
+	if a, b := run(4, "hard"), run(4, "hard"); a.Stats != b.Stats {
+		t.Error("bot ability replay must be deterministic")
+	}
+}
+
+func TestChooseBotAbilityIgnoresIllegalStates(t *testing.T) {
+	state := v4AbilityState()
+	moves := []tacticalMove{{"e_base", "n_bot_right"}, {"e_base", "n_center"}}
+	if _, ok := chooseBotAbility(state, TeamEnemy, "", moves); ok {
+		t.Error("no commander, no ability")
+	}
+	early := state
+	early.ElapsedTimeSeconds = abilityUnlockSeconds - 0.02
+	if _, ok := chooseBotAbility(early, TeamEnemy, "vanguard", moves); ok {
+		t.Error("ability is locked before 15s")
+	}
+	used := state
+	used.EnemyAbilityUsed = true
+	if _, ok := chooseBotAbility(used, TeamEnemy, "vanguard", moves); ok {
+		t.Error("one use per match")
+	}
+	choice, ok := chooseBotAbility(state, TeamEnemy, "vanguard", moves)
+	if !ok || choice.sourceID != "e_base" || choice.targetID != "n_bot_right" || len(choice.moves) != 1 {
+		t.Errorf("vanguard should replace the first attack, got %+v ok=%v", choice, ok)
+	}
+}

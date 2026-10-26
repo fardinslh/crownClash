@@ -14,6 +14,19 @@ func normalizeBotDifficulty(value string) (string, error) {
 		return "", errors.New("invalid_bot_difficulty")
 	}
 }
+
+// botCommanderID is the commander (and so the one ability) the bot brings to a
+// v4 match. Easy stays ability-free. Mirrors BOT_COMMANDER in bot-difficulty.ts.
+func botCommanderID(difficulty string) string {
+	switch difficulty {
+	case "normal":
+		return "quartermaster"
+	case "hard":
+		return "vanguard"
+	default:
+		return ""
+	}
+}
 func botAITickSeconds(difficulty string) float64 {
 	switch difficulty {
 	case "easy":
