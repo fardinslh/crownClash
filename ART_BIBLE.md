@@ -35,7 +35,8 @@ pale building stone and saturated blue/red roofs retain distinct material values
 under the same lighting rig. Marching numbers choose one offset for their full
 route and follow the squad continuously, independent of stride animation; only
 viewport edges clamp their position. All map **and unit** requests use
-`cartoon-meadow-v1.6`.
+`cartoon-meadow-v1.7`: the Royal Ring ground plate was re-baked with two centre
+diagonal roads (gameplay change, no style change).
 
 ## 1. Visual Pillars
 

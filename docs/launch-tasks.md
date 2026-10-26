@@ -21,7 +21,7 @@ Status as of 2026-10-25. Source: pre-release audit (mechanic, UX, retention).
 - [x] Visual overhaul: UI tokens, `ui/kit`, vector icon set, rebuilt Menu/Kingdom/Daily/League/Commander, rounded battle HUD and modals, result screen with icons and victory confetti, capture particles, team-coloured convoy badges, battle load bar, scene fades, master audio bus + UI click.
 - [ ] Deploy order: server (migration 021, v4 negotiation) before the client.
 - [x] The bot uses its own ability on normal (quartermaster) and hard (vanguard); easy has none. TS + Go parity, tests and probe numbers in `docs/rules-v4.md`. Needs a human playtest to confirm normal/hard did not get too hard (probe shift: -5.6 pp normal, -8.3 pp hard for the weakest scripted player).
-- [ ] Royal Ring no-contact pacing is still open.
+- [x] Royal Ring no-contact pacing: cause was a pure ring (one hostile road per frontier tower, so a 50% send can never break a full 40-unit tower). Two centre diagonals added to `battlefields.json` (TS + Go share it) and the ground plate re-baked; probe no-contact games 22/144 -> 0/144, other maps identical, win rates within 3 pp (easy Royal Ring +12.5 pp from formerly frozen games). Details and compatibility notes in `docs/rules-v4.md`. Still needs a human look at the new roads on a real device.
 - [x] MenuScene's async init no longer keeps running after the scene stops (generation guard, regression test `MenuSceneStaleInit`). Still worth a check on device.
 - [x] Kingdom hero uses 256px hub-only sprites (`apps/game/public/assets/hub`, built by `scripts/export-hub-art.mjs` from the 512px masters). Battle sprites stay 128-160px.
 

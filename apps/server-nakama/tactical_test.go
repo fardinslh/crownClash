@@ -55,6 +55,33 @@ func TestTacticalRoutesAndInterruption(t *testing.T) {
 	}
 }
 
+// Royal Ring was a pure ring: each frontier tower had one hostile road, so a 50%
+// send could never break a full tower and both halves froze with no clash. The
+// two centre diagonals give each frontier tower a second attacking source. This
+// must stay identical to the TS road set (royal-ring-contact.test.ts).
+func TestTacticalRoyalRingCentreDiagonals(t *testing.T) {
+	s := CreateInitialGameStateForBattlefield(DefaultModifiers(), DefaultModifiers(), "royal_ring")
+	s.GameplayRulesVersion = 4
+	if got := len(battlefieldRoads["royal_ring"]); got != 14 {
+		t.Fatalf("royal_ring roads = %d, want 14", got)
+	}
+	if got := tacticalNeighbors(s, "n_ring_w_n"); !reflect.DeepEqual(got, []string{"n_ring_e_s", "n_ring_nw", "n_ring_w_s"}) {
+		t.Fatal(got)
+	}
+	if got := tacticalNeighbors(s, "n_ring_e_n"); !reflect.DeepEqual(got, []string{"n_ring_e_s", "n_ring_ne", "n_ring_w_s"}) {
+		t.Fatal(got)
+	}
+	a, b := s.Territories["n_ring_e_s"], s.Territories["n_ring_w_n"]
+	a.Owner, b.Owner = TeamPlayer, TeamEnemy
+	s.Territories[a.ID], s.Territories[b.ID] = a, b
+	if got := findDispatchRoute(s, "n_ring_e_s", "n_ring_w_n", TeamPlayer); !reflect.DeepEqual(got, []string{"n_ring_e_s", "n_ring_w_n"}) {
+		t.Fatal(got)
+	}
+	if len(battlefieldRoads["crown_cross"]) != 16 || len(battlefieldRoads["twin_passes"]) != 9 {
+		t.Fatal("other 1v1 maps must keep their road sets")
+	}
+}
+
 func TestTacticalPostgresVersionPinningAndSettlement(t *testing.T) {
 	s, now := realmTestStore(t)
 	ctx := context.Background()

@@ -271,7 +271,7 @@ describe('data-driven battlefield architecture', () => {
       // Road counts are different
       expect(cross.roads).toHaveLength(16);
       expect(passes.roads).toHaveLength(9);
-      expect(ring.roads).toHaveLength(12);
+      expect(ring.roads).toHaveLength(14);
 
       // Twin Passes has unique pass choke IDs and no center tower
       const passIds = passes.territories.map((t) => t.id);
@@ -627,7 +627,7 @@ describe('quad_citadel: the first dedicated 2v2 battlefield (§7.3)', () => {
       expect(getBattlefield('twin_passes').territories).toHaveLength(8);
       expect(getBattlefield('twin_passes').roads).toHaveLength(9);
       expect(getBattlefield('royal_ring').territories).toHaveLength(10);
-      expect(getBattlefield('royal_ring').roads).toHaveLength(12);
+      expect(getBattlefield('royal_ring').roads).toHaveLength(14);
       for (const def of ONE_V_ONE_BATTLEFIELDS) {
         expect(def.mode).toBe('1v1');
         expect(() => validateBattlefieldDefinition(def)).not.toThrow();

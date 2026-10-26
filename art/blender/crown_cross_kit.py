@@ -1133,10 +1133,11 @@ def _ground_roads(bf, mats, make_material):
         length = math.hypot(bx - ax, by - ay) + 10.0
         angle = math.atan2(by - ay, bx - ax)
         cx, cy = (ax + bx) / 2.0, (ay + by) / 2.0
-        # Quad's short corner links overlap adjacent road beds. Coplanar
-        # meshes block their own Cycles shadow rays and leave black squares;
-        # tiny distinct heights avoid that without a visible gameplay lift.
-        lift = road_index * .0005 if bf['id'] == 'quad_citadel' else 0
+        # Quad's short corner links and Royal Ring's centre diagonals overlap
+        # other road beds. Coplanar meshes block their own Cycles shadow rays
+        # and leave black squares; tiny distinct heights avoid that without a
+        # visible gameplay lift.
+        lift = road_index * .0005 if bf['id'] in ('quad_citadel', 'royal_ring') else 0
         _road_strip('dry grass band', length + 12.0, 35.0, .035 + lift, angle, cx, cy, dry, 2.6, rng)
         _road_strip('road shoulder', length + 6.0, 27.0, .05 + lift, angle, cx, cy, mats['shoulder'], 2.0, rng)
         _road_strip('road bed', length, 19.0, .07 + lift, angle, cx, cy, mats['road'], 1.2, rng)
@@ -1147,7 +1148,11 @@ def _ground_roads(bf, mats, make_material):
                 t = step / length
                 px = ax + (bx - ax) * t
                 py = ay + (by - ay) * t
-                box('worn path stone', (8.5, 13.0, .12), (px, py, .13),
+                # Royal Ring's diagonals cross the court's inlaid pavers
+                # (top at .19); a distinct lift keeps those tops from being
+                # coplanar, which renders black patches under Cycles.
+                stone_z = .13 + lift + (.004 if bf['id'] == 'royal_ring' else 0)
+                box('worn path stone', (8.5, 13.0, .12), (px, py, stone_z),
                     mats['paving'], .7, rot=(0, 0, angle + (rng.random() - .5) * .12))
 
 

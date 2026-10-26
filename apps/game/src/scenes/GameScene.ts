@@ -463,7 +463,7 @@ export class GameScene extends Phaser.Scene {
   preload(): void {
     // Fixed asset filenames are cached for 30 days in production. Bump this
     // revision with baked map art changes so existing players load the new kit.
-    const mapArtPath = (path: string): string => `${path}?v=cartoon-meadow-v1.6`;
+    const mapArtPath = (path: string): string => `${path}?v=cartoon-meadow-v1.7`;
     // Track texture files that fail to load so the scene can substitute
     // procedural fallbacks instead of rendering broken sprites (the game must
     // never depend on the Blender source pipeline being present).

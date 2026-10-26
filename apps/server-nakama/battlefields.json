@@ -96,7 +96,9 @@
       ["n_ring_e_n", "n_ring_ne"],
       ["n_ring_nw", "n_ring_ne"],
       ["n_ring_nw", "e_base"],
-      ["n_ring_ne", "e_base"]
+      ["n_ring_ne", "e_base"],
+      ["n_ring_w_s", "n_ring_e_n"],
+      ["n_ring_e_s", "n_ring_w_n"]
     ]
   },
   {

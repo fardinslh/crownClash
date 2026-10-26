@@ -75,39 +75,71 @@ Each ability can be used once per match, from 15 s of match time. It is recorded
 
 | Player commander | No bot ability | Bot ability |
 |---|---:|---:|
-| none | 26.9% | 22.2% |
-| crown_guard | 34.3% | 31.5% |
-| quartermaster | 32.4% | 28.7% |
-| vanguard | 35.2% | 31.5% |
+| none | 27.8% | 23.1% |
+| crown_guard | 38.0% | 32.4% |
+| quartermaster | 34.3% | 31.5% |
+| vanguard | 35.2% | 32.4% |
 
-By difficulty, a player with no commander: normal 13.9% → 8.3%, hard 13.9% → 5.6% (easy unchanged at 52.8%). The bot spent its ability in 144 of 144 normal games and 144 of 144 hard games. Each player commander still adds 6.5-9.3 pp over none, so the player ability keeps its value. The probe policies are scripted and weaker than people, so these are relative shifts, not expected human win rates.
+By difficulty, a player with no commander: normal 13.9% → 8.3%, hard 13.9% → 5.6% (easy unchanged at 55.6%). The bot spent its ability in 144 of 144 normal games and 144 of 144 hard games. Each player commander still adds 8.4-9.3 pp over none, so the player ability keeps its value. The probe policies are scripted and weaker than people, so these are relative shifts, not expected human win rates.
 
 Run `node scripts/rules-v4-balance.mjs`. The output goes to the git-ignored file `qa-artifacts/rules-v4/balance.json`.
 
-The probe pits 4 scripted player policies × 3 player cadences against the real tactical bot. It covers every difficulty on all three 1v1 maps, with equal troops: 432 games in total. The policies are probes and do not model human skill.
+The tables above are the baseline with no bot ability (`BOT_ABILITY=off`), refreshed after the Royal Ring road change below. The probe pits 4 scripted player policies × 3 player cadences against the real tactical bot. It covers every difficulty on all three 1v1 maps, with equal troops: 432 games in total. The policies are probes and do not model human skill.
 
 **Player win rate by commander**
 
 | Commander | Win rate | Δ vs none |
 |---|---:|---:|
-| none | 26.9% | — |
-| crown_guard | 34.3% | +7.4 pp |
-| quartermaster | 32.4% | +5.5 pp |
-| vanguard | 35.2% | +8.3 pp |
+| none | 27.8% | — |
+| crown_guard | 38.0% | +10.2 pp |
+| quartermaster | 34.3% | +6.5 pp |
+| vanguard | 35.2% | +7.4 pp |
 
 **Player win rate by difficulty (none / guard / quartermaster / vanguard)**
 
 | Difficulty | none | guard | quartermaster | vanguard |
 |---|---:|---:|---:|---:|
-| easy | 52.8% | 55.6% | 58.3% | 63.9% |
-| normal | 13.9% | 25.0% | 19.4% | 16.7% |
-| hard | 13.9% | 22.2% | 19.4% | 25.0% |
+| easy | 55.6% | 61.1% | 66.7% | 63.9% |
+| normal | 13.9% | 25.0% | 16.7% | 16.7% |
+| hard | 13.9% | 27.8% | 19.4% | 25.0% |
 
 **How the numbers were tuned**
-- The target was "≤ ~10 pp shift, no dominant commander".
+- The target was "≤ ~10 pp shift, no dominant commander". The Royal Ring diagonals moved crown_guard from +7.4 to +10.2 pp in the no-bot-ability baseline (other commanders +1 pp), still at the edge of that target.
 - First pass: supply +10 gave +12.9 pp, and the old 100% all-in charge gave 0 pp (the empty source tower got counterattacked).
 - Final values: supply +5, and a charge that is a 50% send arriving ×2 stronger and ×1.5 faster.
 
 **Still open**
-- Royal Ring still has 22 of 144 probe games with no direct clash between the two sides. This matches the v3 pacing warning, and abilities do not fix it.
-- Human playtests and real-device checks are pending.
+- Human playtests and real-device checks are pending, including a feel check of the two Royal Ring diagonals and of the re-baked ground plate.
+
+## Royal Ring contact pacing
+
+**Problem.** Before this change 22 of 144 Royal Ring probe games ended at the 90 s limit with no attack on an owned tower (crown_cross 0, twin_passes 0). Abilities did not help.
+
+**Cause (measured).**
+- In every such game both players took their own four neutral towers and then stalled. Final state: each side held its half of the ring at the 40-unit cap (`sw`/`se`/`w_s`/`e_s` against `nw`/`ne`/`w_n`/`e_n`).
+- A send is 50% of the source, so at most 20 units leave a full tower. A full 40-unit barracks/stable defends with 40 and `20 > 40` is false.
+- The ring has only two frontier roads (`w_s`-`w_n`, `e_s`-`e_n`). Hostile orders need one direct road, so a frontier tower had exactly one possible attacker. Nothing could ever concentrate force. The bases (65 units) have no road to the frontier, so their stock cannot attack either.
+- crown_cross and twin_passes do not stall: their centre / pass towers touch both halves, so a target has several attackers and first contact comes at a median of 7.4 s and 12.8 s.
+- It is not abilities (`BOT_ABILITY=off` also had 22) and not a slow bot. The stalled games were normal/hard bot vs the flank/split scripts at the fast 1.8 s cadence (16), plus easy-bot counter duels (6). All of them end in the same frozen ring.
+
+**Fix.** Two roads added to `royal_ring` in `apps/server-nakama/battlefields.json` (the single source for TS and Go): `n_ring_w_s`-`n_ring_e_n` and `n_ring_e_s`-`n_ring_w_n`. They cross in the middle of the court, are 180-degree images of each other, and give each frontier tower a second attacker (`w_n` can now be hit from `w_s` and `e_s`). No economy, rule or AI code changed, so TS and Go stay identical by construction. The ground plate was re-baked from the same JSON (`ground_royal_ring.webp`), with a tiny per-road height lift in `art/blender/crown_cross_kit.py` so the crossing road beds do not render black squares.
+
+**Result (probe, 432 games, bot ability on).**
+
+| | Before | After |
+|---|---:|---:|
+| no-contact games, royal_ring | 22 / 144 | 0 / 144 |
+| no-contact games, crown_cross / twin_passes | 0 / 0 | 0 / 0 (outputs identical) |
+| Royal Ring first contact median / p90 / max | 14.6 / 20.0 / 23.6 s | 14.6 / 20.0 / 20.0 s |
+| player win rate, none commander, easy / normal / hard | 52.8 / 8.3 / 5.6% | 55.6 / 8.3 / 5.6% |
+| player win rate, all commanders, all maps | 22.2-31.5% | 23.1-32.4% |
+| Royal Ring player win rate, easy / normal / hard | 43.8 / 4.2 / 0.0% | 56.3 / 2.1 / 2.1% |
+
+First contact is not earlier; the stalled games now clash instead of waiting out the clock. Easy Royal Ring moved 12.5 pp because 6 formerly frozen games are now decided by fighting. Normal and hard Royal Ring stay near 0% for these weak scripted policies, as before, so this is not a difficulty tuning.
+
+**Compatibility.**
+- Roads are only read by tactical rules (v3 and v4). v1/v2 and live PvP ignore them.
+- v3 is already live: a v3 Royal Ring match settling after this deploy replays with the new roads (new legal attacks, bot may use the diagonals, and friendly reinforcement routes can take a diagonal when it is shorter). A client running the old bundle would simulate the old roads. The window is one match (at most 90 s of play plus ticket life), the server result is authoritative, and v4 has not shipped, so the change was made in place rather than as a new rules version.
+- Deploy the server and client together, as for v4.
+
+**Not verified.** A real-device look at the diagonals and the new ground plate, and human playtests. Probe policies are scripted.

@@ -19,7 +19,7 @@ describe('GameScene Battlefield Road Data Source', () => {
 
     expect(getBattlefield('crown_cross').roads).toHaveLength(16);
     expect(getBattlefield('twin_passes').roads).toHaveLength(9);
-    expect(getBattlefield('royal_ring').roads).toHaveLength(12);
+    expect(getBattlefield('royal_ring').roads).toHaveLength(14);
   });
 
   it('proves GameScene.ts contains no local hardcoded road connections array and reads from battlefield data', () => {
