@@ -32,7 +32,8 @@ Status as of 2026-10-25. Source: pre-release audit (mechanic, UX, retention).
 - [ ] Replace emoji/rectangle UI with real icon and chest art (Blender pipeline per the Art Bible).
 
 ## Later
-- [ ] Analytics still missing: checkout (only matters once coin payments are on), chest open, FTUE timing, client error reporting.
+- [ ] Analytics still missing: checkout (only matters once coin payments are on) and client error reporting (needs a new event, a server allowlist entry and a rule that stack traces carry no player data).
+- [x] Chest open is `daily_reward_claimed` with `rewardType=crown_chest` (server-confirmed). FTUE timing is `docs/analytics/ftue-timing.sql`, built from existing `tutorial_*` events; it has not been run against a database yet.
 - [ ] Haptics toggle (sound mute already exists and persists).
 - [ ] Some emoji remain inside battle copy strings (result stats line, share text, difficulty picker).
 - [ ] `PrototypeScene.ts` + `src/prototype/` are unregistered (not in the bundle). Delete them or wire them back together with `scripts/crown-prototype-qa.mjs`.

@@ -36,6 +36,8 @@ derives player identity from authentication and records receipt time separately.
 | `tutorial_completed` | Player captures the enemy base in training (all guided actions performed) and the server saves the account-wide flag | None | Client action | Onboarding completion |
 | `tutorial_skipped` | Player leaves the guided training battle before completion | `lastStepId` (`drag_to_attack`, `preview_result`, `tower_roles`, `multi_dispatch`, `destroy_base`) | Client action | Onboarding abandonment |
 
+First-session timing needs no extra event: `docs/analytics/ftue-timing.sql` derives time to the guided battle and per-step timing from `session_start`, `tutorial_started` and `tutorial_step_completed` using `occurred_at`.
+
 Live events use the player-specific settlement ID, `live_<startedAt>_<playerId>`,
 while Nakama keeps its internal socket match ID unchanged. `match_end` and `match_quit` are mutually exclusive per match ID. Raw platform
 init data, tokens, contact data, player IDs, and client-calculated economy
