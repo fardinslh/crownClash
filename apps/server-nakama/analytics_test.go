@@ -946,3 +946,21 @@ func TestAnalyticsClientErrorKeepsPlayerDataOut(t *testing.T) {
 		t.Error("client_error without build accepted")
 	}
 }
+
+func TestAnalyticsLiveQueueFallbackEvent(t *testing.T) {
+	if err := validateAnalyticsEvent(analyticsTestEvent("live_queue_fallback", map[string]any{"waitedSeconds": float64(15)}), analyticsTestNow); err != nil {
+		t.Fatalf("valid live_queue_fallback rejected: %v", err)
+	}
+	for name, props := range map[string]map[string]any{
+		"missing":    {},
+		"fractional": {"waitedSeconds": 1.5},
+		"too long":   {"waitedSeconds": float64(601)},
+		"negative":   {"waitedSeconds": float64(-1)},
+		"string":     {"waitedSeconds": "15"},
+		"extra":      {"waitedSeconds": float64(15), "matchId": "m"},
+	} {
+		if err := validateAnalyticsEvent(analyticsTestEvent("live_queue_fallback", props), analyticsTestNow); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+}

@@ -1028,6 +1028,7 @@ var analyticsEventDefinitions = map[string]analyticsEventDefinition{
 	"rank_promoted":              {properties: analyticsProperties("matchId")},
 	"live_queue_joined":          {properties: map[string]analyticsPropertyKind{}},
 	"live_queue_2v2_joined":      {properties: map[string]analyticsPropertyKind{}},
+	"live_queue_fallback":        {properties: map[string]analyticsPropertyKind{"waitedSeconds": analyticsPropertyNumber}},
 	"live_invite_created":        {properties: map[string]analyticsPropertyKind{}},
 	"live_invite_joined":         {properties: map[string]analyticsPropertyKind{}},
 	"share_opened":               {properties: analyticsProperties("source")},
@@ -1260,6 +1261,9 @@ func hasValidAnalyticsPropertyEnums(event AnalyticsEventRecord) bool {
 		return oneOf(value("commanderId"), "crown_guard", "quartermaster", "vanguard")
 	case "client_error":
 		return validClientErrorProps(event.Props)
+	case "live_queue_fallback":
+		waited, _ := event.Props["waitedSeconds"].(float64)
+		return waited == math.Trunc(waited) && waited <= 600
 	default:
 		return true
 	}

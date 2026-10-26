@@ -1,4 +1,5 @@
-import { startChosenBotMatch } from '../ui/BotDifficultyPicker.js';
+import { preferredBotDifficulty, startChosenBotMatch } from '../ui/BotDifficultyPicker.js';
+import { armLiveQueueFallback } from '../pvp/liveQueueFallback.js';
 import { PilotClient } from '../realm/PilotClient.js';
 import Phaser from 'phaser';
 import {
@@ -50,6 +51,10 @@ const prefersReducedMotion = (): boolean =>
 
 export class MenuScene extends Phaser.Scene {
   private liveClient?: LiveMatchClient;
+  /** Disarms the 1v1 queue's bot-fallback timer; set while the lobby waits for an opponent. */
+  private disarmQueueFallback?: () => void;
+  /** True from the moment the queue gives up on a human until the bot match starts or fails. */
+  private fallingBackToBot = false;
   private pvpController?: LivePvpController;
   private joinCodeInput?: HTMLInputElement;
   private joinCodeInputCleanup?: () => void;
@@ -88,6 +93,9 @@ export class MenuScene extends Phaser.Scene {
     this.pvpController = undefined;
     this.liveClient?.close();
     this.liveClient = undefined;
+    this.disarmQueueFallback?.();
+    this.disarmQueueFallback = undefined;
+    this.fallingBackToBot = false;
     const platform = this.registry.get('platform') as PlatformAdapter | undefined;
     platform?.hideBackButton();
     this.joinCodeInputCleanup?.();
@@ -507,6 +515,9 @@ export class MenuScene extends Phaser.Scene {
 
     // --------------------------------------------------- CLOSE / BACK helper
     const closeLobby = (): void => {
+      this.disarmQueueFallback?.();
+      this.disarmQueueFallback = undefined;
+      this.fallingBackToBot = false;
       this.liveClient?.close();
       this.liveClient = undefined;
       controller.destroy();
@@ -771,6 +782,40 @@ export class MenuScene extends Phaser.Scene {
       }
     };
 
+    // ------------------------------------------------ QUEUE -> BOT FALLBACK
+    const switchToBotMatch = (waitedSeconds: number): void => {
+      this.disarmQueueFallback = undefined;
+      if (controller.getState().view !== 'queueing' || this.isTransitioning || this.fallingBackToBot) return;
+      this.fallingBackToBot = true;
+      trackEvent({ name: 'live_queue_fallback', waitedSeconds });
+      loadText.setText(fa.lobby.noOpponentBot);
+      this.liveClient?.close();
+      this.liveClient = undefined;
+      void careerManager
+        .startBotMatch(platform, preferredBotDifficulty())
+        .then((ticket) => {
+          if (!this.scene.isActive() || !this.fallingBackToBot) return;
+          this.isTransitioning = true;
+          controller.destroy();
+          this.pvpController = undefined;
+          platform.hideBackButton();
+          cleanupJoinInput();
+          overlay.destroy();
+          sounds.playDispatch();
+          platform.hapticImpact('medium');
+          goToScene(this, 'GameScene', { source: 'menu', botMatch: ticket }, () => {
+            this.isTransitioning = false;
+            this.fallingBackToBot = false;
+          });
+        })
+        .catch((error: unknown) => {
+          console.warn('[MenuScene] Bot fallback failed:', error);
+          if (!this.scene.isActive() || !this.fallingBackToBot) return;
+          this.fallingBackToBot = false;
+          controller.onError('matchmaker_failed');
+        });
+    };
+
     // ------------------------------------------------ STATE SUBSCRIPTION
     controller.subscribe((state) => {
       showView(state.view, {
@@ -778,6 +823,16 @@ export class MenuScene extends Phaser.Scene {
         error: state.errorMessage,
         copied: state.copied,
       });
+      // The 1v1 queue gives up on a human after a fixed wait and starts a bot
+      // match instead; every other view (and leaving the queue) disarms it.
+      if (state.view === 'queueing') {
+        this.disarmQueueFallback ??= armLiveQueueFallback(switchToBotMatch);
+      } else {
+        this.disarmQueueFallback?.();
+        this.disarmQueueFallback = undefined;
+        // Leaving the queue (cancel, error) also cancels a bot start in flight.
+        this.fallingBackToBot = false;
+      }
     });
 
     // ------------------------------------------------ LIVE CLIENT FACTORY
@@ -801,6 +856,8 @@ export class MenuScene extends Phaser.Scene {
       let matchStarted = false;
 
       const leaveLobbyForMatch = (): void => {
+        this.disarmQueueFallback?.();
+        this.disarmQueueFallback = undefined;
         controller.destroy();
         this.pvpController = undefined;
         platform.hideBackButton();
@@ -843,14 +900,14 @@ export class MenuScene extends Phaser.Scene {
         });
       });
       client.on('error', ({ code }) => {
-        if (matchStarted) return;
+        if (matchStarted || this.fallingBackToBot) return;
         controller.onError(code);
         client.close();
         this.liveClient = undefined;
       });
 
       client.on('closed', () => {
-        if (matchStarted) return;
+        if (matchStarted || this.fallingBackToBot) return;
         controller.onError('connection_closed');
         this.liveClient = undefined;
       });

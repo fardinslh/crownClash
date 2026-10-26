@@ -269,6 +269,7 @@ export const fa = {
     creatingRoom: 'در حال ساخت اتاق…',
     joiningRoom: 'در حال ورود به اتاق…',
     findingOpponent: 'در حال یافتن حریف…',
+    noOpponentBot: 'حریفی آنلاین نبود.\nنبرد با بات شروع می‌شود…',
     finding2v2: 'در حال یافتن نبرد ۲ در ۲…\nبه ۴ فرمانده نیاز است',
     retry: 'تلاش دوباره',
     back: 'بازگشت',

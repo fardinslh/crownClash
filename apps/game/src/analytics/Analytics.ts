@@ -69,6 +69,7 @@ export type AnalyticsEventInput =
   | { name: 'rank_promoted'; matchId: string }
   | { name: 'live_queue_joined' }
   | { name: 'live_queue_2v2_joined' }
+  | { name: 'live_queue_fallback'; waitedSeconds: number }
   | { name: 'live_invite_created' }
   | { name: 'live_invite_joined' }
   | { name: 'share_opened'; source: 'live_invite' | 'result' | 'result_2v2' }
@@ -143,6 +144,7 @@ const EVENT_NAMES: ReadonlySet<AnalyticsEvent['name']> = new Set([
   'rank_promoted',
   'live_queue_joined',
   'live_queue_2v2_joined',
+  'live_queue_fallback',
   'live_invite_created',
   'live_invite_joined',
   'share_opened',

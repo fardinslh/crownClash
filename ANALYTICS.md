@@ -24,6 +24,7 @@ derives player identity from authentication and records receipt time separately.
 | `rank_promoted` | A settled match crosses a rank boundary | Client: `matchId`. Server: `rankId`, `resultingTrophies` | Server-confirmed settlement | Rank progression |
 | `live_queue_joined` | Server accepts queue entry | None | Server-confirmed client response | Live queue starts |
 | `live_queue_2v2_joined` | Server accepts 2v2 queue entry | None | Server-confirmed client response | 2v2 queue starts |
+| `live_queue_fallback` | The 1v1 queue found no human within `LIVE_QUEUE_BOT_FALLBACK_SECONDS` and the player was switched to a bot match | `waitedSeconds` (integer, 0-600) | Client lifecycle | Share of live queues that find no opponent (compare with `live_queue_joined`) |
 | `live_invite_created` | Server creates and joins invite | None | Server-confirmed client response | Invite creation |
 | `live_invite_joined` | Server accepts invite join | None | Server-confirmed client response | Invite conversion |
 | `ability_used` | Player uses the v4 commander ability (locally applied, replayed by the server at settlement) | `matchId`, `commanderId`, `atSeconds` | Client action | Ability adoption and timing |
