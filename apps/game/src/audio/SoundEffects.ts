@@ -2,11 +2,16 @@
  * SoundEffects - Lightweight Web Audio synthesizer for instant responsive audio feedback.
  * Zero external audio files required, runs with ultra-low latency on mobile and desktop WebViews.
  */
+import { MusicPlayer } from './MusicPlayer.js';
+
 export class SoundEffects {
   private ctx: AudioContext | null = null;
   private enabled: boolean = true;
-  private musicIntervalId: ReturnType<typeof setInterval> | null = null;
-  private currentBeat: number = 0;
+  private readonly music = new MusicPlayer({
+    getContext: () => this.getContext(),
+    output: (ctx) => this.output(ctx),
+    isEnabled: () => this.enabled,
+  });
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -89,71 +94,27 @@ export class SoundEffects {
         window.localStorage?.setItem('crown_clash_muted', String(!this.enabled));
       } catch {}
     }
-    if (!this.enabled) {
-      this.stopBattleMusic();
+    if (this.enabled) {
+      this.music.resume();
+    } else {
+      this.music.pause();
     }
     return !this.enabled;
   }
 
-  /**
-   * Starts ambient procedural war-drum cadence (100 BPM).
-   * Very low volume, providing tactical tension without masking sound effects.
-   */
+  /** Calm looping theme for the menu and hub scenes; a no-op if already playing. */
+  public startHubMusic(): void {
+    this.music.play('hub');
+  }
+
+  /** Driving loop for battles; crossfades from the hub theme. */
   public startBattleMusic(): void {
-    if (!this.enabled || this.musicIntervalId !== null) return;
-
-    this.currentBeat = 0;
-    // 100 BPM = 600ms per beat
-    this.musicIntervalId = setInterval(() => {
-      this.playDrumStep();
-    }, 600);
+    this.music.play('battle');
   }
 
+  /** Stops whichever track is playing (kept under its old name for existing callers). */
   public stopBattleMusic(): void {
-    if (this.musicIntervalId !== null) {
-      clearInterval(this.musicIntervalId);
-      this.musicIntervalId = null;
-    }
-  }
-
-  private playDrumStep(): void {
-    const ctx = this.getContext();
-    if (!ctx || !this.enabled) return;
-
-    try {
-      const now = ctx.currentTime;
-      const isStrongBeat = this.currentBeat % 2 === 0;
-      const isMainAccent = this.currentBeat % 4 === 0;
-
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-
-      const baseFreq = isMainAccent ? 68 : isStrongBeat ? 60 : 75;
-      const targetFreq = 38;
-      const volume = isMainAccent ? 0.07 : isStrongBeat ? 0.045 : 0.03;
-      const duration = isMainAccent ? 0.22 : 0.15;
-
-      osc.frequency.setValueAtTime(baseFreq, now);
-      osc.frequency.exponentialRampToValueAtTime(targetFreq, now + duration);
-
-      gain.gain.setValueAtTime(volume, now);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-
-      osc.connect(gain);
-      gain.connect(this.output(ctx));
-
-      osc.onended = () => {
-        try {
-          osc.disconnect();
-          gain.disconnect();
-        } catch {}
-      };
-      osc.start(now);
-      osc.stop(now + duration + 0.02);
-
-      this.currentBeat = (this.currentBeat + 1) % 8;
-    } catch {}
+    this.music.stop();
   }
 
   /**

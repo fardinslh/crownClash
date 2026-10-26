@@ -158,7 +158,7 @@ export class MenuScene extends Phaser.Scene {
     }
     const rank = getRankTier(career.trophies);
 
-    sounds.stopBattleMusic();
+    sounds.startHubMusic();
     trackEvent({
       name: 'menu_viewed',
       rankId: rank.id,
