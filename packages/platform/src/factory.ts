@@ -1,6 +1,7 @@
 import { BalePlatformAdapter } from './BalePlatformAdapter.js';
 import { BrowserPlatformAdapter } from './BrowserPlatformAdapter.js';
 import { EitaaPlatformAdapter } from './EitaaPlatformAdapter.js';
+import { withHapticsPreference } from './haptics-preference.js';
 import { TelegramPlatformAdapter } from './TelegramPlatformAdapter.js';
 import { PlatformAdapter } from './types.js';
 
@@ -11,6 +12,10 @@ import { PlatformAdapter } from './types.js';
  * Target priority: Bale -> Eitaa -> Telegram -> Browser fallback.
  */
 export function createPlatformAdapter(): PlatformAdapter {
+  return withHapticsPreference(detectPlatformAdapter());
+}
+
+function detectPlatformAdapter(): PlatformAdapter {
   if (typeof window === 'undefined') {
     return new BrowserPlatformAdapter();
   }

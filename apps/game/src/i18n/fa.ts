@@ -141,11 +141,11 @@ export const fa = {
     milestone: (level: number): string => `مرحلهٔ ${level} کامل شد!`,
   },
   training: {
-    victory: '👑 پیروزی!',
+    victory: 'پیروزی!',
     savingSub: 'آموزش تمام شد — در حال ذخیره…',
     complete: 'آموزش تمام شد!',
     starting: 'نبرد اول شروع می‌شود — این بار با جایزه سکه!',
-    saveFailed: '⚠ ذخیره نشد — برای تلاش دوباره بزن',
+    saveFailed: 'ذخیره نشد — برای تلاش دوباره بزن',
   },
   tutorial: {
     dragToAttack: 'از برجت به سمت برج درخشان بکش!',
@@ -196,7 +196,7 @@ export const fa = {
     eyebrow: 'نبرد با ربات',
     heading: 'چالشت را انتخاب کن',
     note: 'سربازها یکسان. فقط سرعت واکنش فرق دارد.',
-    play: 'بازی ⚔',
+    play: 'بازی',
     back: 'بازگشت',
   },
   daily: {

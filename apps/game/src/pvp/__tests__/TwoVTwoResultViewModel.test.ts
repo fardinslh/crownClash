@@ -137,7 +137,7 @@ describe('2v2 result copy', () => {
 
   it('one-shot rematch button label consumes into sent state', () => {
     expect(twoVTwoRematchButtonLabel(false)).toContain('رأی بازی مجدد');
-    expect(twoVTwoRematchButtonLabel(true)).toBe('رأی بازی مجدد ارسال شد ✓');
+    expect(twoVTwoRematchButtonLabel(true)).toBe('رأی بازی مجدد ارسال شد');
   });
 
   it('cell labels keep the YOU marker readable under truncation', () => {

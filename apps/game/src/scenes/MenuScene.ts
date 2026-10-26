@@ -12,7 +12,7 @@ import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { CareerManager } from '../career/CareerManager.js';
 import { sounds } from '../audio/SoundEffects.js';
 import { THEME, UI, type ButtonVariant } from '../theme.js';
-import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
+import { createPlatformAdapter, isHapticsEnabled, PlatformAdapter, setHapticsEnabled } from '@crown-clash/platform';
 import { LiveMatchClient } from '../api/LiveMatchClient.js';
 import { LivePvpController, isValidRoomCode, sanitizeRoomCode } from '../pvp/LivePvpController.js';
 import { featureFlags } from '../config/featureFlags.js';
@@ -363,6 +363,12 @@ export class MenuScene extends Phaser.Scene {
     const muteButton = createIconButton(this, 32, 32, sounds.isMuted() ? 'sound_off' : 'sound_on', () => {
       const muted = sounds.toggleMute();
       muteButton.setIcon(muted ? 'sound_off' : 'sound_on');
+      platform.hapticSelection();
+    });
+    const hapticsButton = createIconButton(this, 84, 32, isHapticsEnabled() ? 'haptics_on' : 'haptics_off', () => {
+      const enabled = !isHapticsEnabled();
+      setHapticsEnabled(enabled);
+      hapticsButton.setIcon(enabled ? 'haptics_on' : 'haptics_off');
       platform.hapticSelection();
     });
 

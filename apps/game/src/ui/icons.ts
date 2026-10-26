@@ -10,7 +10,7 @@ import { RANK_TIERS } from '@crown-clash/game-core';
  * `createIcon`.
  */
 export type IconKey =
-  | 'coin' | 'trophy' | 'crown' | 'sound_on' | 'sound_off' | 'chest' | 'chest_open'
+  | 'coin' | 'trophy' | 'crown' | 'sound_on' | 'sound_off' | 'haptics_on' | 'haptics_off' | 'chest' | 'chest_open'
   | 'sword' | 'swords' | 'castle' | 'hammer' | 'bolt' | 'shield' | 'close' | 'back' | 'gem'
   | 'star' | 'scroll' | 'lock' | 'check' | 'warning'
   | 'cmd_crown_guard' | 'cmd_quartermaster' | 'cmd_vanguard'
@@ -218,6 +218,19 @@ const DRAW: Record<IconKey, (p: Pen) => void> = {
   sound_off: (p) => {
     p.shape([[8, 24], [20, 24], [34, 11], [34, 53], [20, 40], [8, 40]], 0x94a3b8);
     p.bar(42, 23, 57, 41, 5, 0xf87171).bar(57, 23, 42, 41, 5, 0xf87171);
+  },
+  haptics_on: (p) => {
+    p.box(21, 8, 22, 48, 5, 0xe2e8f0);
+    p.box(25, 14, 14, 30, 2, 0x475569, false);
+    p.disc(32, 50, 2.5, 0x94a3b8, false);
+    p.lineStyle(7, OUTLINE).arc(32, 32, 20, 2.45, 3.84).arc(32, 32, 20, -0.7, 0.7);
+    p.lineStyle(3.5, 0xe2e8f0).arc(32, 32, 20, 2.45, 3.84).arc(32, 32, 20, -0.7, 0.7);
+  },
+  haptics_off: (p) => {
+    p.box(21, 8, 22, 48, 5, 0x94a3b8);
+    p.box(25, 14, 14, 30, 2, 0x475569, false);
+    p.disc(32, 50, 2.5, 0x64748b, false);
+    p.bar(46, 23, 59, 41, 5, 0xf87171).bar(59, 23, 46, 41, 5, 0xf87171);
   },
   chest: (p) => {
     p.box(7, 28, 50, 29, { tl: 2, tr: 2, bl: 5, br: 5 }, 0xa16207);

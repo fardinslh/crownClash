@@ -35,8 +35,8 @@ Status as of 2026-10-25. Source: pre-release audit (mechanic, UX, retention).
 ## Later
 - [ ] Analytics still missing: checkout (only matters once coin payments are on) and client error reporting (needs a new event, a server allowlist entry and a rule that stack traces carry no player data).
 - [x] Chest open is `daily_reward_claimed` with `rewardType=crown_chest` (server-confirmed). FTUE timing is `docs/analytics/ftue-timing.sql`, built from existing `tutorial_*` events; it has not been run against a database yet.
-- [ ] Haptics toggle (sound mute already exists and persists).
-- [ ] Some emoji remain inside battle copy strings (result stats line, share text, difficulty picker).
+- [x] Haptics toggle: menu icon button and a pause-menu row; the choice persists per device and is enforced once in `createPlatformAdapter` (`withHapticsPreference`), so every scene and messenger adapter honours it.
+- [x] Emoji removed from in-canvas battle copy (result screen, 2v2 result, hints, difficulty picker); the result rank banner uses the vector rank icon. Share-sheet text keeps its emoji on purpose: the messenger renders it natively.
 - [ ] `PrototypeScene.ts` + `src/prototype/` are unregistered (not in the bundle). Delete them or wire them back together with `scripts/crown-prototype-qa.mjs`.
 - [ ] `.opencode/*` deletions in the working tree are not part of these changes; commit or restore them separately.
 - [x] Hub scenes (Realm, Kingdom, Daily, League, Commander) are lazy chunks, prefetched when the menu is idle (`scenes/lazyScenes.ts`). Main JS chunk went from 533 kB to 482 kB (gzip 135 to 122) plus Phaser 381 kB gzip. `GameScene` (6.7k lines) is still in the main chunk because new players go straight into it.

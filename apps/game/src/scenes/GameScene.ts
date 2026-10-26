@@ -110,7 +110,7 @@ import {
 } from '../analytics/Analytics.js';
 import { sounds } from '../audio/SoundEffects.js';
 import { THEME } from '../theme.js';
-import { createPlatformAdapter, PlatformAdapter } from '@crown-clash/platform';
+import { createPlatformAdapter, isHapticsEnabled, PlatformAdapter, setHapticsEnabled } from '@crown-clash/platform';
 import {
   LiveMatchClient,
   LiveMatchResult,
@@ -183,7 +183,7 @@ import {
   DustPuffSimulator,
 } from '../combat/SmoothnessHelpers.js';
 import { createText, FONT_FAMILY, MONO_FONT_FAMILY } from '../ui/TextStyles.js';
-import { createIcon, type IconKey } from '../ui/icons.js';
+import { createIcon, rankIcon, type IconKey } from '../ui/icons.js';
 import { drawPanel, fadeIn } from '../ui/kit/index.js';
 import { battlefieldName, faBattle, upgradeEffectLabel } from '../i18n/faBattle.js';
 import { rankName, upgradeMilestoneLabel } from '../i18n/fa.js';
@@ -4750,7 +4750,7 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    // Rank Tier Banner (e.g. ⚔️ SOLDIER RANK • 🏆 120)
+    // Rank Tier Banner (e.g. SOLDIER · 120 trophies)
     const rankTier = settlement.newRank;
     const rankPresentation = computeResultRankPresentation(settlement.rankPromoted);
     const rankBanner = this.add
@@ -4759,7 +4759,7 @@ export class GameScene extends Phaser.Scene {
       .setVisible(rankPresentation.showRankSummary);
     roundedCorners(rankBanner, 12);
 
-    const rankText = createText(this, 0, rankPresentation.rankY - 6, faBattle.result.rank(rankTier.badge, rankName(rankTier.id, rankTier.name), settlement.newCareer.trophies), {
+    const rankText = createText(this, 0, rankPresentation.rankY - 6, faBattle.result.rank(rankName(rankTier.id, rankTier.name), settlement.newCareer.trophies), {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
         fontStyle: 'bold',
@@ -4768,6 +4768,9 @@ export class GameScene extends Phaser.Scene {
         strokeThickness: 2,
       })
       .setOrigin(0.5)
+      .setVisible(rankPresentation.showRankSummary);
+
+    const rankBadge = createIcon(this, -118, rankPresentation.rankY - 2, rankIcon(rankTier.id), 24)
       .setVisible(rankPresentation.showRankSummary);
 
     const leagueProgress = getLeagueProgress(settlement.newCareer.trophies);
@@ -5140,6 +5143,7 @@ export class GameScene extends Phaser.Scene {
       title,
       subtitle,
       rankBanner,
+      rankBadge,
       rankText,
       rankProgressTrack,
       rankProgressFill,
@@ -5488,7 +5492,7 @@ export class GameScene extends Phaser.Scene {
       this.matchMenuController.closeMenu();
     });
 
-    const cardHeight = this.liveMode ? 284 : 244;
+    const cardHeight = this.liveMode ? 324 : 284;
     const card = this.add
       .rectangle(0, 0, 276, cardHeight, 0x0c1322, 0.98)
       .setStrokeStyle(1.5, 0x2563eb, 0.95);
@@ -5576,9 +5580,34 @@ export class GameScene extends Phaser.Scene {
     });
     elements.push(soundBg, soundText);
 
+    // 2b. HAPTICS TOGGLE BUTTON (min 44 height)
+    const hapticsY = soundY + 52;
+    const hapticsBg = this.add
+      .rectangle(0, hapticsY, 234, 44, 0x111c33, 1)
+      .setStrokeStyle(1.5, 0x334155, 1)
+      .setInteractive({ useHandCursor: true });
+    roundedCorners(hapticsBg, 12);
+    const hapticsText = createText(this, 0, hapticsY, isHapticsEnabled() ? faBattle.menu.hapticsOn : faBattle.menu.hapticsOff, {
+        fontFamily: FONT_FAMILY,
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: '#cbd5e1',
+        stroke: '#000000',
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5);
+    this.bindPressFeedback(hapticsBg, hapticsText);
+    hapticsBg.on('pointerdown', () => {
+      const enabled = !isHapticsEnabled();
+      setHapticsEnabled(enabled);
+      hapticsText.setText(enabled ? faBattle.menu.hapticsOn : faBattle.menu.hapticsOff);
+      this.platform.hapticSelection();
+    });
+    elements.push(hapticsBg, hapticsText);
+
     // 3. LEAVE MATCH BUTTON (min 44 height). 2v2 renames it to SURRENDER:
     // leaving mid-battle is an explicit surrender (§5.0).
-    const leaveY = soundY + 52;
+    const leaveY = hapticsY + 52;
     const leaveBg = this.add
       .rectangle(0, leaveY, 234, 44, 0x1e1520, 1)
       .setStrokeStyle(1.5, 0xef4444, 0.9)
@@ -6270,8 +6299,8 @@ export class GameScene extends Phaser.Scene {
       if (model.cancelled) break;
       const teamStyle = THEME.teams[row.group.teamId === 'a' ? 'player' : 'enemy'];
       const teamLabelText = row.group.isMyTeam
-        ? faBattle.twoVTwo.yourTeam(row.group.isWinner ? '🏆' : '🛡', row.group.teamId.toUpperCase(), row.group.isWinner)
-        : faBattle.twoVTwo.enemyTeam(row.group.isWinner ? '🏆' : '⚔', row.group.teamId.toUpperCase(), row.group.isWinner);
+        ? faBattle.twoVTwo.yourTeam(row.group.teamId.toUpperCase(), row.group.isWinner)
+        : faBattle.twoVTwo.enemyTeam(row.group.teamId.toUpperCase(), row.group.isWinner);
       const teamLabel = createText(this, 0, row.labelY, teamLabelText, {
           fontFamily: FONT_FAMILY,
           fontSize: '11px',
@@ -6329,7 +6358,7 @@ export class GameScene extends Phaser.Scene {
             cell.center.y + 22,
             participant.abandoned
               ? faBattle.twoVTwo.abandoned(participant.coinsAwarded)
-              : `${participant.coinsAwarded === null ? '' : `+${participant.coinsAwarded}🪙 · `}⚔${participant.unitsDispatched ?? '—'} · 🏰${participant.territoriesCaptured ?? '—'}`,
+              : faBattle.twoVTwo.participantStats(participant.coinsAwarded, participant.unitsDispatched ?? null, participant.territoriesCaptured ?? null),
             {
               fontFamily: FONT_FAMILY,
               fontSize: '10px',
