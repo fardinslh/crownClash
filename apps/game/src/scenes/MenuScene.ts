@@ -53,6 +53,8 @@ export class MenuScene extends Phaser.Scene {
   private joinCodeInput?: HTMLInputElement;
   private joinCodeInputCleanup?: () => void;
   private isTransitioning = false;
+  /** Bumped on create and shutdown so an async init from an earlier run can tell it is stale. */
+  private initGeneration = 0;
 
   constructor() {
     super({ key: 'MenuScene' });
@@ -79,6 +81,7 @@ export class MenuScene extends Phaser.Scene {
   }
 
   shutdown(): void {
+    this.initGeneration += 1;
     this.isTransitioning = false;
     this.pvpController?.destroy();
     this.pvpController = undefined;
@@ -92,6 +95,7 @@ export class MenuScene extends Phaser.Scene {
   }
 
   create(): void {
+    const generation = ++this.initGeneration;
     this.isTransitioning = false;
     setupSceneCamera(this);
     bindSceneViewportResize(this);
@@ -101,18 +105,22 @@ export class MenuScene extends Phaser.Scene {
       (this.registry.get('platform') as PlatformAdapter) || createPlatformAdapter();
     const careerManager = CareerManager.getInstance(platform.getUser().id);
 
-    void this.initializeMenu(platform, careerManager);
+    void this.initializeMenu(platform, careerManager, generation);
   }
 
   private async initializeMenu(
     platform: PlatformAdapter,
-    careerManager: CareerManager
+    careerManager: CareerManager,
+    generation: number
   ): Promise<void> {
+    // The awaits below can outlive this scene run (fast navigation, restart).
+    const isStale = (): boolean => generation !== this.initGeneration;
     try {
       await careerManager.connect(platform);
     } catch (error) {
       console.warn('[MenuScene] Backend unavailable, using local career cache:', error);
     }
+    if (isStale()) return;
 
     if (!careerManager.isRemoteConnected() && !isLocalCareerFallbackAllowed()) {
       this.showBackendUnavailable();
@@ -124,11 +132,14 @@ export class MenuScene extends Phaser.Scene {
       try {
         const pilot = new PilotClient(platform);
         const config = await pilot.config();
+        if (isStale()) return;
         this.registry.set('realmPilot', config.enabled);
         if (config.enabled) {
           await pilot.attachEntry();
+          if (isStale()) return;
           if (careerManager.isTutorialCompleted() && pilot.challenge()) {
             const home = await pilot.home();
+            if (isStale()) return;
             if (!home.activeTicket && !home.activePractice) {
               this.scene.start('RealmScene');
               return;

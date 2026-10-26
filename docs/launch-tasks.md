@@ -21,7 +21,7 @@ Status as of 2026-10-25. Source: pre-release audit (mechanic, UX, retention).
 - [x] Visual overhaul: UI tokens, `ui/kit`, vector icon set, rebuilt Menu/Kingdom/Daily/League/Commander, rounded battle HUD and modals, result screen with icons and victory confetti, capture particles, team-coloured convoy badges, battle load bar, scene fades, master audio bus + UI click.
 - [ ] Deploy order: server (migration 021, v4 negotiation) before the client.
 - [ ] Bot does not use abilities yet; Royal Ring no-contact pacing is still open.
-- [ ] MenuScene's async init keeps running after the scene stops and can auto-start training (seen with scripted scene switches; check on device).
+- [x] MenuScene's async init no longer keeps running after the scene stops (generation guard, regression test `MenuSceneStaleInit`). Still worth a check on device.
 - [ ] Kingdom hero building sprites are 128-160px and look soft when upscaled on tall phones; export 256px runtime art.
 
 ## Needs the owner (cannot be done from code)
