@@ -7,9 +7,11 @@ import (
 	"errors"
 	"io"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/heroiclabs/nakama-common/api"
 	"github.com/heroiclabs/nakama-common/runtime"
@@ -1029,6 +1031,7 @@ var analyticsEventDefinitions = map[string]analyticsEventDefinition{
 	"tutorial_menu_closed":       {properties: map[string]analyticsPropertyKind{}},
 	"tutorial_leave_requested":   {properties: map[string]analyticsPropertyKind{}},
 	"tutorial_leave_cancelled":   {properties: map[string]analyticsPropertyKind{}},
+	"client_error":               {properties: analyticsProperties("kind", "errorName", "message", "source", "scene", "build")},
 }
 
 // tutorialStepIDs mirrors TUTORIAL_STEPS in the game client.
@@ -1243,9 +1246,44 @@ func hasValidAnalyticsPropertyEnums(event AnalyticsEventRecord) bool {
 		return oneOf(value("lastStepId"), tutorialStepIDs...)
 	case "commander_selected":
 		return oneOf(value("commanderId"), "crown_guard", "quartermaster", "vanguard")
+	case "client_error":
+		return validClientErrorProps(event.Props)
 	default:
 		return true
 	}
+}
+
+var (
+	clientErrorNamePattern   = regexp.MustCompile(`^[A-Za-z]{1,40}$`)
+	clientErrorScenePattern  = regexp.MustCompile(`^[A-Za-z]{1,32}$`)
+	clientErrorSourcePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+(:[0-9]+){0,2}$`)
+	clientErrorBuildPattern  = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+)
+
+const (
+	clientErrorMessageMaxLength = 120
+	clientErrorSourceMaxLength  = 96
+)
+
+// validClientErrorProps keeps client_error free of player data. The client
+// scrubs the message before sending; this is the server-side backstop, so it
+// only admits a bare error class, a file:line:col location, a scene key, a
+// build id and a short message that carries no URL or email address. No stack
+// trace is accepted.
+func validClientErrorProps(props map[string]any) bool {
+	value := func(key string) string {
+		value, _ := props[key].(string)
+		return value
+	}
+	message := value("message")
+	return (value("kind") == "error" || value("kind") == "rejection") &&
+		clientErrorNamePattern.MatchString(value("errorName")) &&
+		utf8.RuneCountInString(message) <= clientErrorMessageMaxLength &&
+		!strings.Contains(message, "://") && !strings.Contains(message, "@") &&
+		len(value("source")) <= clientErrorSourceMaxLength &&
+		clientErrorSourcePattern.MatchString(value("source")) &&
+		clientErrorScenePattern.MatchString(value("scene")) &&
+		clientErrorBuildPattern.MatchString(value("build"))
 }
 
 func rpcRegisterName(store *Store) rpcFn {

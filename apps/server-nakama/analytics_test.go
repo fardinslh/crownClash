@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -905,5 +906,43 @@ func TestAnalyticsShareOpenedSources(t *testing.T) {
 		if err := validateAnalyticsEvent(analyticsTestEvent("share_opened", props), analyticsTestNow); err == nil {
 			t.Errorf("props %v accepted", props)
 		}
+	}
+}
+
+func TestAnalyticsClientErrorKeepsPlayerDataOut(t *testing.T) {
+	valid := map[string]any{
+		"kind": "error", "errorName": "TypeError", "message": "Cannot read properties of undefined",
+		"source": "index-abc123.js:12:345", "scene": "GameScene", "build": "v0.1.0-abc123",
+	}
+	if err := validateAnalyticsEvent(analyticsTestEvent("client_error", valid), analyticsTestNow); err != nil {
+		t.Fatalf("valid client_error rejected: %v", err)
+	}
+	with := func(key string, value any) map[string]any {
+		props := map[string]any{}
+		for k, v := range valid {
+			props[k] = v
+		}
+		props[key] = value
+		return props
+	}
+	for name, props := range map[string]map[string]any{
+		"unknown kind":      with("kind", "crash"),
+		"stack in message":  with("message", "x://host/a.js?token=1"),
+		"email in message":  with("message", "bad user@example.com"),
+		"long message":      with("message", strings.Repeat("a", 121)),
+		"url as source":     with("source", "https://example.com/a.js:1:2"),
+		"path as source":    with("source", "../secret/a.js"),
+		"odd error name":    with("errorName", "Error: player_123"),
+		"odd scene":         with("scene", "Scene/../1"),
+		"empty build":       with("build", ""),
+		"extra stack field": with("stack", "at foo (a.js:1:2)"),
+	} {
+		if err := validateAnalyticsEvent(analyticsTestEvent("client_error", props), analyticsTestNow); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+	missing := map[string]any{"kind": "error", "errorName": "TypeError", "message": "m", "source": "a.js", "scene": "GameScene"}
+	if err := validateAnalyticsEvent(analyticsTestEvent("client_error", missing), analyticsTestNow); err == nil {
+		t.Error("client_error without build accepted")
 	}
 }

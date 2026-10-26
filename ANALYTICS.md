@@ -35,6 +35,9 @@ derives player identity from authentication and records receipt time separately.
 | `tutorial_step_completed` | Each guided training action is performed with the real battle controls | `stepId` (`drag_to_attack`, `preview_result`, `tower_roles`, `multi_dispatch`, `destroy_base`) | Client action | Onboarding step progression |
 | `tutorial_completed` | Player captures the enemy base in training (all guided actions performed) and the server saves the account-wide flag | None | Client action | Onboarding completion |
 | `tutorial_skipped` | Player leaves the guided training battle before completion | `lastStepId` (`drag_to_attack`, `preview_result`, `tower_roles`, `multi_dispatch`, `destroy_base`) | Client action | Onboarding abandonment |
+| `client_error` | An uncaught error or unhandled promise rejection reaches `window` (max 5 distinct per session, deduped) | `kind` (`error`, `rejection`), `errorName` (constructor name only), `message` (scrubbed, max 120 chars), `source` (`file.js:line:col` of the top frame, no URL), `scene` (active scene key), `build` | Client lifecycle | Crash-free sessions and release regressions by `build` |
+
+`client_error` never carries a stack trace or player data. The client masks URLs, emails, digit runs and long identifier-like tokens before sending, and Nakama re-validates the shape (no `://` or `@` in the message, `source` must be a bare file name with positions) and rejects anything else. Deploy the server before the client: the analytics sink retries a rejected batch, so an older server that does not know the event would block every later event.
 
 First-session timing needs no extra event: `docs/analytics/ftue-timing.sql` derives time to the guided battle and per-step timing from `session_start`, `tutorial_started` and `tutorial_step_completed` using `occurred_at`.
 

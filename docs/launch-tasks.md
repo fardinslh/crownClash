@@ -33,7 +33,8 @@ Status as of 2026-10-25. Source: pre-release audit (mechanic, UX, retention).
 - [ ] Replace emoji/rectangle UI with real icon and chest art (Blender pipeline per the Art Bible).
 
 ## Later
-- [ ] Analytics still missing: checkout (only matters once coin payments are on) and client error reporting (needs a new event, a server allowlist entry and a rule that stack traces carry no player data).
+- [x] Client error reporting: `client_error` event (uncaught errors and unhandled rejections, 5 distinct per session, scrubbed message, top-frame location only, no stack). Server allowlist and validation in `main.go`; documented in `ANALYTICS.md`.
+- [ ] Checkout analytics only matter once coin payments are on (`ENABLE_COIN_PAYMENTS`).
 - [x] Chest open is `daily_reward_claimed` with `rewardType=crown_chest` (server-confirmed). FTUE timing is `docs/analytics/ftue-timing.sql`, built from existing `tutorial_*` events; it has not been run against a database yet.
 - [x] Haptics toggle: menu icon button and a pause-menu row; the choice persists per device and is enforced once in `createPlatformAdapter` (`withHapticsPreference`), so every scene and messenger adapter honours it.
 - [x] Emoji removed from in-canvas battle copy (result screen, 2v2 result, hints, difficulty picker); the result rank banner uses the vector rank icon. Share-sheet text keeps its emoji on purpose: the messenger renders it natively.

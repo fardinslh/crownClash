@@ -87,7 +87,23 @@ export type AnalyticsEventInput =
   | { name: 'tutorial_menu_opened' }
   | { name: 'tutorial_menu_closed' }
   | { name: 'tutorial_leave_requested' }
-  | { name: 'tutorial_leave_cancelled' };
+  | { name: 'tutorial_leave_cancelled' }
+  | ClientErrorAnalyticsInput;
+
+/**
+ * Uncaught client error, reported with no stack trace and no player data
+ * (see ClientErrorReporter). `errorName` is the constructor name; the
+ * envelope already owns `name`.
+ */
+export interface ClientErrorAnalyticsInput {
+  name: 'client_error';
+  kind: 'error' | 'rejection';
+  errorName: string;
+  message: string;
+  source: string;
+  scene: string;
+  build: string;
+}
 
 export type UpgradeAnalyticsEvent = Extract<
   AnalyticsEventInput,
@@ -142,6 +158,7 @@ const EVENT_NAMES: ReadonlySet<AnalyticsEvent['name']> = new Set([
   'tutorial_menu_closed',
   'tutorial_leave_requested',
   'tutorial_leave_cancelled',
+  'client_error',
 ]);
 
 const sessionId = createIdentifier('session');

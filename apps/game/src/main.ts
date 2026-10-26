@@ -4,6 +4,7 @@ import { LOGICAL_HEIGHT, LOGICAL_WIDTH } from '@crown-clash/game-core';
 import { createPlatformAdapter } from '@crown-clash/platform';
 import { AnalyticsSink } from './analytics/AnalyticsSink.js';
 import { trackSessionStart } from './analytics/Analytics.js';
+import { installClientErrorReporter } from './analytics/ClientErrorReporter.js';
 import { getSharedGameApiClient } from './api/sharedClient.js';
 import { GameScene } from './scenes/GameScene.js';
 import { MenuScene } from './scenes/MenuScene.js';
@@ -53,6 +54,11 @@ const startApp = async (): Promise<void> => {
   });
   analyticsSink.start();
   trackSessionStart();
+  installClientErrorReporter(window, {
+    getSceneKey: () =>
+      (window as unknown as { __PHASER_GAME__?: Phaser.Game }).__PHASER_GAME__?.scene
+        .getScenes(true)[0]?.sys.settings.key ?? 'unknown',
+  });
 
   // Render the canvas at a higher internal resolution than the 400x720
   // logical coordinate system to avoid blurriness on high-DPI screens.
