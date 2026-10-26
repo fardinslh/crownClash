@@ -41,7 +41,7 @@ services:
       - '--runtime.env=ALLOW_GUEST_AUTH=${ALLOW_GUEST_AUTH:-false}'
       - '--runtime.env=ASYNC_GAMEPLAY_RULES_VERSION=${ASYNC_GAMEPLAY_RULES_VERSION:-4}'
       - '--runtime.env=ENABLE_2V2=${ENABLE_2V2:-false}'
-      - '--runtime.env=ENABLE_SEED_BOTS=${ENABLE_SEED_BOTS:-false}'
+      - '--runtime.env=ENABLE_SEED_BOTS=${ENABLE_SEED_BOTS:-true}'
       - '--runtime.env=ENABLE_2V2_ROLLOUT_BROWSER=${ENABLE_2V2_ROLLOUT_BROWSER:-0}'
       - '--runtime.env=ENABLE_2V2_ROLLOUT_BALE=${ENABLE_2V2_ROLLOUT_BALE:-0}'
       - '--runtime.env=ENABLE_2V2_ROLLOUT_EITAA=${ENABLE_2V2_ROLLOUT_EITAA:-0}'

@@ -48,7 +48,7 @@ actual second-match completion, session match count and D1/D7 returns. Local
 verification demonstrates the loop, not an increase in player retention.
 
 - Public attacks select an actual published player defense within 250 trophies,
-  real defenders first. With `ENABLE_SEED_BOTS=true`, a roster of seed opponents
+  real defenders first. With `ENABLE_SEED_BOTS` (on by default), a roster of seed opponents
   (`players.is_bot`, names in `seed_bots.go`) fills the gap while the player base
   is small; they are ordinary async defenses, never in the leaderboard, revenge,
   friend lists or any "online" count, and hold no currency. The attack screen does
