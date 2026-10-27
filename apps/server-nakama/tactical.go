@@ -86,6 +86,56 @@ func tacticalNeighbors(state GameState, id string) []string {
 	return result
 }
 
+type routeEntry struct {
+	cost int64
+	path []string
+}
+
+func legCost(from, to Territory) int64 {
+	return int64(math.Round(math.Hypot(to.X-from.X, to.Y-from.Y) * 1000))
+}
+
+func pathKey(p []string) string { return strings.Join(p, "|") }
+
+// friendlyPaths is the cheapest all-friendly path from the source to every
+// friendly tower it can reach (ties broken by path text). Mirrors game-core.
+func friendlyPaths(state GameState, sourceID string, owner Team) map[string]routeEntry {
+	best := map[string]routeEntry{}
+	type entry struct {
+		id   string
+		cost int64
+		path []string
+	}
+	queue := []entry{{sourceID, 0, []string{sourceID}}}
+	for len(queue) > 0 {
+		sort.Slice(queue, func(i, j int) bool {
+			if queue[i].cost != queue[j].cost {
+				return queue[i].cost < queue[j].cost
+			}
+			return pathKey(queue[i].path) < pathKey(queue[j].path)
+		})
+		next := queue[0]
+		queue = queue[1:]
+		if _, seen := best[next.id]; seen {
+			continue
+		}
+		best[next.id] = routeEntry{next.cost, next.path}
+		for _, id := range tacticalNeighbors(state, next.id) {
+			t, ok := state.Territories[id]
+			if _, seen := best[id]; !ok || t.Owner != owner || seen {
+				continue
+			}
+			p := append(append([]string{}, next.path...), id)
+			queue = append(queue, entry{id, next.cost + legCost(state.Territories[next.id], t), p})
+		}
+	}
+	return best
+}
+
+// findDispatchRoute: an attack on a tower with a road from the source is one
+// leg; otherwise the army marches through the owner's towers and the last leg
+// crosses the road into the target. Reinforcements use the same fixed
+// all-friendly path. Mirrors game-core tactical-routes.ts.
 func findDispatchRoute(state GameState, sourceID, targetID string, owner Team) []string {
 	source, a := state.Territories[sourceID]
 	target, b := state.Territories[targetID]
@@ -101,40 +151,26 @@ func findDispatchRoute(state GameState, sourceID, targetID string, owner Team) [
 				return []string{sourceID, targetID}
 			}
 		}
-		return nil
-	}
-	type entry struct {
-		id   string
-		cost int64
-		path []string
-	}
-	queue := []entry{{sourceID, 0, []string{sourceID}}}
-	visited := map[string]bool{}
-	for len(queue) > 0 {
-		sort.Slice(queue, func(i, j int) bool {
-			if queue[i].cost != queue[j].cost {
-				return queue[i].cost < queue[j].cost
-			}
-			return strings.Join(queue[i].path, "|") < strings.Join(queue[j].path, "|")
-		})
-		next := queue[0]
-		queue = queue[1:]
-		if visited[next.id] {
-			continue
-		}
-		if next.id == targetID {
-			return next.path
-		}
-		visited[next.id] = true
-		for _, id := range tacticalNeighbors(state, next.id) {
-			t, ok := state.Territories[id]
-			if !ok || t.Owner != owner || visited[id] {
+		reachable := friendlyPaths(state, sourceID, owner)
+		var chosen *routeEntry
+		for _, entryID := range tacticalNeighbors(state, targetID) {
+			entry, ok := reachable[entryID]
+			if !ok {
 				continue
 			}
-			from := state.Territories[next.id]
-			p := append(append([]string{}, next.path...), id)
-			queue = append(queue, entry{id, next.cost + int64(math.Round(math.Hypot(t.X-from.X, t.Y-from.Y)*1000)), p})
+			candidate := routeEntry{entry.cost + legCost(state.Territories[entryID], target), append(append([]string{}, entry.path...), targetID)}
+			if chosen == nil || candidate.cost < chosen.cost || (candidate.cost == chosen.cost && pathKey(candidate.path) < pathKey(chosen.path)) {
+				c := candidate
+				chosen = &c
+			}
 		}
+		if chosen == nil {
+			return nil
+		}
+		return chosen.path
+	}
+	if entry, ok := friendlyPaths(state, sourceID, owner)[targetID]; ok {
+		return entry.path
 	}
 	return nil
 }

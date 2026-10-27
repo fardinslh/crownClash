@@ -392,3 +392,27 @@ func TestTacticalPostgresMenuAnalyticsBatch(t *testing.T) {
 		t.Fatalf("versioned terminal/start data lost: %d %v", count, err)
 	}
 }
+
+func TestHostileRoutesMarchThroughOwnTowers(t *testing.T) {
+	s := tacticalState()
+	e := s.Territories["n_bot_right"]
+	e.Owner = TeamEnemy
+	s.Territories[e.ID] = e
+	// A friendly tower in between is a stepping stone.
+	if got := findDispatchRoute(s, "n_bot_left", "n_bot_right", TeamPlayer); !reflect.DeepEqual(got, []string{"n_bot_left", "p_base", "n_bot_right"}) {
+		t.Fatal(got)
+	}
+	// A direct road stays a single leg.
+	if got := findDispatchRoute(s, "p_base", "n_bot_right", TeamPlayer); !reflect.DeepEqual(got, []string{"p_base", "n_bot_right"}) {
+		t.Fatal(got)
+	}
+	// Never through a tower the player does not own.
+	for _, owner := range []Team{TeamNeutral, TeamEnemy} {
+		b := s.Territories["p_base"]
+		b.Owner = owner
+		s.Territories["p_base"] = b
+		if got := findDispatchRoute(s, "n_bot_left", "n_bot_right", TeamPlayer); got != nil {
+			t.Fatal(owner, got)
+		}
+	}
+}

@@ -28,14 +28,25 @@ function training() {
 }
 
 describe('drawTacticalDrag partial multi-tower attacks', () => {
-  it('explains on the badge which tower has no direct road and rings it', () => {
-    // p_base and n_bot_left share only n_center; n_bot_right is next to p_base alone.
+  it('explains on the badge which tower has no route and rings it', () => {
+    // n_top_left is cut off: its neighbours are neutral/enemy, so it cannot reach p_base's road to n_bot_right.
     const state = training();
+    state.territories.n_top_left.owner = 'player';
+    state.territories.n_top_left.units = 14;
     const { graphics, rings } = fakeGraphics();
-    const view = drawTacticalDrag(graphics as never, state, ['p_base', 'n_bot_left'], 'n_bot_right', project, 1, 1);
+    const view = drawTacticalDrag(graphics as never, state, ['p_base', 'n_top_left'], 'n_bot_right', project, 1, 1);
     expect(view.label).toContain(faBattle.drag.partialSources(1, 2));
     expect(view.label).toContain(faBattle.drag.noRoute(1, false));
     expect(rings).toContain(RED);
+  });
+
+  it('lets a rear tower attack through the friendly tower in front of it', () => {
+    const state = training();
+    const { graphics, rings } = fakeGraphics();
+    const view = drawTacticalDrag(graphics as never, state, ['p_base', 'n_bot_left'], 'n_bot_right', project, 1, 1);
+    expect(view.label).toContain(faBattle.drag.partialSources(2, 2));
+    expect(view.label).not.toContain(faBattle.drag.noRoute(1, false));
+    expect(rings).not.toContain(RED);
   });
 
   it('shows no exclusion when both towers have a road to the target', () => {

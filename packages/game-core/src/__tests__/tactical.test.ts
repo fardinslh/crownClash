@@ -61,13 +61,31 @@ describe('tactical v3', () => {
     const s=initial();send(s,'p_base','n_bot_left');s.territories.n_bot_left.owner='enemy';s.territories.n_bot_left.units=1;
     const r=step(s,100);expect(r.state.territories.n_bot_left.owner).toBe('player');expect(r.state.productionReadyAtMs?.n_bot_left).toBe(5000);
   });
-  it('multi-select preview and dispatch use exactly the legal sources and fortress defense', () => {
+  it('multi-select preview and dispatch use exactly the legal sources (each marching its own route) and fortress defense', () => {
     const s=initial();s.territories.n_mid_left.owner='player';
     const sources=['p_base','n_bot_left','n_mid_left'];
     const preview=previewOrder(s,sources,'n_bot_right','player');
     const actual=dispatchMultipleArmies(sources.map(id=>s.territories[id]),s.territories.n_bot_right,'player',.5,1,()=> 'test',s);
-    expect(actual.armies).toHaveLength(1);expect(preview.sent).toBe(actual.totalUnitsDispatched);expect(preview.left).toBe(14);
+    expect(actual.armies).toHaveLength(3);expect(preview.sent).toBe(actual.totalUnitsDispatched);expect(preview.left).toBe(sources.reduce((n,id)=>n+s.territories[id].units,0)-preview.sent);
     s.territories.p_base.units=30;const fortress=previewOrder(s,['p_base'],'n_center','player');expect(fortress.projected?.owner).toBe('neutral');
+  });
+  it('attacks through the player\'s own towers: a friendly tower in between is a stepping stone', () => {
+    const s=initial();
+    // n_bot_left is player-owned; its road to p_base leads on to the enemy-held n_bot_right.
+    s.territories.n_bot_right.owner='enemy';
+    expect(findDispatchRoute(s,'n_bot_left','n_bot_right','player')).toEqual(['n_bot_left','p_base','n_bot_right']);
+    // A direct road stays a single leg.
+    expect(findDispatchRoute(s,'p_base','n_bot_right','player')).toEqual(['p_base','n_bot_right']);
+    const d=dispatchArmy(s.territories.n_bot_left,s.territories.n_bot_right,'player',.5,()=> 'through',1,s);
+    expect(d.success).toBe(true);
+    expect(d.army?.routeIds).toEqual(['n_bot_left','p_base','n_bot_right']);
+  });
+  it('does not route an attack through a tower the player does not own', () => {
+    const s=initial();
+    s.territories.n_bot_right.owner='enemy';s.territories.p_base.owner='neutral';
+    expect(findDispatchRoute(s,'n_bot_left','n_bot_right','player')).toBeNull();
+    s.territories.p_base.owner='enemy';
+    expect(findDispatchRoute(s,'n_bot_left','n_bot_right','player')).toBeNull();
   });
   it('exposes a vacated flank to a legal counterattack', () => {
     const setup = () => { const s=initial();for(const t of Object.values(s.territories))t.productionRate=0;

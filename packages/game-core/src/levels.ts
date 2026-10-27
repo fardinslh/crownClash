@@ -31,16 +31,16 @@ const enemy = (startingUnits: number, production: number, speed = 1): PlayerUpgr
   Object.freeze({ startingUnits, productionRateMultiplier: production, armySpeedMultiplier: speed });
 
 export const LEVELS: readonly LevelDefinition[] = Object.freeze([
-  { id: 1, battlefieldId: 'crown_cross', botDifficulty: 'easy', enemy: enemy(8, 0.6) },
-  { id: 2, battlefieldId: 'crown_cross', botDifficulty: 'easy', enemy: enemy(12, 0.8) },
-  { id: 3, battlefieldId: 'twin_passes', botDifficulty: 'easy', enemy: enemy(14, 0.9) },
-  { id: 4, battlefieldId: 'royal_ring', botDifficulty: 'easy', enemy: enemy(12, 0.8) },
-  { id: 5, battlefieldId: 'crown_cross', botDifficulty: 'normal', enemy: enemy(10, 0.7) },
-  { id: 6, battlefieldId: 'twin_passes', botDifficulty: 'normal', enemy: enemy(12, 0.8) },
-  { id: 7, battlefieldId: 'royal_ring', botDifficulty: 'normal', enemy: enemy(12, 0.8) },
-  { id: 8, battlefieldId: 'crown_cross', botDifficulty: 'hard', enemy: enemy(10, 0.7) },
-  { id: 9, battlefieldId: 'twin_passes', botDifficulty: 'hard', enemy: enemy(12, 0.75) },
-  { id: 10, battlefieldId: 'royal_ring', botDifficulty: 'hard', enemy: enemy(14, 0.8) },
+  { id: 1, battlefieldId: 'crown_cross', botDifficulty: 'easy', enemy: enemy(16, 0.9) },
+  { id: 2, battlefieldId: 'crown_cross', botDifficulty: 'easy', enemy: enemy(18, 1) },
+  { id: 3, battlefieldId: 'twin_passes', botDifficulty: 'easy', enemy: enemy(18, 1) },
+  { id: 4, battlefieldId: 'royal_ring', botDifficulty: 'easy', enemy: enemy(20, 1) },
+  { id: 5, battlefieldId: 'crown_cross', botDifficulty: 'normal', enemy: enemy(18, 0.95) },
+  { id: 6, battlefieldId: 'twin_passes', botDifficulty: 'normal', enemy: enemy(20, 1) },
+  { id: 7, battlefieldId: 'royal_ring', botDifficulty: 'normal', enemy: enemy(20, 1) },
+  { id: 8, battlefieldId: 'crown_cross', botDifficulty: 'hard', enemy: enemy(20, 1) },
+  { id: 9, battlefieldId: 'twin_passes', botDifficulty: 'hard', enemy: enemy(22, 1.05) },
+  { id: 10, battlefieldId: 'royal_ring', botDifficulty: 'hard', enemy: enemy(22, 1.05) },
 ] as LevelDefinition[]);
 
 export const LEVEL_COUNT = LEVELS.length;

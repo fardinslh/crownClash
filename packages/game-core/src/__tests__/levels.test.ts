@@ -17,11 +17,11 @@ describe('campaign levels', () => {
     expect(LEVELS.map((level) => level.id)).toEqual(Array.from({ length: LEVEL_COUNT }, (_, i) => i + 1));
   });
 
-  it('use 1v1 battlefields, known bot difficulties and a gentler-or-equal enemy', () => {
+  it('use 1v1 battlefields, known bot difficulties and sane enemy modifiers', () => {
     for (const level of LEVELS) {
       expect(getBattlefield(level.battlefieldId).mode).toBe('1v1');
       expect(BOT_DIFFICULTIES).toContain(level.botDifficulty);
-      expect(level.enemy.startingUnits).toBeLessThanOrEqual(LEVEL_PLAYER_MODIFIERS.startingUnits);
+      expect(level.enemy.startingUnits).toBeLessThanOrEqual(LEVEL_PLAYER_MODIFIERS.startingUnits * 1.5);
       expect(level.enemy.startingUnits).toBeGreaterThan(0);
       expect(level.enemy.productionRateMultiplier).toBeGreaterThan(0);
       expect(level.enemy.productionRateMultiplier).toBeLessThanOrEqual(1.3);
@@ -39,7 +39,7 @@ describe('campaign levels', () => {
       expect(state.status).toBe('playing');
       expect(state.territories.p_base.owner).toBe('player');
       expect(state.territories.e_base.owner).toBe('enemy');
-      expect(state.territories.e_base.units).toBeLessThan(state.territories.p_base.units);
+      expect(state.territories.e_base.units).toBeGreaterThan(0);
     }
   });
 

@@ -12,28 +12,50 @@ export function tacticalNeighbors(state: GameState, id: string): string[] {
   return getBattlefield(state.battlefieldId).roads.flatMap(([a, b]) => a === id ? [b] : b === id ? [a] : []).sort();
 }
 
-/** Hostile orders are one edge. Reinforcements use a fixed shortest all-friendly path. */
+const legCost = (from: Territory, to: Territory): number => Math.round(Math.hypot(to.x - from.x, to.y - from.y) * 1000);
+
+/** Cheapest all-friendly path from the source to every friendly tower it can reach (ties broken by path text). */
+function friendlyPaths(state: GameState, sourceId: string, owner: Team): Map<string, { cost: number; path: string[] }> {
+  const best = new Map<string, { cost: number; path: string[] }>();
+  const queue = [{ id: sourceId, cost: 0, path: [sourceId] }];
+  while (queue.length) {
+    queue.sort((a, b) => a.cost - b.cost || comparePath(a.path, b.path));
+    const next = queue.shift()!;
+    if (best.has(next.id)) continue;
+    best.set(next.id, { cost: next.cost, path: next.path });
+    for (const id of tacticalNeighbors(state, next.id)) {
+      const t = state.territories[id];
+      if (!t || t.owner !== owner || best.has(id)) continue;
+      queue.push({ id, cost: next.cost + legCost(state.territories[next.id], t), path: [...next.path, id] });
+    }
+  }
+  return best;
+}
+
+/**
+ * Orders follow the roads. An attack on a tower with a road from the source is
+ * one leg. Otherwise the army marches through the player's own towers (a fixed
+ * cheapest all-friendly path) and the last leg crosses the road into the
+ * target, so a friendly tower standing between source and enemy is a stepping
+ * stone, not a wall. Reinforcements use the same fixed all-friendly path.
+ */
 export function findDispatchRoute(state: GameState, sourceId: string, targetId: string, owner: Team): string[] | null {
   const source = state.territories[sourceId], target = state.territories[targetId];
   if (!source || !target || sourceId === targetId || source.owner !== owner) return null;
   if (!usesTacticalRules(state.gameplayRulesVersion)) return [sourceId, targetId];
-  if (target.owner !== owner) return tacticalNeighbors(state, sourceId).includes(targetId) ? [sourceId, targetId] : null;
-  const queue = [{ id: sourceId, cost: 0, path: [sourceId] }];
-  const visited = new Set<string>();
-  while (queue.length) {
-    queue.sort((a, b) => a.cost - b.cost || comparePath(a.path, b.path));
-    const next = queue.shift()!;
-    if (visited.has(next.id)) continue;
-    if (next.id === targetId) return next.path;
-    visited.add(next.id);
-    for (const id of tacticalNeighbors(state, next.id)) {
-      const t = state.territories[id];
-      if (!t || t.owner !== owner || visited.has(id)) continue;
-      const from = state.territories[next.id];
-      queue.push({ id, cost: next.cost + Math.round(Math.hypot(t.x - from.x, t.y - from.y) * 1000), path: [...next.path, id] });
+  if (target.owner !== owner) {
+    if (tacticalNeighbors(state, sourceId).includes(targetId)) return [sourceId, targetId];
+    const reachable = friendlyPaths(state, sourceId, owner);
+    let chosen: { cost: number; path: string[] } | null = null;
+    for (const entryId of tacticalNeighbors(state, targetId)) {
+      const entry = reachable.get(entryId);
+      if (!entry) continue;
+      const candidate = { cost: entry.cost + legCost(state.territories[entryId], target), path: [...entry.path, targetId] };
+      if (!chosen || candidate.cost < chosen.cost || (candidate.cost === chosen.cost && comparePath(candidate.path, chosen.path) < 0)) chosen = candidate;
     }
+    return chosen?.path ?? null;
   }
-  return null;
+  return friendlyPaths(state, sourceId, owner).get(targetId)?.path ?? null;
 }
 
 function comparePath(a: string[], b: string[]): number {

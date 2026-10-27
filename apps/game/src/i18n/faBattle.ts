@@ -139,7 +139,7 @@ export const faBattle = {
     towersSelectedHint: 'از برج‌های آبی بیشتری بکش، بعد هدف را انتخاب کن',
     partialSources: (sent: number, total: number): string => `${sent}/${total} برج · `,
     noRoute: (n: number, friendly: boolean): string =>
-      `${n} برج انتخابی مسیر ${friendly ? 'دوستانه' : 'مستقیم'} ندارد`,
+      friendly ? `${n} برج انتخابی مسیر دوستانه ندارد` : `${n} برج انتخابی راهی به این هدف ندارد`,
     tooFew: (n: number): string => `${n} برج انتخابی سرباز کافی ندارد`,
     sendStay: (sent: number, left: number): string => `${sent} ارسال · ${left} می‌ماند`,
     estimateReinforce: 'تقویت',

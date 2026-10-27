@@ -4,9 +4,9 @@ import type { GameState, MarchingArmy, Team } from './types.js';
 /**
  * v4 fog of war (presentation only: neither engine's simulation reads it).
  * A side sees a tower's garrison when it owns the tower or owns a tower
- * one road away. Ownership and tower type are always visible. Because
- * hostile orders already need one direct road, every legal attack target
- * stays visible.
+ * one road away. Ownership and tower type are always visible. The last
+ * leg of every attack route starts at a tower the attacker owns, so every
+ * legal attack target stays visible.
  */
 export function computeVisibleTerritoryIds(state: GameState, owner: Team = 'player'): Set<string> {
   const visible = new Set<string>();

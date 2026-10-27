@@ -1160,7 +1160,7 @@ describe('tactical main-game integration', () => {
     expect(scene.gameState.armies).toHaveLength(2);
     scene.cleanup();
   });
-  it('explains why only the front left tower can attack the next left tower', () => {
+  it('lets the rear left tower attack the next left tower through the friendly tower in front of it', () => {
     const scene: any = new GameScene();
     scene.registry.set('platform', new BrowserPlatformAdapter());
     scene.scene.settings.data = { mode: 'bot', botMatch: { matchId: 'bot_left_lane', battlefieldId: 'crown_cross', gameplayRulesVersion: 3 } };
@@ -1178,12 +1178,15 @@ describe('tactical main-game integration', () => {
     emit('pointermove', 'n_mid_left');
     emit('pointermove', 'n_top_left');
     expect(scene.selectedSourceIds).toEqual(['n_bot_left', 'n_mid_left']);
-    expect(scene.dragBadgeText.text).toContain('1/2 برج');
-    expect(scene.dragBadgeText.text).toContain('10 ارسال');
-    expect(scene.bottomHintText.text).toContain('1 برج انتخابی مسیر مستقیم ندارد');
+    expect(scene.dragBadgeText.text).toContain('2/2 برج');
+    expect(scene.dragBadgeText.text).toContain('17 ارسال');
+    expect(scene.bottomHintText.text).not.toContain('ندارد');
     emit('pointerup', 'n_top_left');
-    expect(scene.matchActions.map((a: any) => [a.sourceId, a.targetId])).toEqual([['n_mid_left', 'n_top_left']]);
-    expect(scene.gameState.territories.n_bot_left.units).toBe(14);
+    expect(scene.matchActions.map((a: any) => [a.sourceId, a.targetId])).toEqual(
+      expect.arrayContaining([['n_bot_left', 'n_top_left'], ['n_mid_left', 'n_top_left']]),
+    );
+    expect(scene.matchActions).toHaveLength(2);
+    expect(scene.gameState.territories.n_bot_left.units).toBe(7);
     expect(scene.gameState.territories.n_mid_left.units).toBe(10);
     scene.cleanup();
   });
