@@ -596,6 +596,29 @@ describe('GameScene viewport relayout (map uses the live mobile height)', () => 
     },
   );
 
+  it('centres the camera before the load bar is drawn so it is not pushed to the left', () => {
+    const scene = new GameScene();
+    const order: string[] = [];
+    scene.cameras.main.centerOn = vi.fn(() => { order.push('centerOn'); }) as never;
+    Object.assign(scene, {
+      load: {
+        on: vi.fn(),
+        once: vi.fn(),
+        image: vi.fn(),
+      },
+    });
+    const originalGraphics = scene.add.graphics;
+    scene.add.graphics = ((...args: unknown[]) => {
+      order.push('loadBar');
+      return (originalGraphics as (...a: unknown[]) => unknown).apply(scene.add, args);
+    }) as never;
+    scene.scene.settings.data = { botMatch: { matchId: 'load_bar_centre', battlefieldId: 'crown_cross' } };
+    scene.preload();
+
+    expect(order.indexOf('centerOn')).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf('loadBar')).toBeGreaterThan(order.indexOf('centerOn'));
+  });
+
   it('rebuilds the diorama board band after the viewport grows (Bale expand / rotation)', () => {
     const scene = createGameScene('crown_cross');
     expect(arenaVisualsOf(scene).length).toBeGreaterThan(0);

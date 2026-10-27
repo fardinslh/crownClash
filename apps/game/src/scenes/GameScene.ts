@@ -468,6 +468,9 @@ export class GameScene extends Phaser.Scene {
     // procedural fallbacks instead of rendering broken sprites (the game must
     // never depend on the Blender source pipeline being present).
     this.missingTerritoryTextures.clear();
+    // The load bar draws before create(); without the shared camera setup it
+    // sits at zoom 1 / scroll 0 and lands in the left part of wider screens.
+    setupSceneCamera(this);
     this.createLoadProgressBar();
     this.load.on('loaderror', (file: Phaser.Loader.File) => {
       if (typeof file?.key === 'string') {
