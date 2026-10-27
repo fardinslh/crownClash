@@ -37,6 +37,7 @@ import {
   type KitButton,
   type KitPill,
 } from '../ui/kit/index.js';
+import { createHubBackdrop } from '../ui/kit/hubBackdrop.js';
 import { fa, missionCopy } from '../i18n/fa.js';
 
 const MISSION_ICONS: Record<DailyMissionState['id'], IconKey> = {
@@ -142,7 +143,8 @@ export class DailyScene extends Phaser.Scene {
 
   private buildShell(): void {
     const vp = getSceneViewport(this);
-    this.background = this.add.rectangle(0, 0, 10, 10, UI.bg);
+    this.background = this.add.rectangle(0, 0, 10, 10, UI.bg).setDepth(-30);
+    createHubBackdrop(this, { reducedMotion: this.reducedMotion });
     createGlow(this, LOGICAL_WIDTH / 2, -30, vp.visibleWidth * 1.4, 280, THEME.gold, 0.14);
 
     // RTL: back sits top-right, the wallet top-left.

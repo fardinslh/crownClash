@@ -139,3 +139,25 @@ export function computeCommanderLayout(visibleHeight: number): CommanderLayout {
     toastY: 650 + surplus,
   };
 }
+
+// --- HUB BACKDROP ---
+/** Width / height of the exported meadow band (assets/hub/hub_meadow.webp). */
+export const BACKDROP_ASPECT = 512 / 298;
+
+export interface BackdropTile {
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly flipY: boolean;
+}
+
+/**
+ * Tiles of the band, top to bottom, alternating a vertical mirror so the
+ * seams are invisible. The band is scaled to cover the full visible width.
+ */
+export function computeBackdropTiles(visibleWidth: number, visibleHeight: number, aspect = BACKDROP_ASPECT): BackdropTile[] {
+  if (!(visibleWidth > 0) || !(visibleHeight > 0) || !(aspect > 0)) return [];
+  const height = visibleWidth / aspect;
+  const count = Math.max(1, Math.ceil(visibleHeight / height));
+  return Array.from({ length: count }, (_, i) => ({ y: i * height, width: visibleWidth, height, flipY: i % 2 === 1 }));
+}

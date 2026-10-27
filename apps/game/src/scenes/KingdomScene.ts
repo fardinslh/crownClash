@@ -41,6 +41,7 @@ import {
   type KitPill,
   type KitProgressBar,
 } from '../ui/kit/index.js';
+import { createHubBackdrop } from '../ui/kit/hubBackdrop.js';
 import { fa, kingdomTierName, upgradeCopy, upgradeEffectLabel, upgradeMilestoneLabel } from '../i18n/fa.js';
 
 const CARD_WIDTH = KINGDOM_CARD_WIDTH;
@@ -194,7 +195,8 @@ export class KingdomScene extends Phaser.Scene {
       viewport.visibleWidth,
       viewport.visibleHeight,
       UI.bg
-    );
+    ).setDepth(-30);
+    createHubBackdrop(this, { reducedMotion: this.reducedMotion });
     createGlow(this, LOGICAL_WIDTH / 2, -30, viewport.visibleWidth * 1.4, 280, THEME.gold, 0.14);
 
     this.buildHeader();

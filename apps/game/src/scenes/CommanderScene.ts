@@ -29,6 +29,7 @@ import {
   goToScene,
   showToast,
 } from '../ui/kit/index.js';
+import { createHubBackdrop } from '../ui/kit/hubBackdrop.js';
 import { commanderCopy, fa } from '../i18n/fa.js';
 
 const CARD_WIDTH = 360;
@@ -79,7 +80,8 @@ export class CommanderScene extends Phaser.Scene {
       viewport.visibleWidth,
       viewport.visibleHeight,
       UI.bg
-    );
+    ).setDepth(-30);
+    createHubBackdrop(this, { reducedMotion: this.reducedMotion });
     createGlow(this, LOGICAL_WIDTH / 2, -30, viewport.visibleWidth * 1.4, 300, 0x2563eb, 0.24);
     // RTL: back sits top-right.
     createBackButton(this, LOGICAL_WIDTH - 34, 38, () => this.close());

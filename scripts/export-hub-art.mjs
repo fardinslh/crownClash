@@ -18,7 +18,20 @@ const SPRITES = {
   kingdom_citadel: 'tier3_player_hq',
 };
 
+// Menu/hub backdrop: a clean meadow band from the bottom of the Crown Cross
+// ground plate (no roads or platforms there), mirrored vertically at runtime
+// to fill any screen height. Cropped from the 1140x2502 master.
+const BACKDROP = { file: 'hub_meadow', master: 'ground_crown_cross', crop: [200, 1960, 740, 430], size: [512, 298] };
+
 fs.mkdirSync(out, { recursive: true });
+{
+  const src = path.join(root, 'art/blender/renders/grounds', `${BACKDROP.master}.png`);
+  if (!fs.existsSync(src)) throw new Error(`Missing master render: ${src}`);
+  const dest = path.join(out, `${BACKDROP.file}.webp`);
+  const [x, y, w, h] = BACKDROP.crop.map(String);
+  execFileSync('cwebp', ['-quiet', '-q', '78', '-crop', x, y, w, h, '-resize', ...BACKDROP.size.map(String), src, '-o', dest]);
+  console.log(`${BACKDROP.file}.webp ${fs.statSync(dest).size} bytes`);
+}
 for (const [name, master] of Object.entries(SPRITES)) {
   const src = path.join(masters, `${master}.png`);
   if (!fs.existsSync(src)) throw new Error(`Missing master render: ${src}`);

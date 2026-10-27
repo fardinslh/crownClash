@@ -42,6 +42,7 @@ import {
   goToScene,
   type KitButton,
 } from '../ui/kit/index.js';
+import { createHubBackdrop, loadHubTextures } from '../ui/kit/hubBackdrop.js';
 import { commanderCopy, fa, rankName } from '../i18n/fa.js';
 import { prefetchLazyScenes, startScene } from './lazyScenes.js';
 
@@ -189,7 +190,8 @@ export class MenuScene extends Phaser.Scene {
     const reducedMotion = prefersReducedMotion();
     const surplus = Math.max(0, visibleHeight - LOGICAL_HEIGHT);
     const cx = LOGICAL_WIDTH / 2;
-    this.add.rectangle(cx, visibleHeight / 2, visibleWidth, visibleHeight, UI.bg);
+    this.add.rectangle(cx, visibleHeight / 2, visibleWidth, visibleHeight, UI.bg).setDepth(-30);
+    createHubBackdrop(this, { reducedMotion });
     createGlow(this, cx, -40, visibleWidth * 1.5, 300, UI.button.primary.fill, 0.22);
 
     // ---------------------------------------------------------------- crest
@@ -199,6 +201,30 @@ export class MenuScene extends Phaser.Scene {
     createGlow(this, cx, layout.crestY, crestSize * 2.1, crestSize * 2.1, THEME.gold, 0.38);
     const crestShadow = this.add.ellipse(cx, layout.crestY + crestSize * 0.58, crestSize * 0.8, crestSize * 0.16, 0x000000, 0.35);
     const crest = createIcon(this, cx, layout.crestY, 'crown', crestSize);
+    // The Blender citadel and two knights replace the vector crown once they
+    // load (the crown stays if the art is unavailable).
+    const heroGeneration = this.initGeneration;
+    loadHubTextures(
+      this,
+      [
+        { key: 'hub_kingdom_citadel', path: 'assets/hub/kingdom_citadel.webp?v=hub-256-v1' },
+        { key: 'unit_leader_player_front', path: 'assets/units/unit_leader_player_front.png?v=cartoon-meadow-v1.7' },
+      ],
+      () => {
+        crest.setVisible(false);
+        const citadelSize = Math.round(crestSize * 1.55);
+        const citadel = this.add.image(cx, layout.crestY + 6, 'hub_kingdom_citadel').setDisplaySize(citadelSize, citadelSize);
+        const knightY = layout.crestY + crestSize * 0.55;
+        const knightLeft = this.add.image(cx - citadelSize * 0.5, knightY, 'unit_leader_player_front').setScale(0.4);
+        const knightRight = this.add.image(cx + citadelSize * 0.5, knightY, 'unit_leader_player_front').setScale(0.4).setFlipX(true);
+        for (const part of [citadel, knightLeft, knightRight]) part.setAlpha(0);
+        this.tweens.add({ targets: [citadel, knightLeft, knightRight], alpha: 1, duration: 220 });
+        if (!reducedMotion) {
+          this.tweens.add({ targets: citadel, y: citadel.y - 6, duration: 1800, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+        }
+      },
+      () => this.scene.isActive() && heroGeneration === this.initGeneration,
+    );
     if (!reducedMotion) {
       this.tweens.add({ targets: rays, angle: 360, duration: 40000, repeat: -1 });
       this.tweens.add({ targets: crest, y: layout.crestY - 7, duration: 1800, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });

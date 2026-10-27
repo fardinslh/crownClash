@@ -37,6 +37,7 @@ import {
   type KitButton,
   type KitPill,
 } from '../ui/kit/index.js';
+import { createHubBackdrop } from '../ui/kit/hubBackdrop.js';
 import { fa, rankName } from '../i18n/fa.js';
 
 /** RTL: the league road runs down the right edge; rows extend to its left. */
@@ -106,7 +107,8 @@ export class LeagueScene extends Phaser.Scene {
 
   private buildShell(): void {
     const vp = getSceneViewport(this);
-    this.background = this.add.rectangle(0, 0, 10, 10, UI.bg);
+    this.background = this.add.rectangle(0, 0, 10, 10, UI.bg).setDepth(-30);
+    createHubBackdrop(this);
     createGlow(this, LOGICAL_WIDTH / 2, -30, vp.visibleWidth * 1.4, 280, 0x6366f1, 0.2);
 
     // RTL: back sits top-right, the wallet top-left.

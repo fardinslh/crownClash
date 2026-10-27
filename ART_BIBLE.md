@@ -1,5 +1,5 @@
 # Crown Clash — Art Bible & Visual Direction
-**Version:** 1.6
+**Version:** 1.7
 **Target Platform:** Mobile WebViews (Bale, Eitaa, Telegram, Mobile Web)
 **Visual Style:** Stylized 2.5D (Blender renders → optimized 2D sprites at runtime)
 **Primary Goal:** Instant tactical readability, bright volumetric cartoon environments, and polished composition on compact mobile screens.
@@ -28,6 +28,9 @@ The shared kit strengthens barracks corner turrets and shield, stable horseshoe,
 and chunky troop helmets, bodies and team-colored panels. Camera pitch, server
 coordinates, hit radii, travel rules, the `1.22` spacing and `6.2` plinth lift stay
 fixed.
+
+**v1.7:** hub screens sit on a Blender meadow backdrop and the menu hero is the rendered
+citadel with two knights (§17); battle feel tiers and match start/end beats (§7).
 
 **v1.6:** vivid source palettes: sunlit lime royal lawns, emerald highlands,
 fresh palace greens and golden camp meadows. Cyan water, warm sandstone paths,
@@ -487,6 +490,14 @@ Rules:
 Hub screens (menu, kingdom, daily, league, council) and battle overlays share one
 kit so they read as one game with the rendered battlefield.
 
+* **Backdrop and hero** — every hub scene (menu, kingdom, daily, league, council)
+  draws `assets/hub/hub_meadow.webp` behind its panels: a clean meadow band cropped
+  from the Crown Cross ground plate, mirrored vertically to fill any height and
+  dimmed by a `UI.bg` veil (alpha 0.74) so panels and text keep their contrast
+  (`src/ui/kit/hubBackdrop.ts`, tiling in `src/ui/HubLayouts.ts`). It loads after
+  the first paint; the flat `UI.bg` rectangle (depth -30) is the fallback. The menu
+  hero is `kingdom_citadel` plus two `unit_leader_player_front` knights, with the
+  vector crown kept as the fallback. Regenerate with `node scripts/export-hub-art.mjs`.
 * **Tokens** — `UI` in `src/theme.ts`: background, three surface levels, borders,
   radius (8/12/16), spacing, type scale (11/13/15/20/28), text colours and button
   variants (primary, gold, success, secondary, danger). No hand-picked hex values
