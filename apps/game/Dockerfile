@@ -6,7 +6,8 @@ COPY packages/game-core/package.json ./packages/game-core/
 COPY packages/platform/package.json ./packages/platform/
 COPY apps/game/package.json ./apps/game/
 
-RUN npm ci
+ARG NPM_REGISTRY=https://registry.npmjs.org
+RUN npm ci --registry=${NPM_REGISTRY} --fetch-retries=5 --fetch-timeout=120000 --fetch-retry-maxtimeout=60000
 
 COPY packages/ ./packages/
 COPY apps/game/ ./apps/game/
