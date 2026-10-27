@@ -33,10 +33,19 @@ export function drawTacticalDrag(
   const sourceCount = sourceIds.length > 1 ? faBattle.drag.partialSources(preview.orders.length, sourceIds.length) : '';
   const unreachable = sourceIds.filter(id => !findDispatchRoute(state, id, target.id, 'player')).length;
   const missing = sourceIds.length - preview.orders.length;
-  const excludedReason = unreachable
-    ? faBattle.drag.noRoute(unreachable, target.owner === 'player')
-    : faBattle.drag.tooFew(missing);
+  const tooFew = missing - unreachable;
+  const excludedReason = [
+    unreachable ? faBattle.drag.noRoute(unreachable, target.owner === 'player') : '',
+    tooFew > 0 ? faBattle.drag.tooFew(tooFew) : '',
+  ].filter(Boolean).join(' · ');
   const color = preview.orders.length ? target.owner === 'player' ? 0x34d399 : 0xfbbf24 : 0xf87171;
+  // Mark the towers that will not join, so the player sees which one is left out.
+  const sending = new Set(preview.orders.map(({ army }) => army.sourceId));
+  for (const id of sourceIds) {
+    if (sending.has(id)) continue;
+    const left = state.territories[id], p = project(left.x, left.y);
+    graphics.lineStyle(3, 0xf87171, .95).strokeCircle(p.u, p.v, (left.radius + 8) * scale);
+  }
   for (const { army } of preview.orders) {
     const route = army.routeIds ?? [army.sourceId, target.id];
     for (let i = 0; i < route.length - 1; i++) {
@@ -51,7 +60,9 @@ export function drawTacticalDrag(
     }
   }
   const estimate = target.owner === 'player' ? faBattle.drag.estimateReinforce : preview.projected?.owner === 'player' ? faBattle.drag.estimateCapture : faBattle.drag.estimateDefense;
-  return { label: preview.orders.length ? `${sourceCount}${faBattle.drag.sendStay(preview.sent, preview.left)}\n${estimate} · ${faBattle.drag.currentBoard}` : `${sourceCount}${excludedReason}`,
+  // The reason is on the badge itself: the bottom hint band is hidden in training.
+  const partialReason = missing ? `\n${excludedReason}` : '';
+  return { label: preview.orders.length ? `${sourceCount}${faBattle.drag.sendStay(preview.sent, preview.left)}\n${estimate} · ${faBattle.drag.currentBoard}${partialReason}` : `${sourceCount}${excludedReason}`,
     hint: missing ? excludedReason : target.owner === 'player'
       ? faBattle.drag.releaseToReinforce
       : faBattle.drag.mayChange,
