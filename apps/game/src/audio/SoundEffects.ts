@@ -3,17 +3,44 @@
  * Zero external audio files required, runs with ultra-low latency on mobile and desktop WebViews.
  */
 import { MusicPlayer } from './MusicPlayer.js';
+import { FeedbackThrottle } from '../feel/FeedbackThrottle.js';
+
+type FilterKind = 'lowpass' | 'highpass' | 'bandpass';
+
+interface ToneSpec {
+  type: OscillatorType;
+  from: number;
+  to?: number;
+  at?: number;
+  duration: number;
+  gain: number;
+}
+
+interface NoiseSpec {
+  filter: FilterKind;
+  freq: number;
+  sweepTo?: number;
+  q?: number;
+  at?: number;
+  duration: number;
+  gain: number;
+  attack?: number;
+}
 
 export class SoundEffects {
   private ctx: AudioContext | null = null;
   private enabled: boolean = true;
+  private noiseBuffer: AudioBuffer | null = null;
+  private readonly throttle = new FeedbackThrottle();
+  private readonly now: () => number;
   private readonly music = new MusicPlayer({
     getContext: () => this.getContext(),
     output: (ctx) => this.output(ctx),
     isEnabled: () => this.enabled,
   });
 
-  constructor() {
+  constructor(options: { now?: () => number } = {}) {
+    this.now = options.now ?? (() => (typeof performance !== 'undefined' ? performance.now() : Date.now()));
     if (typeof window !== 'undefined') {
       const savedMute = window.localStorage?.getItem('crown_clash_muted');
       if (savedMute === 'true') {
@@ -46,6 +73,82 @@ export class SoundEffects {
       this.master = ctx.destination;
     }
     return this.master;
+  }
+
+  /** One oscillator voice with an exponential fade. */
+  private tone(ctx: AudioContext, spec: ToneSpec): void {
+    const start = ctx.currentTime + (spec.at ?? 0);
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = spec.type;
+    osc.frequency.setValueAtTime(spec.from, start);
+    if (spec.to !== undefined) osc.frequency.exponentialRampToValueAtTime(spec.to, start + spec.duration);
+    gain.gain.setValueAtTime(spec.gain, start);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + spec.duration);
+    osc.connect(gain);
+    gain.connect(this.output(ctx));
+    osc.start(start);
+    osc.stop(start + spec.duration + 0.02);
+  }
+
+  /** Half a second of white noise, built once and reused by every impact. */
+  private getNoiseBuffer(ctx: AudioContext): AudioBuffer | null {
+    if (this.noiseBuffer) return this.noiseBuffer;
+    if (typeof ctx.createBuffer !== 'function') return null;
+    const length = Math.floor(ctx.sampleRate * 0.5);
+    const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
+    this.noiseBuffer = buffer;
+    return buffer;
+  }
+
+  /**
+   * Filtered noise burst: whooshes, thumps and clanks. Pure tones read as
+   * beeps; noise is what makes an impact feel physical. Returns false when
+   * the WebView lacks buffers or filters, so callers can fall back to a tone.
+   */
+  private noise(ctx: AudioContext, spec: NoiseSpec): boolean {
+    if (typeof ctx.createBiquadFilter !== 'function' || typeof ctx.createBufferSource !== 'function') return false;
+    const buffer = this.getNoiseBuffer(ctx);
+    if (!buffer) return false;
+    const start = ctx.currentTime + (spec.at ?? 0);
+    const attack = spec.attack ?? 0.005;
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = spec.filter;
+    filter.frequency.setValueAtTime(spec.freq, start);
+    if (spec.sweepTo !== undefined) filter.frequency.exponentialRampToValueAtTime(spec.sweepTo, start + spec.duration);
+    filter.Q.value = spec.q ?? 0.8;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.001, start);
+    gain.gain.exponentialRampToValueAtTime(spec.gain, start + attack);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + spec.duration);
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.output(ctx));
+    source.start(start);
+    source.stop(start + spec.duration + 0.02);
+    return true;
+  }
+
+  /** Context for a sound that may repeat rapidly; null when muted or throttled. */
+  private voice(key: string, minGapMs: number): AudioContext | null {
+    const ctx = this.getContext();
+    if (!ctx || !this.enabled) return null;
+    if (!this.throttle.allowGap(key, minGapMs, this.now())) return null;
+    return ctx;
+  }
+
+  /** Picking up a tower: a soft wooden tick with a little lift. */
+  public playSelect(): void {
+    const ctx = this.voice('select', 40);
+    if (!ctx) return;
+    try {
+      this.noise(ctx, { filter: 'bandpass', freq: 1800, q: 4, duration: 0.04, gain: 0.12, attack: 0.002 });
+      this.tone(ctx, { type: 'triangle', from: 300, to: 420, duration: 0.07, gain: 0.07 });
+    } catch {}
   }
 
   /** Short soft UI tick for buttons and navigation. */
@@ -170,27 +273,24 @@ export class SoundEffects {
     } catch {}
   }
 
-  public playDispatch(): void {
-    const ctx = this.getContext();
-    if (!ctx || !this.enabled) return;
-
+  /**
+   * Troops leaving: a rising whoosh plus a short horn blip. Orders from
+   * several towers at once sound bigger.
+   */
+  public playDispatch(towers = 1): void {
+    const ctx = this.voice('dispatch', 50);
+    if (!ctx) return;
+    const big = towers > 1;
     try {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-
-      const now = ctx.currentTime;
-      osc.frequency.setValueAtTime(320, now);
-      osc.frequency.exponentialRampToValueAtTime(580, now + 0.09);
-
-      gain.gain.setValueAtTime(0.12, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
-
-      osc.connect(gain);
-      gain.connect(this.output(ctx));
-
-      osc.start(now);
-      osc.stop(now + 0.1);
+      const whoosh = this.noise(ctx, {
+        filter: 'bandpass', freq: 600, sweepTo: 1800, q: 1.2,
+        duration: big ? 0.22 : 0.16, gain: big ? 0.22 : 0.16, attack: 0.03,
+      });
+      if (!whoosh) {
+        this.tone(ctx, { type: 'sine', from: 320, to: 580, duration: 0.1, gain: 0.12 });
+      }
+      this.tone(ctx, { type: 'square', from: big ? 392 : 440, duration: 0.07, gain: 0.035, at: 0.02 });
+      if (big) this.tone(ctx, { type: 'square', from: 587.33, duration: 0.09, gain: 0.03, at: 0.08 });
     } catch {}
   }
 
@@ -219,10 +319,12 @@ export class SoundEffects {
   }
 
   public playCapture(): void {
-    const ctx = this.getContext();
-    if (!ctx || !this.enabled) return;
+    const ctx = this.voice('capture', 80);
+    if (!ctx) return;
 
     try {
+      // Body under the chord so the take lands, not just chimes.
+      this.noise(ctx, { filter: 'lowpass', freq: 900, sweepTo: 200, duration: 0.18, gain: 0.2 });
       const now = ctx.currentTime;
       const notes = [440, 554.37, 659.25, 880]; // A major triumphant chord
 
@@ -282,27 +384,42 @@ export class SoundEffects {
     } catch {}
   }
 
+  /**
+   * Armies clashing at a tower: a low thump, a body drop and a short metal
+   * clank. Throttled so several simultaneous arrivals stay one clean hit.
+   */
   public playCombatHit(): void {
-    const ctx = this.getContext();
-    if (!ctx || !this.enabled) return;
+    const ctx = this.voice('hit', 60);
+    if (!ctx) return;
 
     try {
-      const now = ctx.currentTime;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sawtooth';
+      const thump = this.noise(ctx, { filter: 'lowpass', freq: 700, sweepTo: 120, duration: 0.12, gain: 0.26 });
+      this.tone(ctx, { type: 'sine', from: 120, to: 55, duration: 0.11, gain: 0.16 });
+      if (thump) {
+        this.noise(ctx, { filter: 'bandpass', freq: 2500, q: 8, duration: 0.05, gain: 0.08, at: 0.01, attack: 0.002 });
+      } else {
+        this.tone(ctx, { type: 'sawtooth', from: 180, to: 70, duration: 0.08, gain: 0.1 });
+      }
+    } catch {}
+  }
 
-      osc.frequency.setValueAtTime(180, now);
-      osc.frequency.exponentialRampToValueAtTime(70, now + 0.07);
+  /** A fortress shrugging off an attack: a bright ring over a dull knock. */
+  public playDeflect(): void {
+    const ctx = this.voice('hit', 60);
+    if (!ctx) return;
+    try {
+      this.noise(ctx, { filter: 'lowpass', freq: 500, duration: 0.08, gain: 0.16 });
+      this.tone(ctx, { type: 'triangle', from: 1320, to: 1180, duration: 0.18, gain: 0.07, at: 0.01 });
+    } catch {}
+  }
 
-      gain.gain.setValueAtTime(0.1, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
-
-      osc.connect(gain);
-      gain.connect(this.output(ctx));
-
-      osc.start(now);
-      osc.stop(now + 0.08);
+  /** One of the player's towers fell: a falling, dull drop, distinct from a hit. */
+  public playTowerLost(): void {
+    const ctx = this.voice('lost', 120);
+    if (!ctx) return;
+    try {
+      this.noise(ctx, { filter: 'lowpass', freq: 600, sweepTo: 90, duration: 0.3, gain: 0.24 });
+      this.tone(ctx, { type: 'triangle', from: 330, to: 165, duration: 0.32, gain: 0.12 });
     } catch {}
   }
 

@@ -2565,7 +2565,7 @@ export class GameScene extends Phaser.Scene {
       this.lastHoveredFriendlyId = null;
       this.hoveredTargetId = null;
       this.highlightSelectedTerritory(territoryId);
-      sounds.playDispatch();
+      sounds.playSelect();
       this.platform.hapticImpact('light');
     }
   }
@@ -2951,7 +2951,7 @@ export class GameScene extends Phaser.Scene {
               this.updateTerritoryVisuals();
               this.playDispatchSourceFeedback(predictedArmies);
 
-              sounds.playDispatch();
+              sounds.playDispatch(predictedArmies.length);
               this.platform.hapticImpact(sources.length > 1 ? 'heavy' : 'medium');
             }
           } catch (error) {
@@ -2996,7 +2996,7 @@ export class GameScene extends Phaser.Scene {
             this.updateTerritoryVisuals();
             this.playDispatchSourceFeedback(multiDispatch.armies);
 
-            sounds.playDispatch();
+            sounds.playDispatch(multiDispatch.armies.length);
             this.platform.hapticImpact(multiDispatch.armies.length > 1 ? 'heavy' : 'medium');
             this.trainingController?.onDispatch(multiDispatch.armies.map(a => a.sourceId), targetId);
             if (target.owner === 'player') this.trainingController?.onReinforcement();
@@ -3450,6 +3450,8 @@ export class GameScene extends Phaser.Scene {
         sounds.playCrownCapture();
       } else if (capturedByPlayer) {
         sounds.playCapture();
+      } else if (arrival.previousOwner === 'player') {
+        sounds.playTowerLost();
       } else {
         sounds.playCombatHit();
       }
@@ -3500,9 +3502,10 @@ export class GameScene extends Phaser.Scene {
         1.55
       );
     } else {
-      sounds.playCombatHit();
-      this.platform.hapticImpact('medium');
       const fortressBlocked = vis.territory.type === 'fortress';
+      if (fortressBlocked) sounds.playDeflect();
+      else sounds.playCombatHit();
+      this.platform.hapticImpact('medium');
       this.pendingCountCauses.set(arrival.targetId, 'hit');
 
       if (this.feel.pops && !this.selectedSourceIds.includes(arrival.targetId)) {
@@ -5189,7 +5192,7 @@ export class GameScene extends Phaser.Scene {
       btnText.setScale(1.0);
     });
     btnBg.on('pointerdown', () => {
-      sounds.playDispatch();
+      sounds.playClick();
       this.platform.hapticSelection();
       btnBg.disableInteractive();
       btnText.setText(faBattle.result.scouting);
