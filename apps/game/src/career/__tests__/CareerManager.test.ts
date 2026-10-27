@@ -38,6 +38,17 @@ describe('CareerManager', () => {
     expect(career.matchesPlayed).toBe(0);
   });
 
+  it('tracks campaign progress locally in the dev fallback, in order and idempotently', async () => {
+    const manager = CareerManager.getInstance('levels_local_player');
+    expect(await manager.getLevelsCompleted()).toBe(0);
+    expect(await manager.completeLevel(2)).toBe(0);
+    expect(await manager.completeLevel(1)).toBe(1);
+    expect(await manager.completeLevel(1)).toBe(1);
+    expect(await manager.completeLevel(2)).toBe(2);
+    expect(await manager.completeLevel(1)).toBe(2);
+    expect(await manager.getLevelsCompleted()).toBe(2);
+  });
+
   it('enforces commander unlocks in the dev local fallback', async () => {
     const playerId = 'commander_local_player';
     window.localStorage.setItem(

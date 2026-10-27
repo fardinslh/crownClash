@@ -9,6 +9,7 @@ const LOADERS: Readonly<Record<string, () => Promise<Phaser.Types.Scenes.SceneTy
   RealmScene: () => import('./RealmScene.js').then((m) => m.RealmScene),
   KingdomScene: () => import('./KingdomScene.js').then((m) => m.KingdomScene),
   DailyScene: () => import('./DailyScene.js').then((m) => m.DailyScene),
+  LevelsScene: () => import('./LevelsScene.js').then((m) => m.LevelsScene),
   LeagueScene: () => import('./LeagueScene.js').then((m) => m.LeagueScene),
   CommanderScene: () => import('./CommanderScene.js').then((m) => m.CommanderScene),
 };

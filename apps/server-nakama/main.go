@@ -162,6 +162,12 @@ func InitModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runti
 	if err := rpc("tutorial/complete", rpcTutorialComplete(store)); err != nil {
 		return err
 	}
+	if err := rpc("levels/get", rpcLevelsGet(store)); err != nil {
+		return err
+	}
+	if err := rpc("levels/complete", rpcLevelsComplete(store)); err != nil {
+		return err
+	}
 
 	logger.Info("crown clash runtime initialized")
 	return nil
@@ -1036,6 +1042,9 @@ var analyticsEventDefinitions = map[string]analyticsEventDefinition{
 	"live_match_started":         {properties: analyticsProperties("matchId"), optionalProperties: analyticsProperties("mode")},
 	"live_match_ended":           {properties: analyticsProperties("matchId", "status")},
 	"live_match_disconnected":    {properties: analyticsProperties("matchId")},
+	"level_started":              {properties: map[string]analyticsPropertyKind{"levelId": analyticsPropertyNumber}},
+	"level_completed":            {properties: map[string]analyticsPropertyKind{"levelId": analyticsPropertyNumber, "durationSeconds": analyticsPropertyNumber}},
+	"level_failed":               {properties: map[string]analyticsPropertyKind{"levelId": analyticsPropertyNumber, "durationSeconds": analyticsPropertyNumber}},
 	"tutorial_started":           {properties: map[string]analyticsPropertyKind{}},
 	"tutorial_step_completed":    {properties: analyticsProperties("stepId")},
 	"tutorial_completed":         {properties: map[string]analyticsPropertyKind{}},
@@ -1253,6 +1262,9 @@ func hasValidAnalyticsPropertyEnums(event AnalyticsEventRecord) bool {
 		return oneOf(value("mode"), "1v1", "2v2")
 	case "live_match_ended":
 		return oneOf(value("status"), "victory", "defeat", "draw")
+	case "level_started", "level_completed", "level_failed":
+		levelID, ok := event.Props["levelId"].(float64)
+		return ok && levelID == float64(int(levelID)) && levelID >= 1 && levelID <= levelCount
 	case "tutorial_step_completed":
 		return oneOf(value("stepId"), tutorialStepIDs...)
 	case "tutorial_skipped":

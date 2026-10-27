@@ -25,3 +25,4 @@ export * from './bot-difficulty.js';
 export * from './abilities.js';
 export * from './bot-abilities.js';
 export * from './fog.js';
+export * from './levels.js';

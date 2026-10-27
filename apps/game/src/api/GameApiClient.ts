@@ -58,6 +58,10 @@ export interface CareerApi {
    * and resolves with the fresh career (tutorialCompleted: true).
    */
   completeTutorial(): Promise<PlayerCareer>;
+  /** Campaign progress: how many levels in a row the player has completed. */
+  getLevelsCompleted?(): Promise<number>;
+  /** Records a finished level (idempotent) and resolves with the new progress. */
+  completeLevel?(levelId: number): Promise<number>;
 }
 
 export class GameApiError extends Error {

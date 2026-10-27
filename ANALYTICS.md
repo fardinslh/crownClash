@@ -32,6 +32,9 @@ derives player identity from authentication and records receipt time separately.
 | `live_match_started` | Nakama match starts | `matchId`, optional `mode` (`1v1`, `2v2`) | Nakama match event | Live matches started |
 | `live_match_ended` | Server live result arrives | `matchId`, `status` | Server-confirmed result | Live completion and win rate |
 | `live_match_disconnected` | Connection ends before a result | `matchId` | Client connection state | Live connection reliability |
+| `level_started` | Player starts a campaign level | `levelId` (1-10) | Client action | Level funnel entry |
+| `level_completed` | Player wins a campaign level; the client then reports it to `levels/complete` | `levelId`, `durationSeconds` | Client action | Level funnel completion, time to win |
+| `level_failed` | Player loses or draws a campaign level (quitting mid-level emits nothing) | `levelId`, `durationSeconds` | Client action | Level difficulty spikes |
 | `tutorial_started` | First-time player enters the guided training battle | None | Client action | Onboarding start |
 | `tutorial_step_completed` | Each guided training action is performed with the real battle controls | `stepId` (`drag_to_attack`, `preview_result`, `tower_roles`, `multi_dispatch`, `destroy_base`) | Client action | Onboarding step progression |
 | `tutorial_completed` | Player captures the enemy base in training (all guided actions performed) and the server saves the account-wide flag | None | Client action | Onboarding completion |

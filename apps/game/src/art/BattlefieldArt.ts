@@ -1,5 +1,5 @@
 import type { BattlefieldId, Territory } from '@crown-clash/game-core';
-import { normalizeBattlefieldId } from '@crown-clash/game-core';
+import { getLevel, normalizeBattlefieldId } from '@crown-clash/game-core';
 import { THEME } from '../theme.js';
 import rawAssetManifest from '../../../../art/asset-manifest.json' with { type: 'json' };
 import arenaLayout from '../../../../art/arena-layout.json' with { type: 'json' };
@@ -323,6 +323,8 @@ export function usesDedicatedSpritePack(battlefieldId: BattlefieldId): boolean {
 /** Launch data shape GameScene receives via Phaser scene settings. */
 export interface SceneLaunchData {
   botMatch?: { battlefieldId?: BattlefieldId };
+  /** Campaign level (see game-core levels.ts): its battlefield is the level's. */
+  levelId?: number;
   liveMatch?: { state?: { battlefieldId?: BattlefieldId } };
   liveMatch2v2?: { state?: { battlefieldId?: BattlefieldId } };
 }
@@ -336,6 +338,7 @@ export interface SceneLaunchData {
 export function battlefieldIdFromLaunchData(launchData: SceneLaunchData | undefined): BattlefieldId {
   return normalizeBattlefieldId(
     launchData?.botMatch?.battlefieldId ??
+      (launchData?.levelId === undefined ? undefined : getLevel(launchData.levelId)?.battlefieldId) ??
       launchData?.liveMatch2v2?.state?.battlefieldId ??
       launchData?.liveMatch?.state?.battlefieldId
   );

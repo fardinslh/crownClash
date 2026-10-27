@@ -32,6 +32,8 @@ Status as of 2026-10-25. Source: pre-release audit (mechanic, UX, retention).
 - [ ] Re-entry hook: Bale bot message for revenge / daily chest. Needs the bot token, a decision on message frequency, and server-side sending; not started.
 - [ ] Replace emoji/rectangle UI with real icon art (Blender pipeline per the Art Bible). The daily chest (closed/open) is now a Blender render (`art/blender/hub_props_kit.py`, exported by `scripts/export-hub-art.mjs`); a crown emblem render exists as an authoring asset but is not used in the UI yet.
 
+- [ ] Campaign levels (10, `packages/game-core/src/levels.ts`, `LevelsScene`, RPCs `levels/get` and `levels/complete`, migration 023) ship without rewards. Decide whether levels should pay coins; that must be server-authoritative (the win is client-local today, so it needs a Go port of the level setup plus replay), and the level count/difficulty needs human playtests (`scripts/levels-balance.mjs` only proves probe-winnability).
+
 ## Later
 - [x] Client error reporting: `client_error` event (uncaught errors and unhandled rejections, 5 distinct per session, scrubbed message, top-frame location only, no stack). Server allowlist and validation in `main.go`; documented in `ANALYTICS.md`.
 - [ ] Checkout analytics only matter once coin payments are on (`ENABLE_COIN_PAYMENTS`).

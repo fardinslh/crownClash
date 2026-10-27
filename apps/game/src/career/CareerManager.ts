@@ -33,6 +33,8 @@ import {
   normalizeCommanderId,
   BotMatchTicket,
   createLocalBotMatchTicket,
+  LEVEL_COUNT,
+  levelsCompletedAfter,
 } from '@crown-clash/game-core';
 import type { PlatformAdapter } from '@crown-clash/platform';
 import { StaleSocketError, type CareerApi, type ClientObservedStatus } from '../api/GameApiClient.js';
@@ -40,6 +42,8 @@ import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { getSharedGameApiClient } from '../api/sharedClient.js';
 import { LiveMatchClient } from '../api/LiveMatchClient.js';
 import { migrateLegacyTutorialMarker } from '../tutorial/TutorialStatus.js';
+
+const LOCAL_LEVELS_KEY = 'crownclash.levelsCompleted';
 
 export function isStaleSocketError(error: unknown): boolean {
   return (
@@ -291,6 +295,43 @@ export class CareerManager {
     this.saveCareer();
     this.emitChange();
     return { success: true, commanderId, newCareer: this.getCareer() };
+  }
+
+  /**
+   * Campaign progress. Remote when connected; otherwise a device-local count
+   * (dev/QA only: production requires the backend like every other write).
+   */
+  public async getLevelsCompleted(): Promise<number> {
+    if (this.remoteConnected) return this.requireLevelsApi().getLevelsCompleted();
+    if (!isLocalCareerFallbackAllowed()) throw new Error('backend_required_for_levels');
+    return this.loadLocalLevelsCompleted();
+  }
+
+  public async completeLevel(levelId: number): Promise<number> {
+    if (this.remoteConnected) return this.requireLevelsApi().completeLevel(levelId);
+    if (!isLocalCareerFallbackAllowed()) throw new Error('backend_required_for_levels');
+    const next = levelsCompletedAfter(this.loadLocalLevelsCompleted(), levelId);
+    try {
+      window.localStorage.setItem(LOCAL_LEVELS_KEY, String(next));
+    } catch {
+      // Storage can be unavailable; progress then lasts for the session only.
+    }
+    return next;
+  }
+
+  private requireLevelsApi(): { getLevelsCompleted(): Promise<number>; completeLevel(levelId: number): Promise<number> } {
+    const api = this.requireRemoteApi();
+    if (!api.getLevelsCompleted || !api.completeLevel) throw new Error('levels_not_supported');
+    return { getLevelsCompleted: () => api.getLevelsCompleted!(), completeLevel: (id) => api.completeLevel!(id) };
+  }
+
+  private loadLocalLevelsCompleted(): number {
+    try {
+      const value = Number(window.localStorage.getItem(LOCAL_LEVELS_KEY));
+      return Number.isInteger(value) && value >= 0 && value <= LEVEL_COUNT ? value : 0;
+    } catch {
+      return 0;
+    }
   }
 
   public getDailyStateRemote(): Promise<DailyState> {

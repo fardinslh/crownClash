@@ -369,6 +369,23 @@ export class MenuScene extends Phaser.Scene {
         fontSize: 14,
         onPress: () => this.startTrainingBattle(),
       });
+    } else if (careerManager.isRemoteConnected() || isLocalCareerFallbackAllowed()) {
+      // The single-player campaign takes the slot the training prompt leaves free.
+      createButton(this, cx, layout.trainingY, {
+        width: 268,
+        height: 46,
+        label: fa.menu.levels,
+        icon: 'crown',
+        variant: 'secondary',
+        fontSize: 15,
+        onPress: () => {
+          if (this.isTransitioning) return;
+          this.isTransitioning = true;
+          sounds.playReinforce();
+          platform.hapticSelection();
+          goToScene(this, 'LevelsScene', undefined, () => { this.isTransitioning = false; });
+        },
+      });
     }
 
     // ------------------------------------------------------- bottom nav

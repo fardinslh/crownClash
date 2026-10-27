@@ -48,6 +48,11 @@ import {
   TerritoryType,
   Team,
   UpgradeType,
+  getLevel,
+  LEVEL_COUNT,
+  LEVEL_PLAYER_MODIFIERS,
+  LEVEL_RULES_VERSION,
+  type LevelDefinition,
 } from '@crown-clash/game-core';
 import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { CareerManager } from '../career/CareerManager.js';
@@ -184,7 +189,9 @@ import {
 } from '../combat/SmoothnessHelpers.js';
 import { createText, FONT_FAMILY, MONO_FONT_FAMILY } from '../ui/TextStyles.js';
 import { createIcon, rankIcon, type IconKey } from '../ui/icons.js';
-import { drawPanel, fadeIn } from '../ui/kit/index.js';
+import { createButton, drawPanel, fadeIn } from '../ui/kit/index.js';
+import { startScene } from './lazyScenes.js';
+import { faLevels } from '../i18n/faLevels.js';
 import { loadHubTextures } from '../ui/kit/hubBackdrop.js';
 import { battlefieldName, faBattle, upgradeEffectLabel } from '../i18n/faBattle.js';
 import { popScale, resolveFeelProfile, type FeelProfile } from '../feel/FeelProfile.js';
@@ -372,6 +379,8 @@ export class GameScene extends Phaser.Scene {
   private floatingTextPool?: RecyclingPool<Phaser.GameObjects.Text>;
   /** 3-2-1 countdown: the bot battle neither advances nor takes orders. */
   private introHolding = false;
+  /** Set when this battle is a campaign level (see game-core levels.ts). */
+  private levelDef?: LevelDefinition;
   private introPending = false;
   /** Resolves when the neutral end-of-battle stamp has had its moment. */
   private endBeatDone: Promise<void> = Promise.resolve();
@@ -511,6 +520,7 @@ export class GameScene extends Phaser.Scene {
     // (preload runs before create()), so the derivation matches create().
     const launchData = this.scene.settings.data as {
       botMatch?: BotMatchTicket;
+      levelId?: number;
       realmTicket?: RealmTicket;
       realmGoal?: UpgradeType;
       liveMatch?: LiveMatchStarted;
@@ -578,6 +588,7 @@ export class GameScene extends Phaser.Scene {
       liveMatch?: LiveMatchStarted;
       liveMatch2v2?: LiveMatchStarted2v2;
       botMatch?: BotMatchTicket;
+      levelId?: number;
       realmTicket?: RealmTicket;
       realmGoal?: UpgradeType;
       career?: PlayerCareer;
@@ -590,6 +601,16 @@ export class GameScene extends Phaser.Scene {
     this.botDifficulty = launchData?.botMatch?.botDifficulty ?? 'normal';
     this.botGameplayRulesVersion = launchData?.botMatch ? (launchData.botMatch.gameplayRulesVersion ?? 1) : 2;
     this.liveMode = launchData?.mode === 'live';
+    // A campaign level is a client-local bot match defined by game-core data:
+    // no server ticket, no settlement, no economy value. Only the player's
+    // "levels completed" count is saved (levels/complete).
+    this.levelDef = !this.liveMode && !launchData?.botMatch && launchData?.levelId !== undefined
+      ? getLevel(launchData.levelId)
+      : undefined;
+    if (this.levelDef) {
+      this.botDifficulty = this.levelDef.botDifficulty;
+      this.botGameplayRulesVersion = LEVEL_RULES_VERSION;
+    }
     // A guided training battle is a client-local bot match: no server
     // ticket, no settlement, no rewards. Completion is reported by this
     // client after the five guided actions and saved account-wide on the
@@ -638,6 +659,9 @@ export class GameScene extends Phaser.Scene {
         const trainingTicket = createTrainingTicket();
         this.activeMatchId = trainingTicket.matchId;
         this.battlefieldId = trainingTicket.battlefieldId;
+      } else if (this.levelDef) {
+        this.activeMatchId = `level_${this.levelDef.id}_${Date.now()}`;
+        this.battlefieldId = this.levelDef.battlefieldId;
       } else if (this.isStressMode) {
         // Disposable isolated offline QA match ticket: does not consume server bot ticket or leave unsettled DB records
         this.activeMatchId = 'qa_stress_isolated_' + Date.now();
@@ -715,7 +739,7 @@ export class GameScene extends Phaser.Scene {
       // never a match_quit terminal event.
       trackQuit: (event) => {
 
-        if (this.trainingMode || this.realmTicket) return false;
+        if (this.trainingMode || this.levelDef || this.realmTicket) return false;
         return this.trackMatchTerminal(event);
       },
       // Training is not a match: ordinary match_* menu navigation events
@@ -751,6 +775,8 @@ export class GameScene extends Phaser.Scene {
       // Training is not a real match: no match_start analytics, no match
       // settlement, no rewards. Only the stable tutorial_* events fire.
       trackEvent({ name: 'tutorial_started' });
+    } else if (this.levelDef) {
+      trackEvent({ name: 'level_started', levelId: this.levelDef.id });
     } else {
       trackEvent({
         name: 'match_start',
@@ -4856,6 +4882,10 @@ export class GameScene extends Phaser.Scene {
     // Settlement starts now; the neutral end stamp plays meanwhile and the
     // syncing card appears only if the server is slower than the beat.
     this.endBeatDone = this.playEndBeat();
+    if (this.levelDef) {
+      void this.finishLevel(this.levelDef);
+      return;
+    }
     void this.endBeatDone.then(() => {
       if (this.resultPending && !this.settlementReady && !this.isExiting && !this.resultModalContainer) {
         this.renderSyncingModal();
@@ -4868,6 +4898,103 @@ export class GameScene extends Phaser.Scene {
   private async settlementArrived(): Promise<void> {
     this.settlementReady = true;
     await this.endBeatDone;
+  }
+
+  /**
+   * Ends a campaign level. The outcome is the local simulation's (levels are
+   * client-local bot matches); a win is reported to levels/complete, which only
+   * unlocks the next level. Waits for the end stamp like a settled match.
+   */
+  private async finishLevel(level: LevelDefinition): Promise<void> {
+    const status = this.gameState.status as 'victory' | 'defeat' | 'draw';
+    const durationSeconds = wholeMatchSeconds(this.gameState.elapsedTimeSeconds);
+    let saved = true;
+    if (status === 'victory') {
+      trackEvent({ name: 'level_completed', levelId: level.id, durationSeconds });
+      try {
+        await this.backendConnectPromise;
+        await this.careerManager.completeLevel(level.id);
+      } catch (error) {
+        saved = false;
+        console.warn('[GameScene] Could not save level progress:', error);
+      }
+    } else {
+      trackEvent({ name: 'level_failed', levelId: level.id, durationSeconds });
+    }
+    await this.endBeatDone;
+    this.resultPending = false;
+    if (this.isExiting || this.resultModalContainer) return;
+    this.renderLevelResultModal(level, status, saved);
+  }
+
+  private renderLevelResultModal(level: LevelDefinition, status: 'victory' | 'defeat' | 'draw', saved: boolean): void {
+    const isWin = status === 'victory';
+    if (isWin) {
+      sounds.playVictory();
+      this.platform.hapticNotification('success');
+    } else if (status === 'defeat') {
+      sounds.playDefeat();
+      this.platform.hapticNotification('warning');
+    } else this.platform.hapticImpact('light');
+
+    const hasNext = isWin && level.id < LEVEL_COUNT;
+    const accent = isWin ? 0xf59e0b : status === 'draw' ? 0x60a5fa : 0xef4444;
+    const { visibleWidth, visibleHeight } = getSceneViewport(this);
+    const modal = this.add.container(LOGICAL_WIDTH / 2, visibleHeight / 2).setDepth(200);
+    this.resultModalContainer = modal;
+    const backdrop = this.add.rectangle(0, 0, visibleWidth, visibleHeight, 0x000000, 0.78).setInteractive();
+    const buttonCount = (hasNext ? 1 : 0) + 2;
+    const noteHeight = saved ? 0 : 22;
+    const height = 128 + noteHeight + (buttonCount - 1) * 56 + 23 + 18;
+    const card = drawPanel(this.add.graphics(), 300, height, { fill: UI.surface.base, stroke: accent, strokeAlpha: 0.95, radius: 18, alpha: 0.98 });
+    const top = -height / 2;
+    const title = createText(this, 0, top + 42, isWin ? faLevels.result.victory : status === 'draw' ? faLevels.result.draw : faLevels.result.defeat, {
+      fontFamily: FONT_FAMILY,
+      fontSize: '32px',
+      fontStyle: '900',
+      color: isWin ? '#fbbf24' : status === 'draw' ? '#93c5fd' : '#ef4444',
+      stroke: '#000000',
+      strokeThickness: 4,
+    }).setOrigin(0.5);
+    const subtitleText = isWin ? (level.id >= LEVEL_COUNT ? faLevels.result.allDone : faLevels.result.victorySub(level.id)) : status === 'draw' ? faLevels.result.drawSub : faLevels.result.defeatSub;
+    const subtitle = createText(this, 0, top + 82, subtitleText, {
+      fontFamily: FONT_FAMILY,
+      fontSize: '13px',
+      fontStyle: 'bold',
+      color: '#cbd5e1',
+    }).setOrigin(0.5);
+    const items: Phaser.GameObjects.GameObject[] = [backdrop, card, title, subtitle];
+    if (!saved) {
+      items.push(createText(this, 0, top + 112, faLevels.result.saveFailed, {
+        fontFamily: FONT_FAMILY,
+        fontSize: '11px',
+        color: UI.text.danger,
+        align: 'center',
+        wordWrap: { width: 260 },
+      }).setOrigin(0.5));
+    }
+    let buttonY = top + 128 + noteHeight;
+    const addButton = (label: string, variant: 'gold' | 'primary' | 'secondary', onPress: () => void): void => {
+      const button = createButton(this, 0, buttonY, { width: 232, height: 46, label, variant, fontSize: 15, onPress });
+      items.push(button.container);
+      buttonY += 56;
+    };
+    if (hasNext) addButton(faLevels.result.next, 'gold', () => this.restartAsLevel(level.id + 1));
+    addButton(faLevels.result.retry, isWin ? 'secondary' : 'primary', () => this.restartAsLevel(level.id));
+    addButton(faLevels.result.back, 'secondary', () => this.returnToMenu());
+    modal.add(items);
+    if (this.feel.tier !== 'still') {
+      modal.setScale(0.9).setAlpha(0);
+      this.tweens.add({ targets: modal, scale: 1, alpha: 1, duration: 220, ease: 'Back.easeOut' });
+    }
+  }
+
+  private restartAsLevel(levelId: number): void {
+    if (this.isExiting) return;
+    this.isExiting = true;
+    sounds.stopBattleMusic();
+    this.input.enabled = false;
+    this.scene.start('GameScene', { source: 'menu', levelId });
   }
 
   private localMatchStats(): MatchStats {
@@ -5724,7 +5851,8 @@ export class GameScene extends Phaser.Scene {
     this.matchMenuModalContainer?.destroy();
     this.matchMenuModalContainer = undefined;
 
-    this.scene.start('MenuScene');
+    if (this.levelDef) startScene(this, 'LevelsScene');
+    else this.scene.start('MenuScene');
   }
 
   private handleMatchMenuStateChange(state: MatchMenuState): void {
@@ -6138,11 +6266,15 @@ export class GameScene extends Phaser.Scene {
 
   private createUpgradedMatchState(career?: PlayerCareer): void {
 
-    const modifiers = this.realmTicket?.playerModifiers ?? this.pinnedPracticeModifiers ?? getPlayerUpgradeModifiers(career ?? this.careerManager.getCareer());
+    // Campaign levels ignore career upgrades so every player plays the same level.
+    const modifiers = this.levelDef
+      ? LEVEL_PLAYER_MODIFIERS
+      : this.realmTicket?.playerModifiers ?? this.pinnedPracticeModifiers ?? getPlayerUpgradeModifiers(career ?? this.careerManager.getCareer());
+    const enemyModifiers = this.levelDef?.enemy ?? this.realmTicket?.enemyModifiers;
     this.playerArmySpeedMultiplier = modifiers.armySpeedMultiplier;
-    this.enemyArmySpeedMultiplier = this.realmTicket?.enemyModifiers.armySpeedMultiplier ?? 1;
+    this.enemyArmySpeedMultiplier = enemyModifiers?.armySpeedMultiplier ?? 1;
     this.gameState = createInitialGameState({
-      enemyModifiers: this.realmTicket?.enemyModifiers,
+      enemyModifiers,
       playerModifiers: modifiers,
       gameplayRulesVersion: this.botGameplayRulesVersion,
       battlefieldId: this.battlefieldId,

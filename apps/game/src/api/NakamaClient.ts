@@ -279,6 +279,16 @@ export class NakamaClient implements CareerApi {
     return (JSON.parse(result) as { career: PlayerCareer }).career;
   }
 
+  public async getLevelsCompleted(): Promise<number> {
+    const result = await this.rpc('levels/get', '');
+    return (JSON.parse(result) as { levelsCompleted: number }).levelsCompleted;
+  }
+
+  public async completeLevel(levelId: number): Promise<number> {
+    const result = await this.rpc('levels/complete', JSON.stringify({ levelId }));
+    return (JSON.parse(result) as { levelsCompleted: number }).levelsCompleted;
+  }
+
   public async pilotRequest<T>(method: string, payload: unknown = {}): Promise<T> {
     return JSON.parse(await this.rpc(`pilot/${method}`, JSON.stringify(payload))) as T;
   }

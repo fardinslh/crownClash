@@ -235,6 +235,7 @@ export const fa = {
     tryAgain: 'تلاش دوباره',
     livePvp: 'نبرد آنلاین',
     livePvpOffline: 'نبرد آنلاین (آفلاین)',
+    levels: 'مراحل',
     trainingRequired: 'آموزش  •  الزامی',
     daily: 'روزانه',
     offline: 'آفلاین',

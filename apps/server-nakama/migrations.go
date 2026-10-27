@@ -439,4 +439,10 @@ ALTER TABLE bot_matches ADD COLUMN commander_id TEXT CHECK (commander_id IN ('cr
 	migrations = append(migrations, migration{name: "022_player_is_bot", sql: `
 ALTER TABLE players ADD COLUMN IF NOT EXISTS is_bot BOOLEAN NOT NULL DEFAULT FALSE;
 `})
+	// Single-player campaign progress: how many levels in a row the player has
+	// completed (see levels.go). No economy value is attached to it.
+	migrations = append(migrations, migration{name: "023_levels_completed", sql: `
+ALTER TABLE players ADD COLUMN IF NOT EXISTS levels_completed INTEGER NOT NULL DEFAULT 0
+ CHECK (levels_completed >= 0 AND levels_completed <= 10);
+`})
 }

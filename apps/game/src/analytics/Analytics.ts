@@ -81,6 +81,9 @@ export type AnalyticsEventInput =
       status: 'victory' | 'defeat' | 'draw';
     }
   | { name: 'live_match_disconnected'; matchId: string }
+  | { name: 'level_started'; levelId: number }
+  | { name: 'level_completed'; levelId: number; durationSeconds: number }
+  | { name: 'level_failed'; levelId: number; durationSeconds: number }
   | { name: 'tutorial_started' }
   | { name: 'tutorial_step_completed'; stepId: TutorialStepId }
   | { name: 'tutorial_completed' }
@@ -152,6 +155,9 @@ const EVENT_NAMES: ReadonlySet<AnalyticsEvent['name']> = new Set([
   'live_match_started',
   'live_match_ended',
   'live_match_disconnected',
+  'level_started',
+  'level_completed',
+  'level_failed',
   'tutorial_started',
   'tutorial_step_completed',
   'tutorial_completed',
