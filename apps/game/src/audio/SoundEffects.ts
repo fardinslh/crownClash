@@ -151,6 +151,41 @@ export class SoundEffects {
     } catch {}
   }
 
+  /** Countdown beat (3, 2, 1): a woodblock knock, slightly higher each step. */
+  public playCountTick(step: number): void {
+    const ctx = this.voice('count', 200);
+    if (!ctx) return;
+    try {
+      const pitch = step === 1 ? 660 : step === 2 ? 587.33 : 523.25;
+      this.noise(ctx, { filter: 'bandpass', freq: 1400, q: 6, duration: 0.05, gain: 0.14, attack: 0.002 });
+      this.tone(ctx, { type: 'triangle', from: pitch, duration: 0.16, gain: 0.12 });
+    } catch {}
+  }
+
+  /** Battle start: a short horn call over a rising swell. */
+  public playGo(): void {
+    const ctx = this.voice('go', 500);
+    if (!ctx) return;
+    try {
+      this.noise(ctx, { filter: 'bandpass', freq: 400, sweepTo: 1600, q: 0.9, duration: 0.35, gain: 0.16, attack: 0.08 });
+      for (const [freq, at] of [[392, 0], [523.25, 0.08], [783.99, 0.16]] as const) {
+        this.tone(ctx, { type: 'sawtooth', from: freq, duration: 0.32, gain: 0.05, at });
+        this.tone(ctx, { type: 'triangle', from: freq, duration: 0.36, gain: 0.08, at });
+      }
+    } catch {}
+  }
+
+  /** The battle just ended: a gong-like hit, neutral (no win/loss colour). */
+  public playMatchEnd(): void {
+    const ctx = this.voice('end', 800);
+    if (!ctx) return;
+    try {
+      this.noise(ctx, { filter: 'lowpass', freq: 1200, sweepTo: 150, duration: 0.6, gain: 0.22 });
+      this.tone(ctx, { type: 'sine', from: 196, to: 180, duration: 0.9, gain: 0.14 });
+      this.tone(ctx, { type: 'triangle', from: 293.66, to: 285, duration: 0.7, gain: 0.06 });
+    } catch {}
+  }
+
   /** Short soft UI tick for buttons and navigation. */
   public playClick(): void {
     const ctx = this.getContext();

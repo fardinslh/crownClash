@@ -317,6 +317,7 @@ vi.mock('../../audio/SoundEffects.js', () => ({
 
 import { PilotClient } from '../../realm/PilotClient.js';
 import { GameScene } from '../GameScene.js';
+import { END_BEAT_MS } from '../../match/EndBeat.js';
 import { CareerManager } from '../../career/CareerManager.js';
 import { BrowserPlatformAdapter } from '@crown-clash/platform';
 import {
@@ -391,6 +392,7 @@ describe('GameScene Initialization Parity & Late-Response Guards', () => {
       botMatch: { matchId: 'bot_delayed_test', battlefieldId: 'crown_cross' },
     };
     scene.create();
+    (scene as any).introHolding = false; // skip the 3-2-1 countdown (timers are mocked)
 
     const pBase = (scene as any).gameState.territories['p_base'];
     expect(pBase.units).toBe(20);
@@ -668,6 +670,7 @@ describe('GameScene Initialization Parity & Late-Response Guards', () => {
       botMatch: ticket,
     };
     scene.create();
+    (scene as any).introHolding = false; // skip the 3-2-1 countdown (timers are mocked)
 
     // Verification: Match is initialized cleanly from authoritative career before simulation/input
     expect((scene as any).careerManager.isRemoteConnected()).toBe(true);
@@ -1071,6 +1074,63 @@ describe('production C scene integration',()=>{
   });
 });
 
+describe('match intro countdown', () => {
+  beforeEach(() => { storage.clear(); vi.clearAllMocks(); (CareerManager as any).instance = null; });
+  afterEach(() => vi.restoreAllMocks());
+  it('holds the bot battle and ignores orders until GO, then runs normally', () => {
+    const scene: any = new GameScene();
+    scene.registry.set('platform', new BrowserPlatformAdapter());
+    scene.scene.settings.data = { mode: 'bot', botMatch: { matchId: 'bot_intro', battlefieldId: 'crown_cross', gameplayRulesVersion: 3 } };
+    scene.create();
+    expect(scene.introHolding).toBe(true);
+    for (let i = 1; i <= 60; i++) scene.update(i * 20, 20);
+    expect(scene.gameState.elapsedTimeSeconds).toBe(0);
+    const t = scene.gameState.territories.p_base, p = scene.projectSocketPoint(t.x, t.y);
+    for (const [name, handler] of scene.input.on.mock.calls) {
+      if (name === 'pointerdown') handler({ x: p.u, y: p.v, positionToCamera: (_c: unknown, out: any) => out.set(p.u, p.v) });
+    }
+    expect(scene.selectedSourceIds).toEqual([]);
+    scene.introHolding = false; // GO
+    for (let i = 61; i <= 110; i++) scene.update(i * 20, 20);
+    expect(scene.gameState.elapsedTimeSeconds).toBeGreaterThan(0.9);
+    scene.cleanup();
+  });
+
+  it.each([
+    ['slow server: the syncing card follows the end stamp', false, true],
+    ['fast server: straight from the end stamp to the result', true, false],
+  ])('%s', (_name, serverAnswered, expectSyncing) => {
+    const scene: any = new GameScene();
+    scene.registry.set('platform', new BrowserPlatformAdapter());
+    scene.scene.settings.data = { mode: 'bot', botMatch: { matchId: 'bot_end_beat', battlefieldId: 'crown_cross', gameplayRulesVersion: 3 } };
+    scene.create();
+    scene.introHolding = false;
+    const timers: Array<{ delay: number; cb: () => void }> = [];
+    scene.time.delayedCall = (delay: number, cb: () => void) => { timers.push({ delay, cb }); return { destroy() {} }; };
+    scene.finalizeMatch = vi.fn(async () => {});
+    scene.endMatch();
+    expect(scene.finalizeMatch).toHaveBeenCalledTimes(1); // settlement starts at once
+    expect(scene.syncingModalContainer).toBeUndefined();
+    if (serverAnswered) scene.settlementReady = true;
+    const beat = timers.find((t) => t.delay === END_BEAT_MS);
+    expect(beat).toBeDefined();
+    beat!.cb();
+    return scene.endBeatDone.then(() => Promise.resolve()).then(() => {
+      expect(Boolean(scene.syncingModalContainer)).toBe(expectSyncing);
+      scene.cleanup();
+    });
+  });
+
+  it('never counts down in training', () => {
+    const scene: any = new GameScene();
+    scene.registry.set('platform', new BrowserPlatformAdapter());
+    scene.scene.settings.data = { source: 'menu', mode: 'bot', training: true };
+    scene.create();
+    expect(scene.introHolding).toBe(false);
+    scene.cleanup();
+  });
+});
+
 describe('tactical main-game integration', () => {
   beforeEach(() => { storage.clear(); vi.clearAllMocks(); (CareerManager as any).instance = null; });
   afterEach(() => vi.restoreAllMocks());
@@ -1079,6 +1139,7 @@ describe('tactical main-game integration', () => {
     scene.registry.set('platform', new BrowserPlatformAdapter());
     scene.scene.settings.data = { mode: 'bot', botMatch: { matchId: 'bot_multi_touch', battlefieldId: 'crown_cross', gameplayRulesVersion: 3 } };
     scene.create();
+    (scene as any).introHolding = false; // skip the 3-2-1 countdown (timers are mocked)
     scene.game = { canvas: { width: 400, height: 720, getBoundingClientRect: () => ({ width: 360, height: 640 }) } };
     const pointerAt = (id: string) => {
       const t = scene.gameState.territories[id], p = scene.projectSocketPoint(t.x, t.y);
@@ -1104,6 +1165,7 @@ describe('tactical main-game integration', () => {
     scene.registry.set('platform', new BrowserPlatformAdapter());
     scene.scene.settings.data = { mode: 'bot', botMatch: { matchId: 'bot_left_lane', battlefieldId: 'crown_cross', gameplayRulesVersion: 3 } };
     scene.create();
+    (scene as any).introHolding = false; // skip the 3-2-1 countdown (timers are mocked)
     scene.game = { canvas: { width: 400, height: 720, getBoundingClientRect: () => ({ width: 360, height: 640 }) } };
     scene.gameState.territories.n_mid_left.owner = 'player';
     scene.gameState.territories.n_mid_left.units = 20;

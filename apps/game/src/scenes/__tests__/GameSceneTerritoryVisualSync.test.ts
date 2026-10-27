@@ -505,6 +505,8 @@ describe('GameScene Territory Visual Synchronization', () => {
       },
     };
     scene.create();
+    // Timers are mocked, so the 3-2-1 countdown never finishes on its own.
+    (scene as any).introHolding = false;
   });
 
   it('Scenario 1: Bot production advance updates unitText to match state (20 -> 22 after 1.8s)', () => {

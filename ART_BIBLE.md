@@ -248,7 +248,9 @@ Feedback must be punchy, juicy, and proportional to the action:
 | **Marching Convoy** | Two-file column that grows with army size (1 follower under 6 units, up to 10; 4 on low-end devices), rhythmic squad bobbing | Low travel whoosh |
 | **Release / Dispatch** | Source tower squash-recoil (`0.92x` → `1x`), team-light `-N` over the source, counter drops at once with a small badge punch | Dispatch sound + Medium/Heavy haptic |
 | **Garrison counter** | Arrivals step the number through up to 6 values (~45 ms each) with a badge punch; production ticks only update the text | — |
-| **Victory Fanfare** | Full-screen celebration flash (`#2563EB`), confetti burst, Victory card entrance | Ascending victory fanfare + Triple haptic pulse |
+| **Match start (bot, practice, Realm)** | Gold `3`, `2`, `1` (`1.45x` → `1x`, 600 ms each) between the bases, then `نبرد!`; battle and orders are held until GO | Woodblock tick per number, horn call on GO (music starts) + Selection / Heavy haptic |
+| **Match end** | Neutral "پایان نبرد" stamp with the factual cause for ~1.1 s while settlement is already in flight; syncing card only if the server is slower. Never names a winner | Gong-like hit + Heavy haptic |
+| **Victory Fanfare** | Full-screen celebration flash (`#2563EB`), confetti burst, Victory card entrance, coins and trophies count up | Ascending victory fanfare + Triple haptic pulse |
 
 **Camera shake** is reserved for taking the crown keep and for losing one of your
 own towers (at most one shake per 250 ms). Ordinary captures use pop, ring and burst.

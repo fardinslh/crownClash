@@ -97,6 +97,9 @@ export const faBattle = {
   legend: { shields: 'دفاع', trains: 'تولید', marches: 'سرعت' },
   hud: {
     loading: 'آماده‌سازی میدان نبرد…',
+    countdownGo: 'نبرد!',
+    matchOver: 'پایان نبرد',
+    endCause: { time_up: 'زمان تمام شد', eliminated: 'یک طرف همهٔ برج‌ها را از دست داد' },
     battlefieldTitle: (name: string): string => `◆ ${name}`,
     draggingTeamHint: 'از برج‌ها بکش — پایگاه‌ها با هم‌تیمی مشترک است',
     liveHint: (opponent: string): string => `نبرد آنلاین با ${opponent}`,

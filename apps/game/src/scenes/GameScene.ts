@@ -191,6 +191,8 @@ import { FeedbackThrottle } from '../feel/FeedbackThrottle.js';
 import { captureShake, COUNT_PUNCH_SCALE, rollSteps, type CountCause } from '../feel/CountChange.js';
 import { RecyclingPool } from '../feel/RecyclingPool.js';
 import { STREAM_MAX_FOLLOWERS, troopStreamSlots } from '../feel/TroopStream.js';
+import { isIntroHolding, matchIntroSchedule, shouldPlayMatchIntro } from '../match/MatchIntro.js';
+import { END_BEAT_MS, resolveLocalEndCause } from '../match/EndBeat.js';
 import { rankName, upgradeMilestoneLabel } from '../i18n/fa.js';
 
 
@@ -367,6 +369,13 @@ export class GameScene extends Phaser.Scene {
   /** Why each tower's count is about to change, consumed by updateTerritoryVisuals. */
   private readonly pendingCountCauses = new Map<string, CountCause>();
   private floatingTextPool?: RecyclingPool<Phaser.GameObjects.Text>;
+  /** 3-2-1 countdown: the bot battle neither advances nor takes orders. */
+  private introHolding = false;
+  private introPending = false;
+  /** Resolves when the neutral end-of-battle stamp has had its moment. */
+  private endBeatDone: Promise<void> = Promise.resolve();
+  /** The server answered; the syncing card is no longer needed. */
+  private settlementReady = false;
 
   // Local AI: fixed match-time tick grid so the client prediction stays as
   // close as possible to the server's authoritative bot replay.
@@ -785,8 +794,15 @@ export class GameScene extends Phaser.Scene {
     this.lastTimerSeconds = -1;
     this.territoriesDirty = true;
 
-    // Start atmospheric battle music
-    sounds.startBattleMusic();
+    // Bot battles open with a 3-2-1 countdown; the music starts on GO.
+    this.introHolding = false;
+    this.introPending = shouldPlayMatchIntro({
+      liveMode: this.liveMode,
+      trainingMode: this.trainingMode,
+      stressMode: this.isStressMode,
+      elapsedSeconds: this.gameState.elapsedTimeSeconds ?? 0,
+    });
+    if (!this.introPending) sounds.startBattleMusic();
 
     // True 2.5D diorama: the authoritative flat world renders through the
     // battlefield's board projection. Identity layouts (un-migrated maps)
@@ -829,6 +845,7 @@ export class GameScene extends Phaser.Scene {
 
     // 5. Setup Pointer Input Listeners
     this.setupInputs();
+    if (this.introPending) this.playMatchIntro();
 
     // 6. Guided training battle (first-play tutorial)
     if (this.trainingMode) {
@@ -2433,6 +2450,7 @@ export class GameScene extends Phaser.Scene {
       this.trainingOverlay?.notifyPlayerInteraction();
       if (
         this.isExiting ||
+        this.introHolding ||
         this.matchMenuController?.isOpen() ||
         this.gameState.status !== 'playing' ||
         this.selectedSourceIds.length > 0
@@ -3023,7 +3041,7 @@ export class GameScene extends Phaser.Scene {
       const trainingPaused =
         this.trainingController?.shouldPauseSimulation === true ||
         this.trainingController?.isCompleted === true || this.trainingCompletionPending;
-      if (!this.matchMenuController?.isPaused() && !trainingPaused) {
+      if (!this.matchMenuController?.isPaused() && !trainingPaused && !this.introHolding) {
         this.stepBotMatch(deltaSeconds);
 
         // Update HUD
@@ -3121,6 +3139,103 @@ export class GameScene extends Phaser.Scene {
     if (this.gameState.armies.length > 0) {
       this.gameState.armies = stepLiveArmies(this.gameState.armies, deltaSeconds);
     }
+  }
+
+  /**
+   * 3-2-1-GO between the bases. The battle (and order input) is held during
+   * the numbers; GO releases it, starts the music and fades over live play.
+   */
+  private playMatchIntro(): void {
+    if (typeof this.time?.delayedCall !== 'function') return;
+    this.introHolding = true;
+    const { visibleHeight } = getSceneViewport(this);
+    const label = createText(this, LOGICAL_WIDTH / 2, visibleHeight / 2 - 20, '', {
+      fontFamily: FONT_FAMILY,
+      fontSize: '76px',
+      fontStyle: '900',
+      color: '#fde68a',
+      stroke: '#3b2300',
+      strokeThickness: 9,
+    })
+      .setOrigin(0.5)
+      .setDepth(this.boardLayout.overlayDepth(90))
+      .setVisible(false);
+    const animate = this.feel.tier !== 'still';
+
+    for (const step of matchIntroSchedule()) {
+      this.time.delayedCall(step.atMs, () => {
+        if (this.isExiting || !label.active) return;
+        this.introHolding = isIntroHolding(step.phase);
+        if (step.phase === 'done') {
+          label.destroy();
+          return;
+        }
+        if (step.phase === 'go') {
+          label.setText(faBattle.hud.countdownGo).setFontSize(58);
+          sounds.playGo();
+          sounds.startBattleMusic();
+          this.platform.hapticImpact('heavy');
+        } else {
+          label.setText(String(step.phase));
+          sounds.playCountTick(step.phase);
+          this.platform.hapticSelection();
+        }
+        this.tweens.killTweensOf(label);
+        label.setVisible(true).setAlpha(1).setScale(animate ? 1.45 : 1);
+        if (animate) this.tweens.add({ targets: label, scale: 1, duration: 220, ease: 'Back.easeOut' });
+        this.tweens.add({ targets: label, alpha: 0, delay: step.phase === 'go' ? 230 : 360, duration: 200, ease: 'Sine.easeIn' });
+      });
+    }
+  }
+
+  /**
+   * Neutral end-of-battle stamp ("battle over" + the factual cause). The
+   * server decides the winner, so this never names one. Resolves after
+   * END_BEAT_MS, or at once where scene timers are unavailable.
+   */
+  private playEndBeat(): Promise<void> {
+    sounds.playMatchEnd();
+    this.platform.hapticImpact('heavy');
+    if (typeof this.time?.delayedCall !== 'function' || this.isStressMode) return Promise.resolve();
+
+    const { visibleHeight } = getSceneViewport(this);
+    const cause = resolveLocalEndCause({
+      elapsedSeconds: this.gameState.elapsedTimeSeconds,
+      timeLimitSeconds: this.gameState.timeLimitSeconds,
+    });
+    const stamp = this.add.container(LOGICAL_WIDTH / 2, visibleHeight / 2 - 20).setDepth(this.boardLayout.overlayDepth(90));
+    const panel = this.add.graphics();
+    drawPanel(panel, 264, 80, { fill: 0x0b1220, radius: 16, stroke: 0xf59e0b, strokeAlpha: 0.95 });
+    const title = createText(this, 0, -10, faBattle.hud.matchOver, {
+      fontFamily: FONT_FAMILY,
+      fontSize: '28px',
+      fontStyle: '900',
+      color: '#fde68a',
+      stroke: '#000000',
+      strokeThickness: 4,
+    }).setOrigin(0.5);
+    const detail = createText(this, 0, 22, faBattle.hud.endCause[cause], {
+      fontFamily: FONT_FAMILY,
+      fontSize: '13px',
+      color: '#cbd5e1',
+    }).setOrigin(0.5);
+    stamp.add([panel, title, detail]);
+    if (this.feel.tier !== 'still') {
+      stamp.setScale(0.8).setAlpha(0);
+      this.tweens.add({ targets: stamp, scale: 1, alpha: 1, duration: 200, ease: 'Back.easeOut' });
+    }
+
+    return new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = (): void => {
+        if (settled) return;
+        settled = true;
+        if (stamp.active) stamp.destroy();
+        resolve();
+      };
+      this.time.delayedCall(END_BEAT_MS, finish);
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN, finish);
+    });
   }
 
   private showBattlefieldReveal(): void {
@@ -4736,8 +4851,22 @@ export class GameScene extends Phaser.Scene {
 
     sounds.stopBattleMusic();
     this.resultPending = true;
-    this.renderSyncingModal();
+    this.settlementReady = false;
+    // Settlement starts now; the neutral end stamp plays meanwhile and the
+    // syncing card appears only if the server is slower than the beat.
+    this.endBeatDone = this.playEndBeat();
+    void this.endBeatDone.then(() => {
+      if (this.resultPending && !this.settlementReady && !this.isExiting && !this.resultModalContainer) {
+        this.renderSyncingModal();
+      }
+    });
     void this.finalizeMatch();
+  }
+
+  /** Waits for the end stamp before any result or error replaces it. */
+  private async settlementArrived(): Promise<void> {
+    this.settlementReady = true;
+    await this.endBeatDone;
   }
 
   private localMatchStats(): MatchStats {
@@ -4765,6 +4894,7 @@ export class GameScene extends Phaser.Scene {
         const result = await client.settle(this.activeMatchId, this.matchActions);
         await this.careerManager.refreshRemoteCareer();
         this.offlineBattleClosed=true;client.clearBattle(this.activeMatchId);
+        await this.settlementArrived();
         this.resultPending = false; this.dismissSyncingModal();
         this.trackMatchTerminal({ name: 'match_end', matchId: result.settlement.matchId, mode: 'async', result: result.settlement.status, durationSeconds: result.settlement.stats.matchDurationSeconds });
         if (result.rewarded) trackEvent({ name: 'match_reward_received', matchId: this.activeMatchId, mode: 'async' });
@@ -4795,6 +4925,7 @@ export class GameScene extends Phaser.Scene {
         throw new Error('backend_required_for_match_settlement');
       }
 
+      await this.settlementArrived();
       this.resultPending = false;
       this.dismissSyncingModal();
       const stats =
@@ -4818,6 +4949,7 @@ export class GameScene extends Phaser.Scene {
       }
       this.renderResultModal(settlement.status, stats, settlement);
     } catch (error) {
+      await this.settlementArrived();
       this.resultPending = false;
       this.dismissSyncingModal();
       this.showSettlementError(error);
@@ -5346,7 +5478,27 @@ export class GameScene extends Phaser.Scene {
             });
           }
         }
-        if (settlement.breakdown.trophyDelta > 0) this.time.delayedCall(220, () => sounds.playTrophy());
+        // Trophies count from 0 to the server-settled change, like coins.
+        const trophyDelta = settlement.breakdown.trophyDelta;
+        const formatTrophies = (value: number): string => (value > 0 ? `+${value}` : `${value}`);
+        if (trophyDelta !== 0 && this.feel.rollCounts) {
+          trophyValue.setText(formatTrophies(0));
+          this.tweens.addCounter({
+            from: 0,
+            to: trophyDelta,
+            delay: 220,
+            duration: Math.min(700, 250 + Math.abs(trophyDelta) * 20),
+            ease: 'Cubic.easeOut',
+            onUpdate: (tween) => trophyValue.setText(formatTrophies(Math.round(tween.getValue() ?? 0))),
+            onComplete: () => {
+              trophyValue.setText(formatTrophies(trophyDelta));
+              if (trophyDelta > 0) sounds.playTrophy();
+              this.tweens.add({ targets: trophyValue, scale: 1.18, duration: 150, yoyo: true, ease: 'Sine.easeInOut' });
+            },
+          });
+        } else if (trophyDelta > 0) {
+          this.time.delayedCall(220, () => sounds.playTrophy());
+        }
       },
     });
 
