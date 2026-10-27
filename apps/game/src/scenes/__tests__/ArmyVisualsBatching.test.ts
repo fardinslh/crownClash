@@ -326,6 +326,8 @@ vi.mock('phaser', () => {
 import { GameScene } from '../GameScene.js';
 import { BrowserPlatformAdapter } from '@crown-clash/platform';
 import { TERRITORY_TYPE_PRESENTATION, createInitialGameState, dispatchArmy, stepSimulation } from '@crown-clash/game-core';
+import { ARENA_PRESENTATION } from '../../art/BattlefieldArt.js';
+import { STREAM_MAX_FOLLOWERS, troopStreamSlots } from '../../feel/TroopStream.js';
 
 describe('Army Visuals Batching Optimization', () => {
   let scene: GameScene;
@@ -444,7 +446,7 @@ describe('Army Visuals Batching Optimization', () => {
     }
   });
 
-  it('enlarges both ranks without adding members and keeps a compact icon badge', () => {
+  it('enlarges both ranks, grows the marching column with army size and keeps a compact icon badge', () => {
     const internal = scene as any;
     internal.reducedMotion = true;
     internal.gameState.armies = [{ id: 'readable_army', owner: 'player', sourceId: 'p_base',
@@ -454,7 +456,10 @@ describe('Army Visuals Batching Optimization', () => {
     const visual = internal.armyVisuals.get('player:readable_army');
     expect(visual).toBeDefined();
     expect(visual.leaderSprite.scaleX / internal.boardLayout.scale).toBeCloseTo(0.375);
-    expect(visual.followers).toHaveLength(3);
+    // A 20-unit fortress army marches as a stream (full feel tier in tests).
+    const slots = troopStreamSlots(20, STREAM_MAX_FOLLOWERS.full);
+    expect(visual.followers).toHaveLength(slots.length);
+    expect(slots.length).toBeGreaterThan(3);
     for (const follower of visual.followers) {
       expect(follower.sprite.scaleX / internal.boardLayout.scale).toBeCloseTo(0.285);
     }
@@ -467,8 +472,9 @@ describe('Army Visuals Batching Optimization', () => {
     for (const follower of visual.followers) {
       expect(follower.sprite.scaleX / internal.boardLayout.scale).toBeGreaterThan(0.24);
     }
+    const rear = slots.at(-1)!;
     expect(Math.hypot(visual.rearOffset.x, visual.rearOffset.y) / internal.boardLayout.scale)
-      .toBeCloseTo(45);
+      .toBeCloseTo(Math.hypot(rear.back, rear.side) * ARENA_PRESENTATION.unitScale);
   });
 
   it.each([

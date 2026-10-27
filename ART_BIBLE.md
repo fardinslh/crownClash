@@ -245,8 +245,22 @@ Feedback must be punchy, juicy, and proportional to the action:
 | **Territory Capture** | Squash-and-stretch scale pop (`1.25x`), expanding shockwave ring in team color, floating `+X` numbers | Triumphant major chord + Heavy haptic thud |
 | **Friendly Reinforcement** | Soft bounce (`1.08x`), glowing green floaters `+X` | Bright chime + Light haptic pip |
 | **Defended Combat** | 3-frame lateral shudder, red damage floating numbers `-X` | Soft impact thud + Medium haptic |
-| **Marching Convoy** | Directional micro-dots trailing behind lead unit, rhythmic squad bobbing | Low travel whoosh |
+| **Marching Convoy** | Two-file column that grows with army size (1 follower under 6 units, up to 10; 4 on low-end devices), rhythmic squad bobbing | Low travel whoosh |
+| **Release / Dispatch** | Source tower squash-recoil (`0.92x` → `1x`), team-light `-N` over the source, counter drops at once with a small badge punch | Dispatch sound + Medium/Heavy haptic |
+| **Garrison counter** | Arrivals step the number through up to 6 values (~45 ms each) with a badge punch; production ticks only update the text | — |
 | **Victory Fanfare** | Full-screen celebration flash (`#2563EB`), confetti burst, Victory card entrance | Ascending victory fanfare + Triple haptic pulse |
+
+**Camera shake** is reserved for taking the crown keep and for losing one of your
+own towers (at most one shake per 250 ms). Ordinary captures use pop, ring and burst.
+
+### Feedback tiers (`apps/game/src/feel/FeelProfile.ts`)
+
+* **full** — everything above.
+* **lite** (reduced-effects render profile, low-end devices) — keeps scale pops,
+  rings, floating numbers, tweened capture shards, sound and haptics; drops
+  particles, camera shake, flashes, counter rolling and the long marching column.
+* **still** (`prefers-reduced-motion`) — pops capped at `1.05x`, rings fade without
+  expanding, no shake, flash, particles or shudder.
 
 ### Living-board ambience (idle, always on)
 

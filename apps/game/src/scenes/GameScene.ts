@@ -186,6 +186,11 @@ import { createText, FONT_FAMILY, MONO_FONT_FAMILY } from '../ui/TextStyles.js';
 import { createIcon, rankIcon, type IconKey } from '../ui/icons.js';
 import { drawPanel, fadeIn } from '../ui/kit/index.js';
 import { battlefieldName, faBattle, upgradeEffectLabel } from '../i18n/faBattle.js';
+import { popScale, resolveFeelProfile, type FeelProfile } from '../feel/FeelProfile.js';
+import { FeedbackThrottle } from '../feel/FeedbackThrottle.js';
+import { captureShake, COUNT_PUNCH_SCALE, rollSteps, type CountCause } from '../feel/CountChange.js';
+import { RecyclingPool } from '../feel/RecyclingPool.js';
+import { STREAM_MAX_FOLLOWERS, troopStreamSlots } from '../feel/TroopStream.js';
 import { rankName, upgradeMilestoneLabel } from '../i18n/fa.js';
 
 
@@ -246,6 +251,10 @@ interface TerritoryVisual {
   sharedCue?: Phaser.GameObjects.Text;
   lastOwner?: Team;
   lastUnits?: number;
+  /** Resting scale of unitText (punches are relative to it, like the badge). */
+  unitTextBaseScale?: number;
+  /** In-flight counter roll (steps the number instead of jumping). */
+  countRoll?: Phaser.Time.TimerEvent;
 }
 
 interface ArmyFollower {
@@ -352,6 +361,12 @@ export class GameScene extends Phaser.Scene {
   private dragBadgeBg!: Phaser.GameObjects.Rectangle;
   private dragBadgeText!: Phaser.GameObjects.Text;
   private reducedMotion = false;
+  /** Battle feedback tier; low-end devices keep cheap pops (see FeelProfile). */
+  private feel: FeelProfile = resolveFeelProfile({ reducedEffects: false, prefersReducedMotion: false });
+  private readonly feedbackThrottle = new FeedbackThrottle();
+  /** Why each tower's count is about to change, consumed by updateTerritoryVisuals. */
+  private readonly pendingCountCauses = new Map<string, CountCause>();
+  private floatingTextPool?: RecyclingPool<Phaser.GameObjects.Text>;
 
   // Local AI: fixed match-time tick grid so the client prediction stays as
   // close as possible to the server's authoritative bot replay.
@@ -532,10 +547,15 @@ export class GameScene extends Phaser.Scene {
       this.scheduleViewportRelayout(vp);
     });
     this.initArmyVisualTextures();
-    this.reducedMotion =
-      this.registry.get('reducedEffects') === true ||
-      (typeof window !== 'undefined' &&
-        window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true);
+    const prefersReducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+    const reducedEffects = this.registry.get('reducedEffects') === true;
+    this.reducedMotion = reducedEffects || prefersReducedMotion;
+    this.feel = resolveFeelProfile({ reducedEffects, prefersReducedMotion });
+    this.feedbackThrottle.reset();
+    this.pendingCountCauses.clear();
+    this.floatingTextPool = undefined;
 
     this.platform = (this.registry.get('platform') as PlatformAdapter) || createPlatformAdapter();
     const user = this.platform.getUser();
@@ -1946,6 +1966,7 @@ export class GameScene extends Phaser.Scene {
         unitBadge,
         unitBadgeBaseScale,
         unitText,
+        unitTextBaseScale: unitText.scaleX,
         typeIcon,
         sharedCue,
         lastOwner: territory.owner,
@@ -2925,8 +2946,10 @@ export class GameScene extends Phaser.Scene {
               });
               Object.assign(this.gameState.territories, multiDispatch.updatedSources);
               this.gameState.armies.push(...predictedArmies);
+              this.markDispatchSources(predictedArmies);
               this.markTerritoriesDirty();
               this.updateTerritoryVisuals();
+              this.playDispatchSourceFeedback(predictedArmies);
 
               sounds.playDispatch();
               this.platform.hapticImpact(sources.length > 1 ? 'heavy' : 'medium');
@@ -2968,8 +2991,10 @@ export class GameScene extends Phaser.Scene {
             this.gameState.armies.push(...multiDispatch.armies);
             this.gameState.stats.playerUnitsDispatched += multiDispatch.totalUnitsDispatched;
             this.recordDispatchActions(multiDispatch.armies);
+            this.markDispatchSources(multiDispatch.armies);
             this.markTerritoriesDirty();
             this.updateTerritoryVisuals();
+            this.playDispatchSourceFeedback(multiDispatch.armies);
 
             sounds.playDispatch();
             this.platform.hapticImpact(multiDispatch.armies.length > 1 ? 'heavy' : 'medium');
@@ -3428,24 +3453,15 @@ export class GameScene extends Phaser.Scene {
       } else {
         sounds.playCombatHit();
       }
-      if (!this.reducedMotion) {
-        this.cameras.main.shake(
-          isCrownKeep ? 160 : 100,
-          capturedByPlayer ? 0.006 : 0.0045
-        );
+      this.pendingCountCauses.set(arrival.targetId, 'capture');
+      const shake = captureShake({ crownKeep: isCrownKeep, attacker: arrival.attackerOwner, previousOwner: arrival.previousOwner });
+      if (shake !== 'none' && this.feel.shake && this.feedbackThrottle.allowGap('shake', 250, this.time.now)) {
+        this.cameras.main.shake(shake === 'big' ? 160 : 110, shake === 'big' ? 0.006 : 0.0045);
       }
       this.platform.hapticImpact('heavy');
 
-      // Shake & scale pop
-      if (!this.reducedMotion) {
-        this.tweens.add({
-          targets: vis.container,
-          scale: 1.22,
-          duration: 125,
-          yoyo: true,
-          ease: 'Back.easeOut',
-        });
-      }
+      // Scale pop
+      this.popContainer(vis, 1.22, 125);
 
       this.spawnImpactRing(
         anchor.u,
@@ -3467,15 +3483,8 @@ export class GameScene extends Phaser.Scene {
       // Friendly Reinforcement Feedback
       sounds.playReinforce();
       this.platform.hapticImpact('light');
-
-      if (!this.reducedMotion) {
-        this.tweens.add({
-          targets: vis.container,
-          scale: 1.08,
-          duration: 90,
-          yoyo: true,
-        });
-      }
+      this.pendingCountCauses.set(arrival.targetId, 'gain');
+      this.popContainer(vis, 1.08, 90);
 
       this.spawnFloatingText(
         anchor.u,
@@ -3494,19 +3503,36 @@ export class GameScene extends Phaser.Scene {
       sounds.playCombatHit();
       this.platform.hapticImpact('medium');
       const fortressBlocked = vis.territory.type === 'fortress';
+      this.pendingCountCauses.set(arrival.targetId, 'hit');
 
-      if (!this.reducedMotion) {
+      if (this.feel.pops && !this.selectedSourceIds.includes(arrival.targetId)) {
+        // Impact: a short squash on the hit tower only (the simulation never
+        // pauses — bot time is a replayed logical clock), then the shudder.
+        this.tweens.killTweensOf(vis.container);
+        vis.container.setScale(1).setPosition(anchor.u, vis.container.y);
         this.tweens.add({
           targets: vis.container,
-          x: anchor.u + 4,
-          duration: 40,
+          scaleX: popScale(this.feel, 1.06),
+          scaleY: this.feel.tier === 'still' ? 1 : 0.9,
+          duration: 50,
           yoyo: true,
-          repeat: 2,
-          onComplete: () => {
-            vis.container.x = anchor.u;
-          },
+          ease: 'Quad.easeOut',
         });
+        if (this.feel.tier !== 'still') {
+          this.tweens.add({
+            targets: vis.container,
+            x: anchor.u + 4,
+            delay: 50,
+            duration: 40,
+            yoyo: true,
+            repeat: 2,
+            onComplete: () => {
+              vis.container.x = anchor.u;
+            },
+          });
+        }
       }
+      if (this.feel.particles) this.emitCaptureParticles(anchor.u, anchor.v, fortressBlocked ? 0xfbbf24 : 0xfca5a5, 6);
 
       this.spawnFloatingText(
         anchor.u,
@@ -3526,8 +3552,42 @@ export class GameScene extends Phaser.Scene {
     this.markTerritoriesDirty();
   }
 
+  private markDispatchSources(armies: readonly MarchingArmy[]): void {
+    for (const army of armies) this.pendingCountCauses.set(army.sourceId, 'drop');
+  }
+
+  /**
+   * Release feedback at each sending tower: a quick squash-recoil and the
+   * troops that left as "-N", so the cost of the order is visible.
+   */
+  private playDispatchSourceFeedback(armies: readonly MarchingArmy[]): void {
+    for (const army of armies.slice(0, 4)) {
+      const vis = this.territoryVisuals.get(army.sourceId);
+      if (!vis) continue;
+      const anchor = this.projectSocketPoint(vis.territory.x, vis.territory.y);
+      this.spawnFloatingText(anchor.u, anchor.v - 20 * this.boardLayout.scale, `-${army.units}`, THEME.teams[army.owner].lightHex);
+      if (!this.feel.pops || this.feel.tier === 'still') continue;
+      this.tweens.killTweensOf(vis.container);
+      vis.container.setScale(0.92);
+      this.tweens.add({ targets: vis.container, scale: 1, duration: 160, ease: 'Back.easeOut' });
+    }
+  }
+
+  /** Yoyo scale pop on a tower, skipped while the player is dragging from it. */
+  private popContainer(vis: TerritoryVisual, scale: number, duration: number): void {
+    const target = popScale(this.feel, scale);
+    if (target === 1 || this.selectedSourceIds.includes(vis.territory.id)) return;
+    this.tweens.add({
+      targets: vis.container,
+      scale: target,
+      duration,
+      yoyo: true,
+      ease: 'Back.easeOut',
+    });
+  }
+
   private spawnCaptureFlash(x: number, y: number, color: number): void {
-    if (this.reducedMotion) return;
+    if (!this.feel.flash) return;
     const flash = this.add.circle(x, y, 10, color, 0.42).setDepth(this.boardLayout.overlayDepth(30));
     this.tweens.add({
       targets: flash,
@@ -3553,9 +3613,9 @@ export class GameScene extends Phaser.Scene {
 
     this.tweens.add({
       targets: ring,
-      scale: this.reducedMotion ? 1 : targetScale,
+      scale: this.feel.expandingRings ? targetScale : 1,
       alpha: 0,
-      duration: this.reducedMotion ? 180 : 420,
+      duration: this.feel.expandingRings ? 420 : 180,
       ease: 'Cubic.easeOut',
       onComplete: () => ring.destroy(),
     });
@@ -3592,11 +3652,11 @@ export class GameScene extends Phaser.Scene {
   private captureEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
 
   /**
-   * Additive spark burst on capture (one pooled emitter, explode only).
-   * Skipped on reduced-effects devices, which keep the tweened sparks.
+   * Additive spark burst (one pooled emitter, explode only). Captures use the
+   * full burst; defended hits a small puff. Full feel tier only.
    */
-  private emitCaptureParticles(x: number, y: number, color: number): boolean {
-    if (this.registry.get('reducedEffects') === true || typeof this.add.particles !== 'function') return false;
+  private emitCaptureParticles(x: number, y: number, color: number, count = 18): boolean {
+    if (!this.feel.particles || typeof this.add.particles !== 'function') return false;
     try {
       if (!this.captureEmitter || !this.captureEmitter.active) {
         const key = this.ensureRadialGradientTexture('cc_spark', '255, 255, 255', [[0, 1], [0.35, 0.8], [1, 0]], 32);
@@ -3613,15 +3673,16 @@ export class GameScene extends Phaser.Scene {
         }).setDepth(this.boardLayout.overlayDepth(33));
       }
       this.captureEmitter.setParticleTint(color);
-      this.captureEmitter.explode(18, x, y);
+      this.captureEmitter.explode(count, x, y);
       return true;
     } catch {
       return false;
     }
   }
 
+  /** Capture sparks: particles on full tier, cheap tweened shards on full and lite. */
   private spawnCaptureBurst(x: number, y: number, color: number): void {
-    if (this.reducedMotion) return;
+    if (this.feel.tier === 'still') return;
     this.emitCaptureParticles(x, y, color);
 
     for (let index = 0; index < 8; index++) {
@@ -3646,7 +3707,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private pulseTerritoryRole(vis: TerritoryVisual): void {
-    if (this.reducedMotion) return;
+    if (this.feel.tier === 'still') return;
     this.tweens.killTweensOf([vis.typeIcon, vis.unitBadge]);
     vis.typeIcon.setScale(1).setAlpha(1);
     // Texture pill badges rest at half scale (2x-resolution canvas), so the
@@ -3671,17 +3732,35 @@ export class GameScene extends Phaser.Scene {
   }
 
   private spawnFloatingText(x: number, y: number, text: string, color: string, holdMs = 0): void {
-    const float = createText(this, x, y, text, {
-        fontFamily: FONT_FAMILY,
-        fontSize: '16px',
-        fontStyle: 'bold',
-        color,
-        stroke: '#000000',
-        strokeThickness: 3,
-      })
-      .setOrigin(0.5)
+    // Combat numbers are capped per burst; held messages (hints) always show.
+    if (holdMs === 0 && !this.feedbackThrottle.allowBurst('float', 8, 100, this.time.now)) return;
+    const pool = (this.floatingTextPool ??= new RecyclingPool(
+      () =>
+        createText(this, 0, 0, '', {
+          fontFamily: FONT_FAMILY,
+          fontSize: '16px',
+          fontStyle: 'bold',
+          color,
+          stroke: '#000000',
+          strokeThickness: 3,
+        }).setOrigin(0.5),
+      8,
+    ));
+    const { item: float } = pool.acquire();
+    this.tweens.killTweensOf(float);
+    if (float.text !== text) float.setText(text);
+    if (float.style?.color !== color) float.setColor(color);
+    const pop = this.feel.pops && this.feel.tier !== 'still';
+    float
+      .setPosition(x, y)
+      .setAlpha(1)
+      .setScale(pop ? 0.6 : 1)
+      .setVisible(true)
       .setDepth(this.boardLayout.overlayDepth(60));
 
+    if (pop) {
+      this.tweens.add({ targets: float, scale: 1, duration: 140, ease: 'Back.easeOut' });
+    }
     this.tweens.add({
       targets: float,
       y: y - 28,
@@ -3689,7 +3768,10 @@ export class GameScene extends Phaser.Scene {
       delay: holdMs,
       duration: 600,
       ease: 'Quad.easeOut',
-      onComplete: () => float.destroy(),
+      onComplete: () => {
+        float.setVisible(false);
+        pool.release(float);
+      },
     });
   }
 
@@ -3754,8 +3836,9 @@ export class GameScene extends Phaser.Scene {
       vis.territory = stateTerritory;
 
       if (vis.lastUnits !== stateTerritory.units || fogged !== (vis.unitText.text === '?')) {
+        const previousUnits = vis.lastUnits;
         vis.lastUnits = stateTerritory.units;
-        vis.unitText.setText(fogged ? '?' : stateTerritory.units.toString());
+        this.showTerritoryCount(vis, previousUnits, stateTerritory.units, fogged, this.pendingCountCauses.get(id));
       }
 
       if (producedUnit) {
@@ -3787,6 +3870,75 @@ export class GameScene extends Phaser.Scene {
         }
       }
     }
+    // Causes belong to this frame's arrivals/dispatches; never let a stale
+    // one decorate a later production tick.
+    this.pendingCountCauses.clear();
+  }
+
+  /**
+   * Garrison number feedback: after an arrival or dispatch the counter steps
+   * through a few values and the badge punches, so the player sees troops
+   * land instead of a silent jump. Production ticks just update the text.
+   */
+  private showTerritoryCount(
+    vis: TerritoryVisual,
+    previousUnits: number | undefined,
+    units: number,
+    fogged: boolean,
+    cause: CountCause | undefined,
+  ): void {
+    vis.countRoll?.remove(false);
+    vis.countRoll = undefined;
+    if (fogged) {
+      vis.unitText.setText('?');
+      return;
+    }
+    // A dispatch shows its cost at once (the player must see the new count
+    // before ordering again); arrivals roll so troops visibly land.
+    const steps =
+      cause && cause !== 'drop' && this.feel.rollCounts && previousUnits !== undefined && typeof this.time?.addEvent === 'function'
+        ? rollSteps(previousUnits, units, 6)
+        : [];
+    if (steps.length > 1) {
+      let index = 0;
+      vis.unitText.setText(String(steps[0]));
+      vis.countRoll = this.time.addEvent({
+        delay: 45,
+        repeat: steps.length - 2,
+        callback: () => {
+          index++;
+          vis.unitText.setText(String(steps[index]));
+          if (index >= steps.length - 1) vis.countRoll = undefined;
+        },
+      });
+    } else {
+      vis.unitText.setText(units.toString());
+    }
+    if (cause) this.punchCount(vis, cause);
+  }
+
+  private punchCount(vis: TerritoryVisual, cause: CountCause): void {
+    const scale = popScale(this.feel, COUNT_PUNCH_SCALE[cause]);
+    if (scale === 1) return;
+    const textBase = vis.unitTextBaseScale ?? 1;
+    // Relative to each object's resting scale (texture pills rest at 0.5).
+    this.tweens.killTweensOf([vis.unitBadge, vis.unitText]);
+    vis.unitBadge.setScale(vis.unitBadgeBaseScale);
+    vis.unitText.setScale(textBase);
+    this.tweens.add({
+      targets: vis.unitBadge,
+      scale: vis.unitBadgeBaseScale * scale,
+      duration: cause === 'drop' ? 70 : 90,
+      yoyo: true,
+      ease: 'Quad.easeOut',
+    });
+    this.tweens.add({
+      targets: vis.unitText,
+      scale: textBase * scale,
+      duration: cause === 'drop' ? 70 : 90,
+      yoyo: true,
+      ease: 'Quad.easeOut',
+    });
   }
 
   private isArmyFogged(army: MarchingArmy): boolean {
@@ -4137,29 +4289,14 @@ export class GameScene extends Phaser.Scene {
         // board (side, mirrored for leftward marches), toward the viewer
         // (front) or away (back). Falls back to the legacy front sprite.
 
-        // Determine follower formation based on army size
-        const followerOffsets: Array<{ x: number; y: number; delay: number }> = [];
-        if (army.units >= 15) {
-          followerOffsets.push(
-            { x: -14 * cos + 7 * perpX, y: -14 * sin + 7 * perpY, delay: 45 },
-            { x: -22 * cos - 7 * perpX, y: -22 * sin - 7 * perpY, delay: 90 },
-            { x: -30 * cos, y: -30 * sin, delay: 135 }
-          );
-        } else if (army.units >= 6) {
-          followerOffsets.push(
-            { x: -15 * cos + 6 * perpX, y: -15 * sin + 6 * perpY, delay: 50 },
-            { x: -24 * cos - 6 * perpX, y: -24 * sin - 6 * perpY, delay: 100 }
-          );
-        } else {
-          followerOffsets.push({ x: -16 * cos, y: -16 * sin, delay: 60 });
-        }
-        if (sourceType === 'barracks') {
-          followerOffsets.push({
-            x: -38 * cos + 9 * perpX,
-            y: -38 * sin + 9 * perpY,
-            delay: 150,
-          });
-        }
+        // Marching column grows with army size (Tower War-style stream);
+        // low-end devices keep the small squad. Barracks add a rear guard.
+        const maxFollowers = this.feel.tier === 'full' ? STREAM_MAX_FOLLOWERS.full : STREAM_MAX_FOLLOWERS.reduced;
+        const followerOffsets = troopStreamSlots(army.units, maxFollowers, sourceType === 'barracks').map((slot) => ({
+          x: -slot.back * cos + slot.side * perpX,
+          y: -slot.back * sin + slot.side * perpY,
+          delay: slot.delayMs,
+        }));
 
         for (const offset of followerOffsets) {
           offset.x *= unitScale;

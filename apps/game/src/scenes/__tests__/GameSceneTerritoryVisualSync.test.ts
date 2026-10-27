@@ -748,6 +748,30 @@ describe('GameScene Tower Role Icons', () => {
     // The icon keeps its own whole-unit base pulse.
     expect(barracks.typeIcon.scaleX).toBe(1);
   });
+
+  it('punches the garrison counter relative to its base on every arrival, never growing it', () => {
+    const visuals = (scene as any).territoryVisuals as Map<string, any>;
+    const tower = visuals.get('n_bot_left');
+    tower.unitBadge.setScale(0.5);
+    tower.unitBadgeBaseScale = 0.5;
+    tower.unitTextBaseScale = 1;
+
+    for (const cause of ['hit', 'gain', 'capture', 'drop', 'hit'] as const) {
+      expect(() => (scene as any).punchCount(tower, cause)).not.toThrow();
+      // Each punch restarts from the resting scale before tweening.
+      expect(tower.unitBadge.scaleX).toBe(0.5);
+      expect(tower.unitText.scaleX).toBe(1);
+    }
+  });
+
+  it('shows the final garrison immediately when no arrival caused the change (production)', () => {
+    const visuals = (scene as any).territoryVisuals as Map<string, any>;
+    const tower = visuals.get('n_bot_left');
+    (scene as any).showTerritoryCount(tower, 10, 11, false, undefined);
+    expect(tower.unitText.text).toBe('11');
+    (scene as any).showTerritoryCount(tower, 11, 4, true, 'hit');
+    expect(tower.unitText.text).toBe('?');
+  });
 });
 
 describe('GameScene Bottom Legend Role Icons', () => {
