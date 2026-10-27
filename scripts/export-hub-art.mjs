@@ -25,7 +25,19 @@ const SPRITES = {
 // to fill any screen height. Cropped from the 1140x2502 master.
 const BACKDROP = { file: 'hub_meadow', master: 'ground_crown_cross', crop: [200, 1960, 740, 430], size: [512, 298] };
 
+// Daily chest props (art/blender/hub_props_kit.py), rendered into
+// art/blender/renders/hub. One shared square crop keeps closed/open aligned.
+const PROPS = { hub_chest_closed: 'hub_chest_closed', hub_chest_open: 'hub_chest_open' };
+const PROP_CROP = ['56', '16', '400', '400'];
+
 fs.mkdirSync(out, { recursive: true });
+for (const [name, master] of Object.entries(PROPS)) {
+  const src = path.join(root, 'art/blender/renders/hub', `${master}.png`);
+  if (!fs.existsSync(src)) throw new Error(`Missing master render: ${src}`);
+  const dest = path.join(out, `${name}.webp`);
+  execFileSync('cwebp', ['-quiet', '-q', '88', '-alpha_q', '100', '-crop', ...PROP_CROP, '-resize', String(SIZE), String(SIZE), src, '-o', dest]);
+  console.log(`${name}.webp ${fs.statSync(dest).size} bytes`);
+}
 {
   const src = path.join(root, 'art/blender/renders/grounds', `${BACKDROP.master}.png`);
   if (!fs.existsSync(src)) throw new Error(`Missing master render: ${src}`);

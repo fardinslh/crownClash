@@ -30,7 +30,7 @@ Status as of 2026-10-25. Source: pre-release audit (mechanic, UX, retention).
 - [ ] Decide `ENABLE_REALM_PILOT` / `ENABLE_COIN_PAYMENTS` (both off by default, so revenge/shop/starter pack do not exist in the default build).
 - [ ] Review Persian copy (hand-written) and check mixed Persian+number lines on a real WebView.
 - [ ] Re-entry hook: Bale bot message for revenge / daily chest. Needs the bot token, a decision on message frequency, and server-side sending; not started.
-- [ ] Replace emoji/rectangle UI with real icon and chest art (Blender pipeline per the Art Bible).
+- [ ] Replace emoji/rectangle UI with real icon art (Blender pipeline per the Art Bible). The daily chest (closed/open) is now a Blender render (`art/blender/hub_props_kit.py`, exported by `scripts/export-hub-art.mjs`); a crown emblem render exists as an authoring asset but is not used in the UI yet.
 
 ## Later
 - [x] Client error reporting: `client_error` event (uncaught errors and unhandled rejections, 5 distinct per session, scrubbed message, top-frame location only, no stack). Server allowlist and validation in `main.go`; documented in `ANALYTICS.md`.

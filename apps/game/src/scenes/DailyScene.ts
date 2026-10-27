@@ -37,7 +37,7 @@ import {
   type KitButton,
   type KitPill,
 } from '../ui/kit/index.js';
-import { createHubBackdrop } from '../ui/kit/hubBackdrop.js';
+import { createHubBackdrop, loadHubTextures } from '../ui/kit/hubBackdrop.js';
 import { fa, missionCopy } from '../i18n/fa.js';
 
 const MISSION_ICONS: Record<DailyMissionState['id'], IconKey> = {
@@ -49,6 +49,9 @@ const MISSION_ICONS: Record<DailyMissionState['id'], IconKey> = {
 const CARD_WIDTH = 360;
 const MISSION_HEIGHT = 104;
 const CHEST_HEIGHT = 118;
+const CHEST_CLOSED_KEY = 'hub_chest_closed';
+const CHEST_OPEN_KEY = 'hub_chest_open';
+const CHEST_ART_VERSION = 'hub-chest-v1';
 
 export class DailyScene extends Phaser.Scene {
   private platform!: PlatformAdapter;
@@ -93,6 +96,14 @@ export class DailyScene extends Phaser.Scene {
     this.coinPill = undefined;
     this.resetTimer = undefined;
     this.animatedEntrance = false;
+    loadHubTextures(
+      this,
+      [
+        { key: CHEST_CLOSED_KEY, path: `assets/hub/hub_chest_closed.webp?v=${CHEST_ART_VERSION}` },
+        { key: CHEST_OPEN_KEY, path: `assets/hub/hub_chest_open.webp?v=${CHEST_ART_VERSION}` },
+      ],
+      () => {},
+    );
 
     setupSceneCamera(this);
     bindSceneViewportResize(this, (vp) => this.applyLayout(vp));
@@ -359,7 +370,12 @@ export class DailyScene extends Phaser.Scene {
       radius: UI.radius.lg,
     });
     const halo = createGlow(this, right - 44, 0, 150, 130, THEME.gold, chest.unlocked && !chest.claimed ? 0.55 : 0.18);
-    const icon = createIcon(this, right - 44, 0, chest.claimed ? 'chest_open' : 'chest', 70);
+    // The rendered chest replaces the vector icon once its textures are loaded
+    // (they start loading in create(); the vector icon covers a slow load).
+    const chestKey = chest.claimed ? CHEST_OPEN_KEY : CHEST_CLOSED_KEY;
+    const icon = this.textures?.exists?.(chestKey)
+      ? this.add.image(right - 44, 0, chestKey).setDisplaySize(82, 82)
+      : createIcon(this, right - 44, 0, chest.claimed ? 'chest_open' : 'chest', 70);
     if (!chest.unlocked) icon.setAlpha(0.75);
     this.chestIcon = icon;
     const title = createText(this, right - 98, -32, fa.daily.chestTitle, {

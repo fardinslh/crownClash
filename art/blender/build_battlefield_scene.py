@@ -153,6 +153,10 @@ EXTENDED_ASSETS = {
     "prop_crystal_cluster": ("build_crystal_cluster", "neutral"),
     "prop_stacked_stones": ("build_stacked_stones", "neutral"),
     "prop_petite_pennant": ("build_pennant", "player"),
+    # Hub props (hub_props_kit.py): daily chest and menu crown emblem.
+    "hub_chest_closed": ("build_prop_hub_chest", "neutral"),
+    "hub_chest_open": ("build_prop_hub_chest_open", "neutral"),
+    "hub_crown_emblem": ("build_prop_hub_crown_emblem", "neutral"),
     "road_segment_straight": ("build_road_segment", "neutral"),
     "terrain_platform_tile": ("build_platform_tile", "neutral"),
 }
@@ -1693,6 +1697,24 @@ def build_prop_rock(palette, owner):
     kit.rock(kit.tmats(make_material), make_material)
 
 
+def load_hub_props_kit():
+    load_cross_kit()  # puts the kit directory on sys.path
+    import hub_props_kit
+    return hub_props_kit
+
+
+def build_prop_hub_chest(palette, owner):
+    load_hub_props_kit().chest(None, make_material)
+
+
+def build_prop_hub_chest_open(palette, owner):
+    load_hub_props_kit().chest_open(None, make_material)
+
+
+def build_prop_hub_crown_emblem(palette, owner):
+    load_hub_props_kit().crown_emblem(None, make_material)
+
+
 # Rendered full-field ground plates. One per battlefield: the kit reads the
 # authoritative battlefields.json (road corridors, socket positions, palette)
 # and bakes the meadow into a 380x640-logical-px texture.
@@ -1764,6 +1786,9 @@ BUILDERS = {
     "build_prop_bush": build_prop_bush,
     "build_prop_grass_tuft": build_prop_grass_tuft,
     "build_prop_rock": build_prop_rock,
+    "build_prop_hub_chest": build_prop_hub_chest,
+    "build_prop_hub_chest_open": build_prop_hub_chest_open,
+    "build_prop_hub_crown_emblem": build_prop_hub_crown_emblem,
     "build_ground_crown_cross": build_ground_crown_cross,
     "build_ground_twin_passes": build_ground_twin_passes,
     "build_ground_royal_ring": build_ground_royal_ring,
@@ -1843,6 +1868,9 @@ CAMERA_FRAMING = {
     "build_prop_bush": (2.60, 0.50),
     "build_prop_grass_tuft": (1.60, 0.34),
     "build_prop_rock": (2.00, 0.32),
+    "build_prop_hub_chest": (2.20, 0.40),
+    "build_prop_hub_chest_open": (2.20, 0.45),
+    "build_prop_hub_crown_emblem": (2.20, 0.45),
     "build_pennant": (2.00, 0.46),
 }
 
