@@ -16,6 +16,8 @@ const SPRITES = {
   kingdom_barracks: 'tier1_barracks_player_idle',
   kingdom_crown_keep: 'tier2_center_player_idle',
   kingdom_citadel: 'tier3_player_hq',
+  // Result-card header when the opponent's citadel is the one left standing.
+  hub_enemy_citadel: 'tier3_enemy_hq',
 };
 
 // Menu/hub backdrop: a clean meadow band from the bottom of the Crown Cross

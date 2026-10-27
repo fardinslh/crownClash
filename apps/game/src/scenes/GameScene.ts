@@ -109,7 +109,7 @@ import {
   trackUpgradeEvent,
 } from '../analytics/Analytics.js';
 import { sounds } from '../audio/SoundEffects.js';
-import { THEME } from '../theme.js';
+import { THEME, UI } from '../theme.js';
 import { createPlatformAdapter, isHapticsEnabled, PlatformAdapter, setHapticsEnabled } from '@crown-clash/platform';
 import {
   LiveMatchClient,
@@ -185,6 +185,7 @@ import {
 import { createText, FONT_FAMILY, MONO_FONT_FAMILY } from '../ui/TextStyles.js';
 import { createIcon, rankIcon, type IconKey } from '../ui/icons.js';
 import { drawPanel, fadeIn } from '../ui/kit/index.js';
+import { loadHubTextures } from '../ui/kit/hubBackdrop.js';
 import { battlefieldName, faBattle, upgradeEffectLabel } from '../i18n/faBattle.js';
 import { popScale, resolveFeelProfile, type FeelProfile } from '../feel/FeelProfile.js';
 import { FeedbackThrottle } from '../feel/FeedbackThrottle.js';
@@ -5411,6 +5412,22 @@ export class GameScene extends Phaser.Scene {
       this.returnToMenu();
     });
 
+    // The rendered citadel of whoever won the match sits beside the title once
+    // it loads; the glow alone is the fallback if the art is unavailable.
+    const headerCitadelKey = status === 'defeat' ? 'hub_enemy_citadel' : 'hub_kingdom_citadel';
+    const headerCitadelFile = status === 'defeat' ? 'hub_enemy_citadel.webp' : 'kingdom_citadel.webp';
+    loadHubTextures(
+      this,
+      [{ key: headerCitadelKey, path: `assets/hub/${headerCitadelFile}?v=hub-256-v1` }],
+      () => {
+        if (this.resultModalContainer !== modal) return;
+        const citadel = this.add.image(-118, -262, headerCitadelKey).setDisplaySize(64, 64).setAlpha(0);
+        modal.add(citadel);
+        this.tweens.add({ targets: citadel, alpha: 1, duration: 220 });
+      },
+      () => this.resultModalContainer === modal,
+    );
+
     modal.add([
       backdrop,
       card,
@@ -5637,10 +5654,7 @@ export class GameScene extends Phaser.Scene {
     const backdrop = this.add
       .rectangle(0, 0, visibleWidth, visibleHeight, 0x000000, 0.65)
       .setInteractive();
-    const card = this.add
-      .rectangle(0, 0, 280, 140, 0x0c1322, 0.98)
-      .setStrokeStyle(2, 0x3b82f6, 0.9);
-    roundedCorners(card, 18);
+    const card = drawPanel(this.add.graphics(), 280, 140, { fill: UI.surface.base, stroke: 0x3b82f6, strokeAlpha: 0.9, radius: 18, alpha: 0.98 });
     const title = createText(this, 0, -25, faBattle.result.battleComplete, {
         fontFamily: FONT_FAMILY,
         fontSize: '18px',
@@ -5788,13 +5802,11 @@ export class GameScene extends Phaser.Scene {
     });
 
     const cardHeight = this.liveMode ? 324 : 284;
-    const card = this.add
-      .rectangle(0, 0, 276, cardHeight, 0x0c1322, 0.98)
-      .setStrokeStyle(1.5, 0x2563eb, 0.95);
-    roundedCorners(card, 18);
+    const card = drawPanel(this.add.graphics(), 276, cardHeight, { fill: UI.surface.base, stroke: 0x2563eb, strokeAlpha: 0.95, radius: 18, alpha: 0.98 });
     const cardGlow = this.add
       .rectangle(0, 0, 276, cardHeight, 0x111c33, 0.35)
       .setStrokeStyle(1, 0x60a5fa, 0.35);
+    roundedCorners(cardGlow, 18);
 
     const titleY = -cardHeight / 2 + 28;
     const titleText = this.liveMode ? faBattle.menu.battleMenu : faBattle.menu.paused;
