@@ -126,10 +126,18 @@ export async function runDeterministicBenchmark(options = {}) {
     }
 
     chromeProcess = spawn(findQaChrome(), chromeFlags, { stdio: 'ignore' });
-    await sleep(1500);
-
-    const listRes = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
-    const tabs = await listRes.json();
+    // Chrome's DevTools endpoint can take several seconds to come up on a
+    // cold start; poll instead of assuming a fixed delay is enough.
+    let tabs;
+    for (let attempt = 0; attempt < 40 && !tabs; attempt++) {
+      await sleep(250);
+      try {
+        tabs = await (await fetch(`http://127.0.0.1:${cdpPort}/json/list`)).json();
+      } catch {
+        // Not listening yet.
+      }
+    }
+    if (!tabs) throw new Error(`Chrome DevTools did not start on port ${cdpPort}`);
     const pageTab = tabs.find((t) => t.type === 'page') || tabs[0];
     ws = new WebSocket(pageTab.webSocketDebuggerUrl);
 
