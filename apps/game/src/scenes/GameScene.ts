@@ -2240,7 +2240,7 @@ export class GameScene extends Phaser.Scene {
 
     // Royal Match Clock Pill (2v2 uses the re-aligned 2v2 clock position)
     this.drawHudPill(twoVTwoClock.center.x, twoVTwoClock.center.y,
-      twoVTwoClock.visibleBounds.width, twoVTwoClock.visibleBounds.height, 0x111827, 0xf59e0b);
+      twoVTwoClock.visibleBounds.width, twoVTwoClock.visibleBounds.height, UI.surface.raised, 0xf59e0b);
 
     this.timerText = createText(this,
         twoVTwoClock.center.x,
@@ -2308,7 +2308,7 @@ export class GameScene extends Phaser.Scene {
         if (!layout) return;
         const isAllyBadge = badge.isAlly;
         this.add
-          .rectangle(layout.center.x, layout.center.y, layout.bounds.width, layout.bounds.height, 0x0f172a, 0.95)
+          .rectangle(layout.center.x, layout.center.y, layout.bounds.width, layout.bounds.height, UI.surface.base, 0.95)
           .setStrokeStyle(badge.isYou ? 2 : 1.5, badge.isYou ? 0xf59e0b : badgeColor(badge.teamId), 0.95)
           .setDepth(95);
         createText(this,
@@ -3881,7 +3881,7 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(1000);
     const draw = (progress: number): void => {
       bar.clear()
-        .fillStyle(0x0f172a, 1).fillRoundedRect(LOGICAL_WIDTH / 2 - width / 2, y - 3, width, 6, 3)
+          .fillStyle(UI.surface.base, 1).fillRoundedRect(LOGICAL_WIDTH / 2 - width / 2, y - 3, width, 6, 3)
         .fillStyle(0x3b82f6, 1).fillRoundedRect(LOGICAL_WIDTH / 2 - width / 2, y - 3, Math.max(6, width * progress), 6, 3);
     };
     draw(0);
@@ -5538,8 +5538,8 @@ export class GameScene extends Phaser.Scene {
     const trophyColor = settlement.breakdown.trophyDelta >= 0 ? '#fbbf24' : '#f87171';
 
     const trophyCardBg = this.add
-      .rectangle(trophyCardX, trophyCardY, 130, 64, 0x111827, 0.95)
-      .setStrokeStyle(1.5, isWin ? 0xf59e0b : 0x374151, 0.85);
+      .rectangle(trophyCardX, trophyCardY, 130, 64, UI.surface.raised, 0.95)
+      .setStrokeStyle(1.5, isWin ? 0xf59e0b : UI.border, 0.85);
 
     roundedCorners(trophyCardBg, 12);
 
@@ -5568,7 +5568,7 @@ export class GameScene extends Phaser.Scene {
     const goldCardX = 72;
     const goldCardY = -153;
     const goldCardBg = this.add
-      .rectangle(goldCardX, goldCardY, 130, 64, 0x111827, 0.95)
+      .rectangle(goldCardX, goldCardY, 130, 64, UI.surface.raised, 0.95)
       .setStrokeStyle(1.5, 0xf59e0b, 0.85);
     roundedCorners(goldCardBg, 12);
 
@@ -5615,8 +5615,8 @@ export class GameScene extends Phaser.Scene {
 
     // Match Stats Summary Section
     const statsBox = this.add
-      .rectangle(0, -64, 280, 50, 0x0f172a, 0.9)
-      .setStrokeStyle(1, 0x1e293b, 1);
+      .rectangle(0, -64, 280, 50, UI.surface.base, 0.9)
+      .setStrokeStyle(1, UI.border, 1);
     roundedCorners(statsBox, 12);
 
     const matchStatsText = createText(this,
@@ -5699,8 +5699,8 @@ export class GameScene extends Phaser.Scene {
       : upgradeRows;
     for (const row of displayedUpgrades) {
       const rowBg = this.add
-        .rectangle(row.x, row.y, emphasizeReplay ? 280 : 134, emphasizeReplay ? 72 : 44, 0x111827, 0.96)
-        .setStrokeStyle(1, 0x334155, 1);
+        .rectangle(row.x, row.y, emphasizeReplay ? 280 : 134, emphasizeReplay ? 72 : 44, UI.surface.raised, 0.96)
+        .setStrokeStyle(1, UI.border, 1);
       roundedCorners(rowBg, 12);
       const label = createText(this, row.x - (emphasizeReplay ? 0 : 10), row.y - (emphasizeReplay ? 14 : 9), '', {
           fontFamily: FONT_FAMILY,
@@ -5770,8 +5770,8 @@ export class GameScene extends Phaser.Scene {
     // Play Again Button
     const btnY = 135;
     const btnBg = this.add
-      .rectangle(0, btnY, 240, emphasizeReplay ? 56 : 50, isWin || emphasizeReplay ? 0x2563eb : 0x374151, 1)
-      .setStrokeStyle(2, isWin || emphasizeReplay ? 0x60a5fa : 0x9ca3af, 1)
+      .rectangle(0, btnY, 240, emphasizeReplay ? 56 : 50, 0x2563eb, 1)
+      .setStrokeStyle(2, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
     roundedCorners(btnBg, 12);
 
@@ -5812,8 +5812,8 @@ export class GameScene extends Phaser.Scene {
     // Native Messenger Share Button
     const shareY = emphasizeReplay ? 198 : 190;
     const shareBg = this.add
-      .rectangle(0, shareY, 240, emphasizeReplay ? 56 : 46, 0x1e293b, 1)
-      .setStrokeStyle(1.5, 0x475569, 1)
+      .rectangle(0, shareY, 240, emphasizeReplay ? 56 : 46, 0x2d4a94, 1)
+      .setStrokeStyle(1.5, 0x8fabee, 1)
       .setInteractive({ useHandCursor: true });
     roundedCorners(shareBg, 12);
 
@@ -5821,7 +5821,7 @@ export class GameScene extends Phaser.Scene {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
-        color: '#94a3b8',
+        color: '#f1f5ff',
         stroke: '#000000',
         strokeThickness: 2,
       })
@@ -5854,7 +5854,7 @@ export class GameScene extends Phaser.Scene {
 
     const menuY = emphasizeReplay ? 261 : 245;
     const menuBg = this.add
-      .rectangle(0, menuY, 240, emphasizeReplay ? 56 : 46, 0x0f172a, 1)
+      .rectangle(0, menuY, 240, emphasizeReplay ? 56 : 46, UI.surface.raised, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
     roundedCorners(menuBg, 12);
@@ -6084,7 +6084,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     const menuBg = this.add
-      .rectangle(0, 105, 190, 46, 0x0f172a, 1)
+      .rectangle(0, 105, 190, 46, UI.surface.raised, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
 
@@ -7066,7 +7066,7 @@ export class GameScene extends Phaser.Scene {
     ];
 
     const separator = this.add
-      .rectangle(0, grid.separatorY, 290, 1.5, 0x1e293b, 1);
+      .rectangle(0, grid.separatorY, 290, 1.5, UI.border, 1);
     elements.push(separator);
 
     const rows: ReadonlyArray<{
@@ -7101,7 +7101,7 @@ export class GameScene extends Phaser.Scene {
         const badge = this.live2v2?.badges.find((b) => b.slot === participant.slot);
         const shape = badge?.shape ?? '';
         const bg = this.add
-          .rectangle(cell.center.x, cell.center.y, cell.width, cell.height, 0x111827, 0.95)
+          .rectangle(cell.center.x, cell.center.y, cell.width, cell.height, UI.surface.raised, 0.95)
           .setStrokeStyle(
             1.5,
             participant.isYou ? 0xf59e0b : teamStyle.primary,
@@ -7209,15 +7209,15 @@ export class GameScene extends Phaser.Scene {
 
     const shareY = 190;
     const shareBg = this.add
-      .rectangle(0, shareY, 240, 46, 0x1e293b, 1)
-      .setStrokeStyle(1.5, 0x475569, 1)
+      .rectangle(0, shareY, 240, 46, 0x2d4a94, 1)
+      .setStrokeStyle(1.5, 0x8fabee, 1)
       .setInteractive({ useHandCursor: true });
     roundedCorners(shareBg, 12);
     const shareText = createText(this, 0, shareY, faBattle.result.shareResult, {
         fontFamily: FONT_FAMILY,
         fontSize: '13px',
         fontStyle: 'bold',
-        color: '#94a3b8',
+        color: '#f1f5ff',
         stroke: '#000000',
         strokeThickness: 2,
       })
@@ -7236,7 +7236,7 @@ export class GameScene extends Phaser.Scene {
 
     const menuY = 245;
     const menuBg = this.add
-      .rectangle(0, menuY, 240, 46, 0x0f172a, 1)
+      .rectangle(0, menuY, 240, 46, UI.surface.raised, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
     roundedCorners(menuBg, 12);
@@ -7364,7 +7364,7 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     const menuBg = this.add
-      .rectangle(0, 70, 200, 48, 0x0f172a, 1)
+      .rectangle(0, 70, 200, 48, UI.surface.raised, 1)
       .setStrokeStyle(1.5, 0x60a5fa, 1)
       .setInteractive({ useHandCursor: true });
     roundedCorners(menuBg, 12);

@@ -79,6 +79,23 @@ for (const [width, height] of [[360, 640], [390, 844]]) {
     await show('GameScene', `{source:'menu',lanes:{levelId:1}}`);
     await sleep(2500);
     await shot('lane-battle');
+    // The PvP result card (settlement, trophies, upgrade tiles) needs a settlement; build a plausible one.
+    for (const status of ['victory', 'defeat']) {
+      const ok = await evaluate(`(async()=>{
+        const core=await import('/@id/@crown-clash/game-core');
+        const s=${game}.scene.getScene('GameScene');
+        const stats={matchDurationSeconds:74,playerUnitsDispatched:61,enemyUnitsDispatched:48,territoriesCapturedByPlayer:6,territoriesCapturedByEnemy:2};
+        const previous=core.createDefaultCareer('qa');
+        const breakdown=core.calculateMatchRewards(${JSON.stringify(status)},stats,1,0);
+        const next={...previous,coins:previous.coins+breakdown.totalCoins,trophies:Math.max(0,previous.trophies+breakdown.trophyDelta)};
+        const settlement={matchId:'qa',status:${JSON.stringify(status)},breakdown,stats,previousCareer:previous,newCareer:next,previousRank:core.getRankTier(previous.trophies),newRank:core.getRankTier(next.trophies),rankPromoted:false,ledgerEntries:[]};
+        s.gameState.status=${JSON.stringify(status)};
+        s.renderResultModal(${JSON.stringify(status)},stats,settlement);
+        return true})()`).catch((e) => String(e).slice(0, 160));
+      if (ok !== true) { console.log('pvp result skipped:', ok); break; }
+      await sleep(1200); await shot(`pvp-result-${status}`);
+      await evaluate(`(()=>{const s=${game}.scene.getScene('GameScene');s.children.list.filter(o=>o.depth>=200).forEach(o=>o.destroy());return true})()`);
+    }
 
     console.log('ok');
   } finally {
