@@ -26,6 +26,8 @@ var (
 	ErrDailyClaimMismatch       = errors.New("daily_claim_id_reused_for_different_reward")
 	ErrLeagueClaimOwnership     = errors.New("league_claim_id_owned_by_another_player")
 	ErrLeagueClaimMismatch      = errors.New("league_claim_id_reused_for_different_rank")
+	ErrLevelClaimOwnership      = errors.New("level_claim_id_owned_by_another_player")
+	ErrLevelClaimMismatch       = errors.New("level_claim_id_reused_for_different_level")
 	ErrCommanderInvalid         = errors.New("invalid_commander")
 	ErrCommanderLocked          = errors.New("commander_locked")
 	ErrBotMatchNotFound         = errors.New("bot_match_not_found")
@@ -1153,6 +1155,26 @@ func normalizeAnalyticsEvent(ctx context.Context, tx *sql.Tx, userID string, eve
 		}
 		event.Props = map[string]any{
 			"claimId": claimID, "rankId": result.RankID,
+			"reward": result.Reward, "resultingCoins": result.NewCareer.Coins,
+		}
+	case "level_reward_claimed":
+		claimID, _ := event.Props["claimId"].(string)
+		var encoded []byte
+		if err := tx.QueryRowContext(ctx, `
+			SELECT result FROM level_reward_claims
+			WHERE claim_id = $1 AND player_id = $2
+		`, claimID, userID).Scan(&encoded); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return AnalyticsEventRecord{}, errors.New("analytics_level_claim_not_found")
+			}
+			return AnalyticsEventRecord{}, err
+		}
+		var result LevelClaimResult
+		if err := json.Unmarshal(encoded, &result); err != nil || !result.Success || result.Reward <= 0 {
+			return AnalyticsEventRecord{}, errors.New("invalid_stored_level_claim")
+		}
+		event.Props = map[string]any{
+			"claimId": claimID, "levelId": result.LevelID,
 			"reward": result.Reward, "resultingCoins": result.NewCareer.Coins,
 		}
 	case "rank_promoted":

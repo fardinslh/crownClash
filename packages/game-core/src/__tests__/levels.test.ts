@@ -81,4 +81,10 @@ describe('level progression', () => {
     const once = levelsCompletedAfter(2, 3);
     expect(levelsCompletedAfter(once, 3)).toBe(once);
   });
+
+  it('pays a first-clear reward tied to difficulty that totals 400 coins', () => {
+    const byDifficulty = { easy: 25, normal: 40, hard: 60 } as const;
+    for (const level of LEVELS) expect(level.coinReward).toBe(byDifficulty[level.botDifficulty]);
+    expect(LEVELS.reduce((sum, level) => sum + level.coinReward, 0)).toBe(400);
+  });
 });

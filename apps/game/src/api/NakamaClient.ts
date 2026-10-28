@@ -20,6 +20,7 @@ import {
   StaleSocketError,
   type CareerApi,
   type ClientObservedStatus,
+  type LevelClearResult,
   type TrackedAnalyticsEvent,
 } from './GameApiClient.js';
 import { LiveMatchClient } from './LiveMatchClient.js';
@@ -284,9 +285,27 @@ export class NakamaClient implements CareerApi {
     return (JSON.parse(result) as { levelsCompleted: number }).levelsCompleted;
   }
 
-  public async completeLevel(levelId: number): Promise<number> {
-    const result = await this.rpc('levels/complete', JSON.stringify({ levelId }));
-    return (JSON.parse(result) as { levelsCompleted: number }).levelsCompleted;
+  public async completeLevel(levelId: number, claimId: string, actions: readonly PvpAction[]): Promise<LevelClearResult> {
+    const raw = await this.rpc('levels/complete', JSON.stringify({ levelId, claimId, actions }));
+    const { levelsCompleted, result } = JSON.parse(raw) as {
+      levelsCompleted: number;
+      result: {
+        success: boolean;
+        reason?: string;
+        reward: number;
+        newCareer?: PlayerCareer;
+        ledgerEntry?: EconomyLedgerEntry;
+      };
+    };
+    return {
+      success: result.success,
+      reason: result.reason,
+      levelsCompleted,
+      reward: result.reward,
+      claimId,
+      newCareer: result.newCareer,
+      ledgerEntry: result.ledgerEntry,
+    };
   }
 
   public async pilotRequest<T>(method: string, payload: unknown = {}): Promise<T> {

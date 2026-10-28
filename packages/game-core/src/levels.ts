@@ -7,8 +7,10 @@ import type { PlayerUpgradeModifiers } from './upgrades.js';
  * Single-player campaign: hand-authored levels played as client-local bot
  * matches. Levels are data only; they never read career upgrades, so a level
  * plays the same for every player and `scripts/levels-balance.mjs` can
- * simulate it. Completion grants no economy value (it only unlocks the next
- * level), which is why the server records the client's claim without replay.
+ * simulate it. The first clear of each level pays `coinReward`; the server
+ * replays the recorded dispatches against this exact table (apps/server-nakama
+ * levels.go keeps the authoritative copy, and a Go test fails if they drift),
+ * so the number here is for display only.
  */
 export const LEVEL_RULES_VERSION: GameplayRulesVersion = 3;
 
@@ -25,22 +27,24 @@ export interface LevelDefinition {
   readonly botDifficulty: BotDifficulty;
   /** The enemy's garrison, production and speed; below 1x/20 makes a gentler opponent. */
   readonly enemy: PlayerUpgradeModifiers;
+  /** Coins paid once, on the first verified clear. Mirrors the server table. */
+  readonly coinReward: number;
 }
 
 const enemy = (startingUnits: number, production: number, speed = 1): PlayerUpgradeModifiers =>
   Object.freeze({ startingUnits, productionRateMultiplier: production, armySpeedMultiplier: speed });
 
 export const LEVELS: readonly LevelDefinition[] = Object.freeze([
-  { id: 1, battlefieldId: 'crown_cross', botDifficulty: 'easy', enemy: enemy(16, 0.9) },
-  { id: 2, battlefieldId: 'crown_cross', botDifficulty: 'easy', enemy: enemy(18, 1) },
-  { id: 3, battlefieldId: 'twin_passes', botDifficulty: 'easy', enemy: enemy(18, 1) },
-  { id: 4, battlefieldId: 'royal_ring', botDifficulty: 'easy', enemy: enemy(20, 1) },
-  { id: 5, battlefieldId: 'crown_cross', botDifficulty: 'normal', enemy: enemy(18, 0.95) },
-  { id: 6, battlefieldId: 'twin_passes', botDifficulty: 'normal', enemy: enemy(20, 1) },
-  { id: 7, battlefieldId: 'royal_ring', botDifficulty: 'normal', enemy: enemy(20, 1) },
-  { id: 8, battlefieldId: 'crown_cross', botDifficulty: 'hard', enemy: enemy(20, 1) },
-  { id: 9, battlefieldId: 'twin_passes', botDifficulty: 'hard', enemy: enemy(22, 1.05) },
-  { id: 10, battlefieldId: 'royal_ring', botDifficulty: 'hard', enemy: enemy(22, 1.05) },
+  { id: 1, battlefieldId: 'crown_cross', botDifficulty: 'easy', enemy: enemy(16, 0.9), coinReward: 25 },
+  { id: 2, battlefieldId: 'crown_cross', botDifficulty: 'easy', enemy: enemy(18, 1), coinReward: 25 },
+  { id: 3, battlefieldId: 'twin_passes', botDifficulty: 'easy', enemy: enemy(18, 1), coinReward: 25 },
+  { id: 4, battlefieldId: 'royal_ring', botDifficulty: 'easy', enemy: enemy(20, 1), coinReward: 25 },
+  { id: 5, battlefieldId: 'crown_cross', botDifficulty: 'normal', enemy: enemy(18, 0.95), coinReward: 40 },
+  { id: 6, battlefieldId: 'twin_passes', botDifficulty: 'normal', enemy: enemy(20, 1), coinReward: 40 },
+  { id: 7, battlefieldId: 'royal_ring', botDifficulty: 'normal', enemy: enemy(20, 1), coinReward: 40 },
+  { id: 8, battlefieldId: 'crown_cross', botDifficulty: 'hard', enemy: enemy(20, 1), coinReward: 60 },
+  { id: 9, battlefieldId: 'twin_passes', botDifficulty: 'hard', enemy: enemy(22, 1.05), coinReward: 60 },
+  { id: 10, battlefieldId: 'royal_ring', botDifficulty: 'hard', enemy: enemy(22, 1.05), coinReward: 60 },
 ] as LevelDefinition[]);
 
 export const LEVEL_COUNT = LEVELS.length;

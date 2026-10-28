@@ -21,6 +21,21 @@ import type { AnalyticsEvent } from '../analytics/Analytics.js';
 export type TrackedAnalyticsEvent = AnalyticsEvent;
 
 /**
+ * Outcome of reporting a won campaign level. `success` is false when the server
+ * could not verify the win (replay mismatch) or the level is locked; `reward` is
+ * the server-paid first-clear coins (0 for a repeat clear).
+ */
+export interface LevelClearResult {
+  readonly success: boolean;
+  readonly reason?: string;
+  readonly levelsCompleted: number;
+  readonly reward: number;
+  readonly claimId: string;
+  readonly newCareer?: PlayerCareer;
+  readonly ledgerEntry?: EconomyLedgerEntry;
+}
+
+/**
  * Client-observed match status sent with a bot settlement request.
  * Diagnostic-only and untrusted: the server always derives the
  * authoritative status and rewards independently.
@@ -60,8 +75,11 @@ export interface CareerApi {
   completeTutorial(): Promise<PlayerCareer>;
   /** Campaign progress: how many levels in a row the player has completed. */
   getLevelsCompleted?(): Promise<number>;
-  /** Records a finished level (idempotent) and resolves with the new progress. */
-  completeLevel?(levelId: number): Promise<number>;
+  /**
+   * Reports a won level with the recorded dispatches. The server replays them,
+   * advances progress and pays the first-clear reward once (idempotent by claimId).
+   */
+  completeLevel?(levelId: number, claimId: string, actions: readonly PvpAction[]): Promise<LevelClearResult>;
 }
 
 export class GameApiError extends Error {

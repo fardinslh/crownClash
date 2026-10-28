@@ -84,6 +84,7 @@ export type AnalyticsEventInput =
   | { name: 'level_started'; levelId: number }
   | { name: 'level_completed'; levelId: number; durationSeconds: number }
   | { name: 'level_failed'; levelId: number; durationSeconds: number }
+  | { name: 'level_reward_claimed'; claimId: string }
   | { name: 'tutorial_started' }
   | { name: 'tutorial_step_completed'; stepId: TutorialStepId }
   | { name: 'tutorial_completed' }
@@ -158,6 +159,7 @@ const EVENT_NAMES: ReadonlySet<AnalyticsEvent['name']> = new Set([
   'level_started',
   'level_completed',
   'level_failed',
+  'level_reward_claimed',
   'tutorial_started',
   'tutorial_step_completed',
   'tutorial_completed',

@@ -1,4 +1,5 @@
 import type { BotDifficulty } from '@crown-clash/game-core';
+import { ltr } from './fa.js';
 
 /** Persian copy for the single-player campaign (levels). */
 export const faLevels = {
@@ -10,6 +11,7 @@ export const faLevels = {
   loading: 'در حال بارگذاری…',
   loadFailed: 'پیشرفت مراحل بارگذاری نشد.',
   retry: 'تلاش دوباره',
+  rewardBadge: (coins: number): string => ltr(`+${coins}`),
   difficulty: { easy: 'آسان', normal: 'متوسط', hard: 'سخت' } satisfies Record<BotDifficulty, string>,
   result: {
     victory: 'پیروزی!',
@@ -20,6 +22,7 @@ export const faLevels = {
     drawSub: 'برنده‌ای نبود؛ دوباره امتحان کن',
     allDone: 'همهٔ مراحل را تمام کردی!',
     saveFailed: 'پیشرفت ذخیره نشد. دوباره وارد مراحل شو.',
+    reward: (coins: number): string => `جایزهٔ اولین برد: ${ltr(`+${coins}`)} سکه`,
     next: 'مرحلهٔ بعد',
     retry: 'تلاش دوباره',
     back: 'بازگشت به مراحل',

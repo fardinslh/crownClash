@@ -4901,19 +4901,24 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Ends a campaign level. The outcome is the local simulation's (levels are
-   * client-local bot matches); a win is reported to levels/complete, which only
-   * unlocks the next level. Waits for the end stamp like a settled match.
+   * Ends a campaign level. The outcome shown is the local simulation's (levels
+   * are client-local bot matches), but a win is only counted and rewarded after
+   * levels/complete replays the recorded dispatches on the server. Waits for the
+   * end stamp like a settled match.
    */
   private async finishLevel(level: LevelDefinition): Promise<void> {
     const status = this.gameState.status as 'victory' | 'defeat' | 'draw';
     const durationSeconds = wholeMatchSeconds(this.gameState.elapsedTimeSeconds);
     let saved = true;
+    let reward = 0;
     if (status === 'victory') {
       trackEvent({ name: 'level_completed', levelId: level.id, durationSeconds });
       try {
         await this.backendConnectPromise;
-        await this.careerManager.completeLevel(level.id);
+        const clear = await this.careerManager.completeLevel(level.id, this.matchActions);
+        saved = clear.success;
+        reward = clear.success ? clear.reward : 0;
+        if (reward > 0) trackEvent({ name: 'level_reward_claimed', claimId: clear.claimId });
       } catch (error) {
         saved = false;
         console.warn('[GameScene] Could not save level progress:', error);
@@ -4924,10 +4929,10 @@ export class GameScene extends Phaser.Scene {
     await this.endBeatDone;
     this.resultPending = false;
     if (this.isExiting || this.resultModalContainer) return;
-    this.renderLevelResultModal(level, status, saved);
+    this.renderLevelResultModal(level, status, saved, reward);
   }
 
-  private renderLevelResultModal(level: LevelDefinition, status: 'victory' | 'defeat' | 'draw', saved: boolean): void {
+  private renderLevelResultModal(level: LevelDefinition, status: 'victory' | 'defeat' | 'draw', saved: boolean, reward: number): void {
     const isWin = status === 'victory';
     if (isWin) {
       sounds.playVictory();
@@ -4944,7 +4949,7 @@ export class GameScene extends Phaser.Scene {
     this.resultModalContainer = modal;
     const backdrop = this.add.rectangle(0, 0, visibleWidth, visibleHeight, 0x000000, 0.78).setInteractive();
     const buttonCount = (hasNext ? 1 : 0) + 2;
-    const noteHeight = saved ? 0 : 22;
+    const noteHeight = !saved || reward > 0 ? 22 : 0;
     const height = 128 + noteHeight + (buttonCount - 1) * 56 + 23 + 18;
     const card = drawPanel(this.add.graphics(), 300, height, { fill: UI.surface.base, stroke: accent, strokeAlpha: 0.95, radius: 18, alpha: 0.98 });
     const top = -height / 2;
@@ -4971,6 +4976,15 @@ export class GameScene extends Phaser.Scene {
         color: UI.text.danger,
         align: 'center',
         wordWrap: { width: 260 },
+      }).setOrigin(0.5));
+    }
+    if (saved && reward > 0) {
+      items.push(createText(this, 0, top + 112, faLevels.result.reward(reward), {
+        fontFamily: FONT_FAMILY,
+        fontSize: '15px',
+        fontStyle: '800',
+        color: UI.text.gold,
+        align: 'center',
       }).setOrigin(0.5));
     }
     let buttonY = top + 128 + noteHeight;

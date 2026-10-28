@@ -1045,6 +1045,7 @@ var analyticsEventDefinitions = map[string]analyticsEventDefinition{
 	"level_started":              {properties: map[string]analyticsPropertyKind{"levelId": analyticsPropertyNumber}},
 	"level_completed":            {properties: map[string]analyticsPropertyKind{"levelId": analyticsPropertyNumber, "durationSeconds": analyticsPropertyNumber}},
 	"level_failed":               {properties: map[string]analyticsPropertyKind{"levelId": analyticsPropertyNumber, "durationSeconds": analyticsPropertyNumber}},
+	"level_reward_claimed":       {properties: analyticsProperties("claimId")},
 	"tutorial_started":           {properties: map[string]analyticsPropertyKind{}},
 	"tutorial_step_completed":    {properties: analyticsProperties("stepId")},
 	"tutorial_completed":         {properties: map[string]analyticsPropertyKind{}},

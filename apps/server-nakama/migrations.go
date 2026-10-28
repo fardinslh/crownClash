@@ -445,4 +445,17 @@ ALTER TABLE players ADD COLUMN IF NOT EXISTS is_bot BOOLEAN NOT NULL DEFAULT FAL
 ALTER TABLE players ADD COLUMN IF NOT EXISTS levels_completed INTEGER NOT NULL DEFAULT 0
  CHECK (levels_completed >= 0 AND levels_completed <= 10);
 `})
+	// First-clear coin reward per campaign level (see levels.go). The unique
+	// (player_id, level_id) key is the permanent "paid once" guard; claim_id is
+	// the client-generated idempotency key for retries.
+	migrations = append(migrations, migration{name: "024_level_reward_claims", sql: `
+CREATE TABLE IF NOT EXISTS level_reward_claims (
+  claim_id TEXT PRIMARY KEY,
+  player_id TEXT NOT NULL REFERENCES players(id),
+  level_id INTEGER NOT NULL CHECK (level_id >= 1 AND level_id <= 10),
+  result JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (player_id, level_id)
+);
+`})
 }

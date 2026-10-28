@@ -37,7 +37,7 @@ import {
   levelsCompletedAfter,
 } from '@crown-clash/game-core';
 import type { PlatformAdapter } from '@crown-clash/platform';
-import { StaleSocketError, type CareerApi, type ClientObservedStatus } from '../api/GameApiClient.js';
+import { StaleSocketError, type CareerApi, type ClientObservedStatus, type LevelClearResult } from '../api/GameApiClient.js';
 import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { getSharedGameApiClient } from '../api/sharedClient.js';
 import { LiveMatchClient } from '../api/LiveMatchClient.js';
@@ -307,8 +307,20 @@ export class CareerManager {
     return this.loadLocalLevelsCompleted();
   }
 
-  public async completeLevel(levelId: number): Promise<number> {
-    if (this.remoteConnected) return this.requireLevelsApi().completeLevel(levelId);
+  /**
+   * Reports a won level. Remote: the server replays `actions`, advances progress
+   * and pays the first-clear reward once; the returned career is applied here.
+   * The dev-only local fallback tracks progress and never pays.
+   */
+  public async completeLevel(levelId: number, actions: readonly PvpAction[] = []): Promise<LevelClearResult> {
+    const claimId = `level_${levelId}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    if (this.remoteConnected) {
+      const result = await this.requireLevelsApi().completeLevel(levelId, claimId, actions);
+      if (result.success && result.reward > 0 && result.newCareer && result.ledgerEntry) {
+        this.applyRemoteState(result.newCareer, [result.ledgerEntry]);
+      }
+      return result;
+    }
     if (!isLocalCareerFallbackAllowed()) throw new Error('backend_required_for_levels');
     const next = levelsCompletedAfter(this.loadLocalLevelsCompleted(), levelId);
     try {
@@ -316,13 +328,19 @@ export class CareerManager {
     } catch {
       // Storage can be unavailable; progress then lasts for the session only.
     }
-    return next;
+    return { success: true, levelsCompleted: next, reward: 0, claimId };
   }
 
-  private requireLevelsApi(): { getLevelsCompleted(): Promise<number>; completeLevel(levelId: number): Promise<number> } {
+  private requireLevelsApi(): {
+    getLevelsCompleted(): Promise<number>;
+    completeLevel(levelId: number, claimId: string, actions: readonly PvpAction[]): Promise<LevelClearResult>;
+  } {
     const api = this.requireRemoteApi();
     if (!api.getLevelsCompleted || !api.completeLevel) throw new Error('levels_not_supported');
-    return { getLevelsCompleted: () => api.getLevelsCompleted!(), completeLevel: (id) => api.completeLevel!(id) };
+    return {
+      getLevelsCompleted: () => api.getLevelsCompleted!(),
+      completeLevel: (id, claimId, actions) => api.completeLevel!(id, claimId, actions),
+    };
   }
 
   private loadLocalLevelsCompleted(): number {

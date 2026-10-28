@@ -197,6 +197,20 @@ export class LevelsScene extends Phaser.Scene {
     const status = createIcon(this, -width / 2 + 24, 0, completed ? 'check' : unlocked ? 'swords' : 'lock', 24);
     if (!unlocked) status.setAlpha(0.7);
     container.add([panel, number, map, difficulty, status]);
+    if (!completed) {
+      // First-clear reward preview; cleared levels show the check instead.
+      const coin = createIcon(this, -width / 2 + 62, 0, 'coin', 16);
+      const reward = createText(this, -width / 2 + 76, 0, faLevels.rewardBadge(level.coinReward), {
+        fontSize: '14px',
+        fontStyle: '800',
+        color: unlocked ? UI.text.gold : UI.text.muted,
+      }).setOrigin(0, 0.5);
+      if (!unlocked) {
+        coin.setAlpha(0.6);
+        reward.setAlpha(0.8);
+      }
+      container.add([coin, reward]);
+    }
     container.setSize(width, height).setInteractive({ useHandCursor: unlocked });
     container.on('pointerdown', () => this.onCardPressed(level, container));
     if (current && !this.reducedMotion) {
