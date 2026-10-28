@@ -68,7 +68,7 @@ const KINGDOM_ART = [
   { key: 'hub_kingdom_keep', file: 'kingdom_crown_keep.webp' },
   { key: 'hub_kingdom_citadel', file: 'kingdom_citadel.webp' },
 ] as const;
-const KINGDOM_ART_VERSION = 'hub-256-v1';
+const KINGDOM_ART_VERSION = 'hub-384-v1';
 
 interface CardHandle {
   container: Phaser.GameObjects.Container;

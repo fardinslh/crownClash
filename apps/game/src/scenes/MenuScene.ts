@@ -207,16 +207,16 @@ export class MenuScene extends Phaser.Scene {
     loadHubTextures(
       this,
       [
-        { key: 'hub_kingdom_citadel', path: 'assets/hub/kingdom_citadel.webp?v=hub-256-v1' },
+        { key: 'hub_kingdom_citadel', path: 'assets/hub/kingdom_citadel.webp?v=hub-384-v1' },
         { key: 'unit_leader_player_front', path: 'assets/units/unit_leader_player_front.png?v=cartoon-meadow-v1.7' },
       ],
       () => {
         crest.setVisible(false);
-        const citadelSize = Math.round(crestSize * 1.55);
-        const citadel = this.add.image(cx, layout.crestY + 6, 'hub_kingdom_citadel').setDisplaySize(citadelSize, citadelSize);
-        const knightY = layout.crestY + crestSize * 0.55;
-        const knightLeft = this.add.image(cx - citadelSize * 0.5, knightY, 'unit_leader_player_front').setScale(0.4);
-        const knightRight = this.add.image(cx + citadelSize * 0.5, knightY, 'unit_leader_player_front').setScale(0.4).setFlipX(true);
+        const citadelSize = Math.round(crestSize * 1.9);
+        const citadel = this.add.image(cx, layout.crestY + 2, 'hub_kingdom_citadel').setDisplaySize(citadelSize, citadelSize);
+        const knightY = layout.crestY + crestSize * 0.62;
+        const knightLeft = this.add.image(cx - citadelSize * 0.46, knightY, 'unit_leader_player_front').setScale(0.4);
+        const knightRight = this.add.image(cx + citadelSize * 0.46, knightY, 'unit_leader_player_front').setScale(0.4).setFlipX(true);
         for (const part of [citadel, knightLeft, knightRight]) part.setAlpha(0);
         this.tweens.add({ targets: [citadel, knightLeft, knightRight], alpha: 1, duration: 220 });
         if (!reducedMotion) {

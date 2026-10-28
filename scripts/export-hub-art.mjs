@@ -10,6 +10,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const masters = path.join(root, 'art/blender/renders/crown_cross');
 const out = path.join(root, 'apps/game/public/assets/hub');
 const SIZE = 256;
+// The menu hero is shown large, so the citadel gets a crisper 384 px export.
+const SPRITE_SIZES = { kingdom_citadel: 384 };
 
 const SPRITES = {
   kingdom_outpost: 'tier1_watchtower_player_idle',
@@ -50,6 +52,7 @@ for (const [name, master] of Object.entries(SPRITES)) {
   const src = path.join(masters, `${master}.png`);
   if (!fs.existsSync(src)) throw new Error(`Missing master render: ${src}`);
   const dest = path.join(out, `${name}.webp`);
-  execFileSync('cwebp', ['-quiet', '-q', '90', '-alpha_q', '100', '-resize', String(SIZE), String(SIZE), src, '-o', dest]);
+  const size = String(SPRITE_SIZES[name] ?? SIZE);
+  execFileSync('cwebp', ['-quiet', '-q', '90', '-alpha_q', '100', '-resize', size, size, src, '-o', dest]);
   console.log(`${name}.webp ${fs.statSync(dest).size} bytes`);
 }

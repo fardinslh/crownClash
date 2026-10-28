@@ -5888,7 +5888,7 @@ export class GameScene extends Phaser.Scene {
     const headerCitadelFile = status === 'defeat' ? 'hub_enemy_citadel.webp' : 'kingdom_citadel.webp';
     loadHubTextures(
       this,
-      [{ key: headerCitadelKey, path: `assets/hub/${headerCitadelFile}?v=hub-256-v1` }],
+      [{ key: headerCitadelKey, path: `assets/hub/${headerCitadelFile}?v=hub-384-v1` }],
       () => {
         if (this.resultModalContainer !== modal) return;
         const citadel = this.add.image(-118, -262, headerCitadelKey).setDisplaySize(64, 64).setAlpha(0);
