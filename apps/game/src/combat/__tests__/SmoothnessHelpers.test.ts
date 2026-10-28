@@ -139,6 +139,20 @@ describe('SmoothnessHelpers', () => {
     });
   });
 
+  describe('fastComputeDominance with lane soldiers', () => {
+    it('counts soldiers in transit as one unit each for their owner', () => {
+      const state = {
+        territories: { a: { owner: 'player', units: 10 }, b: { owner: 'enemy', units: 10 } },
+        armies: [],
+      };
+      const even = fastComputeDominance(state);
+      const withPlayerStream = fastComputeDominance(state, [{ owner: 'player' }, { owner: 'player' }, { owner: 'player' }]);
+      expect(even.playerPct).toBe(even.enemyPct);
+      expect(withPlayerStream.playerPct).toBeGreaterThan(withPlayerStream.enemyPct);
+      expect(fastComputeDominance(state, [])).toEqual(even);
+    });
+  });
+
   describe('DominanceBarDirtyChecker', () => {
     it('detects when percentages change and ignores identical subsequent checks', () => {
       const checker = new DominanceBarDirtyChecker();

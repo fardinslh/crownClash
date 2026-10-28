@@ -4912,7 +4912,7 @@ export class GameScene extends Phaser.Scene {
 
 
     // 2. Dynamic Tug-of-War Dominance Bar
-    const dominance = fastComputeDominance(this.gameState);
+    const dominance = fastComputeDominance(this.gameState, this.laneRuntime?.lanes.soldiers);
     const playerPct = dominance.playerPct;
     const neutralPct = dominance.neutralPct;
 

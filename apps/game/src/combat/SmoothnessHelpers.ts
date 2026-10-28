@@ -64,7 +64,7 @@ export function computeMarchStride(
 export function fastComputeDominance(gameState: {
   territories: Record<string, { owner: string; units: number }>;
   armies: ReadonlyArray<{ owner: string; units: number }>;
-}): DominancePercentagesResult {
+}, soldiers: ReadonlyArray<{ owner: string }> = []): DominancePercentagesResult {
   let playerStrength = 0;
   let enemyStrength = 0;
   let neutralStrength = 0;
@@ -96,6 +96,12 @@ export function fastComputeDominance(gameState: {
       enemyStrength += a.units;
       enemyArmiesCount++;
     }
+  }
+
+  // Lane soldiers in transit are one unit each and are not armies.
+  for (let i = 0; i < soldiers.length; i++) {
+    if (soldiers[i].owner === 'player') playerStrength += 1;
+    else if (soldiers[i].owner === 'enemy') enemyStrength += 1;
   }
 
   return formatDominancePercentages({
