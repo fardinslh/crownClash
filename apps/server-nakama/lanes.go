@@ -38,7 +38,7 @@ type laneLevelDef struct {
 var laneEnemyModifiers = map[string]PlayerUpgradeModifiers{
 	"easy":   {StartingUnits: 14, ProductionRateMultiplier: 0.6, ArmySpeedMultiplier: 1},
 	"normal": {StartingUnits: 18, ProductionRateMultiplier: 0.8, ArmySpeedMultiplier: 1},
-	"hard":   {StartingUnits: 22, ProductionRateMultiplier: 1.0, ArmySpeedMultiplier: 1},
+	"hard":   {StartingUnits: 20, ProductionRateMultiplier: 0.85, ArmySpeedMultiplier: 1},
 }
 
 var laneLevelDefs = buildLaneLevelDefs()

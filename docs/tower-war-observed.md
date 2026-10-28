@@ -216,8 +216,8 @@ weekly challenge for lanes, and human playtests. None of this is reachable from 
 
 - The first real-phone test (Poco X7 Pro, portrait Chrome) lost an easy battle in about 30 s: the ladder had been
   tuned on the fast, precise probe. `scripts/lanes-sim.mjs` now runs the real `LaneEngine` with a `human`
-  player model and the ladder is: bot starts at 10 / 8 / 2 s, plans every 8 / 6 / 4.5 s, 14 / 18 / 22 units at
-  0.6 / 0.8 / 1.0 production, for a human-model win rate of about 0.81 / 0.41 / 0.16 (probe-only numbers over-state
+  player model and the ladder is: bot starts at 10 / 8 / 2 s, plans every 8 / 6 / 4.5 s, 14 / 18 / 20 units at
+  0.6 / 0.8 / 0.85 production, for a human-model win rate of about 0.81 / 0.41 / 0.20 (probe-only numbers over-state
   what a person wins). A scripted four-order run on the phone still lost, which a person doing more would not.
 - First lane battle only (`laneTutorial`, level 1 and not yet done): three captions taught by doing, like
   Tower War: drag to open a lane, swipe across it to cut it, take every enemy tower. A finger ring shows the

@@ -17,7 +17,7 @@ export const LANE_BOT_START_SECONDS: Readonly<Record<BotDifficulty, number>> = O
 export const LANE_ENEMY_MODIFIERS: Readonly<Record<BotDifficulty, PlayerUpgradeModifiers>> = Object.freeze({
   easy: Object.freeze({ startingUnits: 14, productionRateMultiplier: 0.6, armySpeedMultiplier: 1 }),
   normal: Object.freeze({ startingUnits: 18, productionRateMultiplier: 0.8, armySpeedMultiplier: 1 }),
-  hard: Object.freeze({ startingUnits: 22, productionRateMultiplier: 1.0, armySpeedMultiplier: 1 }),
+  hard: Object.freeze({ startingUnits: 20, productionRateMultiplier: 0.85, armySpeedMultiplier: 1 }),
 });
 
 export interface LaneOrder { readonly from: string; readonly to: string }
