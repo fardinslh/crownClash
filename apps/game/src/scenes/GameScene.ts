@@ -195,8 +195,9 @@ import { startScene } from './lazyScenes.js';
 import { faLevels } from '../i18n/faLevels.js';
 import { faWeekly } from '../i18n/faWeekly.js';
 import { faLane } from '../i18n/faLane.js';
-import { LaneRuntime, drawLanes } from '../lane/LaneRuntime.js';
+import { LaneRuntime, drawLanes, drawTierDots } from '../lane/LaneRuntime.js';
 import { LANE_PROGRESS_KEY, bestLaneLevelWon } from '../lane/laneProgress.js';
+import type { TierDots } from '../lane/LaneRuntime.js';
 import { LANE_LEVELS, getLaneLevel, type LaneLevel } from '@crown-clash/game-core';
 import { loadHubTextures } from '../ui/kit/hubBackdrop.js';
 import { battlefieldName, faBattle, upgradeEffectLabel } from '../i18n/faBattle.js';
@@ -394,6 +395,7 @@ export class GameScene extends Phaser.Scene {
   private laneLevel?: LaneLevel;
   private laneRuntime?: LaneRuntime;
   private laneGraphics?: Phaser.GameObjects.Graphics;
+  private laneDotsGraphics?: Phaser.GameObjects.Graphics;
   private laneSwipeFrom?: { x: number; y: number };
   /** Set for a Weekly Challenge battle (levelDef then mirrors its server-defined battle). */
   private weekly?: WeeklyLaunch;
@@ -633,6 +635,7 @@ export class GameScene extends Phaser.Scene {
     this.laneLevel = !this.liveMode && !launchData?.botMatch && !this.weekly && launchData?.lanes ? getLaneLevel(launchData.lanes.levelId) : undefined;
     this.laneRuntime = this.laneLevel ? new LaneRuntime(this.laneLevel.botDifficulty) : undefined;
     this.laneGraphics = undefined;
+    this.laneDotsGraphics = undefined;
     this.laneSwipeFrom = undefined;
     this.levelDef = this.laneLevel
       ? { id: this.laneLevel.id, battlefieldId: this.laneLevel.battlefieldId, botDifficulty: this.laneLevel.botDifficulty, enemy: this.laneLevel.enemy, coinReward: 0 }
@@ -3216,8 +3219,9 @@ export class GameScene extends Phaser.Scene {
     }
     for (let index = 0; index < ticks && this.gameState.status === 'playing'; index++) {
       // Lane battles run their own step and enemy planning; the classic path is untouched.
-      const result = this.laneRuntime
-        ? { ...this.laneRuntime.step(this.gameState, this.accumulators, PVP_SIMULATION_TICK_SECONDS), resolvedArrivals: [] }
+      const laneStep = this.laneRuntime?.step(this.gameState, this.accumulators, PVP_SIMULATION_TICK_SECONDS);
+      const result = laneStep
+        ? { state: laneStep.state, accumulators: laneStep.accumulators, resolvedArrivals: laneStep.captures }
         : stepSimulation(this.gameState, this.accumulators, PVP_SIMULATION_TICK_SECONDS);
       this.gameState = result.state;
       this.accumulators = result.accumulators;
@@ -5141,6 +5145,17 @@ export class GameScene extends Phaser.Scene {
     if (!this.laneGraphics) this.laneGraphics = this.add.graphics().setDepth(this.boardLayout.overlayDepth(12));
     this.laneGraphics.clear();
     drawLanes(this.laneGraphics, this.gameState, runtime.lanes, (x, y) => this.projectSocketPoint(x, y), this.boardLayout.scale);
+
+    // Path slots under every held tower's count, above the tower art.
+    if (!this.laneDotsGraphics) this.laneDotsGraphics = this.add.graphics().setDepth(this.boardLayout.overlayDepth(44));
+    this.laneDotsGraphics.clear();
+    const dots: TierDots[] = [];
+    for (const vis of this.territoryVisuals.values()) {
+      const t = this.gameState.territories[vis.territory.id];
+      if (!t || t.owner === 'neutral') continue;
+      dots.push({ u: vis.unitBadge.x + (vis.unitBadge.displayWidth ?? vis.unitBadge.width) / 2 + 10 * this.boardLayout.scale, v: vis.unitBadge.y, tier: t.tier, free: runtime.freePaths(this.gameState, t.id, t.owner), owner: t.owner });
+    }
+    drawTierDots(this.laneDotsGraphics, dots, this.boardLayout.scale);
   }
 
   /** The player drags onto a target: every selected tower with a free path opens a lane. */

@@ -187,7 +187,10 @@ build is unchanged):
   soldiers stream, a swipe cuts it, result card). **Not yet checked on the real phone**: it
   locked again before the run.
 
-Still missing for a faithful clone: tier dots and a tap-to-upgrade input, capture and arrival
-effects (a captured tower just changes colour), a force bar tied to lanes, the Go port with a
+Added after the first beta cut: path-slot dots beside every held tower's count (bright = free path,
+dim = a lane running) and the existing capture effects (sound, ring, burst, shake) when a soldier
+takes a tower.
+
+Still missing for a faithful clone: a tap-to-upgrade input, a force bar tied to lanes, the Go port with a
 `cut` action, server replay and rewards (so lane battles can pay), re-tuning the campaign and the
 weekly challenge for lanes, and human playtests. None of this is reachable from the shipped build.

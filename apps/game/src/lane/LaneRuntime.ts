@@ -10,6 +10,7 @@ import {
   soldierPosition,
   stepLaneSimulation,
   type BotDifficulty,
+  type CombatResult,
   type GameState,
   type LaneConfig,
   type LaneState,
@@ -35,14 +36,15 @@ export class LaneRuntime {
   }
 
   /** One fixed simulation step; the enemy plans its lanes on its own cadence. */
-  step(state: GameState, accumulators: Record<string, number>, deltaSeconds: number): { state: GameState; accumulators: Record<string, number> } {
+  step(state: GameState, accumulators: Record<string, number>, deltaSeconds: number): { state: GameState; accumulators: Record<string, number>; captures: CombatResult[] } {
     const result = stepLaneSimulation(state, accumulators, this.lanes, deltaSeconds, this.config);
     this.lanes = result.lanes;
+    const captures = capturesBetween(state, result.state);
     if (result.state.status === 'playing' && result.state.elapsedTimeSeconds >= this.nextBotSeconds - 1e-9) {
       this.nextBotSeconds += LANE_BOT_TICK_SECONDS[this.difficulty];
       this.plan(result.state, 'enemy');
     }
-    return { state: result.state, accumulators: result.accumulators };
+    return { state: result.state, accumulators: result.accumulators, captures };
   }
 
   private plan(state: GameState, team: Team): void {
@@ -76,6 +78,37 @@ export class LaneRuntime {
   /** Free paths left on a tower (tier minus running lanes). */
   freePaths(state: GameState, towerId: string, owner: Team = 'player'): number {
     return Math.max(0, maxLanes(state, towerId) - this.lanes.lanes.filter((l) => l.owner === owner && l.sourceId === towerId).length);
+  }
+}
+
+/** Towers that changed hands between two states, as the arrival results the capture effects expect. */
+export function capturesBetween(before: GameState, after: GameState): CombatResult[] {
+  const captures: CombatResult[] = [];
+  for (const [id, now] of Object.entries(after.territories)) {
+    const was = before.territories[id];
+    if (!was || was.owner === now.owner || now.owner === 'neutral') continue;
+    captures.push({
+      targetId: id, attackerOwner: now.owner, previousOwner: was.owner, newOwner: now.owner,
+      previousUnits: was.units, incomingUnits: 1, remainingUnits: now.units, captured: true, reinforced: false,
+    });
+  }
+  return captures;
+}
+
+/** One tower's path slots: its tier, and how many of them are free. */
+export interface TierDots { readonly u: number; readonly v: number; readonly tier: number; readonly free: number; readonly owner: Team }
+
+/** A column of dots beside a tower's count: a bright dot is a free path, a dim one a path with a lane running. */
+export function drawTierDots(graphics: LaneGraphics, dots: readonly TierDots[], scale: number): void {
+  for (const dot of dots) {
+    if (dot.owner === 'neutral') continue;
+    const gap = 10 * scale;
+    for (let i = 0; i < dot.tier; i++) {
+      const y = dot.v + (i - (dot.tier - 1) / 2) * gap;
+      const free = i < dot.free;
+      graphics.fillStyle(0x020617, 0.92).fillCircle(dot.u, y, 5.4 * scale);
+      graphics.fillStyle(free ? 0xffffff : LANE_COLORS[dot.owner], free ? 1 : 0.6).fillCircle(dot.u, y, free ? 3.8 * scale : 2.6 * scale);
+    }
   }
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createInitialGameState, LANE_ENEMY_MODIFIERS, type GameState } from '@crown-clash/game-core';
-import { LANE_COLORS, LaneRuntime, drawLanes, type LaneGraphics } from '../LaneRuntime.js';
+import { LANE_COLORS, LaneRuntime, capturesBetween, drawLanes, drawTierDots, type LaneGraphics } from '../LaneRuntime.js';
 
 const fresh = (): GameState => createInitialGameState({ gameplayRulesVersion: 3, battlefieldId: 'crown_cross', enemyModifiers: { ...LANE_ENEMY_MODIFIERS.easy } });
 
@@ -62,5 +62,50 @@ describe('LaneRuntime', () => {
     expect(calls).toContain(`line:${LANE_COLORS.player}`);
     expect(calls).toContain(`fill:${LANE_COLORS.player}`);
     expect(g.fillCircle).toHaveBeenCalled();
+  });
+});
+
+describe('lane feedback helpers', () => {
+  it('reports towers that changed hands as capture results, ignoring neutral and unchanged towers', () => {
+    const before = fresh();
+    const after = structuredClone(before);
+    after.territories.n_center.owner = 'player';
+    after.territories.n_center.units = 1;
+    after.territories.n_bot_left.owner = 'neutral';
+    const captures = capturesBetween(before, after);
+    expect(captures).toHaveLength(1);
+    expect(captures[0]).toMatchObject({ targetId: 'n_center', newOwner: 'player', attackerOwner: 'player', captured: true, reinforced: false });
+    expect(capturesBetween(before, before)).toEqual([]);
+  });
+
+  it('step returns the captures of a tower taken by a soldier', () => {
+    let state = fresh();
+    state.territories.p_base.units = 40;
+    state.territories.n_bot_left.owner = 'neutral';
+    state.territories.n_bot_left.units = 1;
+    const runtime = new LaneRuntime('easy');
+    runtime.openFor(state, ['p_base'], 'n_bot_left');
+    let acc: Record<string, number> = {};
+    const seen: string[] = [];
+    for (let i = 0; i < Math.round(8 / 0.02) && state.status === 'playing'; i++) {
+      const step = runtime.step(state, acc, 0.02);
+      state = step.state; acc = step.accumulators;
+      for (const c of step.captures) seen.push(`${c.targetId}:${c.newOwner}`);
+    }
+    expect(seen).toContain('n_bot_left:player');
+  });
+
+  it('draws a bright dot per free path and a dim one per used path, none on neutral towers', () => {
+    const fills: Array<{ color: number; alpha: number }> = [];
+    const g: LaneGraphics = {
+      lineStyle: () => g, lineBetween: () => g,
+      fillStyle: (color: number, alpha: number) => { fills.push({ color, alpha }); return g; },
+      fillCircle: () => g,
+    };
+    drawTierDots(g, [{ u: 100, v: 100, tier: 3, free: 1, owner: 'player' }, { u: 200, v: 100, tier: 2, free: 2, owner: 'neutral' }], 1);
+    const inner = fills.filter((f) => f.color !== 0x020617);
+    expect(inner).toHaveLength(3);
+    expect(inner.filter((f) => f.color === 0xffffff)).toHaveLength(1);
+    expect(inner.filter((f) => f.color === LANE_COLORS.player)).toHaveLength(2);
   });
 });
