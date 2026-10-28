@@ -127,3 +127,23 @@ that streams, and a force bar all assume lanes. A faithful lane version therefor
 the list above: a tier model (garrison thresholds give 1, 2, 3 simultaneous lanes), a force bar
 in the HUD, and bot logic that opens lanes on weak towers. Tower upgrades by tapping are an
 additional input that does not exist in Crown Clash today.
+
+## Appendix: defeat, mail and tutorial gating (first-hand, 2026-10-28)
+
+- **Defeat screen:** a sad soldier with a white flag, a red "DEFEAT" banner, a green
+  "BOOST x3" button with an ad icon (a rewarded ad that starts the retry with a boost), and a plain
+  "NO THANKS" link. "No thanks" returns straight to the hub on the same level, with the PLAY button
+  ready to retry. Nothing else interrupts the loss.
+- **Hamburger menu:** only "Settings" and "Mail", both with red notification dots. Mail is an inbox
+  ("No messages", buttons "Delete Read" and "Claim All"). It was empty at level 2, so it is built
+  for live-ops messages and rewards from the start.
+- **Tutorial gating on level 2:** while the caption says "Upgrade the building to level 10", a
+  swipe to attack was ignored (a brief path flickered and disappeared); only the guided action
+  works. The next caption ("You now have 2 paths available") appears when the tower reaches 10.
+- **Lanes are drawn as dirt paths between towers.** When a lane is active the ground between the
+  two towers shows a brown path with the soldiers walking on it. Towers show 1 to 3 small dots
+  under the count: the number of paths they can run (filled dots) and the spare slots (greyed).
+- **A match in progress survives leaving the app:** after the game was relaunched, level 2 was
+  still running where it stopped.
+- **Interaction detail:** short taps sent by `adb input tap` were often dropped; a press held for
+  about 150 ms registered reliably, so UI timing and hit areas matter on a real phone.
