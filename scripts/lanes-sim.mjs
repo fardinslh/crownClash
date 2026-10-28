@@ -1,46 +1,47 @@
-// Balance check for the lane mechanic (candidate rules v5): the shared lane-aware policy
-// (packages/game-core/src/lane-ai.ts) plays both sides. The enemy uses the bot cadence of its
-// difficulty; the "player" varies reaction delay and skill (0 = best target, 1 and 2 = worse
-// picks) to stand in for people. 15 games per cell. Probe wins show playability by a script,
-// not human fun or retention. LANE_CONFIG='{"emitSeconds":0.3}' overrides the lane constants.
+// Balance check for the lane mechanic (candidate rules v5). The shared lane-aware policy
+// (packages/game-core/src/lane-ai.ts) plays both sides through the same LaneEngine the client
+// uses. Two player models (PLAYER_MODEL): 'probe' is a fast, precise script; 'human' is slower,
+// starts late, sends one or two orders per action and often picks the second or third best
+// target, which is how the first real-phone test went. A person is much weaker than the probe, so
+// the ladder is tuned on 'human'. Probe wins show playability by a script, not human fun or
+// retention. Overrides: ENEMIES, BOT_TICKS, BOT_START (JSON, per difficulty), LANE_CONFIG.
 import { c } from './lib/level-probe.mjs';
 
 const maps = ['crown_cross', 'twin_passes', 'royal_ring'];
+const model = process.env.PLAYER_MODEL ?? 'human';
+const MODELS = {
+  probe: { cadences: [1.5, 2.1, 2.7, 3.3, 3.9], skills: [0, 1, 2], startDelays: [0], ordersPerAction: [99] },
+  human: { cadences: [3, 4, 5, 6], skills: [1, 2], startDelays: [4, 8], ordersPerAction: [1, 2] },
+};
+const { cadences, skills, startDelays, ordersPerAction } = MODELS[model];
 const enemies = JSON.parse(process.env.ENEMIES ?? 'null') ?? c.LANE_ENEMY_MODIFIERS;
 const botTicks = JSON.parse(process.env.BOT_TICKS ?? 'null') ?? c.LANE_BOT_TICK_SECONDS;
-const cadences = [1.5, 2.1, 2.7, 3.3, 3.9];
-const skills = [0, 1, 2];
+const botStart = JSON.parse(process.env.BOT_START ?? 'null') ?? c.LANE_BOT_START_SECONDS;
 const config = { ...c.LANE_CONFIG, ...JSON.parse(process.env.LANE_CONFIG ?? '{}') };
 
-function apply(state, lanes, team, orders) {
-  for (const o of orders.cut) lanes = c.cutLane(lanes, team, o.from, o.to);
-  for (const o of orders.open) lanes = c.openLane(state, lanes, team, o.from, o.to);
-  return lanes;
-}
-
-export function play(battlefieldId, difficulty, playerCadence, skill) {
+export function play(battlefieldId, difficulty, playerCadence, skill, startDelay = 0, perAction = 99) {
   const enemy = { ...enemies[difficulty], armySpeedMultiplier: 1 };
   let state = c.createInitialGameState({ gameplayRulesVersion: 3, battlefieldId, playerModifiers: c.LEVEL_PLAYER_MODIFIERS, enemyModifiers: enemy });
-  let acc = {}, lanes = c.emptyLaneState(), orders = 0;
-  const cadence = { enemy: Math.round(botTicks[difficulty] / 0.02), player: Math.round(playerCadence / 0.02) };
-  const next = { ...cadence };
-  for (let tick = 1; tick <= 4500 && state.status === 'playing'; tick++) {
-    ({ state, accumulators: acc, lanes } = c.stepLaneSimulation(state, acc, lanes, 0.02, config));
-    for (const team of ['enemy', 'player']) if (state.status === 'playing' && tick >= next[team]) {
-      next[team] += cadence[team];
-      const plan = c.planLanes(state, lanes, team, { skill: team === 'player' ? skill : 0, config });
-      if (team === 'player') orders += plan.open.length + plan.cut.length;
-      lanes = apply(state, lanes, team, plan);
-    }
+  const engine = new c.LaneEngine(difficulty, config, { startSeconds: botStart[difficulty], tickSeconds: botTicks[difficulty] });
+  let acc = {}, orders = 0;
+  const every = Math.round(playerCadence / 0.02);
+  let next = Math.max(every, Math.round(startDelay / 0.02));
+  for (let tick = 1; tick <= 4600 && state.status === 'playing'; tick++) {
+    ({ state, accumulators: acc } = engine.step(state, acc, 0.02));
+    if (state.status !== 'playing' || tick < next) continue;
+    next += every;
+    const plan = c.planLanes(state, engine.lanes, 'player', { skill, config });
+    for (const o of plan.cut) if (engine.cut(o.from, o.to)) orders++;
+    for (const o of plan.open.slice(0, perAction)) if (engine.open(state, o.from, o.to)) orders++;
   }
   return { status: state.status, seconds: state.elapsedTimeSeconds, orders };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+export function evaluate() {
   const rows = [];
   for (const difficulty of ['easy', 'normal', 'hard']) for (const map of maps) {
     const games = [];
-    for (const cadence of cadences) for (const skill of skills) games.push(play(map, difficulty, cadence, skill));
+    for (const cadence of cadences) for (const skill of skills) for (const delay of startDelays) for (const per of ordersPerAction) games.push(play(map, difficulty, cadence, skill, delay, per));
     const wins = games.filter((g) => g.status === 'victory');
     rows.push({
       difficulty, map, winRate: +(wins.length / games.length).toFixed(2),
@@ -49,7 +50,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       unfinished: games.filter((g) => g.status === 'playing').length,
     });
   }
-  console.log(JSON.stringify(config));
+  return rows;
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const rows = evaluate();
+  console.log(`player model: ${model}; ${JSON.stringify(config)}`);
   console.table(rows);
   const avg = (d) => rows.filter((r) => r.difficulty === d).reduce((n, r) => n + r.winRate, 0) / 3;
   console.log(`mean win rate: easy ${avg('easy').toFixed(2)}, normal ${avg('normal').toFixed(2)}, hard ${avg('hard').toFixed(2)}`);

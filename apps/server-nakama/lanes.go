@@ -22,7 +22,10 @@ const (
 	laneRescueMaxHold = 8
 )
 
-var laneBotTickSeconds = map[string]float64{"easy": 3.6, "normal": 2.7, "hard": 1.8}
+var laneBotTickSeconds = map[string]float64{"easy": 8, "normal": 6, "hard": 4.5}
+
+// laneBotStartSeconds: seconds before the bot plans its first lanes (mirrors LANE_BOT_START_SECONDS).
+var laneBotStartSeconds = map[string]float64{"easy": 10, "normal": 8, "hard": 2}
 
 // laneLevelDef mirrors one LANE_LEVELS row in packages/game-core/src/lane-levels.ts.
 type laneLevelDef struct {
@@ -33,9 +36,9 @@ type laneLevelDef struct {
 }
 
 var laneEnemyModifiers = map[string]PlayerUpgradeModifiers{
-	"easy":   {StartingUnits: 12, ProductionRateMultiplier: 0.7, ArmySpeedMultiplier: 1},
-	"normal": {StartingUnits: 18, ProductionRateMultiplier: 0.9, ArmySpeedMultiplier: 1},
-	"hard":   {StartingUnits: 22, ProductionRateMultiplier: 1.05, ArmySpeedMultiplier: 1},
+	"easy":   {StartingUnits: 14, ProductionRateMultiplier: 0.6, ArmySpeedMultiplier: 1},
+	"normal": {StartingUnits: 18, ProductionRateMultiplier: 0.8, ArmySpeedMultiplier: 1},
+	"hard":   {StartingUnits: 22, ProductionRateMultiplier: 1.0, ArmySpeedMultiplier: 1},
 }
 
 var laneLevelDefs = buildLaneLevelDefs()
@@ -419,7 +422,7 @@ type laneEngine struct {
 }
 
 func newLaneEngine(difficulty string) *laneEngine {
-	return &laneEngine{difficulty: difficulty, nextBotSecs: laneBotTickSeconds[difficulty]}
+	return &laneEngine{difficulty: difficulty, nextBotSecs: laneBotStartSeconds[difficulty]}
 }
 
 func (e *laneEngine) step(state GameState, acc map[string]float64, delta float64) (GameState, map[string]float64) {

@@ -35,7 +35,7 @@ describe('LaneRuntime', () => {
     let state = fresh();
     let acc: Record<string, number> = {};
     const runtime = new LaneRuntime('easy');
-    for (let i = 0; i < Math.round(8 / 0.02) && state.status === 'playing'; i++) {
+    for (let i = 0; i < Math.round(12 / 0.02) && state.status === 'playing'; i++) {
       const step = runtime.step(state, acc, 0.02);
       state = step.state; acc = step.accumulators;
     }

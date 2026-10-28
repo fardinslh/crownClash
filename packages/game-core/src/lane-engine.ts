@@ -1,4 +1,4 @@
-import { LANE_BOT_TICK_SECONDS, planLanes } from './lane-ai.js';
+import { LANE_BOT_START_SECONDS, LANE_BOT_TICK_SECONDS, planLanes } from './lane-ai.js';
 import {
   LANE_CONFIG,
   cutLane,
@@ -33,12 +33,17 @@ export function capturesBetween(before: GameState, after: GameState): CombatResu
  * drive this class, so they cannot disagree. One fixed step; the enemy plans its lanes on its
  * own cadence; the player opens and cuts lanes between steps. No rendering here.
  */
+export interface BotSchedule { readonly startSeconds: number; readonly tickSeconds: number }
+
 export class LaneEngine {
   lanes: LaneState = emptyLaneState();
   nextBotSeconds: number;
+  private readonly schedule: BotSchedule;
 
-  constructor(readonly difficulty: BotDifficulty, private readonly config: LaneConfig = LANE_CONFIG) {
-    this.nextBotSeconds = LANE_BOT_TICK_SECONDS[difficulty];
+  /** `schedule` overrides the bot's start and cadence for balance sweeps; the game uses the defaults. */
+  constructor(readonly difficulty: BotDifficulty, private readonly config: LaneConfig = LANE_CONFIG, schedule?: BotSchedule) {
+    this.schedule = schedule ?? { startSeconds: LANE_BOT_START_SECONDS[difficulty], tickSeconds: LANE_BOT_TICK_SECONDS[difficulty] };
+    this.nextBotSeconds = this.schedule.startSeconds;
   }
 
   step(
@@ -48,7 +53,7 @@ export class LaneEngine {
     this.lanes = result.lanes;
     const captures = capturesBetween(state, result.state);
     if (result.state.status === 'playing' && result.state.elapsedTimeSeconds >= this.nextBotSeconds - 1e-9) {
-      this.nextBotSeconds += LANE_BOT_TICK_SECONDS[this.difficulty];
+      this.nextBotSeconds += this.schedule.tickSeconds;
       this.plan(result.state, 'enemy');
     }
     return { state: result.state, accumulators: result.accumulators, captures };

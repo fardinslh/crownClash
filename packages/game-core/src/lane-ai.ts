@@ -6,14 +6,18 @@ import type { PlayerUpgradeModifiers } from './upgrades.js';
 import type { GameState, Team, Territory } from './types.js';
 
 /**
- * Difficulty ladder for lane battles, tuned by scripts/lanes-sim.mjs (mean probe win rate
- * 0.69 / 0.40 / 0.13 for easy / normal / hard). The bot plans lanes this often, in seconds.
+ * Difficulty ladder for lane battles, tuned by scripts/lanes-sim.mjs with PLAYER_MODEL=human (a slow,
+ * late, imprecise player, which is how the first real-phone test played): mean win rate about
+ * 0.81 / 0.41 / 0.16 for easy / normal / hard. The fast precise probe wins far more often, so it is
+ * not the measure. The bot plans lanes this often, in seconds.
  */
-export const LANE_BOT_TICK_SECONDS: Readonly<Record<BotDifficulty, number>> = Object.freeze({ easy: 3.6, normal: 2.7, hard: 1.8 });
+export const LANE_BOT_TICK_SECONDS: Readonly<Record<BotDifficulty, number>> = Object.freeze({ easy: 8, normal: 6, hard: 4.5 });
+/** Seconds before the bot plans its first lanes: a person needs a moment to read the board. */
+export const LANE_BOT_START_SECONDS: Readonly<Record<BotDifficulty, number>> = Object.freeze({ easy: 10, normal: 8, hard: 2 });
 export const LANE_ENEMY_MODIFIERS: Readonly<Record<BotDifficulty, PlayerUpgradeModifiers>> = Object.freeze({
-  easy: Object.freeze({ startingUnits: 12, productionRateMultiplier: 0.7, armySpeedMultiplier: 1 }),
-  normal: Object.freeze({ startingUnits: 18, productionRateMultiplier: 0.9, armySpeedMultiplier: 1 }),
-  hard: Object.freeze({ startingUnits: 22, productionRateMultiplier: 1.05, armySpeedMultiplier: 1 }),
+  easy: Object.freeze({ startingUnits: 14, productionRateMultiplier: 0.6, armySpeedMultiplier: 1 }),
+  normal: Object.freeze({ startingUnits: 18, productionRateMultiplier: 0.8, armySpeedMultiplier: 1 }),
+  hard: Object.freeze({ startingUnits: 22, productionRateMultiplier: 1.0, armySpeedMultiplier: 1 }),
 });
 
 export interface LaneOrder { readonly from: string; readonly to: string }
