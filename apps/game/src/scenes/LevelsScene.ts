@@ -190,7 +190,9 @@ export class LevelsScene extends Phaser.Scene {
     this.progressText = createText(this, LOGICAL_WIDTH / 2, 0, faLevels.progress(this.levelsCompleted, LEVEL_COUNT), {
       fontSize: `${UI.type.body}px`,
       fontStyle: '800',
-      color: UI.text.muted,
+      color: UI.text.secondary,
+      stroke: UI.text.stroke,
+      strokeThickness: 3,
     }).setOrigin(0.5);
     this.applyLayout(getSceneViewport(this));
     if (!this.reducedMotion) {
@@ -236,7 +238,7 @@ export class LevelsScene extends Phaser.Scene {
     // Label on the free outer side: difficulty over the first-clear reward.
     const labelX = side * (radius + 10);
     const origin = side === 1 ? 0 : 1;
-    const dim = unlocked ? 1 : 0.7;
+    const dim = unlocked ? 1 : 0.85;
     container.add(
       createText(this, labelX, completed ? 0 : -9, faLevels.difficulty[level.botDifficulty], {
         fontSize: '13px',

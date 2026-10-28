@@ -49,7 +49,12 @@ for (const dpr of (process.env.CC_QA_DPRS ?? '1,2,3').split(',').map(Number)) {
     };
     const shot = async (name) => { const r = await cdp.send('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(path.join(out, `dpr${dpr}-${name}.png`), Buffer.from(r.data, 'base64')); };
     const wait = async (expression, attempts = 150) => { for (let i = 0; i < attempts; i++) { if (await evaluate(expression)) return; await sleep(100); } await shot('timeout'); throw Error(`Timed out: ${expression}; ${JSON.stringify(errors)}`); };
-    const show = (sceneKey, data = 'undefined') => evaluate(`(async()=>{const g=${game};const m=await import('/src/scenes/lazyScenes.ts');await m.ensureSceneRegistered(g.scene,${JSON.stringify(sceneKey)});for(const s of g.scene.getScenes(true))g.scene.stop(s.scene.key);g.scene.start(${JSON.stringify(sceneKey)},${data});return true})()`);
+    // CC_QA_PROD=1 targets a production build (vite preview): there is no /src module, so wait for the lazy scene
+    // registration the app does itself after the menu is up.
+    const registerScene = (sceneKey) => process.env.CC_QA_PROD
+      ? `for(let i=0;i<100&&!g.scene.keys[${JSON.stringify(sceneKey)}];i++)await new Promise(r=>setTimeout(r,100));`
+      : `const m=await import('/src/scenes/lazyScenes.ts');await m.ensureSceneRegistered(g.scene,${JSON.stringify(sceneKey)});`;
+    const show = (sceneKey, data = 'undefined') => evaluate(`(async()=>{const g=${game};${registerScene(sceneKey)}for(const s of g.scene.getScenes(true))g.scene.stop(s.scene.key);g.scene.start(${JSON.stringify(sceneKey)},${data});return true})()`);
     // Screen position of a flat world point in the GameScene.
     const screen = (x, y) => evaluate(`(()=>{const g=${game},s=g.scene.getScene('GameScene'),p=s.projectSocketPoint(${x},${y}),b=g.canvas.getBoundingClientRect(),c=s.cameras.main.matrixCombined.transformPoint(p.u,p.v);return{x:b.x+c.x*b.width/g.canvas.width,y:b.y+c.y*b.height/g.canvas.height}})()`);
     const touch = async (points) => {

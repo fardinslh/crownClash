@@ -254,6 +254,8 @@ export function createHeader(scene: Phaser.Scene, title: string, subtitle: strin
       fontSize: `${UI.type.body}px`,
       fontStyle: '700',
       color: UI.text.accent,
+      stroke: UI.text.stroke,
+      strokeThickness: 3,
     }).setOrigin(0.5),
   };
 }
