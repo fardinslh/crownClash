@@ -1,4 +1,4 @@
-// Screenshots every hub scene plus a lane battle at 390x844 into qa-artifacts/visual-audit (CC_QA_OUT to
+// Screenshots every hub scene plus a lane battle at 360x640 and 390x844 into qa-artifacts/visual-audit (CC_QA_OUT to
 // change): the quick way to compare the look of all screens after a theme or kit change. Needs the dev
 // server with VITE_ENABLE_LANES=true (CC_QA_APP_URL, default http://127.0.0.1:3000/) and the compose stack
 // with ALLOW_GUEST_AUTH=true.
@@ -24,7 +24,7 @@ const client = new Client(key, '127.0.0.1', '7350', false);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const game = 'window.__PHASER_GAME__';
 
-for (const [width, height] of [[390, 844]]) {
+for (const [width, height] of [[360, 640], [390, 844]]) {
   const profile = createQaProfile('cc-lanes-qa-');
   let chrome, ws;
   try {
@@ -67,7 +67,14 @@ for (const [width, height] of [[390, 844]]) {
     await sleep(1200);
     await shot('menu');
     for (const key of ['LevelsScene', 'KingdomScene', 'LeagueScene', 'DailyScene', 'CommanderScene', 'WeeklyScene', 'RealmScene']) {
-      try { await show(key); await sleep(2200); await shot(key); } catch (e) { console.log(key, 'skipped', String(e).slice(0, 120)); }
+      try {
+        await show(key); await sleep(2200); await shot(key);
+        if (key === 'LevelsScene') {
+          // A mid-campaign state: four levels cleared, the road lit up to the next node.
+          await evaluate(`(()=>{const s=${game}.scene.getScene('LevelsScene');s.levelsCompleted=4;s.renderCards();return true})()`);
+          await sleep(900); await shot('LevelsScene-progress');
+        }
+      } catch (e) { console.log(key, 'skipped', String(e).slice(0, 120)); }
     }
     await show('GameScene', `{source:'menu',lanes:{levelId:1}}`);
     await sleep(2500);

@@ -1,17 +1,16 @@
 import Phaser from 'phaser';
-import { getBattlefield, isLevelUnlocked, LEVELS, LEVEL_COUNT, LOGICAL_WIDTH, type LevelDefinition } from '@crown-clash/game-core';
+import { isLevelUnlocked, LEVELS, LEVEL_COUNT, LOGICAL_WIDTH, type LevelDefinition } from '@crown-clash/game-core';
 import { createPlatformAdapter, type PlatformAdapter } from '@crown-clash/platform';
 import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { sounds } from '../audio/SoundEffects.js';
 import { CareerManager } from '../career/CareerManager.js';
-import { battlefieldName } from '../i18n/faBattle.js';
 import { faLevels } from '../i18n/faLevels.js';
 import { faWeekly } from '../i18n/faWeekly.js';
 import { faLane } from '../i18n/faLane.js';
 import { featureFlags } from '../config/featureFlags.js';
 import { nextLaneLevelId } from '../lane/laneProgress.js';
 import { THEME, UI } from '../theme.js';
-import { computeLevelsLayout } from '../ui/LevelsLayout.js';
+import { computeLevelsLayout, type LevelsLayout } from '../ui/LevelsLayout.js';
 import { createText } from '../ui/TextStyles.js';
 import { createIcon } from '../ui/icons.js';
 import { bindSceneViewportResize, getSceneViewport, setupSceneCamera, type SceneViewport } from '../ui/Viewport.js';
@@ -20,7 +19,6 @@ import {
   createButton,
   createGlow,
   createHeader,
-  drawPanel,
   fadeIn,
   goToScene,
   showToast,
@@ -28,13 +26,11 @@ import {
 } from '../ui/kit/index.js';
 import { createHubBackdrop } from '../ui/kit/hubBackdrop.js';
 
-/** Card fills per state; chosen to sit apart on the bright hub meadow. */
-const CARD_COLORS = {
-  currentFill: 0x4a3410,
-  doneFill: 0x14503a,
-  doneStroke: 0x34d399,
-  lockedFill: 0x27324f,
-  lockedStroke: 0x4b5a7a,
+/** Node colours per state: the next level glows gold, cleared ones turn green, locked ones fade to slate. */
+const NODE_COLORS = {
+  current: { fill: 0xf59e0b, rim: 0xfde68a, text: '#3b2305', textStroke: '#fde68a' },
+  done: { fill: 0x10b981, rim: 0x6ee7b7, text: '#ffffff', textStroke: '#065f46' },
+  locked: { fill: 0x3a4a6e, rim: 0x6b7ca3, text: '#cbd5e1', textStroke: '#1e293b' },
 } as const;
 
 const DIFFICULTY_COLORS: Record<LevelDefinition['botDifficulty'], string> = {
@@ -57,6 +53,7 @@ export class LevelsScene extends Phaser.Scene {
   private retryButton?: KitButton;
   private weeklyButton?: KitButton;
   private cards: Phaser.GameObjects.Container[] = [];
+  private road?: Phaser.GameObjects.Graphics;
   private levelsCompleted = 0;
   private loaded = false;
   private active = false;
@@ -143,7 +140,8 @@ export class LevelsScene extends Phaser.Scene {
     this.retryButton?.container.setY(layout.statusY + 56);
     this.progressText?.setY(layout.progressY);
     this.weeklyButton?.container.setY(layout.weeklyY);
-    this.cards.forEach((card, index) => card.setPosition(layout.cards[index].x, layout.cards[index].y));
+    this.cards.forEach((card, index) => card.setPosition(layout.nodes[index].x, layout.nodes[index].y));
+    if (this.cards.length > 0) this.drawRoad(layout);
     this.toastY = layout.toastY;
   }
 
@@ -205,61 +203,89 @@ export class LevelsScene extends Phaser.Scene {
 
   private buildCard(level: LevelDefinition): Phaser.GameObjects.Container {
     const layout = computeLevelsLayout(LEVEL_COUNT, getSceneViewport(this).visibleHeight);
-    const { cardWidth: width, cardHeight: height } = layout;
+    const radius = layout.nodeRadius;
+    const side = layout.nodes[level.id - 1]?.labelSide === 'left' ? -1 : 1;
     const unlocked = isLevelUnlocked(this.levelsCompleted, level.id);
     const completed = level.id <= this.levelsCompleted;
     const current = unlocked && !completed;
+    const palette = current ? NODE_COLORS.current : completed ? NODE_COLORS.done : NODE_COLORS.locked;
     const container = this.add.container(0, 0);
-    // Three states read at a glance: the next level glows gold, cleared ones turn green, locked ones fade to slate.
-    const panel = drawPanel(this.add.graphics(), width, height, {
-      fill: current ? CARD_COLORS.currentFill : completed ? CARD_COLORS.doneFill : CARD_COLORS.lockedFill,
-      stroke: current ? THEME.gold : completed ? CARD_COLORS.doneStroke : CARD_COLORS.lockedStroke,
-      radius: UI.radius.lg,
-      alpha: unlocked ? 0.98 : 0.78,
-    });
-    const glow = current
-      ? this.add.graphics().fillStyle(THEME.gold, 0.22).fillRoundedRect(-width / 2 - 4, -height / 2 - 4, width + 8, height + 8, UI.radius.lg + 3)
-      : undefined;
-    const number = createText(this, width / 2 - 38, -4, `${level.id}`, {
-      fontSize: '34px',
-      fontStyle: '900',
-      color: unlocked ? UI.text.gold : UI.text.muted,
-      stroke: UI.text.stroke,
-      strokeThickness: 4,
-    }).setOrigin(0.5);
-    const map = createText(this, width / 2 - 70, -height / 2 + 20, battlefieldName(level.battlefieldId, getBattlefield(level.battlefieldId).name), {
-      fontSize: '12px',
-      fontStyle: '700',
-      color: unlocked ? UI.text.secondary : UI.text.muted,
-    }).setOrigin(1, 0.5);
-    const difficulty = createText(this, width / 2 - 70, height / 2 - 20, faLevels.difficulty[level.botDifficulty], {
-      fontSize: '13px',
-      fontStyle: '800',
-      color: unlocked ? DIFFICULTY_COLORS[level.botDifficulty] : UI.text.muted,
-    }).setOrigin(1, 0.5);
-    const status = createIcon(this, -width / 2 + 24, 0, completed ? 'check' : unlocked ? 'swords' : 'lock', 24);
-    if (!unlocked) status.setAlpha(0.7);
-    container.add(glow ? [glow, panel, number, map, difficulty, status] : [panel, number, map, difficulty, status]);
+    // Raised round button: drop shadow, rim, face and a soft top gloss.
+    const face = this.add.graphics();
+    face.fillStyle(0x000000, 0.3).fillCircle(0, 3, radius + 1);
+    face.fillStyle(palette.rim, 1).fillCircle(0, 0, radius);
+    face.fillStyle(palette.fill, 1).fillCircle(0, 0, radius - 3.5);
+    face.fillStyle(0xffffff, 0.22).fillEllipse(0, -radius * 0.38, radius * 1.15, radius * 0.7);
+    const glow = current ? this.add.graphics().fillStyle(THEME.gold, 0.28).fillCircle(0, 0, radius + 9) : undefined;
+    container.add(glow ? [glow, face] : [face]);
+    if (completed) {
+      container.add(createIcon(this, 0, 0, 'check', radius * 0.95));
+    } else if (!unlocked) {
+      container.add(createIcon(this, 0, 0, 'lock', radius * 0.8).setAlpha(0.85));
+    } else {
+      container.add(
+        createText(this, 0, 1, `${level.id}`, {
+          fontSize: `${Math.round(radius * 0.95)}px`,
+          fontStyle: '900',
+          color: palette.text,
+          stroke: palette.textStroke,
+          strokeThickness: 3,
+        }).setOrigin(0.5),
+      );
+    }
+    // Label on the free outer side: difficulty over the first-clear reward.
+    const labelX = side * (radius + 10);
+    const origin = side === 1 ? 0 : 1;
+    const dim = unlocked ? 1 : 0.7;
+    container.add(
+      createText(this, labelX, completed ? 0 : -9, faLevels.difficulty[level.botDifficulty], {
+        fontSize: '13px',
+        fontStyle: '800',
+        color: unlocked ? DIFFICULTY_COLORS[level.botDifficulty] : UI.text.muted,
+        stroke: UI.text.stroke,
+        strokeThickness: 3,
+      }).setOrigin(origin, 0.5).setAlpha(dim),
+    );
     if (!completed) {
       // First-clear reward preview; cleared levels show the check instead.
-      const coin = createIcon(this, -width / 2 + 62, 0, 'coin', 16);
-      const reward = createText(this, -width / 2 + 76, 0, faLevels.rewardBadge(level.coinReward), {
+      const reward = createText(this, labelX + side * 18, 9, faLevels.rewardBadge(level.coinReward), {
         fontSize: '14px',
         fontStyle: '800',
         color: unlocked ? UI.text.gold : UI.text.muted,
-      }).setOrigin(0, 0.5);
-      if (!unlocked) {
-        coin.setAlpha(0.6);
-        reward.setAlpha(0.8);
-      }
+        stroke: UI.text.stroke,
+        strokeThickness: 3,
+      }).setOrigin(origin, 0.5).setAlpha(dim);
+      const coin = createIcon(this, labelX + side * 7, 9, 'coin', 15).setAlpha(dim);
       container.add([coin, reward]);
     }
-    container.setSize(width, height).setInteractive({ useHandCursor: unlocked });
+    container.setSize(radius * 2 + 12, radius * 2 + 12).setInteractive({ useHandCursor: unlocked });
     container.on('pointerdown', () => this.onCardPressed(level, container));
     if (current && !this.reducedMotion) {
-      this.tweens.add({ targets: panel, alpha: 0.82, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+      this.tweens.add({ targets: container, scale: 1.08, duration: 650, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
     }
     return container;
+  }
+
+  /** The road under the nodes: tan track, with the cleared stretch lit green. */
+  private drawRoad(layout: LevelsLayout): void {
+    this.road?.destroy();
+    if (layout.nodes.length < 2) return;
+    const g = this.add.graphics().setDepth(-5);
+    const points = layout.nodes.map((node) => new Phaser.Math.Vector2(node.x, node.y));
+    const curve = new Phaser.Curves.Spline(points);
+    const sampled = curve.getPoints(points.length * 14);
+    const stroke = (width: number, color: number, alpha: number, until = sampled.length): void => {
+      g.lineStyle(width, color, alpha);
+      g.beginPath();
+      sampled.slice(0, until).forEach((p, i) => (i === 0 ? g.moveTo(p.x, p.y) : g.lineTo(p.x, p.y)));
+      g.strokePath();
+    };
+    stroke(layout.nodeRadius * 0.9 + 6, 0x000000, 0.2);
+    stroke(layout.nodeRadius * 0.9, 0xd9c08a, 0.95);
+    stroke(layout.nodeRadius * 0.9 - 8, 0xeed9a6, 0.9);
+    const cleared = Math.min(this.levelsCompleted, layout.nodes.length - 1);
+    if (cleared > 0) stroke(layout.nodeRadius * 0.9 - 8, 0x6ee7b7, 0.95, Math.round((cleared / (layout.nodes.length - 1)) * (sampled.length - 1)) + 1);
+    this.road = g;
   }
 
   private onCardPressed(level: LevelDefinition, card: Phaser.GameObjects.Container): void {
