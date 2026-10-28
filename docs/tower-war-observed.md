@@ -64,3 +64,32 @@ new rules version with lanes (see "What a lane version needs").
 
 This is a multi-day change with real regression risk. It should be built behind the v5 flag,
 proven by simulation first, and not shipped on the strength of one observed level.
+
+## Lane feasibility, by simulation (2026-10-28)
+
+`packages/game-core/src/lanes.ts` is a prototype of the lane mechanic on top of the existing
+tower, road and production model. It is **not wired** into any ticket, the Go server or the
+client, and rules versions 1-4 are untouched. Rules: a drag opens a lane; the source sends one
+soldier every 0.2 s and never drops below 1 unit; an arriving soldier adds 1 to a friendly tower
+(up to `maxUnits`) or removes 1 defender from a hostile one, and captures it at zero; a cut stops
+the stream. `scripts/lanes-sim.mjs` plays the four probe policies at three reaction delays against
+a lane-using bot:
+
+| Bot | Map | Probe win rate | Avg win time | Avg orders in a win |
+|---|---|---|---|---|
+| easy | crown_cross | 0.42 | 61 s | 37 |
+| easy | twin_passes | 0.67 | 41 s | 25 |
+| easy | royal_ring | 0.67 | 39 s | 26 |
+| normal | crown_cross | 0.00 | | |
+| normal | twin_passes | 0.17 | 61 s | 25 |
+| normal | royal_ring | 0.33 | 41 s | 22 |
+| hard | crown_cross | 0.17 | 60 s | 45 |
+| hard | twin_passes | 0.08 | 24 s | 14 |
+| hard | royal_ring | 0.33 | 36 s | 16 |
+
+What it shows: the mechanic runs to a result on every map (no stalled matches), wins take 25-60 s,
+and a win needs 14-45 orders instead of up to the 120-action cap. What it does not show: the bot
+here is the existing 50% bot reused for lanes (not tuned for streams), normal on `crown_cross` is
+unwinnable for the probes, difficulty is not monotonic, and nothing says a human finds it fun. The
+remaining work is the list above (Go port, `cut` action, replay, bot, client lane drawing and
+soldier file, re-tuning, parity), not tuning of this prototype.

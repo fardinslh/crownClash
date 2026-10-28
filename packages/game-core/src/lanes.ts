@@ -1,0 +1,132 @@
+import { findDispatchRoute } from './tactical-routes.js';
+import { stepSimulation } from './simulation.js';
+import type { GameState, MatchStatus, Team } from './types.js';
+
+/**
+ * Lane prototype (candidate rules v5, NOT wired into any ticket or the server).
+ *
+ * A drag opens a lane from a source tower to a target. While the lane exists the
+ * source sends single soldiers in file at a steady rate (never below 1 unit left)
+ * until the lane is cut. A soldier that arrives reinforces a friendly tower (up to
+ * its maxUnits) or removes one defender from a hostile one; a hostile tower with no
+ * defenders left is captured by the arriving soldier. Matches the behaviour observed
+ * in docs/tower-war-observed.md. Used only by scripts/lanes-sim.mjs to decide whether
+ * the mechanic is worth a real rules version.
+ */
+export const LANE_CONFIG = Object.freeze({
+  /** Seconds between two soldiers leaving the same lane. */
+  emitSeconds: 0.2,
+  /** Soldier speed in logical pixels per second (same as armies). */
+  soldierSpeed: 140,
+});
+
+export interface Lane {
+  readonly id: string;
+  readonly owner: Team;
+  readonly sourceId: string;
+  readonly targetId: string;
+  readonly routeIds: readonly string[];
+  /** Match seconds until the next soldier leaves. */
+  readonly nextEmitIn: number;
+}
+
+export interface Soldier {
+  readonly owner: Team;
+  readonly targetId: string;
+  /** Seconds of travel left. */
+  readonly remaining: number;
+}
+
+export interface LaneState {
+  readonly lanes: readonly Lane[];
+  readonly soldiers: readonly Soldier[];
+  readonly nextLaneId: number;
+}
+
+export const emptyLaneState = (): LaneState => ({ lanes: [], soldiers: [], nextLaneId: 0 });
+
+function routeSeconds(state: GameState, routeIds: readonly string[]): number {
+  let length = 0;
+  for (let i = 0; i < routeIds.length - 1; i++) {
+    const a = state.territories[routeIds[i]], b = state.territories[routeIds[i + 1]];
+    length += Math.hypot(b.x - a.x, b.y - a.y);
+  }
+  return length / LANE_CONFIG.soldierSpeed;
+}
+
+/** Opens a lane if the order is legal; an existing lane between the same towers is kept. */
+export function openLane(state: GameState, lanes: LaneState, owner: Team, sourceId: string, targetId: string): LaneState {
+  if (lanes.lanes.some((l) => l.owner === owner && l.sourceId === sourceId && l.targetId === targetId)) return lanes;
+  const route = findDispatchRoute(state, sourceId, targetId, owner);
+  if (!route) return lanes;
+  const lane: Lane = { id: `lane_${lanes.nextLaneId}`, owner, sourceId, targetId, routeIds: route, nextEmitIn: 0 };
+  return { ...lanes, lanes: [...lanes.lanes, lane], nextLaneId: lanes.nextLaneId + 1 };
+}
+
+export function cutLane(lanes: LaneState, owner: Team, sourceId: string, targetId: string): LaneState {
+  const kept = lanes.lanes.filter((l) => !(l.owner === owner && l.sourceId === sourceId && l.targetId === targetId));
+  return kept.length === lanes.lanes.length ? lanes : { ...lanes, lanes: kept };
+}
+
+/** Lanes whose finger-swipe segment crossed them are cut by the caller; this drops lanes that can no longer run. */
+function pruneDeadLanes(state: GameState, lanes: readonly Lane[]): Lane[] {
+  return lanes.filter((l) => state.territories[l.sourceId]?.owner === l.owner);
+}
+
+/** Advances the base simulation, then the lanes by the same step. */
+export function stepLaneSimulation(
+  state: GameState, accumulators: Record<string, number>, lanes: LaneState, deltaSeconds: number,
+): { state: GameState; accumulators: Record<string, number>; lanes: LaneState } {
+  const step = stepSimulation(state, accumulators, deltaSeconds);
+  if (step.state.status !== 'playing') return { state: step.state, accumulators: step.accumulators, lanes };
+  const territories = Object.fromEntries(Object.entries(step.state.territories).map(([id, t]) => [id, { ...t }]));
+  const stats = { ...step.state.stats };
+
+  // Soldiers in flight.
+  const flying: Soldier[] = [];
+  for (const soldier of lanes.soldiers) {
+    const remaining = soldier.remaining - deltaSeconds;
+    if (remaining > 1e-9) { flying.push({ ...soldier, remaining }); continue; }
+    const target = territories[soldier.targetId];
+    if (!target) continue;
+    if (target.owner === soldier.owner) target.units = Math.min(target.maxUnits, target.units + 1);
+    else if (target.units > 0) target.units -= 1;
+    else {
+      target.owner = soldier.owner;
+      target.units = 1;
+      if (soldier.owner === 'player') stats.territoriesCapturedByPlayer++; else stats.territoriesCapturedByEnemy++;
+    }
+  }
+
+  // Lanes emit.
+  const live = pruneDeadLanes({ ...step.state, territories }, lanes.lanes);
+  const emitted: Soldier[] = [];
+  const nextLanes: Lane[] = [];
+  for (const lane of live) {
+    let wait = lane.nextEmitIn - deltaSeconds;
+    const source = territories[lane.sourceId];
+    while (wait <= 1e-9) {
+      if (source.units > 1) {
+        source.units -= 1;
+        emitted.push({ owner: lane.owner, targetId: lane.targetId, remaining: routeSeconds(step.state, lane.routeIds) });
+        if (lane.owner === 'player') stats.playerUnitsDispatched++; else stats.enemyUnitsDispatched++;
+      }
+      wait += LANE_CONFIG.emitSeconds;
+      if (source.units <= 1) { wait = Math.max(wait, LANE_CONFIG.emitSeconds); break; }
+    }
+    nextLanes.push({ ...lane, nextEmitIn: wait });
+  }
+
+  // A side with no towers and no soldiers left has lost; the base step already handled time limits.
+  const towers = (team: Team): number => Object.values(territories).filter((t) => t.owner === team).length;
+  const inFlight = (team: Team): number => [...flying, ...emitted].filter((s) => s.owner === team).length;
+  let status: MatchStatus = step.state.status;
+  if (towers('enemy') === 0 && inFlight('enemy') === 0) status = 'victory';
+  else if (towers('player') === 0 && inFlight('player') === 0) status = 'defeat';
+
+  return {
+    state: { ...step.state, territories, stats, status },
+    accumulators: step.accumulators,
+    lanes: { ...lanes, lanes: nextLanes, soldiers: [...flying, ...emitted] },
+  };
+}

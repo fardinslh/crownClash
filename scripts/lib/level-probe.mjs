@@ -9,7 +9,7 @@ export const c = await import('data:text/javascript;base64,' + Buffer.from(built
 export const policies = ['center', 'flank', 'split', 'counter'];
 export const cadences = [1.8, 2.7, 3.6];
 
-function choose(state, team, policy, turn) {
+export function choose(state, team, policy, turn) {
   if (policy === 'counter') return c.evaluateTacticalMoves(state, team);
   const sign = team === 'player' ? 1 : -1;
   const sources = Object.values(state.territories).filter((t) => t.owner === team && t.units >= 4);
