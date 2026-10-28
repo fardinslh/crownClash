@@ -147,3 +147,19 @@ additional input that does not exist in Crown Clash today.
   still running where it stopped.
 - **Interaction detail:** short taps sent by `adb input tap` were often dropped; a press held for
   about 150 ms registered reliably, so UI timing and hit areas matter on a real phone.
+
+## Lane prototype, stage 2: tiers and a balance probe (2026-10-28)
+
+- `openLane` now limits a tower to as many simultaneous lanes as its existing `tier` (1 to 3), the
+  same rule the dots under Tower War's garrison count suggest; a cut frees a slot.
+- `LANE_CONFIG` is injectable (`stepLaneSimulation(..., config)`, env `LANE_CONFIG` in
+  `scripts/lanes-sim.mjs`). A sweep of the emit interval gave results that are **not usable for
+  tuning yet**: e.g. easy on `royal_ring` went 0.83 (0.2 s), 0.33 (0.3 s), 0.00 (0.45 s), and the
+  difficulty order flips between settings. With 12 games per cell this is mostly probe noise.
+- Why: the probes (centre, flank, split, counter) were written for 50% sends. They re-open lanes
+  on a timer, cut only when a target is full, and never weigh stream rate against the defenders'
+  production. A stream attack only wins when its rate beats the target's regeneration, so
+  balance depends on lane-aware play.
+- Next step before any more tuning: one lane-aware policy used by both the probe and the bot
+  (open lanes on the weakest reachable tower within the tier cap, cut a lane once its target is
+  captured and full or its flow cannot beat the target's regeneration), then 50+ games per cell.

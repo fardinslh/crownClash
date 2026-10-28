@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createInitialGameState } from '../simulation.js';
-import { LANE_CONFIG, cutLane, emptyLaneState, openLane, stepLaneSimulation, type LaneState } from '../lanes.js';
+import { LANE_CONFIG, cutLane, emptyLaneState, maxLanes, openLane, stepLaneSimulation, type LaneState } from '../lanes.js';
 import type { GameState } from '../types.js';
 
 const fresh = (): GameState => {
@@ -28,6 +28,20 @@ describe('lanes (candidate rules v5 prototype)', () => {
     expect(openLane(state, emptyLaneState(), 'player', 'p_base', 'e_base').lanes).toHaveLength(0);
     // A source the owner does not hold cannot open a lane.
     expect(openLane(state, emptyLaneState(), 'enemy', 'p_base', 'n_bot_left').lanes).toHaveLength(0);
+  });
+
+  it('limits a tower to as many simultaneous lanes as its tier and frees a slot when one is cut', () => {
+    const state = fresh();
+    const source = state.territories.p_base;
+    source.tier = 2;
+    for (const id of ['n_bot_left', 'n_bot_right', 'n_center']) state.territories[id].owner = 'neutral';
+    expect(maxLanes(state, 'p_base')).toBe(2);
+    let lanes = openLane(state, emptyLaneState(), 'player', 'p_base', 'n_bot_left');
+    lanes = openLane(state, lanes, 'player', 'p_base', 'n_bot_right');
+    expect(lanes.lanes).toHaveLength(2);
+    expect(openLane(state, lanes, 'player', 'p_base', 'n_center')).toBe(lanes);
+    lanes = cutLane(lanes, 'player', 'p_base', 'n_bot_left');
+    expect(openLane(state, lanes, 'player', 'p_base', 'n_center').lanes).toHaveLength(2);
   });
 
   it('streams single soldiers at a steady rate and never empties the source', () => {

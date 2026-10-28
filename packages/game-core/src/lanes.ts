@@ -13,12 +13,14 @@ import type { GameState, MatchStatus, Team } from './types.js';
  * in docs/tower-war-observed.md. Used only by scripts/lanes-sim.mjs to decide whether
  * the mechanic is worth a real rules version.
  */
-export const LANE_CONFIG = Object.freeze({
+export interface LaneConfig {
   /** Seconds between two soldiers leaving the same lane. */
-  emitSeconds: 0.2,
+  readonly emitSeconds: number;
   /** Soldier speed in logical pixels per second (same as armies). */
-  soldierSpeed: 140,
-});
+  readonly soldierSpeed: number;
+}
+
+export const LANE_CONFIG: LaneConfig = Object.freeze({ emitSeconds: 0.2, soldierSpeed: 140 });
 
 export interface Lane {
   readonly id: string;
@@ -45,18 +47,25 @@ export interface LaneState {
 
 export const emptyLaneState = (): LaneState => ({ lanes: [], soldiers: [], nextLaneId: 0 });
 
-function routeSeconds(state: GameState, routeIds: readonly string[]): number {
+function routeSeconds(state: GameState, routeIds: readonly string[], config: LaneConfig): number {
   let length = 0;
   for (let i = 0; i < routeIds.length - 1; i++) {
     const a = state.territories[routeIds[i]], b = state.territories[routeIds[i + 1]];
     length += Math.hypot(b.x - a.x, b.y - a.y);
   }
-  return length / LANE_CONFIG.soldierSpeed;
+  return length / config.soldierSpeed;
 }
 
-/** Opens a lane if the order is legal; an existing lane between the same towers is kept. */
+/** A tower can run as many lanes at once as its tier (1 to 3), like the dots under Tower War's garrison count. */
+export const maxLanes = (state: GameState, towerId: string): number => state.territories[towerId]?.tier ?? 1;
+
+/**
+ * Opens a lane if the order is legal and the source has a free path; an existing lane between the
+ * same towers is kept.
+ */
 export function openLane(state: GameState, lanes: LaneState, owner: Team, sourceId: string, targetId: string): LaneState {
   if (lanes.lanes.some((l) => l.owner === owner && l.sourceId === sourceId && l.targetId === targetId)) return lanes;
+  if (lanes.lanes.filter((l) => l.owner === owner && l.sourceId === sourceId).length >= maxLanes(state, sourceId)) return lanes;
   const route = findDispatchRoute(state, sourceId, targetId, owner);
   if (!route) return lanes;
   const lane: Lane = { id: `lane_${lanes.nextLaneId}`, owner, sourceId, targetId, routeIds: route, nextEmitIn: 0 };
@@ -76,6 +85,7 @@ function pruneDeadLanes(state: GameState, lanes: readonly Lane[]): Lane[] {
 /** Advances the base simulation, then the lanes by the same step. */
 export function stepLaneSimulation(
   state: GameState, accumulators: Record<string, number>, lanes: LaneState, deltaSeconds: number,
+  config: LaneConfig = LANE_CONFIG,
 ): { state: GameState; accumulators: Record<string, number>; lanes: LaneState } {
   const step = stepSimulation(state, accumulators, deltaSeconds);
   if (step.state.status !== 'playing') return { state: step.state, accumulators: step.accumulators, lanes };
@@ -108,11 +118,11 @@ export function stepLaneSimulation(
     while (wait <= 1e-9) {
       if (source.units > 1) {
         source.units -= 1;
-        emitted.push({ owner: lane.owner, targetId: lane.targetId, remaining: routeSeconds(step.state, lane.routeIds) });
+        emitted.push({ owner: lane.owner, targetId: lane.targetId, remaining: routeSeconds(step.state, lane.routeIds, config) });
         if (lane.owner === 'player') stats.playerUnitsDispatched++; else stats.enemyUnitsDispatched++;
       }
-      wait += LANE_CONFIG.emitSeconds;
-      if (source.units <= 1) { wait = Math.max(wait, LANE_CONFIG.emitSeconds); break; }
+      wait += config.emitSeconds;
+      if (source.units <= 1) { wait = Math.max(wait, config.emitSeconds); break; }
     }
     nextLanes.push({ ...lane, nextEmitIn: wait });
   }

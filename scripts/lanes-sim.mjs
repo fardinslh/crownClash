@@ -8,6 +8,7 @@ const maps = ['crown_cross', 'twin_passes', 'royal_ring'];
 const enemies = { easy: { startingUnits: 16, productionRateMultiplier: 0.9 }, normal: { startingUnits: 20, productionRateMultiplier: 1 }, hard: { startingUnits: 22, productionRateMultiplier: 1.05 } };
 
 const full = (t) => t.units >= t.maxUnits;
+const config = { ...c.LANE_CONFIG, ...JSON.parse(process.env.LANE_CONFIG ?? '{}') };
 
 function play(battlefieldId, difficulty, policy, playerCadence) {
   const enemy = { ...enemies[difficulty], armySpeedMultiplier: 1 };
@@ -16,7 +17,7 @@ function play(battlefieldId, difficulty, policy, playerCadence) {
   const cadence = { enemy: Math.round(c.getBotAiTickSeconds(difficulty) / 0.02), player: Math.round(playerCadence / 0.02) };
   const next = { ...cadence };
   for (let tick = 1; tick <= 4500 && state.status === 'playing'; tick++) {
-    ({ state, accumulators: acc, lanes } = c.stepLaneSimulation(state, acc, lanes, 0.02));
+    ({ state, accumulators: acc, lanes } = c.stepLaneSimulation(state, acc, lanes, 0.02, config));
     for (const team of ['enemy', 'player']) if (state.status === 'playing' && tick >= next[team]) {
       next[team] += cadence[team];
       for (const lane of lanes.lanes.filter((l) => l.owner === team)) {
@@ -46,4 +47,5 @@ for (const difficulty of ['easy', 'normal', 'hard']) for (const map of maps) {
     unfinished: games.filter((g) => g.status === 'playing').length,
   });
 }
+console.log(JSON.stringify(config));
 console.table(rows);
