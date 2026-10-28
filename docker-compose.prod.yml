@@ -79,7 +79,7 @@ services:
         VITE_NAKAMA_PORT: ${VITE_NAKAMA_PORT:-7350}
         VITE_NAKAMA_SSL: ${VITE_NAKAMA_SSL:-false}
         VITE_NAKAMA_SERVER_KEY: ${NAKAMA_SERVER_KEY:-defaultkey}
-        VITE_ENABLE_LANES: ${VITE_ENABLE_LANES:-false}
+        VITE_ENABLE_LANES: ${VITE_ENABLE_LANES:-true}
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
     restart: unless-stopped
     depends_on:
