@@ -24,7 +24,7 @@ const HEADER_BOTTOM = 96;
 const WEEKLY_HEIGHT = 48;
 /** Progress line (28) plus the weekly button and its gaps. */
 const BOTTOM_MARGIN = 28 + WEEKLY_HEIGHT + 32;
-const MAX_ROW_PITCH = 96;
+const MAX_ROW_PITCH = 118;
 const MIN_CARD_HEIGHT = 56;
 const ROW_GAP = 10;
 

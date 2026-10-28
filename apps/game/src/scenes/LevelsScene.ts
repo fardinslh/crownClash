@@ -28,6 +28,15 @@ import {
 } from '../ui/kit/index.js';
 import { createHubBackdrop } from '../ui/kit/hubBackdrop.js';
 
+/** Card fills per state; chosen to sit apart on the bright hub meadow. */
+const CARD_COLORS = {
+  currentFill: 0x4a3410,
+  doneFill: 0x14503a,
+  doneStroke: 0x34d399,
+  lockedFill: 0x27324f,
+  lockedStroke: 0x4b5a7a,
+} as const;
+
 const DIFFICULTY_COLORS: Record<LevelDefinition['botDifficulty'], string> = {
   easy: UI.text.success,
   normal: UI.text.gold,
@@ -201,12 +210,16 @@ export class LevelsScene extends Phaser.Scene {
     const completed = level.id <= this.levelsCompleted;
     const current = unlocked && !completed;
     const container = this.add.container(0, 0);
+    // Three states read at a glance: the next level glows gold, cleared ones turn green, locked ones fade to slate.
     const panel = drawPanel(this.add.graphics(), width, height, {
-      fill: current ? 0x231a33 : UI.surface.raised,
-      stroke: current ? THEME.gold : completed ? 0x10b981 : UI.border,
+      fill: current ? CARD_COLORS.currentFill : completed ? CARD_COLORS.doneFill : CARD_COLORS.lockedFill,
+      stroke: current ? THEME.gold : completed ? CARD_COLORS.doneStroke : CARD_COLORS.lockedStroke,
       radius: UI.radius.lg,
-      alpha: unlocked ? 0.97 : 0.8,
+      alpha: unlocked ? 0.98 : 0.78,
     });
+    const glow = current
+      ? this.add.graphics().fillStyle(THEME.gold, 0.22).fillRoundedRect(-width / 2 - 4, -height / 2 - 4, width + 8, height + 8, UI.radius.lg + 3)
+      : undefined;
     const number = createText(this, width / 2 - 38, -4, `${level.id}`, {
       fontSize: '34px',
       fontStyle: '900',
@@ -226,7 +239,7 @@ export class LevelsScene extends Phaser.Scene {
     }).setOrigin(1, 0.5);
     const status = createIcon(this, -width / 2 + 24, 0, completed ? 'check' : unlocked ? 'swords' : 'lock', 24);
     if (!unlocked) status.setAlpha(0.7);
-    container.add([panel, number, map, difficulty, status]);
+    container.add(glow ? [glow, panel, number, map, difficulty, status] : [panel, number, map, difficulty, status]);
     if (!completed) {
       // First-clear reward preview; cleared levels show the check instead.
       const coin = createIcon(this, -width / 2 + 62, 0, 'coin', 16);

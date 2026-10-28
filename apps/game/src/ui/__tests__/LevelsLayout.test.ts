@@ -40,7 +40,7 @@ describe('computeLevelsLayout', () => {
   });
 
   it('never stretches rows beyond the maximum pitch', () => {
-    expect(computeLevelsLayout(10, 1400).cardHeight).toBeLessThanOrEqual(96);
+    expect(computeLevelsLayout(10, 1400).cardHeight).toBeLessThanOrEqual(118);
   });
 
   it('handles an empty or odd level count', () => {

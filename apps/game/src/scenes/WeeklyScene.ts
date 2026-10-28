@@ -175,8 +175,8 @@ export class WeeklyScene extends Phaser.Scene {
     const accent = SLOT_ACCENTS[slot.slot - 1] ?? THEME.gold;
     const container = this.add.container(0, 0);
     const panel = drawPanel(this.add.graphics(), width, height, {
-      fill: slot.claimed ? UI.surface.raised : 0x231a33,
-      stroke: slot.claimed ? 0x10b981 : accent,
+      fill: slot.claimed ? 0x14503a : UI.surface.high,
+      stroke: slot.claimed ? 0x34d399 : accent,
       radius: UI.radius.lg,
       alpha: 0.97,
     });

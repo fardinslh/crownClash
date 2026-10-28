@@ -15,7 +15,11 @@ export const HUB_BACKDROP_KEY = 'hub_meadow';
 export const HUB_BACKDROP_PATH = 'assets/hub/hub_meadow.webp';
 export const HUB_BACKDROP_VERSION = 'hub-meadow-v1';
 /** How much of the meadow the dark navy veil covers (higher = darker). */
-const VEIL_ALPHA = 0.74;
+const VEIL_ALPHA = 0.34;
+/** Darker band behind the title/subtitle so light text keeps its contrast on the bright meadow. */
+const HEADER_SHADE_HEIGHT = 120;
+const HEADER_SHADE_STEPS = 10;
+const HEADER_SHADE_ALPHA = 0.55;
 
 export interface HubBackdrop {
   /** Re-fits the tiles after a viewport change. */
@@ -30,6 +34,7 @@ export interface HubBackdrop {
 export function createHubBackdrop(scene: Phaser.Scene, options: { reducedMotion?: boolean } = {}): HubBackdrop {
   let tiles: Phaser.GameObjects.Image[] = [];
   let veil: Phaser.GameObjects.Rectangle | undefined;
+  let headerShade: Phaser.GameObjects.Rectangle[] = [];
   let destroyed = false;
 
   const canLoad =
@@ -45,6 +50,8 @@ export function createHubBackdrop(scene: Phaser.Scene, options: { reducedMotion?
     tiles = [];
     veil?.destroy();
     veil = undefined;
+    for (const strip of headerShade) strip.destroy();
+    headerShade = [];
   };
 
   const layout = (): void => {
@@ -63,6 +70,13 @@ export function createHubBackdrop(scene: Phaser.Scene, options: { reducedMotion?
         .setDepth(-20),
     );
     veil = scene.add.rectangle(cx, visibleHeight / 2, visibleWidth, visibleHeight, UI.bg, VEIL_ALPHA).setDepth(-19);
+    // Nested bands from the top edge stack their alpha into a seamless vertical gradient: the title band stays readable, the lower screen stays bright.
+    headerShade = Array.from({ length: HEADER_SHADE_STEPS }, (_, i) =>
+      scene.add
+        .rectangle(cx, 0, visibleWidth, HEADER_SHADE_HEIGHT * (1 - i / HEADER_SHADE_STEPS), UI.bg, HEADER_SHADE_ALPHA / HEADER_SHADE_STEPS)
+        .setOrigin(0.5, 0)
+        .setDepth(-18),
+    );
     if (!options.reducedMotion && typeof scene.tweens?.add === 'function') {
       const group = [...tiles, veil];
       for (const item of group) item.setAlpha(0);
