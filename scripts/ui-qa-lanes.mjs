@@ -93,6 +93,9 @@ for (const [width, height] of [[360, 640], [390, 844]]) {
     await evaluate(`(()=>{const s=${game}.scene.getScene('GameScene');s.gameState.status='victory';s.renderLevelResultModal(s.levelDef,'victory',true,0);return true})()`);
     await sleep(500);
     await shot('result');
+    await evaluate(`(()=>{const s=${game}.scene.getScene('GameScene');s.gameState.status='defeat';s.renderLevelResultModal(s.levelDef,'defeat',true,0);return true})()`);
+    await sleep(500);
+    await shot('result-defeat');
     assert.deepEqual(errors, [], `no page errors at ${width}x${height}`);
     console.log(`${width}x${height}: ok`);
   } finally {
