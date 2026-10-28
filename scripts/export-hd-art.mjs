@@ -7,7 +7,8 @@
 //
 // It also writes apps/game/src/art/hd-art-manifest.json: every HD file the client may request with its pixel
 // size, so the loader never asks for a file that does not exist and the display code can normalise sizes.
-// Usage: node scripts/export-hd-art.mjs   (needs cwebp and ffmpeg; set HD_QUALITY to override q=88)
+// Usage: node scripts/export-hd-art.mjs   (needs cwebp and ffmpeg; HD_QUALITY overrides q=88, HD_MASTERS the master dir;
+// units are only re-exported when the master dir has a units folder)
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,7 +16,8 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'art/asset-manifest.json'), 'utf8'));
-const renders = path.join(root, 'art/blender/renders');
+// HD_MASTERS points at another master set (e.g. art/blender/renders-vivid); the default is the shipped renders.
+const renders = path.resolve(root, process.env.HD_MASTERS ?? 'art/blender/renders');
 const publicRoot = path.join(root, 'apps/game/public');
 const hdRoot = path.join(publicRoot, 'assets/hd');
 const quality = process.env.HD_QUALITY ?? '88';
@@ -35,7 +37,9 @@ const record = (assetPath, width, height, file) => {
 for (const [packId, pack] of Object.entries(manifest.packs)) {
   // The generic pack is the PNG fallback for battlefields without dedicated art: it stays SD.
   if (packId === 'generic' || !pack.active) continue;
-  const mastersDir = path.join(renders, packId);
+  // A pack missing from the chosen master set (e.g. the ground plates) falls back to the shipped renders.
+  const chosen = path.join(renders, packId);
+  const mastersDir = fs.existsSync(chosen) ? chosen : path.join(root, 'art/blender/renders', packId);
   const done = new Set();
   for (const [textureKey, sprite] of Object.entries(pack.sprites)) {
     if (done.has(sprite.runtimePath)) continue;
@@ -62,7 +66,8 @@ for (const [packId, pack] of Object.entries(manifest.packs)) {
 }
 
 // Marching units: same file names as the SD set, 256 px PNG with alpha.
-const unitsDir = path.join(renders, 'units');
+// Units come from the chosen masters when that set has them, otherwise from the shipped renders.
+const unitsDir = fs.existsSync(path.join(renders, 'units')) ? path.join(renders, 'units') : path.join(root, 'art/blender/renders/units');
 const unitDest = path.join(hdRoot, 'units');
 fs.mkdirSync(unitDest, { recursive: true });
 for (const file of fs.readdirSync(unitsDir).filter((f) => f.endsWith('.png')).sort()) {

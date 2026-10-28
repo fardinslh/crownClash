@@ -1,5 +1,5 @@
 # Crown Clash — Art Bible & Visual Direction
-**Version:** 1.7
+**Version:** 1.8
 **Target Platform:** Mobile WebViews (Bale, Eitaa, Telegram, Mobile Web)
 **Visual Style:** Stylized 2.5D (Blender renders → optimized 2D sprites at runtime)
 **Primary Goal:** Instant tactical readability, bright volumetric cartoon environments, and polished composition on compact mobile screens.
@@ -28,6 +28,15 @@ The shared kit strengthens barracks corner turrets and shield, stable horseshoe,
 and chunky troop helmets, bodies and team-colored panels. Camera pitch, server
 coordinates, hit radii, travel rules, the `1.22` spacing and `6.2` plinth lift stay
 fixed.
+
+**v1.8:** sharpness tiers and a battle colour grade. The canvas renders at the device pixel ratio up to 3x on capable phones
+(`apps/game/src/render/RenderProfile.ts`: `low` 1x, `mid` up to 2x, `high` up to 3x) and the `high` tier loads an HD art set
+mirrored under `assets/hd/` (buildings and props up to 3x their SD size, 256 px marching units, 1140x2502 ground plates; see
+`docs/art/README.md`). On `high`, the battle camera also gets one colour-matrix pass (`render/SceneGrade.ts`: saturation +0.25,
+contrast +0.08) for richer greens and blues. Camera, projection, layout, silhouettes and palette are unchanged, so gameplay,
+hit radii and replays are not affected. Tried and rejected: a navy vignette (dimmed the whole board and the HUD), a thin
+Freestyle toon outline (it also outlines the contact-shadow ellipse) and a brighter `vivid` Blender light preset (not visible at
+game size; it stays available as `--look vivid`).
 
 **v1.7:** hub screens sit on a Blender meadow backdrop and the menu hero is the rendered
 citadel with two knights (§17); battle feel tiers and match start/end beats (§7).

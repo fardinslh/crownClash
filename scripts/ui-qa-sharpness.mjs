@@ -60,6 +60,7 @@ for (const dpr of (process.env.CC_QA_DPRS ?? '1,2,3').split(',').map(Number)) {
     const line = (a, b, n = 10) => Array.from({ length: n + 1 }, (_, i) => ({ x: a.x + (b.x - a.x) * i / n, y: a.y + (b.y - a.y) * i / n }));
 
     const url = new URL(appUrl); url.searchParams.set('user_id', external); url.searchParams.set('username', username);
+    for (const [k, v] of new URLSearchParams(process.env.CC_QA_QUERY ?? '')) url.searchParams.set(k, v);
     await cdp.send('Page.navigate', { url: url.toString() });
     await wait(`${game}?.scene.isActive('MenuScene')`);
     await sleep(1200);
@@ -69,6 +70,8 @@ for (const dpr of (process.env.CC_QA_DPRS ?? '1,2,3').split(',').map(Number)) {
     const info = await evaluate(`(()=>{const g=${game};const c=g.canvas;const r=c.getBoundingClientRect();return {tier:g.registry.get('renderTier')??null,renderScale:g.registry.get('renderScale'),backing:[c.width,c.height],cssSize:[Math.round(r.width),Math.round(r.height)],devicePixelRatio:window.devicePixelRatio,renderer:g.renderer.type===2?'WebGL':'Canvas',assetTier:g.registry.get('assetTier')??null,hdFiles:performance.getEntriesByType('resource').filter(r=>r.name.includes('/assets/hd/')).length,failedFiles:performance.getEntriesByType('resource').filter(r=>r.name.includes('/assets/')&&r.responseStatus>=400).map(r=>r.name)}})()`);
     const physical = info.cssSize[0] * dpr;
     await shot('battle');
+    // CC_QA_EVAL: JS run in the page before an extra screenshot (e.g. to try camera filter values live).
+    if (process.env.CC_QA_EVAL) { await evaluate(process.env.CC_QA_EVAL); await sleep(600); await shot('battle-eval'); }
     const fps = await evaluate(`new Promise((resolve)=>{const g=${game};const s=[];const t=setInterval(()=>s.push(g.loop.actualFps),250);setTimeout(()=>{clearInterval(t);resolve(Math.round(s.reduce((a,b)=>a+b,0)/Math.max(1,s.length)))},8000)})`);
     console.log(`dpr ${dpr}: ${JSON.stringify(info)} physicalWidth=${physical} upscale=${(physical / info.backing[0]).toFixed(2)} fps~${fps}`);
     assert.deepEqual(errors, [], `no page errors at dpr ${dpr}`);

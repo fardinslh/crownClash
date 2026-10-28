@@ -75,6 +75,23 @@ RIM_LIGHT_COLOR = (1.0, 1.0, 1.0)
 RIM_LIGHT_ENERGY = 1.35
 WORLD_AMBIENT_COLOR = (0x16 / 255, 0x1B / 255, 0x26 / 255)  # slate #161B26
 WORLD_AMBIENT_STRENGTH = 0.28
+# Named looks for `--look`. `classic` is the v1.7 kit; `vivid` (v1.8) lifts the stone, deepens the roof colours
+# and brightens the rim so buildings pop on the meadow. Ground plates keep `classic` unless re-rendered on purpose.
+LOOK_PRESETS = {
+    "classic": {},
+    "vivid": {
+        "RENDER_LOOK": "AgX - High Contrast",
+        "KEY_LIGHT_ENERGY": 2.8,
+        "FILL_LIGHT_ENERGY": 1.1,
+        "RIM_LIGHT_ENERGY": 1.9,
+        "WORLD_AMBIENT_STRENGTH": 0.38,
+    },
+}
+# Render look (view transform and optional toon outline). `--look-json` overrides any of the light constants above
+# plus these keys, so a new look can be tried on one asset before it becomes a preset.
+RENDER_LOOK = "AgX - Medium High Contrast"
+OUTLINE_PX = 0.0                         # Freestyle outline thickness in px; 0 disables it
+OUTLINE_COLOR = (0.043, 0.063, 0.125)    # #0B1020, the UI outline colour
 
 MASTER_RESOLUTION = 512
 # Ground plates cover the full 380x640-logical-px field rect, so their masters
@@ -255,6 +272,23 @@ def parse_args(argv):
     parser.add_argument("--output", default="art/blender/renders", help="output directory for PNG masters")
     parser.add_argument("--samples", type=int, default=64, help="Cycles samples (fixed seed, deterministic)")
     parser.add_argument("--opaque", action="store_true", help="disable transparent film background")
+    parser.add_argument(
+        "--look",
+        choices=sorted(LOOK_PRESETS),
+        default="classic",
+        help="named lighting/colour look (default classic, the shipped v1.7 kit)",
+    )
+    parser.add_argument(
+        "--look-json",
+        default="",
+        help="JSON object overriding KEY/FILL/RIM_LIGHT_*, WORLD_AMBIENT_STRENGTH, RENDER_LOOK, OUTLINE_PX, OUTLINE_COLOR",
+    )
+    parser.add_argument(
+        "--resolution",
+        type=int,
+        default=MASTER_RESOLUTION,
+        help=f"square sprite master size in px (default {MASTER_RESOLUTION}); ground plates keep their own sizes",
+    )
     args = parser.parse_args(argv)
     if not args.pack and not args.asset:
         parser.error("choose --pack <id> or --asset <render-name> --pack <id>")
@@ -2062,7 +2096,19 @@ def configure_render(output_dir, transparent=True, samples=64, resolution=None):
     scene.render.image_settings.color_depth = "8"
     scene.render.image_settings.compression = 15
     scene.view_settings.view_transform = "AgX"
-    scene.view_settings.look = "AgX - Medium High Contrast"
+    scene.view_settings.look = RENDER_LOOK
+    scene.render.use_freestyle = OUTLINE_PX > 0
+    if OUTLINE_PX > 0:
+        view_layer = bpy.context.view_layer
+        view_layer.use_freestyle = True
+        lineset = view_layer.freestyle_settings.linesets[0] if view_layer.freestyle_settings.linesets else view_layer.freestyle_settings.linesets.new("CC_Outline")
+        lineset.select_silhouette = True
+        lineset.select_border = True
+        lineset.select_crease = False
+        linestyle = lineset.linestyle
+        linestyle.color = OUTLINE_COLOR
+        linestyle.thickness = OUTLINE_PX
+        linestyle.alpha = 0.9
     os.makedirs(output_dir, exist_ok=True)
     scene.render.filepath = os.path.join(output_dir, "render_")
 
@@ -2200,6 +2246,17 @@ def main(argv):
     # pack/asset combination is fully validated BEFORE requiring bpy, so bad
     # invocations fail with exit code 2 on any machine.
     args = parse_args(argv)
+    for name, value in LOOK_PRESETS[args.look].items():
+        globals()[name] = tuple(value) if isinstance(value, list) else value
+    if args.look_json:
+        allowed = {
+            "KEY_LIGHT_ENERGY", "KEY_LIGHT_COLOR", "FILL_LIGHT_ENERGY", "FILL_LIGHT_COLOR", "RIM_LIGHT_ENERGY",
+            "RIM_LIGHT_COLOR", "WORLD_AMBIENT_STRENGTH", "RENDER_LOOK", "OUTLINE_PX", "OUTLINE_COLOR",
+        }
+        for name, value in json.loads(args.look_json).items():
+            if name not in allowed:
+                raise SystemExit(f"--look-json: unknown key {name}")
+            globals()[name] = tuple(value) if isinstance(value, list) else value
     manifest = load_asset_manifest(args.manifest)
     assets = resolve_assets_to_render(manifest, args.pack, args.asset)
     require_bpy()
@@ -2212,6 +2269,8 @@ def main(argv):
                 if ground_is_diorama(builder_name)
                 else GROUND_MASTER_RESOLUTION
             )
+        elif args.resolution != MASTER_RESOLUTION:
+            resolution = (args.resolution, args.resolution)
         else:
             resolution = None
         render_asset(args.output, render_name, samples=args.samples,

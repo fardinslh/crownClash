@@ -24,6 +24,7 @@ scenarios.json
 
 # Generated Blender output and Python caches; keep source scripts and assets.
 art/blender/renders/
+art/blender/renders-*/
 tools/blender/tmp/
 __pycache__/
 *.py[cod]

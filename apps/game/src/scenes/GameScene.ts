@@ -116,6 +116,7 @@ import {
 } from '../analytics/Analytics.js';
 import { sounds } from '../audio/SoundEffects.js';
 import { THEME, UI } from '../theme.js';
+import { applySceneGrade } from '../render/SceneGrade.js';
 import { HD_ART_VERSION, hasHdArt, resolveArtPath, type AssetTier } from '../art/hdArt.js';
 import { createPlatformAdapter, isHapticsEnabled, PlatformAdapter, setHapticsEnabled } from '@crown-clash/platform';
 import {
@@ -607,6 +608,7 @@ export class GameScene extends Phaser.Scene {
   create(): void {
     this.resultPending = false;
     setupSceneCamera(this);
+    applySceneGrade(this, this.registry?.get?.('renderTier') === 'high' && this.registry?.get?.('reducedEffects') !== true);
     // The viewport height can change after boot (Bale expand applying late,
     // rotation, window resize). The camera re-centers immediately on every
     // resize; the debounced callback rebuilds the arena for the new height

@@ -311,3 +311,25 @@ and existing squad trajectories at spawn. They follow the projected squad anchor
 per-frame candidate changes or stride bob. Edge clamping is continuous; board
 scale changes retain the relative attachment. `CC_QA_STABLE_BADGES=1` enables
 full-route motion traces in the isolated battlefield capture script.
+
+## HD tier (render tier `high`)
+
+`apps/game/src/render/RenderProfile.ts` picks `low`, `mid` or `high` per device (DPR, memory, cores, Android version, a stored
+FPS-guard cap). Only `high` asks for `assetTier: 'hd'`; the loader (`apps/game/src/art/hdArt.ts`, used by `GameScene.preload`)
+then requests `assets/hd/<same path>` for every file listed in `apps/game/src/art/hd-art-manifest.json` and falls back to the SD
+file for anything not listed, so `mid`/`low` devices download exactly what they did before.
+
+Export with `node scripts/export-hd-art.mjs` (needs `cwebp` and `ffmpeg` and the git-ignored masters in
+`art/blender/renders`, or `HD_MASTERS=art/blender/renders-vivid`):
+
+- buildings and props: up to 3x the SD size, never above the master (WebP, q 88);
+- ground plates: the 1140x2502 masters as they are (the SD plate is 760x1668);
+- marching units: 256 px PNG (SD is 128 px); `GameScene` scales unit sprites by `128 / sprite.width` so their on-screen size is
+  the same on both tiers;
+- the generic PNG pack is the fallback for battlefields without dedicated art and stays SD.
+
+HD files are cached like the SD ones: bump `version` in the generated manifest (`HD_ART_VERSION`) when they change. Render
+sprite masters at a higher size with `tools/blender/render_battlefield.sh <pack> --resolution 1024` (about 18 s per sprite on
+this Mac); `--look vivid` and `--look-json '{...}'` try another lighting look on one asset before it becomes a preset (`classic`
+is the shipped one).
+
