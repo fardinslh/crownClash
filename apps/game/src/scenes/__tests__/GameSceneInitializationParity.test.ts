@@ -1190,6 +1190,35 @@ describe('tactical main-game integration', () => {
     expect(scene.gameState.territories.n_mid_left.units).toBe(10);
     scene.cleanup();
   });
+  it('links a friendly tower the finger jumped over in one fast swipe and attacks from both', () => {
+    const scene: any = new GameScene();
+    scene.registry.set('platform', new BrowserPlatformAdapter());
+    scene.scene.settings.data = { mode: 'bot', botMatch: { matchId: 'bot_fast_swipe', battlefieldId: 'crown_cross', gameplayRulesVersion: 3 } };
+    scene.create();
+    scene.introHolding = false;
+    scene.game = { canvas: { width: 400, height: 720, getBoundingClientRect: () => ({ width: 360, height: 640 }) } };
+    scene.gameState.territories.n_mid_left.owner = 'player';
+    scene.gameState.territories.n_mid_left.units = 20;
+    const emit = (event: string, id: string) => {
+      const t = scene.gameState.territories[id], p = scene.projectSocketPoint(t.x, t.y);
+      const pointer = { x: p.u, y: p.v, positionToCamera: (_camera: unknown, out: any) => out.set(p.u, p.v) };
+      for (const [name, handler] of scene.input.on.mock.calls) if (name === event) handler(pointer);
+    };
+    emit('pointerdown', 'n_bot_left');
+    emit('pointermove', 'n_bot_left'); // a first sample on the source
+    emit('pointermove', 'n_top_left'); // one jump: no sample ever lands on n_mid_left
+    expect(scene.selectedSourceIds).toEqual(['n_bot_left', 'n_mid_left']);
+    emit('pointerup', 'n_top_left');
+    expect(scene.matchActions.map((a: any) => [a.sourceId, a.targetId])).toEqual(
+      expect.arrayContaining([['n_bot_left', 'n_top_left'], ['n_mid_left', 'n_top_left']]),
+    );
+    expect(scene.matchActions).toHaveLength(2);
+    // The next drag must not inherit this swipe's last position.
+    expect(scene.lastDragWorld).not.toBeNull();
+    emit('pointerdown', 'p_base');
+    expect(scene.lastDragWorld).toBeNull();
+    scene.cleanup();
+  });
   it('records a versioned bot quit through the menu controller', () => {
     const scene:any=new GameScene();scene.registry.set('platform',new BrowserPlatformAdapter());
     scene.scene.settings.data={mode:'bot',botMatch:{matchId:'bot_quit_v3',battlefieldId:'crown_cross',gameplayRulesVersion:3}};

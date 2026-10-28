@@ -4,6 +4,7 @@ import { PilotClient } from '../realm/PilotClient.js';
 import type { RealmTicket, RealmResult } from '@crown-clash/game-core';
 import Phaser from 'phaser';
 import { drawTacticalDrag } from '../ui/TacticalDrag.js';
+import { territoriesCrossedBySegment } from '../ui/TerritorySweep.js';
 import { TerritoryTap } from '../ui/TerritoryTap.js';
 import { anchoredArmyBadge, planArmyBadgeOffset, type ArmyBadgeOffset, type ArmyBadgeRoute } from '../art/ArmyBadgeLayout.js';
 import type { Rect } from '../ui/HudLayout.js';
@@ -211,6 +212,8 @@ import { rankName, upgradeMilestoneLabel } from '../i18n/fa.js';
  * the viewport to settle (interactive resizes, Bale expand animation).
  */
 const VIEWPORT_RELAYOUT_DEBOUNCE_MS = 200;
+/** Finger slack around a tower's circle for hover and swipe-through hits. */
+const TERRITORY_HIT_PADDING = 18;
 /** Rounds a Rectangle shape where the renderer supports it (no-op in test doubles). */
 function roundedCorners(shape: { setRounded?: (radius: number) => unknown; height?: number }, radius: number): void {
   if (typeof shape.setRounded !== 'function') return;
@@ -320,6 +323,7 @@ export class GameScene extends Phaser.Scene {
   private selectedSourceIds: string[] = [];
   private hoveredTargetId: string | null = null;
   private lastHoveredFriendlyId: string | null = null;
+  private lastDragWorld: { x: number; y: number } | null = null;
   private tacticalDragKey?: string;
   private pointerWorldPoint = new Phaser.Math.Vector2();
   /** Board projection (identity for un-migrated battlefields, diorama for crown_cross). */
@@ -2450,18 +2454,23 @@ export class GameScene extends Phaser.Scene {
     return candidate;
   }
 
-  private getTerritoryUnderPointer(pointer: Phaser.Input.Pointer): Territory | null {
+  /** Pointer in the authoritative flat world (identity layouts unproject 1:1). */
+  private pointerToWorld(pointer: Phaser.Input.Pointer): { x: number; y: number } {
     pointer.positionToCamera(this.cameras.main, this.pointerWorldPoint);
-    // Pointer lands in projected screen space: map it back to the
-    // authoritative flat world before the circle hit-test (identity layouts
-    // unproject 1:1, so legacy hit accuracy is unchanged).
     const world = this.boardLayout.unproject(this.pointerWorldPoint.x, this.pointerWorldPoint.y);
+    return { x: world.x, y: world.y };
+  }
+
+  private getTerritoryUnderPointer(pointer: Phaser.Input.Pointer): Territory | null {
+    // Pointer lands in projected screen space: map it back to the
+    // authoritative flat world before the circle hit-test.
+    const world = this.pointerToWorld(pointer);
     let closest: Territory | null = null;
     let minDistance = Infinity;
 
     for (const t of Object.values(this.gameState.territories)) {
       const dist = Phaser.Math.Distance.Between(world.x, world.y, t.x, t.y);
-      const hitRadius = t.radius + 18;
+      const hitRadius = t.radius + TERRITORY_HIT_PADDING;
       if (dist <= hitRadius && dist < minDistance) {
         minDistance = dist;
         closest = t;
@@ -2512,23 +2521,21 @@ export class GameScene extends Phaser.Scene {
       const hoveredTerritory = this.getTerritoryUnderPointer(pointer);
       const previousTargetId = this.hoveredTargetId;
 
+      // A quick swipe can jump over a small tower between two move events:
+      // every friendly tower the finger crossed since the last sample joins
+      // the strike, in the order it was crossed.
+      const world = this.pointerToWorld(pointer);
+      const previousWorld = this.lastDragWorld ?? world;
+      this.lastDragWorld = world;
+      for (const crossed of territoriesCrossedBySegment(Object.values(this.gameState.territories), previousWorld, world, TERRITORY_HIT_PADDING)) {
+        if (crossed.id !== hoveredTerritory?.id) this.linkFriendlySource(crossed);
+      }
+
       // Check if we just left a previously hovered friendly territory.
       // If the player dragged onto a friendly territory and then moved away without releasing,
       // that means they swiped through it to link it into a coordinated multi-base strike!
       if (this.lastHoveredFriendlyId && (!hoveredTerritory || hoveredTerritory.id !== this.lastHoveredFriendlyId)) {
-        const prevFriendly = this.gameState.territories[this.lastHoveredFriendlyId];
-        if (
-          !this.abilityTargeting &&
-          prevFriendly &&
-          prevFriendly.owner === 'player' &&
-          prevFriendly.units > 1 &&
-          !this.selectedSourceIds.includes(prevFriendly.id)
-        ) {
-          this.selectedSourceIds.push(prevFriendly.id);
-          this.highlightSelectedTerritory(prevFriendly.id);
-          sounds.playReinforce();
-          this.platform.hapticImpact('light');
-        }
+        this.linkFriendlySource(this.gameState.territories[this.lastHoveredFriendlyId]);
         this.lastHoveredFriendlyId = null;
       }
 
@@ -2588,6 +2595,21 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  /** Adds a friendly tower the finger passed through to the strike's sources. */
+  private linkFriendlySource(territory: Territory | undefined): void {
+    if (
+      this.abilityTargeting ||
+      !territory ||
+      territory.owner !== 'player' ||
+      territory.units <= 1 ||
+      this.selectedSourceIds.includes(territory.id)
+    ) return;
+    this.selectedSourceIds.push(territory.id);
+    this.highlightSelectedTerritory(territory.id);
+    sounds.playReinforce();
+    this.platform.hapticImpact('light');
+  }
+
   private pointerCss(pointer: Phaser.Input.Pointer): { x: number; y: number } {
     const bounds = this.game.canvas.getBoundingClientRect();
     return { x: pointer.x * bounds.width / this.game.canvas.width, y: pointer.y * bounds.height / this.game.canvas.height };
@@ -2608,6 +2630,7 @@ export class GameScene extends Phaser.Scene {
     if (territory.owner === 'player' && territory.units > 1) {
       this.selectedSourceIds = [territoryId];
       this.lastHoveredFriendlyId = null;
+      this.lastDragWorld = null;
       this.hoveredTargetId = null;
       this.highlightSelectedTerritory(territoryId);
       sounds.playSelect();
