@@ -298,7 +298,7 @@ export class MenuScene extends Phaser.Scene {
       label: fa.menu.play,
       icon: 'swords',
       fontSize: 24,
-      variant: 'primary',
+      variant: 'gold',
       onPress: () => {
         if (this.isTransitioning) return;
         // Ordinary bot entry routes through training first while the
