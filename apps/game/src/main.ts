@@ -3,11 +3,12 @@ import Phaser from 'phaser';
 import { LOGICAL_HEIGHT, LOGICAL_WIDTH } from '@crown-clash/game-core';
 import { createPlatformAdapter } from '@crown-clash/platform';
 import { AnalyticsSink } from './analytics/AnalyticsSink.js';
-import { trackSessionStart } from './analytics/Analytics.js';
+import { trackEvent, trackSessionStart } from './analytics/Analytics.js';
 import { installClientErrorReporter } from './analytics/ClientErrorReporter.js';
 import { getSharedGameApiClient } from './api/sharedClient.js';
 import { GameScene } from './scenes/GameScene.js';
 import { MenuScene } from './scenes/MenuScene.js';
+import { createFpsGuard, readRenderTierCap, writeRenderTierCap } from './render/FpsGuard.js';
 import { selectRenderProfile } from './render/RenderProfile.js';
 
 // 1. Initialize Platform Adapter (Bale -> Eitaa -> Telegram -> Browser).
@@ -42,6 +43,38 @@ const loadGameFonts = async (): Promise<void> => {
   await Promise.race([loads, timeout]);
 };
 
+const safeLocalStorage = (): Storage | undefined => {
+  try {
+    return window.localStorage;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * Samples the frame rate while a battle is on screen and, if the first stretch is clearly slow, stores a
+ * lower tier cap so the next launch renders cheaper. Never changes resolution mid-session.
+ */
+const watchBattleFps = (game: Phaser.Game, tier: 'low' | 'mid' | 'high'): void => {
+  const guard = createFpsGuard({
+    tier,
+    onDowngrade: (from, to, averageFps) => {
+      writeRenderTierCap(safeLocalStorage(), to);
+      trackEvent({ name: 'render_tier_downgraded', from, to, fps: averageFps });
+    },
+  });
+  if (guard.judged) return;
+  const intervalMs = 500;
+  const timer = window.setInterval(() => {
+    if (guard.judged) {
+      window.clearInterval(timer);
+      return;
+    }
+    if (document.visibilityState !== 'visible' || !game.scene.isActive('GameScene')) return;
+    guard.sample(game.loop.actualFps, intervalMs / 1000);
+  }, intervalMs);
+};
+
 const startApp = async (): Promise<void> => {
   platform.ready();
   new PilotClient(platform).captureEntry();
@@ -71,6 +104,8 @@ const startApp = async (): Promise<void> => {
     devicePixelRatio: window.devicePixelRatio || 1,
     userAgent: navigator.userAgent,
     deviceMemory: (navigator as Navigator & { deviceMemory?: number }).deviceMemory,
+    hardwareConcurrency: navigator.hardwareConcurrency || undefined,
+    tierCap: readRenderTierCap(safeLocalStorage()),
   });
   const RENDER_SCALE = renderProfile.renderScale;
 
@@ -111,12 +146,15 @@ const startApp = async (): Promise<void> => {
         bootedGame.registry.set('platform', platform);
         bootedGame.registry.set('renderScale', RENDER_SCALE);
         bootedGame.registry.set('reducedEffects', renderProfile.reducedEffects);
+        bootedGame.registry.set('renderTier', renderProfile.tier);
+        bootedGame.registry.set('assetTier', renderProfile.assetTier);
       },
     },
   };
 
   const game = new Phaser.Game(config);
   (window as unknown as { __PHASER_GAME__?: Phaser.Game }).__PHASER_GAME__ = game;
+  watchBattleFps(game, renderProfile.tier);
 
   if (
     typeof window !== 'undefined' &&

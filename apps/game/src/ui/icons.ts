@@ -17,7 +17,14 @@ export type IconKey =
   | 'rank_recruit' | 'rank_soldier' | 'rank_knight' | 'rank_commander' | 'rank_warlord' | 'rank_crown_lord';
 
 const GRID = 64;
-const SCALE = 2;
+/** Raster scale of the icon canvases: 2x by default, 3x when the canvas itself renders at 3x (high tier). */
+const MIN_SCALE = 2;
+const MAX_SCALE = 3;
+
+export function iconRasterScale(renderScale: unknown): number {
+  const value = typeof renderScale === 'number' && Number.isFinite(renderScale) ? Math.ceil(renderScale) : MIN_SCALE;
+  return Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
+}
 const OUTLINE = 0x0b1020;
 const textureKey = (key: IconKey): string => `ui_icon_v2_${key}`;
 
@@ -373,6 +380,7 @@ export function commanderIcon(commanderId: string): IconKey {
 export function ensureIcons(scene: Phaser.Scene): void {
   const textures = scene.textures as Phaser.Textures.TextureManager | undefined;
   if (!textures || typeof textures.createCanvas !== 'function') return;
+  const SCALE = iconRasterScale(scene.registry?.get?.('renderScale'));
   for (const key of Object.keys(DRAW) as IconKey[]) {
     const tk = textureKey(key);
     if (textures.exists(tk)) continue;

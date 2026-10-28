@@ -116,6 +116,7 @@ import {
 } from '../analytics/Analytics.js';
 import { sounds } from '../audio/SoundEffects.js';
 import { THEME, UI } from '../theme.js';
+import { HD_ART_VERSION, hasHdArt, resolveArtPath, type AssetTier } from '../art/hdArt.js';
 import { createPlatformAdapter, isHapticsEnabled, PlatformAdapter, setHapticsEnabled } from '@crown-clash/platform';
 import {
   LiveMatchClient,
@@ -244,6 +245,13 @@ const UNIT_SPRITE_BASES = [
   'unit_follower_enemy',
 ] as const;
 const UNIT_SPRITE_FACINGS = ['front', 'back', 'side'] as const;
+const UNIT_SD_TEXTURE_SIZE = 128;
+/**
+ * Scale factor that keeps a unit sprite the same on-screen size whichever art tier its texture came from:
+ * SD unit textures are 128 px, HD ones 256 px. Read from the sprite's current frame, so a shared
+ * texture key that was cached from the other tier (the menu loads one SD knight) still draws correctly.
+ */
+const unitSpriteNorm = (sprite: { readonly width: number }): number => (sprite.width > 0 ? UNIT_SD_TEXTURE_SIZE / sprite.width : 1);
 
 interface TerritoryVisual {
   territory: Territory;
@@ -526,10 +534,18 @@ export class GameScene extends Phaser.Scene {
     super({ key: 'GameScene' });
   }
 
+  private currentAssetTier(): AssetTier {
+    return this.registry?.get?.('assetTier') === 'hd' ? 'hd' : 'sd';
+  }
+
   preload(): void {
     // Fixed asset filenames are cached for 30 days in production. Bump this
     // revision with baked map art changes so existing players load the new kit.
-    const mapArtPath = (path: string): string => `${path}?v=cartoon-meadow-v1.7`;
+    const assetTier = this.currentAssetTier();
+    const mapArtPath = (path: string): string =>
+      hasHdArt(path) && assetTier === 'hd'
+        ? `${resolveArtPath(path, assetTier)}?v=${HD_ART_VERSION}`
+        : `${path}?v=cartoon-meadow-v1.7`;
     // Track texture files that fail to load so the scene can substitute
     // procedural fallbacks instead of rendering broken sprites (the game must
     // never depend on the Blender source pipeline being present).
@@ -4598,8 +4614,8 @@ export class GameScene extends Phaser.Scene {
 
           const sprite = this.add
             .image(followerX, followerY, followerTexture)
-            .setScale(0.19 * unitScale * scale)
             .setFlipX(isFacingLeft);
+          sprite.setScale(0.19 * unitScale * unitSpriteNorm(sprite) * scale);
 
           followers.push({
             shadow,
@@ -4622,8 +4638,8 @@ export class GameScene extends Phaser.Scene {
         const leaderTexture = this.getMarchTexture(army.owner, 'leader', angle);
         const leaderSprite = this.add
           .image(0, 0, leaderTexture)
-          .setScale(0.25 * unitScale * scale)
           .setFlipX(isFacingLeft);
+        leaderSprite.setScale(0.25 * unitScale * unitSpriteNorm(leaderSprite) * scale);
 
         // 4. High-contrast Troop Count Pill Badge. In 2v2 the marching
         // army is attributed to its dispatching slot via the shape glyph
@@ -4791,14 +4807,16 @@ export class GameScene extends Phaser.Scene {
         visual.phaseSeconds += deltaSeconds;
         const leaderStride = computeMarchStride(visual.phaseSeconds, 0, this.sharedStrideMetrics);
         visual.leaderSprite.y = leaderStride.leaderY * unitScale * scale;
-        visual.leaderSprite.setScale(leaderStride.leaderScaleX * unitScale * scale, leaderStride.leaderScaleY * unitScale * scale);
+        const leaderNorm = unitSpriteNorm(visual.leaderSprite);
+        visual.leaderSprite.setScale(leaderStride.leaderScaleX * unitScale * leaderNorm * scale, leaderStride.leaderScaleY * unitScale * leaderNorm * scale);
 
         const followerCount = visual.followers.length;
         for (let fIdx = 0; fIdx < followerCount; fIdx++) {
           const f = visual.followers[fIdx];
           const fStride = computeMarchStride(visual.phaseSeconds, f.delaySeconds, this.sharedStrideMetrics);
           f.sprite.y = f.relY + fStride.followerYOffset * unitScale * scale;
-          f.sprite.setScale(fStride.followerScaleX * unitScale * scale, fStride.followerScaleY * unitScale * scale);
+          const followerNorm = unitSpriteNorm(f.sprite);
+          f.sprite.setScale(fStride.followerScaleX * unitScale * followerNorm * scale, fStride.followerScaleY * unitScale * followerNorm * scale);
         }
       }
     }
@@ -5182,9 +5200,9 @@ export class GameScene extends Phaser.Scene {
       sprite
         .setTexture(this.getMarchTexture(soldier.owner, 'follower', angle))
         .setFlipX(Math.cos(angle) < -0.05)
-        .setScale(size)
         .setPosition(here.u, here.v + bob)
         .setVisible(true);
+      sprite.setScale(size * unitSpriteNorm(sprite));
     });
     for (let i = lanes.soldiers.length; i < this.laneSoldierSprites.length; i++) this.laneSoldierSprites[i].setVisible(false);
     return true;

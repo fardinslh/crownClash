@@ -1065,6 +1065,7 @@ var analyticsEventDefinitions = map[string]analyticsEventDefinition{
 	"lane_battle_failed":         {properties: map[string]analyticsPropertyKind{"levelId": analyticsPropertyNumber, "durationSeconds": analyticsPropertyNumber}},
 	"lane_reward_claimed":        {properties: analyticsProperties("claimId")},
 	"lane_tutorial_completed":    {properties: map[string]analyticsPropertyKind{}},
+	"render_tier_downgraded":     {properties: map[string]analyticsPropertyKind{"from": analyticsPropertyString, "to": analyticsPropertyString, "fps": analyticsPropertyNumber}},
 	"tutorial_started":           {properties: map[string]analyticsPropertyKind{}},
 	"tutorial_step_completed":    {properties: analyticsProperties("stepId")},
 	"tutorial_completed":         {properties: map[string]analyticsPropertyKind{}},

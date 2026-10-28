@@ -1,0 +1,503 @@
+{
+  "version": "hd-v1",
+  "files": {
+    "assets/environment/bush.webp": {
+      "hd": "assets/hd/environment/bush.webp",
+      "width": 288,
+      "height": 288,
+      "bytes": 5026
+    },
+    "assets/environment/grass_tuft.webp": {
+      "hd": "assets/hd/environment/grass_tuft.webp",
+      "width": 192,
+      "height": 192,
+      "bytes": 2184
+    },
+    "assets/environment/pennant.webp": {
+      "hd": "assets/hd/environment/pennant.webp",
+      "width": 288,
+      "height": 288,
+      "bytes": 2058
+    },
+    "assets/environment/rock.webp": {
+      "hd": "assets/hd/environment/rock.webp",
+      "width": 192,
+      "height": 192,
+      "bytes": 2660
+    },
+    "assets/environment/tree_apple.webp": {
+      "hd": "assets/hd/environment/tree_apple.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 10814
+    },
+    "assets/environment/tree_birch.webp": {
+      "hd": "assets/hd/environment/tree_birch.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 9704
+    },
+    "assets/environment/tree_pine.webp": {
+      "hd": "assets/hd/environment/tree_pine.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 7754
+    },
+    "assets/grounds/ground_crown_cross.webp": {
+      "hd": "assets/hd/grounds/ground_crown_cross.webp",
+      "width": 1140,
+      "height": 2502,
+      "bytes": 131922
+    },
+    "assets/grounds/ground_quad_citadel.webp": {
+      "hd": "assets/hd/grounds/ground_quad_citadel.webp",
+      "width": 1140,
+      "height": 2502,
+      "bytes": 123292
+    },
+    "assets/grounds/ground_royal_ring.webp": {
+      "hd": "assets/hd/grounds/ground_royal_ring.webp",
+      "width": 1140,
+      "height": 2502,
+      "bytes": 136766
+    },
+    "assets/grounds/ground_twin_passes.webp": {
+      "hd": "assets/hd/grounds/ground_twin_passes.webp",
+      "width": 1140,
+      "height": 2502,
+      "bytes": 134392
+    },
+    "assets/territories/crown_cross/barracks_enemy.webp": {
+      "hd": "assets/hd/territories/crown_cross/barracks_enemy.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 9220
+    },
+    "assets/territories/crown_cross/barracks_neutral.webp": {
+      "hd": "assets/hd/territories/crown_cross/barracks_neutral.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 8538
+    },
+    "assets/territories/crown_cross/barracks_player.webp": {
+      "hd": "assets/hd/territories/crown_cross/barracks_player.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 9486
+    },
+    "assets/territories/crown_cross/citadel_enemy.webp": {
+      "hd": "assets/hd/territories/crown_cross/citadel_enemy.webp",
+      "width": 480,
+      "height": 480,
+      "bytes": 17020
+    },
+    "assets/territories/crown_cross/citadel_player.webp": {
+      "hd": "assets/hd/territories/crown_cross/citadel_player.webp",
+      "width": 480,
+      "height": 480,
+      "bytes": 17512
+    },
+    "assets/territories/crown_cross/crown_keep_enemy.webp": {
+      "hd": "assets/hd/territories/crown_cross/crown_keep_enemy.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 12754
+    },
+    "assets/territories/crown_cross/crown_keep_neutral.webp": {
+      "hd": "assets/hd/territories/crown_cross/crown_keep_neutral.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 12720
+    },
+    "assets/territories/crown_cross/crown_keep_player.webp": {
+      "hd": "assets/hd/territories/crown_cross/crown_keep_player.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 13228
+    },
+    "assets/territories/crown_cross/outpost_enemy.webp": {
+      "hd": "assets/hd/territories/crown_cross/outpost_enemy.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 9124
+    },
+    "assets/territories/crown_cross/outpost_neutral.webp": {
+      "hd": "assets/hd/territories/crown_cross/outpost_neutral.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 8428
+    },
+    "assets/territories/crown_cross/outpost_player.webp": {
+      "hd": "assets/hd/territories/crown_cross/outpost_player.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 9244
+    },
+    "assets/territories/crown_cross/stable_enemy.webp": {
+      "hd": "assets/hd/territories/crown_cross/stable_enemy.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 8196
+    },
+    "assets/territories/crown_cross/stable_neutral.webp": {
+      "hd": "assets/hd/territories/crown_cross/stable_neutral.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 7714
+    },
+    "assets/territories/crown_cross/stable_player.webp": {
+      "hd": "assets/hd/territories/crown_cross/stable_player.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 8632
+    },
+    "assets/territories/quad_citadel/barracks_enemy.webp": {
+      "hd": "assets/hd/territories/quad_citadel/barracks_enemy.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 9432
+    },
+    "assets/territories/quad_citadel/barracks_neutral.webp": {
+      "hd": "assets/hd/territories/quad_citadel/barracks_neutral.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 9162
+    },
+    "assets/territories/quad_citadel/barracks_player.webp": {
+      "hd": "assets/hd/territories/quad_citadel/barracks_player.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 9976
+    },
+    "assets/territories/quad_citadel/citadel_enemy.webp": {
+      "hd": "assets/hd/territories/quad_citadel/citadel_enemy.webp",
+      "width": 480,
+      "height": 480,
+      "bytes": 17404
+    },
+    "assets/territories/quad_citadel/citadel_player.webp": {
+      "hd": "assets/hd/territories/quad_citadel/citadel_player.webp",
+      "width": 480,
+      "height": 480,
+      "bytes": 18310
+    },
+    "assets/territories/quad_citadel/crown_keep_enemy.webp": {
+      "hd": "assets/hd/territories/quad_citadel/crown_keep_enemy.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 13932
+    },
+    "assets/territories/quad_citadel/crown_keep_neutral.webp": {
+      "hd": "assets/hd/territories/quad_citadel/crown_keep_neutral.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 13984
+    },
+    "assets/territories/quad_citadel/crown_keep_player.webp": {
+      "hd": "assets/hd/territories/quad_citadel/crown_keep_player.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 14544
+    },
+    "assets/territories/quad_citadel/outpost_enemy.webp": {
+      "hd": "assets/hd/territories/quad_citadel/outpost_enemy.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 10600
+    },
+    "assets/territories/quad_citadel/outpost_neutral.webp": {
+      "hd": "assets/hd/territories/quad_citadel/outpost_neutral.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 10090
+    },
+    "assets/territories/quad_citadel/outpost_player.webp": {
+      "hd": "assets/hd/territories/quad_citadel/outpost_player.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 10690
+    },
+    "assets/territories/quad_citadel/stable_enemy.webp": {
+      "hd": "assets/hd/territories/quad_citadel/stable_enemy.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 7990
+    },
+    "assets/territories/quad_citadel/stable_neutral.webp": {
+      "hd": "assets/hd/territories/quad_citadel/stable_neutral.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 7506
+    },
+    "assets/territories/quad_citadel/stable_player.webp": {
+      "hd": "assets/hd/territories/quad_citadel/stable_player.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 8446
+    },
+    "assets/territories/royal_ring/barracks_enemy.webp": {
+      "hd": "assets/hd/territories/royal_ring/barracks_enemy.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 9166
+    },
+    "assets/territories/royal_ring/barracks_neutral.webp": {
+      "hd": "assets/hd/territories/royal_ring/barracks_neutral.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 8700
+    },
+    "assets/territories/royal_ring/barracks_player.webp": {
+      "hd": "assets/hd/territories/royal_ring/barracks_player.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 9532
+    },
+    "assets/territories/royal_ring/citadel_enemy.webp": {
+      "hd": "assets/hd/territories/royal_ring/citadel_enemy.webp",
+      "width": 480,
+      "height": 480,
+      "bytes": 17086
+    },
+    "assets/territories/royal_ring/citadel_player.webp": {
+      "hd": "assets/hd/territories/royal_ring/citadel_player.webp",
+      "width": 480,
+      "height": 480,
+      "bytes": 17652
+    },
+    "assets/territories/royal_ring/crown_keep_enemy.webp": {
+      "hd": "assets/hd/territories/royal_ring/crown_keep_enemy.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 12888
+    },
+    "assets/territories/royal_ring/crown_keep_neutral.webp": {
+      "hd": "assets/hd/territories/royal_ring/crown_keep_neutral.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 12868
+    },
+    "assets/territories/royal_ring/crown_keep_player.webp": {
+      "hd": "assets/hd/territories/royal_ring/crown_keep_player.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 13306
+    },
+    "assets/territories/royal_ring/outpost_enemy.webp": {
+      "hd": "assets/hd/territories/royal_ring/outpost_enemy.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 9274
+    },
+    "assets/territories/royal_ring/outpost_neutral.webp": {
+      "hd": "assets/hd/territories/royal_ring/outpost_neutral.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 8678
+    },
+    "assets/territories/royal_ring/outpost_player.webp": {
+      "hd": "assets/hd/territories/royal_ring/outpost_player.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 9410
+    },
+    "assets/territories/royal_ring/stable_enemy.webp": {
+      "hd": "assets/hd/territories/royal_ring/stable_enemy.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 8168
+    },
+    "assets/territories/royal_ring/stable_neutral.webp": {
+      "hd": "assets/hd/territories/royal_ring/stable_neutral.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 7742
+    },
+    "assets/territories/royal_ring/stable_player.webp": {
+      "hd": "assets/hd/territories/royal_ring/stable_player.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 8582
+    },
+    "assets/territories/twin_passes/barracks_enemy.webp": {
+      "hd": "assets/hd/territories/twin_passes/barracks_enemy.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 10432
+    },
+    "assets/territories/twin_passes/barracks_neutral.webp": {
+      "hd": "assets/hd/territories/twin_passes/barracks_neutral.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 9796
+    },
+    "assets/territories/twin_passes/barracks_player.webp": {
+      "hd": "assets/hd/territories/twin_passes/barracks_player.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 10732
+    },
+    "assets/territories/twin_passes/citadel_enemy.webp": {
+      "hd": "assets/hd/territories/twin_passes/citadel_enemy.webp",
+      "width": 480,
+      "height": 480,
+      "bytes": 17814
+    },
+    "assets/territories/twin_passes/citadel_player.webp": {
+      "hd": "assets/hd/territories/twin_passes/citadel_player.webp",
+      "width": 480,
+      "height": 480,
+      "bytes": 18258
+    },
+    "assets/territories/twin_passes/crown_keep_enemy.webp": {
+      "hd": "assets/hd/territories/twin_passes/crown_keep_enemy.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 13036
+    },
+    "assets/territories/twin_passes/crown_keep_neutral.webp": {
+      "hd": "assets/hd/territories/twin_passes/crown_keep_neutral.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 12948
+    },
+    "assets/territories/twin_passes/crown_keep_player.webp": {
+      "hd": "assets/hd/territories/twin_passes/crown_keep_player.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 13408
+    },
+    "assets/territories/twin_passes/outpost_enemy.webp": {
+      "hd": "assets/hd/territories/twin_passes/outpost_enemy.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 9876
+    },
+    "assets/territories/twin_passes/outpost_neutral.webp": {
+      "hd": "assets/hd/territories/twin_passes/outpost_neutral.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 9152
+    },
+    "assets/territories/twin_passes/outpost_player.webp": {
+      "hd": "assets/hd/territories/twin_passes/outpost_player.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 9978
+    },
+    "assets/territories/twin_passes/stable_enemy.webp": {
+      "hd": "assets/hd/territories/twin_passes/stable_enemy.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 8834
+    },
+    "assets/territories/twin_passes/stable_neutral.webp": {
+      "hd": "assets/hd/territories/twin_passes/stable_neutral.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 8326
+    },
+    "assets/territories/twin_passes/stable_player.webp": {
+      "hd": "assets/hd/territories/twin_passes/stable_player.webp",
+      "width": 384,
+      "height": 384,
+      "bytes": 9218
+    },
+    "assets/units/unit_follower_enemy.png": {
+      "hd": "assets/hd/units/unit_follower_enemy.png",
+      "width": 256,
+      "height": 256,
+      "bytes": 23836
+    },
+    "assets/units/unit_follower_enemy_back.png": {
+      "hd": "assets/hd/units/unit_follower_enemy_back.png",
+      "width": 256,
+      "height": 256,
+      "bytes": 28894
+    },
+    "assets/units/unit_follower_enemy_front.png": {
+      "hd": "assets/hd/units/unit_follower_enemy_front.png",
+      "width": 256,
+      "height": 256,
+      "bytes": 30714
+    },
+    "assets/units/unit_follower_enemy_side.png": {
+      "hd": "assets/hd/units/unit_follower_enemy_side.png",
+      "width": 256,
+      "height": 256,
+      "bytes": 22618
+    },
+    "assets/units/unit_follower_player.png": {
+      "hd": "assets/hd/units/unit_follower_player.png",
+      "width": 256,
+      "height": 256,
+      "bytes": 24130
+    },
+    "assets/units/unit_follower_player_back.png": {
+      "hd": "assets/hd/units/unit_follower_player_back.png",
+      "width": 256,
+      "height": 256,
+      "bytes": 28792
+    },
+    "assets/units/unit_follower_player_front.png": {
+      "hd": "assets/hd/units/unit_follower_player_front.png",
+      "width": 256,
+      "height": 256,
+      "bytes": 30925
+    },
+    "assets/units/unit_follower_player_side.png": {
+      "hd": "assets/hd/units/unit_follower_player_side.png",
+      "width": 256,
+      "height": 256,
+      "bytes": 22720
+    },
+    "assets/units/unit_leader_enemy.png": {
+      "hd": "assets/hd/units/unit_leader_enemy.png",
+      "width": 256,
+      "height": 256,
+      "bytes": 25509
+    },
+    "assets/units/unit_leader_enemy_back.png": {
+      "hd": "assets/hd/units/unit_leader_enemy_back.png",
+      "width": 256,
+      "height": 256,
+      "bytes": 28937
+    },
+    "assets/units/unit_leader_enemy_front.png": {
+      "hd": "assets/hd/units/unit_leader_enemy_front.png",
+      "width": 256,
+      "height": 256,
+      "bytes": 31315
+    },
+    "assets/units/unit_leader_enemy_side.png": {
+      "hd": "assets/hd/units/unit_leader_enemy_side.png",
+      "width": 256,
+      "height": 256,
+      "bytes": 24585
+    },
+    "assets/units/unit_leader_player.png": {
+      "hd": "assets/hd/units/unit_leader_player.png",
+      "width": 256,
+      "height": 256,
+      "bytes": 25816
+    },
+    "assets/units/unit_leader_player_back.png": {
+      "hd": "assets/hd/units/unit_leader_player_back.png",
+      "width": 256,
+      "height": 256,
+      "bytes": 29009
+    },
+    "assets/units/unit_leader_player_front.png": {
+      "hd": "assets/hd/units/unit_leader_player_front.png",
+      "width": 256,
+      "height": 256,
+      "bytes": 31623
+    },
+    "assets/units/unit_leader_player_side.png": {
+      "hd": "assets/hd/units/unit_leader_player_side.png",
+      "width": 256,
+      "height": 256,
+      "bytes": 24716
+    }
+  }
+}
