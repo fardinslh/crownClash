@@ -9,6 +9,7 @@ import type {
   MatchSettlement,
   PlayerCareer,
   PvpAction,
+  LaneAction,
   UpgradePurchaseResult,
   UpgradeType,
   CommanderId,
@@ -20,6 +21,7 @@ import {
   StaleSocketError,
   type CareerApi,
   type ClientObservedStatus,
+  type LaneClearResult,
   type LevelClearResult,
   type WeeklyClearResult,
   type WeeklyState,
@@ -308,6 +310,14 @@ export class NakamaClient implements CareerApi {
       newCareer: result.newCareer,
       ledgerEntry: result.ledgerEntry,
     };
+  }
+
+  public async completeLane(levelId: number, claimId: string, actions: readonly LaneAction[]): Promise<LaneClearResult> {
+    const raw = await this.rpc('lane/complete', JSON.stringify({ levelId, claimId, actions }));
+    const { result } = JSON.parse(raw) as {
+      result: { success: boolean; reason?: string; reward: number; newCareer?: PlayerCareer; ledgerEntry?: EconomyLedgerEntry };
+    };
+    return { success: result.success, reason: result.reason, reward: result.reward, claimId, newCareer: result.newCareer, ledgerEntry: result.ledgerEntry };
   }
 
   public async getWeekly(): Promise<WeeklyState> {

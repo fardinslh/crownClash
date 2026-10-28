@@ -399,6 +399,8 @@ export class GameScene extends Phaser.Scene {
   private laneSwipeFrom?: { x: number; y: number };
   /** The player's lane orders, recorded for the server replay (lane battles only). */
   private laneActions: LaneAction[] = [];
+  /** Why a won lane battle was not paid (shown on the result card). */
+  private laneNote?: string;
   /** Set for a Weekly Challenge battle (levelDef then mirrors its server-defined battle). */
   private weekly?: WeeklyLaunch;
   /** Why a won Weekly Challenge was not paid (shown on the result card). */
@@ -640,6 +642,7 @@ export class GameScene extends Phaser.Scene {
     this.laneDotsGraphics = undefined;
     this.laneSwipeFrom = undefined;
     this.laneActions = [];
+    this.laneNote = undefined;
     this.levelDef = this.laneLevel
       ? { id: this.laneLevel.id, battlefieldId: this.laneLevel.battlefieldId, botDifficulty: this.laneLevel.botDifficulty, enemy: this.laneLevel.enemy, coinReward: 0 }
       : this.weekly
@@ -5082,7 +5085,7 @@ export class GameScene extends Phaser.Scene {
     this.resultModalContainer = modal;
     const backdrop = this.add.rectangle(0, 0, visibleWidth, visibleHeight, 0x000000, 0.78).setInteractive();
     const buttonCount = (hasNext ? 1 : 0) + 2;
-    const note = !saved ? (this.weeklyNote ?? (weekly ? faWeekly.result.saveFailed : faLevels.result.saveFailed)) : this.weeklyNote;
+    const note = !saved ? (this.laneNote ?? this.weeklyNote ?? (weekly ? faWeekly.result.saveFailed : faLevels.result.saveFailed)) : this.weeklyNote;
     const noteHeight = note || reward > 0 ? 22 : 0;
     const height = 128 + noteHeight + (buttonCount - 1) * 56 + 23 + 18;
     const card = drawPanel(this.add.graphics(), 300, height, { fill: UI.surface.base, stroke: accent, strokeAlpha: 0.95, radius: 18, alpha: 0.98 });
@@ -5117,7 +5120,7 @@ export class GameScene extends Phaser.Scene {
       }).setOrigin(0.5));
     }
     if (saved && reward > 0) {
-      items.push(createText(this, 0, top + 112, weekly ? faWeekly.result.reward(reward) : faLevels.result.reward(reward), {
+      items.push(createText(this, 0, top + 112, lane ? faLane.result.reward(reward) : weekly ? faWeekly.result.reward(reward) : faLevels.result.reward(reward), {
         fontFamily: FONT_FAMILY,
         fontSize: '15px',
         fontStyle: '800',
@@ -5216,17 +5219,33 @@ export class GameScene extends Phaser.Scene {
     trackEvent(status === 'victory'
       ? { name: 'lane_battle_completed', levelId: lane.id, durationSeconds }
       : { name: 'lane_battle_failed', levelId: lane.id, durationSeconds });
+    let saved = true;
+    let reward = 0;
+    this.laneNote = undefined;
     if (status === 'victory') {
       try {
         if (lane.id > bestLaneLevelWon()) window.localStorage.setItem(LANE_PROGRESS_KEY, String(lane.id));
       } catch {
         // Storage can be unavailable; progress then lasts for the session only.
       }
+      try {
+        await this.backendConnectPromise;
+        const clear = await this.careerManager.completeLane(lane.id, this.laneActions);
+        saved = clear.success;
+        reward = clear.success ? clear.reward : 0;
+        if (reward > 0) trackEvent({ name: 'lane_reward_claimed', claimId: clear.claimId });
+      } catch (error) {
+        // Offline or a build without the backend: the battle still counts locally, only the reward is lost.
+        const offline = error instanceof Error && error.message === 'backend_required_for_lane';
+        saved = offline;
+        if (!offline) console.warn('[GameScene] Could not claim the lane battle reward:', error);
+      }
+      if (!saved) this.laneNote = faLane.result.saveFailed;
     }
     await this.endBeatDone;
     this.resultPending = false;
     if (this.isExiting || this.resultModalContainer || !this.levelDef) return;
-    this.renderLevelResultModal(this.levelDef, status, true, 0);
+    this.renderLevelResultModal(this.levelDef, status, saved, reward);
   }
 
   private recordLaneAction(kind: LaneAction['kind'], sourceId: string, targetId: string): void {

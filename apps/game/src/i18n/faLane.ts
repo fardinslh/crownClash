@@ -13,5 +13,7 @@ export const faLane = {
     victorySub: (id: number): string => `نبرد ${ltr(`${id}`)} را بردی`,
     allDone: 'همهٔ نبردهای مسیر را بردی!',
     next: 'نبرد بعد',
+    reward: (coins: number): string => `جایزهٔ اولین برد: ${ltr(`${coins}`)} سکه`,
+    saveFailed: 'جایزه ثبت نشد. دوباره امتحان کن.',
   },
 } as const;

@@ -79,6 +79,23 @@ describe('CareerManager', () => {
     expect(calls[1][2]).not.toBe(calls[0][2]);
   });
 
+  it('keeps lane rewards server-only and applies a verified reward', async () => {
+    const offline = CareerManager.getInstance('lane_offline_player');
+    await expect(offline.completeLane(1, [])).rejects.toThrow('backend_required_for_lane');
+
+    const manager = CareerManager.getInstance('lane_remote_player') as any;
+    const career = { ...createDefaultCareer('lane_remote_player'), coins: 125 };
+    const entry = { id: 'lane_x', player: 'lane_remote_player', currency: 'coins', amount: 25, reason: 'lane_5_first_clear', source: 'lane_reward', previousBalance: 100, resultingBalance: 125, timestamp: 1 };
+    const claims: string[] = [];
+    manager.remoteConnected = true;
+    manager.remoteApi = { completeLane: async (level: number, claimId: string) => { claims.push(`${level}:${claimId}`); return { success: true, reward: 25, claimId, newCareer: career, ledgerEntry: entry }; } };
+    expect((await manager.completeLane(5, [])).reward).toBe(25);
+    expect(manager.getCareer().coins).toBe(125);
+    await manager.completeLane(5, []);
+    expect(new Set(claims).size).toBe(2);
+    expect(claims[0]).toMatch(/^5:lane_5_/);
+  });
+
   it('enforces commander unlocks in the dev local fallback', async () => {
     const playerId = 'commander_local_player';
     window.localStorage.setItem(

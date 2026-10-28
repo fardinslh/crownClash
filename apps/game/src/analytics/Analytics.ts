@@ -93,6 +93,7 @@ export type AnalyticsEventInput =
   | { name: 'lane_battle_started'; levelId: number }
   | { name: 'lane_battle_completed'; levelId: number; durationSeconds: number }
   | { name: 'lane_battle_failed'; levelId: number; durationSeconds: number }
+  | { name: 'lane_reward_claimed'; claimId: string }
   | { name: 'tutorial_started' }
   | { name: 'tutorial_step_completed'; stepId: TutorialStepId }
   | { name: 'tutorial_completed' }
@@ -176,6 +177,7 @@ const EVENT_NAMES: ReadonlySet<AnalyticsEvent['name']> = new Set([
   'lane_battle_started',
   'lane_battle_completed',
   'lane_battle_failed',
+  'lane_reward_claimed',
   'tutorial_started',
   'tutorial_step_completed',
   'tutorial_completed',

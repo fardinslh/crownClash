@@ -194,3 +194,20 @@ takes a tower.
 Still missing for a faithful clone: a tap-to-upgrade input, a force bar tied to lanes, the Go port with a
 `cut` action, server replay and rewards (so lane battles can pay), re-tuning the campaign and the
 weekly challenge for lanes, and human playtests. None of this is reachable from the shipped build.
+
+## Lane battles: server replay and first-clear rewards (2026-10-28)
+
+- `packages/game-core/src/lane-engine.ts` now holds the lane step, enemy planning and the player's
+  open and cut, shared by the live client and `simulateLaneBattle` (`lane-replay.ts`), so they cannot
+  disagree. The client records its orders (`kind: 'lane' | 'cut'`).
+- `apps/server-nakama/lanes.go` is the Go port; `lane_claim.go` adds `lane/complete`, migration 026
+  and `lane_reward_claimed`. A win is replayed on the server and pays once per (player, lane level),
+  idempotent by claim id, through the ledger: easy 15, normal 25, hard 40 (240 once). There is no unlock
+  order for lane levels.
+- Parity: `scripts/lanes-record-wins.mjs` records a winning run per lane level (8-39 orders, 14-33 s) with
+  the final state the TS replay reaches; `TestRecordedLaneWinsReplayToRecordedState` replays it in Go and
+  compares status, duration and every tower's owner and garrison. Changing the emit interval in Go makes it
+  fail. `npm run test:smoke:rewards` also plays lane level 4 against the live stack: +25 once, a retry
+  replays, a second clear pays 0, an empty run is not a win, a run recorded on another map is refused.
+- Still behind `VITE_ENABLE_LANES=true`; the shipped build does not show lane battles. Not yet checked on
+  the real phone, and no human has played them.

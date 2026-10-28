@@ -13,6 +13,7 @@ import type {
   CommanderId,
   CommanderSelectionResult,
   BotMatchTicket,
+  LaneAction,
   BattlefieldId,
   BotDifficulty,
   PlayerUpgradeModifiers,
@@ -61,6 +62,16 @@ export interface WeeklyLaunch {
  * server-paid coins (0 when the slot was already paid this week).
  */
 export interface WeeklyClearResult {
+  readonly success: boolean;
+  readonly reason?: string;
+  readonly reward: number;
+  readonly claimId: string;
+  readonly newCareer?: PlayerCareer;
+  readonly ledgerEntry?: EconomyLedgerEntry;
+}
+
+/** Outcome of reporting a won lane battle: the server replays it and pays the first clear once per level. */
+export interface LaneClearResult {
   readonly success: boolean;
   readonly reason?: string;
   readonly reward: number;
@@ -124,6 +135,8 @@ export interface CareerApi {
    * advances progress and pays the first-clear reward once (idempotent by claimId).
    */
   completeLevel?(levelId: number, claimId: string, actions: readonly PvpAction[]): Promise<LevelClearResult>;
+  /** Reports a won lane battle with the recorded orders; the server replays it and pays once per level. */
+  completeLane?(levelId: number, claimId: string, actions: readonly LaneAction[]): Promise<LaneClearResult>;
   /** This week's Weekly Challenge battles and which of them are already paid. */
   getWeekly?(): Promise<WeeklyState>;
   /** Reports a won Weekly Challenge; the server replays it and pays once per slot per week. */

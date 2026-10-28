@@ -1328,6 +1328,32 @@ describe('tactical main-game integration', () => {
     scene.cleanup();
   });
 
+  it('claims the lane battle reward on a win and tells the player when the claim fails', async () => {
+    for (const [clear, saved, reward] of [
+      [{ success: true, reward: 25, claimId: 'lane_4_x' }, true, 25],
+      [{ success: true, reward: 0, claimId: 'lane_4_y', reason: 'already_claimed' }, true, 0],
+      [new Error('socket_closed'), false, 0],
+    ] as const) {
+      const scene: any = new GameScene();
+      scene.registry.set('platform', new BrowserPlatformAdapter());
+      scene.scene.settings.data = { source: 'menu', lanes: { levelId: 4 } };
+      scene.create();
+      scene.gameState.status = 'victory';
+      scene.laneActions = [{ sequence: 0, atSeconds: 1, kind: 'lane', sourceId: 'p_base', targetId: 'n_bot_left' }];
+      scene.backendConnectPromise = Promise.resolve();
+      scene.endBeatDone = Promise.resolve();
+      scene.careerManager.completeLane = vi.fn(async () => { if (clear instanceof Error) throw clear; return clear; });
+      const render = vi.spyOn(scene, 'renderLevelResultModal');
+      (trackEvent as unknown as ReturnType<typeof vi.fn>).mockClear();
+      await scene.finishLaneBattle(scene.laneLevel);
+      expect(scene.careerManager.completeLane).toHaveBeenCalledWith(4, scene.laneActions);
+      expect(render).toHaveBeenCalledWith(scene.levelDef, 'victory', saved, reward);
+      const events = (trackEvent as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([event]: any) => event);
+      expect(events.some((e: any) => e.name === 'lane_reward_claimed')).toBe(reward > 0);
+      scene.cleanup();
+    }
+  });
+
   it('keeps the classic 50% dispatch for every non-lane battle', () => {
     const scene: any = new GameScene();
     scene.registry.set('platform', new BrowserPlatformAdapter());

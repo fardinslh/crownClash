@@ -22,6 +22,7 @@ import {
   normalizeUpgradeLevel,
   PlayerCareer,
   PvpAction,
+  LaneAction,
   purchaseUpgrade as purchaseCareerUpgrade,
   settleMatch,
   UpgradePurchaseResult,
@@ -41,6 +42,7 @@ import {
   StaleSocketError,
   type CareerApi,
   type ClientObservedStatus,
+  type LaneClearResult,
   type LevelClearResult,
   type WeeklyClearResult,
   type WeeklyState,
@@ -336,6 +338,22 @@ export class CareerManager {
       // Storage can be unavailable; progress then lasts for the session only.
     }
     return { success: true, levelsCompleted: next, reward: 0, claimId };
+  }
+
+  /**
+   * Reports a won lane battle. The server replays `actions` against the fixed battle and pays the
+   * level's first clear once (idempotent by claimId); the returned career is applied here. Server-only.
+   */
+  public async completeLane(levelId: number, actions: readonly LaneAction[]): Promise<LaneClearResult> {
+    if (!this.remoteConnected) throw new Error('backend_required_for_lane');
+    const api = this.requireRemoteApi();
+    if (!api.completeLane) throw new Error('lane_not_supported');
+    const claimId = `lane_${levelId}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const result = await api.completeLane(levelId, claimId, actions);
+    if (result.success && result.reward > 0 && result.newCareer && result.ledgerEntry) {
+      this.applyRemoteState(result.newCareer, [result.ledgerEntry]);
+    }
+    return result;
   }
 
   /** This week's Weekly Challenge. Server-only: its rewards need the backend. */

@@ -472,4 +472,15 @@ CREATE TABLE IF NOT EXISTS weekly_challenge_claims (
   UNIQUE (player_id, week_index, slot)
 );
 `})
+	// Lane battle first-clear coin rewards (see lane_claim.go): unique per (player, level).
+	migrations = append(migrations, migration{name: "026_lane_reward_claims", sql: `
+CREATE TABLE IF NOT EXISTS lane_reward_claims (
+  claim_id TEXT PRIMARY KEY,
+  player_id TEXT NOT NULL REFERENCES players(id),
+  level_id INTEGER NOT NULL CHECK (level_id >= 1 AND level_id <= 9),
+  result JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (player_id, level_id)
+);
+`})
 }

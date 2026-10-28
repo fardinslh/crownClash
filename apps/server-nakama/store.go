@@ -1197,6 +1197,26 @@ func normalizeAnalyticsEvent(ctx context.Context, tx *sql.Tx, userID string, eve
 			"claimId": claimID, "slot": result.Slot, "weekIndex": result.WeekIndex,
 			"reward": result.Reward, "resultingCoins": result.NewCareer.Coins,
 		}
+	case "lane_reward_claimed":
+		claimID, _ := event.Props["claimId"].(string)
+		var encoded []byte
+		if err := tx.QueryRowContext(ctx, `
+			SELECT result FROM lane_reward_claims
+			WHERE claim_id = $1 AND player_id = $2
+		`, claimID, userID).Scan(&encoded); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return AnalyticsEventRecord{}, errors.New("analytics_lane_claim_not_found")
+			}
+			return AnalyticsEventRecord{}, err
+		}
+		var result LaneClaimResult
+		if err := json.Unmarshal(encoded, &result); err != nil || !result.Success || result.Reward <= 0 {
+			return AnalyticsEventRecord{}, errors.New("invalid_stored_lane_claim")
+		}
+		event.Props = map[string]any{
+			"claimId": claimID, "levelId": result.LevelID,
+			"reward": result.Reward, "resultingCoins": result.NewCareer.Coins,
+		}
 	case "rank_promoted":
 		matchID, _ := event.Props["matchId"].(string)
 		var encoded []byte

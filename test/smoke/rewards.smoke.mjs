@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 
 /**
  * Smoke test for the replay-verified coin rewards on a live Nakama + PostgreSQL
- * (docker compose with ALLOW_GUEST_AUTH=true): campaign first-clear rewards and
- * the Weekly Challenge. Plays the TS-recorded winning runs in testdata/ and checks
+ * (docker compose with ALLOW_GUEST_AUTH=true): campaign first-clear rewards, the
+ * Weekly Challenge and lane battle first-clear rewards. Plays the TS-recorded winning runs in testdata/ and checks
  * payment, the ledger, idempotency, "paid once" and rejection of a passive run.
  */
 const HOST = process.env.NAKAMA_HOST || '127.0.0.1';
@@ -16,6 +16,7 @@ const PORT = process.env.NAKAMA_PORT || '7350';
 const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../apps/server-nakama/testdata');
 const levelWins = JSON.parse(readFileSync(path.join(dir, 'level_wins.json'), 'utf8'));
 const weeklyWins = JSON.parse(readFileSync(path.join(dir, 'weekly_wins.json'), 'utf8'));
+const laneWins = JSON.parse(readFileSync(path.join(dir, 'lane_wins.json'), 'utf8'));
 
 // Same key the server was started with: env first, then the repo's .env (never logged).
 function serverKey() {
@@ -90,10 +91,26 @@ const wrong = week.slots[0].battlefieldId === 'crown_cross' ? 'twin_passes' : 'c
 const mismatched = await rpc('weekly/complete', { weekIndex: week.weekIndex, slot: 1, claimId: `${id}_w4`, actions: weeklyWins[`1:${wrong}`].actions });
 assert.notEqual(mismatched.result.reward, 50, 'a win recorded on a different map does not pay');
 
+// ---- lane battles: level 4 (normal) pays 25 once; an empty run is not a win
+const lane4 = await rpc('lane/complete', { levelId: 4, claimId: `${id}_n1`, actions: laneWins['4'].actions });
+assert.equal(lane4.result.success, true);
+assert.equal(lane4.result.reward, 25);
+expected += 25;
+assert.equal((await career()).coins, expected, 'lane level 4 pays 25');
+const laneRetry = await rpc('lane/complete', { levelId: 4, claimId: `${id}_n1`, actions: laneWins['4'].actions });
+assert.equal(laneRetry.result.replayed, true, 'same claimId replays the stored lane result');
+const laneAgain = await rpc('lane/complete', { levelId: 4, claimId: `${id}_n2`, actions: laneWins['4'].actions });
+assert.equal(laneAgain.result.reason, 'already_claimed');
+assert.equal((await career()).coins, expected, 'a second lane clear pays nothing');
+const laneEmpty = await rpc('lane/complete', { levelId: 5, claimId: `${id}_n3`, actions: [] });
+assert.equal(laneEmpty.result.reason, 'not_victory', 'an empty lane run is not a win');
+// A run recorded on another map names towers this battle does not have: refused outright.
+await assert.rejects(rpc('lane/complete', { levelId: 9, claimId: `${id}_n4`, actions: laneWins['4'].actions }), /invalid_territory/);
+
 const ledger = (await rpc('ledger/get', { limit: 50 })).entries;
-const sources = ledger.filter((e) => e.source === 'level_reward' || e.source === 'weekly_challenge');
-assert.equal(sources.length, 2, 'exactly two reward ledger entries');
-assert.deepEqual(sources.map((e) => e.amount).sort((a, b) => a - b), [25, 120]);
+const sources = ledger.filter((e) => ['level_reward', 'weekly_challenge', 'lane_reward'].includes(e.source));
+assert.equal(sources.length, 3, 'exactly three reward ledger entries');
+assert.deepEqual(sources.map((e) => e.amount).sort((a, b) => a - b), [25, 25, 120]);
 for (const entry of sources) assert.equal(entry.resultingBalance - entry.previousBalance, entry.amount);
 
 console.log(`rewards smoke: ok (coins ${startCoins} -> ${expected})`);
