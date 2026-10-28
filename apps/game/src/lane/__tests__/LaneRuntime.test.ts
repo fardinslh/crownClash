@@ -109,3 +109,41 @@ describe('lane feedback helpers', () => {
     expect(inner.filter((f) => f.color === LANE_COLORS.player)).toHaveLength(2);
   });
 });
+
+describe('drawLanes flow', () => {
+  const recorder = (): { graphics: LaneGraphics; circles: Array<[number, number, number]> } => {
+    const circles: Array<[number, number, number]> = [];
+    const graphics: LaneGraphics = {
+      lineStyle: () => graphics,
+      lineBetween: () => graphics,
+      fillStyle: () => graphics,
+      fillCircle: (x, y, r) => { circles.push([x, y, r]); return graphics; },
+    };
+    return { graphics, circles };
+  };
+  const withLane = (): { state: GameState; runtime: LaneRuntime } => {
+    const state = fresh();
+    state.territories.p_base.units = 30;
+    const runtime = new LaneRuntime('easy');
+    runtime.openFor(state, ['p_base'], 'n_bot_left');
+    return { state, runtime };
+  };
+  const project = (x: number, y: number): { u: number; v: number } => ({ u: x, v: y });
+
+  it('draws no flow beads unless a flow time is given', () => {
+    const { state, runtime } = withLane();
+    const { graphics, circles } = recorder();
+    drawLanes(graphics, state, runtime.lanes, project, 1, { soldierDots: false });
+    expect(circles).toHaveLength(0);
+  });
+
+  it('moves the beads along the lane as time passes', () => {
+    const { state, runtime } = withLane();
+    const first = recorder(), later = recorder();
+    drawLanes(first.graphics, state, runtime.lanes, project, 1, { soldierDots: false, flowSeconds: 0 });
+    drawLanes(later.graphics, state, runtime.lanes, project, 1, { soldierDots: false, flowSeconds: 0.2 });
+    expect(first.circles.length).toBeGreaterThan(0);
+    expect(later.circles.length).toBe(first.circles.length);
+    expect(later.circles[0]).not.toEqual(first.circles[0]);
+  });
+});

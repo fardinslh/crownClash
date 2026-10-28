@@ -30,11 +30,27 @@ export interface LaneGraphics {
 
 export const LANE_COLORS: Readonly<Record<Team, number>> = Object.freeze({ player: 0x60a5fa, enemy: 0xf87171, neutral: 0x94a3b8 });
 
+/** Spacing and speed of the highlights that run along a lane toward its target, in board px and px per second. */
+const FLOW_SPACING = 26;
+const FLOW_SPEED = 46;
+
+/** Soft light beads travelling from `p` to `q`: the lane reads as a live stream even between two soldiers. */
+function drawFlow(graphics: LaneGraphics, p: { u: number; v: number }, q: { u: number; v: number }, seconds: number, scale: number): void {
+  const length = Math.hypot(q.u - p.u, q.v - p.v);
+  const spacing = FLOW_SPACING * scale;
+  if (length < spacing) return;
+  const offset = (seconds * FLOW_SPEED * scale) % spacing;
+  for (let along = offset; along < length; along += spacing) {
+    const f = along / length;
+    graphics.fillStyle(0xffffff, 0.5).fillCircle(p.u + (q.u - p.u) * f, p.v + (q.v - p.v) * f, 2.2 * scale);
+  }
+}
+
 /** Draws every lane as a translucent beam along its road and every soldier as a dot in file. */
 export function drawLanes(
   graphics: LaneGraphics, state: GameState, lanes: LaneState,
   project: (x: number, y: number) => { u: number; v: number }, scale: number,
-  options: { soldierDots?: boolean } = {},
+  options: { soldierDots?: boolean; flowSeconds?: number } = {},
 ): void {
   for (const lane of lanes.lanes) {
     const color = LANE_COLORS[lane.owner];
@@ -44,6 +60,7 @@ export function drawLanes(
       const p = project(a.x, a.y), q = project(b.x, b.y);
       graphics.lineStyle(15 * scale, color, 0.28).lineBetween(p.u, p.v, q.u, q.v);
       graphics.lineStyle(5 * scale, color, 0.85).lineBetween(p.u, p.v, q.u, q.v);
+      if (options.flowSeconds !== undefined) drawFlow(graphics, p, q, options.flowSeconds, scale);
     }
   }
   if (options.soldierDots === false) return;

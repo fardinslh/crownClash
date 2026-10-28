@@ -408,6 +408,7 @@ export class GameScene extends Phaser.Scene {
   private laneDotsGraphics?: Phaser.GameObjects.Graphics;
   /** Pooled soldier sprites for lane battles: one Blender follower per soldier in flight. */
   private laneSoldierSprites: Phaser.GameObjects.Image[] = [];
+  private laneSoldierShadows: Phaser.GameObjects.Image[] = [];
   /** First lane battle only: the three-step guide (drag, cut, conquer). */
   private laneTutorial?: LaneTutorial;
   private laneCaption?: Phaser.GameObjects.Text;
@@ -667,6 +668,7 @@ export class GameScene extends Phaser.Scene {
     this.laneGraphics = undefined;
     this.laneDotsGraphics = undefined;
     this.laneSoldierSprites = [];
+    this.laneSoldierShadows = [];
     this.laneTutorial = this.laneLevel?.id === 1 && !laneTutorialDone() ? new LaneTutorial() : undefined;
     this.laneCaption = undefined;
     this.laneHintGraphics = undefined;
@@ -5192,6 +5194,9 @@ export class GameScene extends Phaser.Scene {
       if (!sprite) {
         sprite = this.add.image(0, 0, 'unit_follower_player_front').setDepth(this.boardLayout.overlayDepth(13));
         this.laneSoldierSprites[index] = sprite;
+        if (this.textures.exists('cc_army_shadow')) {
+          this.laneSoldierShadows[index] = this.add.image(0, 0, 'cc_army_shadow').setTint(0x000000).setAlpha(0.32).setDepth(this.boardLayout.overlayDepth(12.5));
+        }
       }
       const at = soldierPosition(this.gameState, soldier);
       const heading = soldierHeading(this.gameState, soldier);
@@ -5205,8 +5210,13 @@ export class GameScene extends Phaser.Scene {
         .setPosition(here.u, here.v + bob)
         .setVisible(true);
       sprite.setScale(size * unitSpriteNorm(sprite));
+      this.laneSoldierShadows[index]?.setDisplaySize(13 * ARENA_PRESENTATION.unitScale * scale, 6 * ARENA_PRESENTATION.unitScale * scale)
+        .setPosition(here.u, here.v + 7 * ARENA_PRESENTATION.unitScale * scale).setVisible(true);
     });
-    for (let i = lanes.soldiers.length; i < this.laneSoldierSprites.length; i++) this.laneSoldierSprites[i].setVisible(false);
+    for (let i = lanes.soldiers.length; i < this.laneSoldierSprites.length; i++) {
+      this.laneSoldierSprites[i].setVisible(false);
+      this.laneSoldierShadows[i]?.setVisible(false);
+    }
     return true;
   }
 
@@ -5216,7 +5226,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.laneGraphics) this.laneGraphics = this.add.graphics().setDepth(this.boardLayout.overlayDepth(12));
     this.laneGraphics.clear();
     const spritesReady = this.drawLaneSoldiers(runtime.lanes);
-    drawLanes(this.laneGraphics, this.gameState, runtime.lanes, (x, y) => this.projectSocketPoint(x, y), this.boardLayout.scale, { soldierDots: !spritesReady });
+    drawLanes(this.laneGraphics, this.gameState, runtime.lanes, (x, y) => this.projectSocketPoint(x, y), this.boardLayout.scale, { soldierDots: !spritesReady, flowSeconds: this.reducedMotion ? undefined : this.gameState.elapsedTimeSeconds });
 
     // Path slots under every held tower's count, above the tower art.
     if (!this.laneDotsGraphics) this.laneDotsGraphics = this.add.graphics().setDepth(this.boardLayout.overlayDepth(44));
