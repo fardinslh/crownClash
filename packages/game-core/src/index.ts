@@ -29,3 +29,5 @@ export * from './levels.js';
 export * from './lanes.js';
 export * from './lane-ai.js';
 export * from './lane-levels.js';
+export * from './lane-engine.js';
+export * from './lane-replay.js';

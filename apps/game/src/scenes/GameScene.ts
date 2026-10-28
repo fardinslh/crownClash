@@ -198,7 +198,7 @@ import { faLane } from '../i18n/faLane.js';
 import { LaneRuntime, drawLanes, drawTierDots } from '../lane/LaneRuntime.js';
 import { LANE_PROGRESS_KEY, bestLaneLevelWon } from '../lane/laneProgress.js';
 import type { TierDots } from '../lane/LaneRuntime.js';
-import { LANE_LEVELS, getLaneLevel, type LaneLevel } from '@crown-clash/game-core';
+import { LANE_LEVELS, MAX_LANE_ACTIONS, getLaneLevel, type LaneAction, type LaneLevel } from '@crown-clash/game-core';
 import { loadHubTextures } from '../ui/kit/hubBackdrop.js';
 import { battlefieldName, faBattle, upgradeEffectLabel } from '../i18n/faBattle.js';
 import { popScale, resolveFeelProfile, type FeelProfile } from '../feel/FeelProfile.js';
@@ -397,6 +397,8 @@ export class GameScene extends Phaser.Scene {
   private laneGraphics?: Phaser.GameObjects.Graphics;
   private laneDotsGraphics?: Phaser.GameObjects.Graphics;
   private laneSwipeFrom?: { x: number; y: number };
+  /** The player's lane orders, recorded for the server replay (lane battles only). */
+  private laneActions: LaneAction[] = [];
   /** Set for a Weekly Challenge battle (levelDef then mirrors its server-defined battle). */
   private weekly?: WeeklyLaunch;
   /** Why a won Weekly Challenge was not paid (shown on the result card). */
@@ -637,6 +639,7 @@ export class GameScene extends Phaser.Scene {
     this.laneGraphics = undefined;
     this.laneDotsGraphics = undefined;
     this.laneSwipeFrom = undefined;
+    this.laneActions = [];
     this.levelDef = this.laneLevel
       ? { id: this.laneLevel.id, battlefieldId: this.laneLevel.battlefieldId, botDifficulty: this.laneLevel.botDifficulty, enemy: this.laneLevel.enemy, coinReward: 0 }
       : this.weekly
@@ -5162,7 +5165,12 @@ export class GameScene extends Phaser.Scene {
   private openLanes(sourceIds: readonly string[], targetId: string): void {
     const runtime = this.laneRuntime;
     if (!runtime) return;
+    if (this.laneActions.length + sourceIds.length > MAX_LANE_ACTIONS) {
+      this.spawnFloatingText(LOGICAL_WIDTH / 2, 96, faBattle.drag.commandLimit, '#f87171');
+      return;
+    }
     const { opened, blocked } = runtime.openFor(this.gameState, sourceIds, targetId);
+    for (const id of opened) this.recordLaneAction('lane', id, targetId);
     if (opened.length > 0) {
       this.markTerritoriesDirty();
       sounds.playDispatch(opened.length);
@@ -5189,7 +5197,9 @@ export class GameScene extends Phaser.Scene {
     if (!runtime || !from) return;
     const to = this.pointerToWorld(pointer);
     this.laneSwipeFrom = to;
-    if (runtime.cutBySwipe(this.gameState, from, to) > 0) {
+    const cut = this.laneActions.length < MAX_LANE_ACTIONS ? runtime.cutBySwipe(this.gameState, from, to) : [];
+    for (const lane of cut) this.recordLaneAction('cut', lane.sourceId, lane.targetId);
+    if (cut.length > 0) {
       sounds.playSelect();
       this.platform.hapticImpact('light');
       this.spawnFloatingText(LOGICAL_WIDTH / 2, 96, faLane.cut, '#93c5fd', 900);
@@ -5217,6 +5227,16 @@ export class GameScene extends Phaser.Scene {
     this.resultPending = false;
     if (this.isExiting || this.resultModalContainer || !this.levelDef) return;
     this.renderLevelResultModal(this.levelDef, status, true, 0);
+  }
+
+  private recordLaneAction(kind: LaneAction['kind'], sourceId: string, targetId: string): void {
+    this.laneActions.push({
+      sequence: this.laneActions.length,
+      atSeconds: Math.round(this.gameState.elapsedTimeSeconds * 1000) / 1000,
+      kind,
+      sourceId,
+      targetId,
+    });
   }
 
   private restartAsLane(levelId: number): void {

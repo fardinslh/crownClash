@@ -27,7 +27,7 @@ describe('LaneRuntime', () => {
     const a = state.territories.p_base, b = state.territories.n_bot_left;
     const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     const dx = (b.y - a.y) * 0.3, dy = -(b.x - a.x) * 0.3;
-    expect(runtime.cutBySwipe(state, { x: mid.x + dx, y: mid.y + dy }, { x: mid.x - dx, y: mid.y - dy })).toBe(1);
+    expect(runtime.cutBySwipe(state, { x: mid.x + dx, y: mid.y + dy }, { x: mid.x - dx, y: mid.y - dy })).toHaveLength(1);
     expect(runtime.freePaths(state, 'p_base')).toBe(1);
   });
 
