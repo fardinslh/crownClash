@@ -22,7 +22,7 @@ export const faLevels = {
     drawSub: 'برنده‌ای نبود؛ دوباره امتحان کن',
     allDone: 'همهٔ مراحل را تمام کردی!',
     saveFailed: 'پیشرفت ذخیره نشد. دوباره وارد مراحل شو.',
-    reward: (coins: number): string => `جایزهٔ اولین برد: ${ltr(`+${coins}`)} سکه`,
+    reward: (coins: number): string => `جایزهٔ اولین برد: ${ltr(`${coins}`)} سکه`,
     next: 'مرحلهٔ بعد',
     retry: 'تلاش دوباره',
     back: 'بازگشت به مراحل',

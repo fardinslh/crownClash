@@ -4,7 +4,7 @@ import { ltr } from './fa.js';
 /** Persian copy for the Weekly Challenge (three fixed battles per week). */
 export const faWeekly = {
   entry: 'چالش هفتگی',
-  entryHint: (coins: number): string => `تا ${ltr(`+${coins}`)} سکه`,
+  entryHint: (coins: number): string => `تا ${ltr(`${coins}`)} سکه`,
   title: 'چالش هفتگی',
   subtitle: 'هر هفته سه نبرد تازه، جایزهٔ هر کدام یک بار',
   loading: 'در حال بارگذاری…',
@@ -31,7 +31,7 @@ export const faWeekly = {
     drawSub: 'برنده‌ای نبود؛ دوباره امتحان کن',
     saveFailed: 'جایزه ثبت نشد. دوباره وارد چالش هفتگی شو.',
     weekOver: 'این هفته تمام شده بود؛ جایزه‌ای ثبت نشد.',
-    reward: (coins: number): string => `جایزهٔ چالش: ${ltr(`+${coins}`)} سکه`,
+    reward: (coins: number): string => `جایزهٔ چالش: ${ltr(`${coins}`)} سکه`,
     retry: 'تلاش دوباره',
     back: 'بازگشت به چالش‌ها',
   },
