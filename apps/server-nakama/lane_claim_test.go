@@ -197,4 +197,7 @@ func TestLaneMigrationAndAnalytics(t *testing.T) {
 	if err := validateAnalyticsEvent(analyticsTestEvent("lane_reward_claimed", map[string]any{"claimId": "c1", "reward": 999}), analyticsTestNow); err == nil {
 		t.Fatal("client-supplied reward must be rejected")
 	}
+	if err := validateAnalyticsEvent(analyticsTestEvent("lane_tutorial_completed", map[string]any{}), analyticsTestNow); err != nil {
+		t.Fatalf("lane_tutorial_completed should be valid: %v", err)
+	}
 }

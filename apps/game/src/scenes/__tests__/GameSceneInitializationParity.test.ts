@@ -330,6 +330,7 @@ import {
 import type { CareerApi } from '../../api/GameApiClient.js';
 import { trackEvent, trackTerminalMatchEvent } from '../../analytics/Analytics.js';
 import { faWeekly } from '../../i18n/faWeekly.js';
+import { faLane } from '../../i18n/faLane.js';
 import {
   isStartupLoadingShellDismissed,
   LOADING_SHELL_ID,
@@ -1352,6 +1353,51 @@ describe('tactical main-game integration', () => {
       expect(events.some((e: any) => e.name === 'lane_reward_claimed')).toBe(reward > 0);
       scene.cleanup();
     }
+  });
+
+  it('guides the first lane battle through drag, cut and conquer, then never shows again', () => {
+    storage.delete('crown_clash_lane_tutorial_done');
+    const scene: any = new GameScene();
+    scene.registry.set('platform', new BrowserPlatformAdapter());
+    scene.scene.settings.data = { source: 'menu', lanes: { levelId: 1 } };
+    scene.create();
+    scene.introHolding = false;
+    expect(scene.laneTutorial).toBeDefined();
+    scene.gameState.territories.p_base.units = 30;
+    scene.updateLaneTutorial();
+    expect(scene.laneCaption.text).toContain(faLane.tutorial.drag);
+
+    scene.selectedSourceIds = ['p_base'];
+    scene.hoveredTargetId = 'n_bot_left';
+    scene.handlePointerRelease();
+    scene.updateLaneTutorial();
+    expect(scene.laneCaption.text).toContain(faLane.tutorial.cut);
+
+    for (const lane of [...scene.laneRuntime.lanes.lanes]) scene.laneRuntime.cut(lane.sourceId, lane.targetId);
+    scene.updateLaneTutorial();
+    expect(scene.laneCaption.text).toContain(faLane.tutorial.conquer);
+
+    scene.gameState.elapsedTimeSeconds += 7;
+    scene.updateLaneTutorial();
+    expect(scene.laneTutorial).toBeUndefined();
+    expect(storage.get('crown_clash_lane_tutorial_done')).toBe('1');
+    expect((trackEvent as unknown as ReturnType<typeof vi.fn>).mock.calls.some(([event]: any) => event.name === 'lane_tutorial_completed')).toBe(true);
+    scene.cleanup();
+
+    const again: any = new GameScene();
+    again.registry.set('platform', new BrowserPlatformAdapter());
+    again.scene.settings.data = { source: 'menu', lanes: { levelId: 1 } };
+    again.create();
+    expect(again.laneTutorial).toBeUndefined();
+    again.cleanup();
+
+    const second: any = new GameScene();
+    second.registry.set('platform', new BrowserPlatformAdapter());
+    second.scene.settings.data = { source: 'menu', lanes: { levelId: 2 } };
+    storage.delete('crown_clash_lane_tutorial_done');
+    second.create();
+    expect(second.laneTutorial).toBeUndefined();
+    second.cleanup();
   });
 
   it('keeps the classic 50% dispatch for every non-lane battle', () => {

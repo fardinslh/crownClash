@@ -198,6 +198,7 @@ import { faLane } from '../i18n/faLane.js';
 import { LaneRuntime, drawLanes, drawTierDots } from '../lane/LaneRuntime.js';
 import { LANE_PROGRESS_KEY, bestLaneLevelWon } from '../lane/laneProgress.js';
 import type { TierDots } from '../lane/LaneRuntime.js';
+import { LaneTutorial, laneTutorialDone, markLaneTutorialDone } from '../lane/LaneTutorial.js';
 import { LANE_LEVELS, MAX_LANE_ACTIONS, getLaneLevel, type LaneAction, type LaneLevel } from '@crown-clash/game-core';
 import { loadHubTextures } from '../ui/kit/hubBackdrop.js';
 import { battlefieldName, faBattle, upgradeEffectLabel } from '../i18n/faBattle.js';
@@ -396,6 +397,11 @@ export class GameScene extends Phaser.Scene {
   private laneRuntime?: LaneRuntime;
   private laneGraphics?: Phaser.GameObjects.Graphics;
   private laneDotsGraphics?: Phaser.GameObjects.Graphics;
+  /** First lane battle only: the three-step guide (drag, cut, conquer). */
+  private laneTutorial?: LaneTutorial;
+  private laneCaption?: Phaser.GameObjects.Text;
+  private laneCaptionStep?: string;
+  private laneHintGraphics?: Phaser.GameObjects.Graphics;
   private laneSwipeFrom?: { x: number; y: number };
   /** The player's lane orders, recorded for the server replay (lane battles only). */
   private laneActions: LaneAction[] = [];
@@ -640,6 +646,9 @@ export class GameScene extends Phaser.Scene {
     this.laneRuntime = this.laneLevel ? new LaneRuntime(this.laneLevel.botDifficulty) : undefined;
     this.laneGraphics = undefined;
     this.laneDotsGraphics = undefined;
+    this.laneTutorial = this.laneLevel?.id === 1 && !laneTutorialDone() ? new LaneTutorial() : undefined;
+    this.laneCaption = undefined;
+    this.laneHintGraphics = undefined;
     this.laneSwipeFrom = undefined;
     this.laneActions = [];
     this.laneNote = undefined;
@@ -5162,6 +5171,54 @@ export class GameScene extends Phaser.Scene {
       dots.push({ u: vis.unitBadge.x + (vis.unitBadge.displayWidth ?? vis.unitBadge.width) / 2 + 10 * this.boardLayout.scale, v: vis.unitBadge.y, tier: t.tier, free: runtime.freePaths(this.gameState, t.id, t.owner), owner: t.owner });
     }
     drawTierDots(this.laneDotsGraphics, dots, this.boardLayout.scale);
+    this.updateLaneTutorial();
+  }
+
+  /** The first-battle guide: a caption and a finger ring that shows the gesture. It never blocks input. */
+  private updateLaneTutorial(): void {
+    const tutorial = this.laneTutorial;
+    const runtime = this.laneRuntime;
+    if (!tutorial || !runtime || this.introHolding || this.gameState.status !== 'playing') return;
+    const view = tutorial.update(this.gameState, runtime.lanes, this.gameState.elapsedTimeSeconds);
+    if (!view) {
+      this.finishLaneTutorial();
+      return;
+    }
+    const text = faLane.tutorial[view.step];
+    if (!this.laneCaption) {
+      // Low on the board, above the hint bar: the only band with no towers under it.
+      this.laneCaption = createText(this, LOGICAL_WIDTH / 2, getSceneViewport(this).visibleHeight - 100, text, {
+        fontFamily: FONT_FAMILY, fontSize: '18px', fontStyle: '800', color: '#ffffff', stroke: '#0b1220', strokeThickness: 5, align: 'center',
+        wordWrap: { width: 300 },
+      }).setOrigin(0.5).setDepth(this.boardLayout.overlayDepth(60));
+    } else if (this.laneCaptionStep !== view.step) {
+      this.laneCaption.setText(text);
+    }
+    this.laneCaptionStep = view.step;
+    if (!this.laneHintGraphics) this.laneHintGraphics = this.add.graphics().setDepth(this.boardLayout.overlayDepth(61));
+    const g = this.laneHintGraphics.clear();
+    if (!view.hand) return;
+    const now = typeof this.time?.now === 'number' ? this.time.now : Date.now();
+    const t = Math.min(1, (now % 1500) / 1100);
+    const eased = t * t * (3 - 2 * t);
+    const from = this.projectSocketPoint(view.hand.from.x, view.hand.from.y);
+    const to = this.projectSocketPoint(view.hand.to.x, view.hand.to.y);
+    const u = from.u + (to.u - from.u) * eased, v = from.v + (to.v - from.v) * eased;
+    const scale = this.boardLayout.scale;
+    g.lineStyle(4 * scale, 0xffffff, 0.28).lineBetween(from.u, from.v, to.u, to.v);
+    g.fillStyle(0xffffff, 0.35).fillCircle(u, v, 15 * scale);
+    g.lineStyle(3 * scale, 0xffffff, 0.95).strokeCircle(u, v, 15 * scale);
+  }
+
+  private finishLaneTutorial(): void {
+    this.laneCaption?.destroy();
+    this.laneHintGraphics?.destroy();
+    this.laneCaption = undefined;
+    this.laneCaptionStep = undefined;
+    this.laneHintGraphics = undefined;
+    this.laneTutorial = undefined;
+    markLaneTutorialDone();
+    trackEvent({ name: 'lane_tutorial_completed' });
   }
 
   /** The player drags onto a target: every selected tower with a free path opens a lane. */
@@ -5223,6 +5280,7 @@ export class GameScene extends Phaser.Scene {
     let reward = 0;
     this.laneNote = undefined;
     if (status === 'victory') {
+      if (this.laneTutorial) this.finishLaneTutorial();
       try {
         if (lane.id > bestLaneLevelWon()) window.localStorage.setItem(LANE_PROGRESS_KEY, String(lane.id));
       } catch {

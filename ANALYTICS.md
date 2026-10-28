@@ -45,6 +45,7 @@ derives player identity from authentication and records receipt time separately.
 | `lane_battle_completed` | The lane battle ended in a win (before the server pays) | `levelId`, `durationSeconds` | Client | Lane beta win rate and length |
 | `lane_battle_failed` | The lane battle ended in a loss or draw | `levelId`, `durationSeconds` | Client | Lane beta difficulty |
 | `lane_reward_claimed` | Server confirms the first-clear coin reward for a lane battle (replayed win; only emitted when a reward was paid) | Client: `claimId`. Server: `levelId`, `reward`, `resultingCoins` | Server-confirmed claim | Lane reward conversion, coin inflow from lane battles |
+| `lane_tutorial_completed` | The first lane battle's three-step guide (drag, cut, conquer) was completed or the battle was won | none | Client | Lane tutorial completion |
 | `tutorial_started` | First-time player enters the guided training battle | None | Client action | Onboarding start |
 | `tutorial_step_completed` | Each guided training action is performed with the real battle controls | `stepId` (`drag_to_attack`, `preview_result`, `tower_roles`, `multi_dispatch`, `destroy_base`) | Client action | Onboarding step progression |
 | `tutorial_completed` | Player captures the enemy base in training (all guided actions performed) and the server saves the account-wide flag | None | Client action | Onboarding completion |

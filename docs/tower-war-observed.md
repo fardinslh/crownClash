@@ -211,3 +211,14 @@ weekly challenge for lanes, and human playtests. None of this is reachable from 
   replays, a second clear pays 0, an empty run is not a win, a run recorded on another map is refused.
 - Still behind `VITE_ENABLE_LANES=true`; the shipped build does not show lane battles. Not yet checked on
   the real phone, and no human has played them.
+
+## Lane battles: tutorial and a human-model retune (2026-10-28)
+
+- The first real-phone test (Poco X7 Pro, portrait Chrome) lost an easy battle in about 30 s: the ladder had been
+  tuned on the fast, precise probe. `scripts/lanes-sim.mjs` now runs the real `LaneEngine` with a `human`
+  player model and the ladder is: bot starts at 10 / 8 / 2 s, plans every 8 / 6 / 4.5 s, 14 / 18 / 22 units at
+  0.6 / 0.8 / 1.0 production, for a human-model win rate of about 0.81 / 0.41 / 0.16 (probe-only numbers over-state
+  what a person wins). A scripted four-order run on the phone still lost, which a person doing more would not.
+- First lane battle only (`laneTutorial`, level 1 and not yet done): three captions taught by doing, like
+  Tower War: drag to open a lane, swipe across it to cut it, take every enemy tower. A finger ring shows the
+  gesture; the guide never blocks input and is remembered per device. Event `lane_tutorial_completed`.
