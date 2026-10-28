@@ -21,6 +21,8 @@ import {
   type CareerApi,
   type ClientObservedStatus,
   type LevelClearResult,
+  type WeeklyClearResult,
+  type WeeklyState,
   type TrackedAnalyticsEvent,
 } from './GameApiClient.js';
 import { LiveMatchClient } from './LiveMatchClient.js';
@@ -306,6 +308,19 @@ export class NakamaClient implements CareerApi {
       newCareer: result.newCareer,
       ledgerEntry: result.ledgerEntry,
     };
+  }
+
+  public async getWeekly(): Promise<WeeklyState> {
+    const result = await this.rpc('weekly/get', '');
+    return (JSON.parse(result) as { state: WeeklyState }).state;
+  }
+
+  public async completeWeekly(weekIndex: number, slot: number, claimId: string, actions: readonly PvpAction[]): Promise<WeeklyClearResult> {
+    const raw = await this.rpc('weekly/complete', JSON.stringify({ weekIndex, slot, claimId, actions }));
+    const { result } = JSON.parse(raw) as {
+      result: { success: boolean; reason?: string; reward: number; newCareer?: PlayerCareer; ledgerEntry?: EconomyLedgerEntry };
+    };
+    return { success: result.success, reason: result.reason, reward: result.reward, claimId, newCareer: result.newCareer, ledgerEntry: result.ledgerEntry };
   }
 
   public async pilotRequest<T>(method: string, payload: unknown = {}): Promise<T> {

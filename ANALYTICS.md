@@ -36,6 +36,11 @@ derives player identity from authentication and records receipt time separately.
 | `level_completed` | Player wins a campaign level locally; the client then sends the recorded dispatches to `levels/complete`, which replays them before counting or paying the win | `levelId`, `durationSeconds` | Client action | Level funnel completion, time to win |
 | `level_failed` | Player loses or draws a campaign level (quitting mid-level emits nothing) | `levelId`, `durationSeconds` | Client action | Level difficulty spikes |
 | `level_reward_claimed` | Server confirms the first-clear coin reward for a campaign level (only emitted when a reward was paid; a repeat clear pays 0 and emits nothing) | Client: `claimId`. Server: `levelId`, `reward`, `resultingCoins` | Server-confirmed claim (replayed win) | Level reward conversion, coin inflow from the campaign |
+| `weekly_challenge_viewed` | Weekly Challenge hub finished loading this week's battles | none | Client | Weekly challenge reach |
+| `weekly_challenge_started` | A Weekly Challenge battle starts | `slot` (1 Bronze, 2 Silver, 3 Gold) | Client | Weekly participation by slot |
+| `weekly_challenge_completed` | The local battle ended in a win (before the server pays) | `slot`, `durationSeconds` | Client | Weekly win rate by slot |
+| `weekly_challenge_failed` | The local battle ended in a loss or draw | `slot`, `durationSeconds` | Client | Weekly difficulty |
+| `weekly_reward_claimed` | Server confirms the coin reward for a weekly slot (only emitted when paid; a slot already paid this week pays 0 and emits nothing) | Client: `claimId`. Server: `slot`, `weekIndex`, `reward`, `resultingCoins` | Server-confirmed claim (replayed win) | Weekly reward conversion, coin inflow from the weekly challenge |
 | `tutorial_started` | First-time player enters the guided training battle | None | Client action | Onboarding start |
 | `tutorial_step_completed` | Each guided training action is performed with the real battle controls | `stepId` (`drag_to_attack`, `preview_result`, `tower_roles`, `multi_dispatch`, `destroy_base`) | Client action | Onboarding step progression |
 | `tutorial_completed` | Player captures the enemy base in training (all guided actions performed) and the server saves the account-wide flag | None | Client action | Onboarding completion |

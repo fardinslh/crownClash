@@ -458,4 +458,18 @@ CREATE TABLE IF NOT EXISTS level_reward_claims (
   UNIQUE (player_id, level_id)
 );
 `})
+	// Weekly Challenge coin rewards (see weekly.go). The unique
+	// (player_id, week_index, slot) key is the "paid once" guard; claim_id is
+	// the client-generated idempotency key for retries.
+	migrations = append(migrations, migration{name: "025_weekly_challenge_claims", sql: `
+CREATE TABLE IF NOT EXISTS weekly_challenge_claims (
+  claim_id TEXT PRIMARY KEY,
+  player_id TEXT NOT NULL REFERENCES players(id),
+  week_index BIGINT NOT NULL CHECK (week_index >= 0),
+  slot INTEGER NOT NULL CHECK (slot >= 1 AND slot <= 3),
+  result JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (player_id, week_index, slot)
+);
+`})
 }

@@ -168,6 +168,12 @@ func InitModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runti
 	if err := rpc("levels/complete", rpcLevelsComplete(store)); err != nil {
 		return err
 	}
+	if err := rpc("weekly/get", rpcWeeklyGet(store)); err != nil {
+		return err
+	}
+	if err := rpc("weekly/complete", rpcWeeklyComplete(store)); err != nil {
+		return err
+	}
 
 	logger.Info("crown clash runtime initialized")
 	return nil
@@ -1046,6 +1052,11 @@ var analyticsEventDefinitions = map[string]analyticsEventDefinition{
 	"level_completed":            {properties: map[string]analyticsPropertyKind{"levelId": analyticsPropertyNumber, "durationSeconds": analyticsPropertyNumber}},
 	"level_failed":               {properties: map[string]analyticsPropertyKind{"levelId": analyticsPropertyNumber, "durationSeconds": analyticsPropertyNumber}},
 	"level_reward_claimed":       {properties: analyticsProperties("claimId")},
+	"weekly_challenge_viewed":    {properties: map[string]analyticsPropertyKind{}},
+	"weekly_challenge_started":   {properties: map[string]analyticsPropertyKind{"slot": analyticsPropertyNumber}},
+	"weekly_challenge_completed": {properties: map[string]analyticsPropertyKind{"slot": analyticsPropertyNumber, "durationSeconds": analyticsPropertyNumber}},
+	"weekly_challenge_failed":    {properties: map[string]analyticsPropertyKind{"slot": analyticsPropertyNumber, "durationSeconds": analyticsPropertyNumber}},
+	"weekly_reward_claimed":      {properties: analyticsProperties("claimId")},
 	"tutorial_started":           {properties: map[string]analyticsPropertyKind{}},
 	"tutorial_step_completed":    {properties: analyticsProperties("stepId")},
 	"tutorial_completed":         {properties: map[string]analyticsPropertyKind{}},

@@ -329,6 +329,7 @@ import {
 } from '@crown-clash/game-core';
 import type { CareerApi } from '../../api/GameApiClient.js';
 import { trackEvent, trackTerminalMatchEvent } from '../../analytics/Analytics.js';
+import { faWeekly } from '../../i18n/faWeekly.js';
 import {
   isStartupLoadingShellDismissed,
   LOADING_SHELL_ID,
@@ -1219,6 +1220,58 @@ describe('tactical main-game integration', () => {
     expect(scene.lastDragWorld).toBeNull();
     scene.cleanup();
   });
+  it('plays a weekly challenge as a server-defined local battle and reports the win for payment', async () => {
+    const weekly = { weekIndex: 7, slot: 2, battlefieldId: 'twin_passes', botDifficulty: 'hard', enemy: { startingUnits: 20, productionRateMultiplier: 0.95, armySpeedMultiplier: 1 }, coinReward: 80 };
+    const scene: any = new GameScene();
+    scene.registry.set('platform', new BrowserPlatformAdapter());
+    scene.scene.settings.data = { source: 'menu', weekly };
+    scene.create();
+    expect(scene.levelDef).toMatchObject({ id: 2, battlefieldId: 'twin_passes', botDifficulty: 'hard' });
+    expect(scene.battlefieldId).toBe('twin_passes');
+    expect(scene.gameState.territories.n_west_gate_s).toBeDefined();
+    const names = (trackEvent as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([event]: any) => event.name);
+    expect(names).toContain('weekly_challenge_started');
+    expect(names).not.toContain('level_started');
+    expect(names).not.toContain('match_start');
+
+    scene.gameState.status = 'victory';
+    scene.matchActions = [{ sequence: 0, atSeconds: 1, sourceId: 'p_base', targetId: 'n_bot_left' }];
+    scene.backendConnectPromise = Promise.resolve();
+    scene.endBeatDone = Promise.resolve();
+    scene.careerManager.completeWeekly = vi.fn(async (week: number, slot: number, actions: unknown[]) => ({ success: true, reward: 80, claimId: 'weekly_7_2_x', reason: undefined, week, slot, actions }));
+    await scene.finishWeekly(weekly);
+    expect(scene.careerManager.completeWeekly).toHaveBeenCalledWith(7, 2, scene.matchActions);
+    const after = (trackEvent as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([event]: any) => event);
+    expect(after).toContainEqual(expect.objectContaining({ name: 'weekly_challenge_completed', slot: 2 }));
+    expect(after).toContainEqual({ name: 'weekly_reward_claimed', claimId: 'weekly_7_2_x' });
+    expect(after.some((event: any) => event.name === 'level_completed' || event.name === 'level_reward_claimed')).toBe(false);
+    expect(scene.resultModalContainer).toBeDefined();
+    scene.cleanup();
+  });
+
+  it('shows a calm note instead of a reward when the weekly slot was already paid or the week ended', async () => {
+    const weekly = { weekIndex: 7, slot: 1, battlefieldId: 'crown_cross', botDifficulty: 'normal', enemy: { startingUnits: 20, productionRateMultiplier: 1, armySpeedMultiplier: 1 }, coinReward: 50 };
+    for (const [clear, note] of [
+      [{ success: true, reward: 0, claimId: 'c', reason: 'already_claimed' }, faWeekly.result.alreadyClaimed],
+      [{ success: false, reward: 0, claimId: 'c', reason: 'week_over' }, faWeekly.result.weekOver],
+    ] as const) {
+      const scene: any = new GameScene();
+      scene.registry.set('platform', new BrowserPlatformAdapter());
+      scene.scene.settings.data = { source: 'menu', weekly };
+      scene.create();
+      scene.gameState.status = 'victory';
+      scene.backendConnectPromise = Promise.resolve();
+      scene.endBeatDone = Promise.resolve();
+      scene.careerManager.completeWeekly = vi.fn(async () => clear);
+      const render = vi.spyOn(scene, 'renderLevelResultModal');
+      await scene.finishWeekly(weekly);
+      expect(render).toHaveBeenCalledWith(scene.levelDef, 'victory', clear.success, 0);
+      expect(scene.weeklyNote).toBe(note);
+      expect((trackEvent as unknown as ReturnType<typeof vi.fn>).mock.calls.some(([event]: any) => event.name === 'weekly_reward_claimed')).toBe(false);
+      scene.cleanup();
+    }
+  });
+
   it('records a versioned bot quit through the menu controller', () => {
     const scene:any=new GameScene();scene.registry.set('platform',new BrowserPlatformAdapter());
     scene.scene.settings.data={mode:'bot',botMatch:{matchId:'bot_quit_v3',battlefieldId:'crown_cross',gameplayRulesVersion:3}};

@@ -325,6 +325,8 @@ export interface SceneLaunchData {
   botMatch?: { battlefieldId?: BattlefieldId };
   /** Campaign level (see game-core levels.ts): its battlefield is the level's. */
   levelId?: number;
+  /** Weekly Challenge battle: the server picked its battlefield for the week. */
+  weekly?: { battlefieldId?: BattlefieldId };
   liveMatch?: { state?: { battlefieldId?: BattlefieldId } };
   liveMatch2v2?: { state?: { battlefieldId?: BattlefieldId } };
 }
@@ -338,6 +340,7 @@ export interface SceneLaunchData {
 export function battlefieldIdFromLaunchData(launchData: SceneLaunchData | undefined): BattlefieldId {
   return normalizeBattlefieldId(
     launchData?.botMatch?.battlefieldId ??
+      launchData?.weekly?.battlefieldId ??
       (launchData?.levelId === undefined ? undefined : getLevel(launchData.levelId)?.battlefieldId) ??
       launchData?.liveMatch2v2?.state?.battlefieldId ??
       launchData?.liveMatch?.state?.battlefieldId

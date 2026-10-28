@@ -37,7 +37,14 @@ import {
   levelsCompletedAfter,
 } from '@crown-clash/game-core';
 import type { PlatformAdapter } from '@crown-clash/platform';
-import { StaleSocketError, type CareerApi, type ClientObservedStatus, type LevelClearResult } from '../api/GameApiClient.js';
+import {
+  StaleSocketError,
+  type CareerApi,
+  type ClientObservedStatus,
+  type LevelClearResult,
+  type WeeklyClearResult,
+  type WeeklyState,
+} from '../api/GameApiClient.js';
 import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
 import { getSharedGameApiClient } from '../api/sharedClient.js';
 import { LiveMatchClient } from '../api/LiveMatchClient.js';
@@ -329,6 +336,39 @@ export class CareerManager {
       // Storage can be unavailable; progress then lasts for the session only.
     }
     return { success: true, levelsCompleted: next, reward: 0, claimId };
+  }
+
+  /** This week's Weekly Challenge. Server-only: its rewards need the backend. */
+  public async getWeeklyChallenge(): Promise<WeeklyState> {
+    if (!this.remoteConnected) throw new Error('backend_required_for_weekly');
+    return this.requireWeeklyApi().getWeekly();
+  }
+
+  /**
+   * Reports a won Weekly Challenge. The server replays `actions` against this
+   * week's fixed battle and pays the slot once per week (idempotent by claimId);
+   * the returned career is applied here.
+   */
+  public async completeWeekly(weekIndex: number, slot: number, actions: readonly PvpAction[]): Promise<WeeklyClearResult> {
+    if (!this.remoteConnected) throw new Error('backend_required_for_weekly');
+    const claimId = `weekly_${weekIndex}_${slot}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const result = await this.requireWeeklyApi().completeWeekly(weekIndex, slot, claimId, actions);
+    if (result.success && result.reward > 0 && result.newCareer && result.ledgerEntry) {
+      this.applyRemoteState(result.newCareer, [result.ledgerEntry]);
+    }
+    return result;
+  }
+
+  private requireWeeklyApi(): {
+    getWeekly(): Promise<WeeklyState>;
+    completeWeekly(weekIndex: number, slot: number, claimId: string, actions: readonly PvpAction[]): Promise<WeeklyClearResult>;
+  } {
+    const api = this.requireRemoteApi();
+    if (!api.getWeekly || !api.completeWeekly) throw new Error('weekly_not_supported');
+    return {
+      getWeekly: () => api.getWeekly!(),
+      completeWeekly: (week, slot, claimId, actions) => api.completeWeekly!(week, slot, claimId, actions),
+    };
   }
 
   private requireLevelsApi(): {

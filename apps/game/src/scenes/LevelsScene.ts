@@ -6,6 +6,7 @@ import { sounds } from '../audio/SoundEffects.js';
 import { CareerManager } from '../career/CareerManager.js';
 import { battlefieldName } from '../i18n/faBattle.js';
 import { faLevels } from '../i18n/faLevels.js';
+import { faWeekly } from '../i18n/faWeekly.js';
 import { THEME, UI } from '../theme.js';
 import { computeLevelsLayout } from '../ui/LevelsLayout.js';
 import { createText } from '../ui/TextStyles.js';
@@ -42,6 +43,7 @@ export class LevelsScene extends Phaser.Scene {
   private statusText!: Phaser.GameObjects.Text;
   private progressText?: Phaser.GameObjects.Text;
   private retryButton?: KitButton;
+  private weeklyButton?: KitButton;
   private cards: Phaser.GameObjects.Container[] = [];
   private levelsCompleted = 0;
   private loaded = false;
@@ -62,6 +64,7 @@ export class LevelsScene extends Phaser.Scene {
     this.cards = [];
     this.progressText = undefined;
     this.retryButton = undefined;
+    this.weeklyButton = undefined;
     this.loaded = false;
     this.levelsCompleted = 0;
     this.reducedMotion =
@@ -95,6 +98,18 @@ export class LevelsScene extends Phaser.Scene {
       fontStyle: '700',
       color: UI.text.muted,
     }).setOrigin(0.5);
+    // The weekly challenge is server-only, so its entry shows only with a backend.
+    if (this.careerManager.isRemoteConnected() || !isLocalCareerFallbackAllowed()) {
+      this.weeklyButton = createButton(this, LOGICAL_WIDTH / 2, 0, {
+        width: 344,
+        height: 48,
+        label: `${faWeekly.entry} · ${faWeekly.entryHint(250)}`,
+        icon: 'trophy',
+        variant: 'gold',
+        fontSize: 15,
+        onPress: () => this.openWeekly(),
+      });
+    }
     this.applyLayout(vp);
   }
 
@@ -104,6 +119,7 @@ export class LevelsScene extends Phaser.Scene {
     this.statusText.setY(layout.statusY);
     this.retryButton?.container.setY(layout.statusY + 56);
     this.progressText?.setY(layout.progressY);
+    this.weeklyButton?.container.setY(layout.weeklyY);
     this.cards.forEach((card, index) => card.setPosition(layout.cards[index].x, layout.cards[index].y));
     this.toastY = layout.toastY;
   }
@@ -231,6 +247,16 @@ export class LevelsScene extends Phaser.Scene {
     this.platform.hapticSelection();
     this.tweens.add({ targets: card, scale: 0.96, duration: 80, yoyo: true });
     goToScene(this, 'GameScene', { source: 'menu', levelId: level.id }, () => {
+      this.isExiting = false;
+    });
+  }
+
+  private openWeekly(): void {
+    if (this.isExiting) return;
+    this.isExiting = true;
+    sounds.playReinforce();
+    this.platform.hapticSelection();
+    goToScene(this, 'WeeklyScene', undefined, () => {
       this.isExiting = false;
     });
   }

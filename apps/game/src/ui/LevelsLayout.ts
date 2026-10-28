@@ -10,6 +10,9 @@ export interface LevelsLayout {
   readonly cardHeight: number;
   readonly cards: readonly LevelCardLayout[];
   readonly progressY: number;
+  /** Centre of the Weekly Challenge entry button under the grid. */
+  readonly weeklyY: number;
+  readonly weeklyHeight: number;
   readonly statusY: number;
   readonly toastY: number;
 }
@@ -18,7 +21,9 @@ const COLUMNS = 2;
 const CARD_WIDTH = 168;
 const COLUMN_GAP = 12;
 const HEADER_BOTTOM = 96;
-const BOTTOM_MARGIN = 56;
+const WEEKLY_HEIGHT = 48;
+/** Progress line (28) plus the weekly button and its gaps. */
+const BOTTOM_MARGIN = 28 + WEEKLY_HEIGHT + 32;
 const MAX_ROW_PITCH = 96;
 const MIN_CARD_HEIGHT = 56;
 const ROW_GAP = 10;
@@ -26,7 +31,8 @@ const ROW_GAP = 10;
 /**
  * Two columns, level 1 at the top right (RTL reading order). Rows share the
  * height between the header and the bottom margin, so ten cards fit without
- * scrolling on a 640px-tall viewport and spread out on taller phones.
+ * scrolling on a 640px-tall viewport and spread out on taller phones. The
+ * Weekly Challenge button sits in the bottom margin, below the progress line.
  */
 export function computeLevelsLayout(levelCount: number, visibleHeight: number): LevelsLayout {
   const rows = Math.max(1, Math.ceil(levelCount / COLUMNS));
@@ -49,8 +55,10 @@ export function computeLevelsLayout(levelCount: number, visibleHeight: number): 
     cardWidth: CARD_WIDTH,
     cardHeight,
     cards,
-    progressY: Math.min(visibleHeight - 28, gridBottom + 14),
+    progressY: Math.min(visibleHeight - WEEKLY_HEIGHT - 44, gridBottom + 14),
+    weeklyY: visibleHeight - 20 - WEEKLY_HEIGHT / 2,
+    weeklyHeight: WEEKLY_HEIGHT,
     statusY: HEADER_BOTTOM + available / 2,
-    toastY: visibleHeight - 40,
+    toastY: visibleHeight - WEEKLY_HEIGHT - 60,
   };
 }

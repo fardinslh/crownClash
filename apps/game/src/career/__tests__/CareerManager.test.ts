@@ -52,6 +52,33 @@ describe('CareerManager', () => {
     expect((await manager.completeLevel(3)).reward).toBe(0);
   });
 
+  it('keeps the weekly challenge server-only and applies a verified reward once', async () => {
+    const offline = CareerManager.getInstance('weekly_offline_player');
+    await expect(offline.getWeeklyChallenge()).rejects.toThrow('backend_required_for_weekly');
+    await expect(offline.completeWeekly(5, 1, [])).rejects.toThrow('backend_required_for_weekly');
+
+    const manager = CareerManager.getInstance('weekly_remote_player') as any;
+    const career = { ...createDefaultCareer('weekly_remote_player'), coins: 180 };
+    const entry = { id: 'weekly_x', player: 'weekly_remote_player', currency: 'coins', amount: 80, reason: 'weekly_w5_slot_2', source: 'weekly_challenge', previousBalance: 100, resultingBalance: 180, timestamp: 1 };
+    const calls: Array<[number, number, string]> = [];
+    manager.remoteConnected = true;
+    manager.remoteApi = {
+      getWeekly: async () => ({ weekIndex: 5, endsAt: 1, slots: [] }),
+      completeWeekly: async (week: number, slot: number, claimId: string) => {
+        calls.push([week, slot, claimId]);
+        return { success: true, reward: 80, claimId, newCareer: career, ledgerEntry: entry };
+      },
+    };
+    expect((await manager.getWeeklyChallenge()).weekIndex).toBe(5);
+    const result = await manager.completeWeekly(5, 2, []);
+    expect(result.reward).toBe(80);
+    expect(manager.getCareer().coins).toBe(180);
+    expect(calls).toHaveLength(1);
+    expect(calls[0][2]).toMatch(/^weekly_5_2_/);
+    await manager.completeWeekly(5, 2, []);
+    expect(calls[1][2]).not.toBe(calls[0][2]);
+  });
+
   it('enforces commander unlocks in the dev local fallback', async () => {
     const playerId = 'commander_local_player';
     window.localStorage.setItem(

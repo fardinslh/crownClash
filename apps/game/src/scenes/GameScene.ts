@@ -55,7 +55,7 @@ import {
   LEVEL_RULES_VERSION,
   type LevelDefinition,
 } from '@crown-clash/game-core';
-import { isLocalCareerFallbackAllowed } from '../api/GameApiClient.js';
+import { isLocalCareerFallbackAllowed, type WeeklyLaunch } from '../api/GameApiClient.js';
 import { CareerManager } from '../career/CareerManager.js';
 import { TrainingOverlayUI } from './trainingOverlay.js';
 import { resolveTacticalTrainingGuidance } from '../tutorial/tacticalGuidance.js';
@@ -193,6 +193,7 @@ import { createIcon, rankIcon, type IconKey } from '../ui/icons.js';
 import { createButton, drawPanel, fadeIn } from '../ui/kit/index.js';
 import { startScene } from './lazyScenes.js';
 import { faLevels } from '../i18n/faLevels.js';
+import { faWeekly } from '../i18n/faWeekly.js';
 import { loadHubTextures } from '../ui/kit/hubBackdrop.js';
 import { battlefieldName, faBattle, upgradeEffectLabel } from '../i18n/faBattle.js';
 import { popScale, resolveFeelProfile, type FeelProfile } from '../feel/FeelProfile.js';
@@ -385,6 +386,10 @@ export class GameScene extends Phaser.Scene {
   private introHolding = false;
   /** Set when this battle is a campaign level (see game-core levels.ts). */
   private levelDef?: LevelDefinition;
+  /** Set for a Weekly Challenge battle (levelDef then mirrors its server-defined battle). */
+  private weekly?: WeeklyLaunch;
+  /** Why a won Weekly Challenge was not paid (shown on the result card). */
+  private weeklyNote?: string;
   private introPending = false;
   /** Resolves when the neutral end-of-battle stamp has had its moment. */
   private endBeatDone: Promise<void> = Promise.resolve();
@@ -525,6 +530,7 @@ export class GameScene extends Phaser.Scene {
     const launchData = this.scene.settings.data as {
       botMatch?: BotMatchTicket;
       levelId?: number;
+      weekly?: WeeklyLaunch;
       realmTicket?: RealmTicket;
       realmGoal?: UpgradeType;
       liveMatch?: LiveMatchStarted;
@@ -593,6 +599,7 @@ export class GameScene extends Phaser.Scene {
       liveMatch2v2?: LiveMatchStarted2v2;
       botMatch?: BotMatchTicket;
       levelId?: number;
+      weekly?: WeeklyLaunch;
       realmTicket?: RealmTicket;
       realmGoal?: UpgradeType;
       career?: PlayerCareer;
@@ -608,9 +615,21 @@ export class GameScene extends Phaser.Scene {
     // A campaign level is a client-local bot match defined by game-core data:
     // no server ticket, no settlement, no economy value. Only the player's
     // "levels completed" count is saved (levels/complete).
-    this.levelDef = !this.liveMode && !launchData?.botMatch && launchData?.levelId !== undefined
-      ? getLevel(launchData.levelId)
-      : undefined;
+    // A Weekly Challenge battle is the same kind of local bot match; the
+    // server defined its battlefield and enemy for the week (weekly/get), and
+    // the win is replayed and paid by weekly/complete.
+    this.weekly = !this.liveMode && !launchData?.botMatch ? launchData?.weekly : undefined;
+    this.levelDef = this.weekly
+      ? {
+          id: this.weekly.slot,
+          battlefieldId: this.weekly.battlefieldId,
+          botDifficulty: this.weekly.botDifficulty,
+          enemy: this.weekly.enemy,
+          coinReward: this.weekly.coinReward,
+        }
+      : !this.liveMode && !launchData?.botMatch && launchData?.levelId !== undefined
+        ? getLevel(launchData.levelId)
+        : undefined;
     if (this.levelDef) {
       this.botDifficulty = this.levelDef.botDifficulty;
       this.botGameplayRulesVersion = LEVEL_RULES_VERSION;
@@ -779,6 +798,8 @@ export class GameScene extends Phaser.Scene {
       // Training is not a real match: no match_start analytics, no match
       // settlement, no rewards. Only the stable tutorial_* events fire.
       trackEvent({ name: 'tutorial_started' });
+    } else if (this.weekly) {
+      trackEvent({ name: 'weekly_challenge_started', slot: this.weekly.slot });
     } else if (this.levelDef) {
       trackEvent({ name: 'level_started', levelId: this.levelDef.id });
     } else {
@@ -4905,6 +4926,10 @@ export class GameScene extends Phaser.Scene {
     // Settlement starts now; the neutral end stamp plays meanwhile and the
     // syncing card appears only if the server is slower than the beat.
     this.endBeatDone = this.playEndBeat();
+    if (this.weekly) {
+      void this.finishWeekly(this.weekly);
+      return;
+    }
     if (this.levelDef) {
       void this.finishLevel(this.levelDef);
       return;
@@ -4955,6 +4980,42 @@ export class GameScene extends Phaser.Scene {
     this.renderLevelResultModal(level, status, saved, reward);
   }
 
+  /**
+   * Ends a Weekly Challenge battle like a level: the local simulation decides
+   * what the player sees, but the win is only paid after weekly/complete
+   * replays the recorded dispatches on the server (once per slot per week).
+   */
+  private async finishWeekly(weekly: WeeklyLaunch): Promise<void> {
+    const level = this.levelDef;
+    if (!level) return;
+    const status = this.gameState.status as 'victory' | 'defeat' | 'draw';
+    const durationSeconds = wholeMatchSeconds(this.gameState.elapsedTimeSeconds);
+    let saved = true;
+    let reward = 0;
+    this.weeklyNote = undefined;
+    if (status === 'victory') {
+      trackEvent({ name: 'weekly_challenge_completed', slot: weekly.slot, durationSeconds });
+      try {
+        await this.backendConnectPromise;
+        const clear = await this.careerManager.completeWeekly(weekly.weekIndex, weekly.slot, this.matchActions);
+        saved = clear.success;
+        reward = clear.success ? clear.reward : 0;
+        if (clear.success && clear.reward === 0) this.weeklyNote = faWeekly.result.alreadyClaimed;
+        else if (!clear.success && clear.reason === 'week_over') this.weeklyNote = faWeekly.result.weekOver;
+        if (reward > 0) trackEvent({ name: 'weekly_reward_claimed', claimId: clear.claimId });
+      } catch (error) {
+        saved = false;
+        console.warn('[GameScene] Could not save the weekly challenge:', error);
+      }
+    } else {
+      trackEvent({ name: 'weekly_challenge_failed', slot: weekly.slot, durationSeconds });
+    }
+    await this.endBeatDone;
+    this.resultPending = false;
+    if (this.isExiting || this.resultModalContainer) return;
+    this.renderLevelResultModal(level, status, saved, reward);
+  }
+
   private renderLevelResultModal(level: LevelDefinition, status: 'victory' | 'defeat' | 'draw', saved: boolean, reward: number): void {
     const isWin = status === 'victory';
     if (isWin) {
@@ -4965,14 +5026,16 @@ export class GameScene extends Phaser.Scene {
       this.platform.hapticNotification('warning');
     } else this.platform.hapticImpact('light');
 
-    const hasNext = isWin && level.id < LEVEL_COUNT;
+    const weekly = this.weekly;
+    const hasNext = isWin && !weekly && level.id < LEVEL_COUNT;
     const accent = isWin ? 0xf59e0b : status === 'draw' ? 0x60a5fa : 0xef4444;
     const { visibleWidth, visibleHeight } = getSceneViewport(this);
     const modal = this.add.container(LOGICAL_WIDTH / 2, visibleHeight / 2).setDepth(200);
     this.resultModalContainer = modal;
     const backdrop = this.add.rectangle(0, 0, visibleWidth, visibleHeight, 0x000000, 0.78).setInteractive();
     const buttonCount = (hasNext ? 1 : 0) + 2;
-    const noteHeight = !saved || reward > 0 ? 22 : 0;
+    const note = !saved ? (this.weeklyNote ?? (weekly ? faWeekly.result.saveFailed : faLevels.result.saveFailed)) : this.weeklyNote;
+    const noteHeight = note || reward > 0 ? 22 : 0;
     const height = 128 + noteHeight + (buttonCount - 1) * 56 + 23 + 18;
     const card = drawPanel(this.add.graphics(), 300, height, { fill: UI.surface.base, stroke: accent, strokeAlpha: 0.95, radius: 18, alpha: 0.98 });
     const top = -height / 2;
@@ -4984,7 +5047,9 @@ export class GameScene extends Phaser.Scene {
       stroke: '#000000',
       strokeThickness: 4,
     }).setOrigin(0.5);
-    const subtitleText = isWin ? (level.id >= LEVEL_COUNT ? faLevels.result.allDone : faLevels.result.victorySub(level.id)) : status === 'draw' ? faLevels.result.drawSub : faLevels.result.defeatSub;
+    const subtitleText = weekly
+      ? (isWin ? faWeekly.result.victorySub(weekly.slot) : status === 'draw' ? faWeekly.result.drawSub : faWeekly.result.defeatSub)
+      : isWin ? (level.id >= LEVEL_COUNT ? faLevels.result.allDone : faLevels.result.victorySub(level.id)) : status === 'draw' ? faLevels.result.drawSub : faLevels.result.defeatSub;
     const subtitle = createText(this, 0, top + 82, subtitleText, {
       fontFamily: FONT_FAMILY,
       fontSize: '13px',
@@ -4992,17 +5057,17 @@ export class GameScene extends Phaser.Scene {
       color: '#cbd5e1',
     }).setOrigin(0.5);
     const items: Phaser.GameObjects.GameObject[] = [backdrop, card, title, subtitle];
-    if (!saved) {
-      items.push(createText(this, 0, top + 112, faLevels.result.saveFailed, {
+    if (note && reward === 0) {
+      items.push(createText(this, 0, top + 112, note, {
         fontFamily: FONT_FAMILY,
         fontSize: '11px',
-        color: UI.text.danger,
+        color: saved ? UI.text.muted : UI.text.danger,
         align: 'center',
         wordWrap: { width: 260 },
       }).setOrigin(0.5));
     }
     if (saved && reward > 0) {
-      items.push(createText(this, 0, top + 112, faLevels.result.reward(reward), {
+      items.push(createText(this, 0, top + 112, weekly ? faWeekly.result.reward(reward) : faLevels.result.reward(reward), {
         fontFamily: FONT_FAMILY,
         fontSize: '15px',
         fontStyle: '800',
@@ -5017,13 +5082,21 @@ export class GameScene extends Phaser.Scene {
       buttonY += 56;
     };
     if (hasNext) addButton(faLevels.result.next, 'gold', () => this.restartAsLevel(level.id + 1));
-    addButton(faLevels.result.retry, isWin ? 'secondary' : 'primary', () => this.restartAsLevel(level.id));
-    addButton(faLevels.result.back, 'secondary', () => this.returnToMenu());
+    addButton(weekly ? faWeekly.result.retry : faLevels.result.retry, isWin ? 'secondary' : 'primary', () => (weekly ? this.restartAsWeekly(weekly) : this.restartAsLevel(level.id)));
+    addButton(weekly ? faWeekly.result.back : faLevels.result.back, 'secondary', () => this.returnToMenu());
     modal.add(items);
     if (this.feel.tier !== 'still') {
       modal.setScale(0.9).setAlpha(0);
       this.tweens.add({ targets: modal, scale: 1, alpha: 1, duration: 220, ease: 'Back.easeOut' });
     }
+  }
+
+  private restartAsWeekly(weekly: WeeklyLaunch): void {
+    if (this.isExiting) return;
+    this.isExiting = true;
+    sounds.stopBattleMusic();
+    this.input.enabled = false;
+    this.scene.start('GameScene', { source: 'menu', weekly });
   }
 
   private restartAsLevel(levelId: number): void {
@@ -5888,7 +5961,8 @@ export class GameScene extends Phaser.Scene {
     this.matchMenuModalContainer?.destroy();
     this.matchMenuModalContainer = undefined;
 
-    if (this.levelDef) startScene(this, 'LevelsScene');
+    if (this.weekly) startScene(this, 'WeeklyScene');
+    else if (this.levelDef) startScene(this, 'LevelsScene');
     else this.scene.start('MenuScene');
   }
 

@@ -13,6 +13,9 @@ import type {
   CommanderId,
   CommanderSelectionResult,
   BotMatchTicket,
+  BattlefieldId,
+  BotDifficulty,
+  PlayerUpgradeModifiers,
 } from '@crown-clash/game-core';
 import type { PlatformAdapter } from '@crown-clash/platform';
 import type { LiveMatchClient } from './LiveMatchClient.js';
@@ -25,6 +28,47 @@ export type TrackedAnalyticsEvent = AnalyticsEvent;
  * could not verify the win (replay mismatch) or the level is locked; `reward` is
  * the server-paid first-clear coins (0 for a repeat clear).
  */
+/** One Weekly Challenge battle as the server defines it for the current week. */
+export interface WeeklySlotState {
+  readonly slot: number;
+  readonly battlefieldId: BattlefieldId;
+  readonly botDifficulty: BotDifficulty;
+  readonly enemy: PlayerUpgradeModifiers;
+  readonly coinReward: number;
+  readonly claimed: boolean;
+}
+
+export interface WeeklyState {
+  readonly weekIndex: number;
+  /** Unix milliseconds when this week's challenges are replaced. */
+  readonly endsAt: number;
+  readonly slots: readonly WeeklySlotState[];
+}
+
+/** What GameScene needs to play one Weekly Challenge battle. */
+export interface WeeklyLaunch {
+  readonly weekIndex: number;
+  readonly slot: number;
+  readonly battlefieldId: BattlefieldId;
+  readonly botDifficulty: BotDifficulty;
+  readonly enemy: PlayerUpgradeModifiers;
+  readonly coinReward: number;
+}
+
+/**
+ * Outcome of reporting a won Weekly Challenge. `success` is false when the
+ * server could not verify the win or the week is over; `reward` is the
+ * server-paid coins (0 when the slot was already paid this week).
+ */
+export interface WeeklyClearResult {
+  readonly success: boolean;
+  readonly reason?: string;
+  readonly reward: number;
+  readonly claimId: string;
+  readonly newCareer?: PlayerCareer;
+  readonly ledgerEntry?: EconomyLedgerEntry;
+}
+
 export interface LevelClearResult {
   readonly success: boolean;
   readonly reason?: string;
@@ -80,6 +124,10 @@ export interface CareerApi {
    * advances progress and pays the first-clear reward once (idempotent by claimId).
    */
   completeLevel?(levelId: number, claimId: string, actions: readonly PvpAction[]): Promise<LevelClearResult>;
+  /** This week's Weekly Challenge battles and which of them are already paid. */
+  getWeekly?(): Promise<WeeklyState>;
+  /** Reports a won Weekly Challenge; the server replays it and pays once per slot per week. */
+  completeWeekly?(weekIndex: number, slot: number, claimId: string, actions: readonly PvpAction[]): Promise<WeeklyClearResult>;
 }
 
 export class GameApiError extends Error {

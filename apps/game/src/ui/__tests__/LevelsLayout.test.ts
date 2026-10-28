@@ -24,6 +24,17 @@ describe('computeLevelsLayout', () => {
     }
   });
 
+  it('keeps the weekly button below the grid and the progress line, inside the viewport', () => {
+    for (const height of [640, 720, 800, 932]) {
+      const layout = computeLevelsLayout(10, height);
+      const last = layout.cards[layout.cards.length - 1];
+      expect(layout.progressY, `height ${height}`).toBeGreaterThan(last.y + layout.cardHeight / 2);
+      expect(layout.weeklyY - layout.weeklyHeight / 2, `height ${height}`).toBeGreaterThan(layout.progressY + 8);
+      expect(layout.weeklyY + layout.weeklyHeight / 2, `height ${height}`).toBeLessThanOrEqual(height);
+      expect(layout.weeklyHeight).toBeGreaterThanOrEqual(44);
+    }
+  });
+
   it('keeps cards large enough to tap', () => {
     expect(computeLevelsLayout(10, 640).cardHeight).toBeGreaterThanOrEqual(46);
   });
