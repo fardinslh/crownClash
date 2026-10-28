@@ -135,6 +135,27 @@ describe('lane geometry helpers', () => {
     expect(half.y).toBeCloseTo((a.y + b.y) / 2, 6);
   });
 
+  it('points a soldier along the leg it is on, switching legs on multi-hop routes', async () => {
+    const { soldierHeading } = await import('../lanes.js');
+    const state = fresh();
+    const a = state.territories.p_base, b = state.territories.n_bot_left, c = state.territories.n_mid_left;
+    const soldier = { owner: 'player' as const, targetId: 'n_mid_left', routeIds: ['p_base', 'n_bot_left', 'n_mid_left'], total: 6, remaining: 6 };
+    const first = soldierHeading(state, soldier);
+    const firstLength = Math.hypot(b.x - a.x, b.y - a.y);
+    expect(first.x).toBeCloseTo((b.x - a.x) / firstLength, 6);
+    expect(first.y).toBeCloseTo((b.y - a.y) / firstLength, 6);
+    const last = soldierHeading(state, { ...soldier, remaining: 0.01 });
+    const lastLength = Math.hypot(c.x - b.x, c.y - b.y);
+    expect(last.x).toBeCloseTo((c.x - b.x) / lastLength, 6);
+    expect(last.y).toBeCloseTo((c.y - b.y) / lastLength, 6);
+    expect(Math.hypot(first.x, first.y)).toBeCloseTo(1, 6);
+  });
+
+  it('falls back to facing up when a soldier has no leg', async () => {
+    const { soldierHeading } = await import('../lanes.js');
+    expect(soldierHeading(fresh(), { owner: 'player', targetId: 'p_base', routeIds: ['p_base'], total: 0, remaining: 0 })).toEqual({ x: 0, y: -1 });
+  });
+
   it('finds the owner\'s lanes a swipe segment crosses', async () => {
     const { lanesCrossedBySegment } = await import('../lanes.js');
     const state = fresh();

@@ -164,6 +164,24 @@ export function soldierPosition(state: GameState, soldier: Soldier): { x: number
   return { x: last.x, y: last.y };
 }
 
+/** Unit direction of the route leg a soldier is on (flat world coordinates); (0, -1) when it has no leg. */
+export function soldierHeading(state: GameState, soldier: Soldier): { x: number; y: number } {
+  const points = soldier.routeIds.map((id) => state.territories[id]).filter(Boolean);
+  if (points.length < 2 || soldier.total <= 0) return { x: 0, y: -1 };
+  const lengths: number[] = [];
+  let sum = 0;
+  for (let i = 0; i < points.length - 1; i++) { const d = Math.hypot(points[i + 1].x - points[i].x, points[i + 1].y - points[i].y); lengths.push(d); sum += d; }
+  let travelled = sum * Math.min(1, Math.max(0, 1 - soldier.remaining / soldier.total));
+  let leg = lengths.length - 1;
+  for (let i = 0; i < lengths.length; i++) {
+    if (travelled <= lengths[i]) { leg = i; break; }
+    travelled -= lengths[i];
+  }
+  const dx = points[leg + 1].x - points[leg].x, dy = points[leg + 1].y - points[leg].y;
+  const length = Math.hypot(dx, dy);
+  return length === 0 ? { x: 0, y: -1 } : { x: dx / length, y: dy / length };
+}
+
 /** Lanes whose drawn route a swipe segment crosses (flat world coordinates), nearest to the swipe start first. */
 export function lanesCrossedBySegment(
   state: GameState, lanes: LaneState, owner: Team, from: { x: number; y: number }, to: { x: number; y: number },

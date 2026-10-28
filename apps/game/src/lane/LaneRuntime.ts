@@ -34,6 +34,7 @@ export const LANE_COLORS: Readonly<Record<Team, number>> = Object.freeze({ playe
 export function drawLanes(
   graphics: LaneGraphics, state: GameState, lanes: LaneState,
   project: (x: number, y: number) => { u: number; v: number }, scale: number,
+  options: { soldierDots?: boolean } = {},
 ): void {
   for (const lane of lanes.lanes) {
     const color = LANE_COLORS[lane.owner];
@@ -45,6 +46,7 @@ export function drawLanes(
       graphics.lineStyle(5 * scale, color, 0.85).lineBetween(p.u, p.v, q.u, q.v);
     }
   }
+  if (options.soldierDots === false) return;
   for (const soldier of lanes.soldiers) {
     const at = soldierPosition(state, soldier);
     const p = project(at.x, at.y);

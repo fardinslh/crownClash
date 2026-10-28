@@ -199,7 +199,7 @@ import { LaneRuntime, drawLanes, drawTierDots } from '../lane/LaneRuntime.js';
 import { LANE_PROGRESS_KEY, bestLaneLevelWon } from '../lane/laneProgress.js';
 import type { TierDots } from '../lane/LaneRuntime.js';
 import { LaneTutorial, laneTutorialDone, markLaneTutorialDone } from '../lane/LaneTutorial.js';
-import { LANE_LEVELS, MAX_LANE_ACTIONS, getLaneLevel, type LaneAction, type LaneLevel } from '@crown-clash/game-core';
+import { LANE_LEVELS, MAX_LANE_ACTIONS, getLaneLevel, soldierHeading, soldierPosition, type LaneAction, type LaneLevel, type LaneState } from '@crown-clash/game-core';
 import { loadHubTextures } from '../ui/kit/hubBackdrop.js';
 import { battlefieldName, faBattle, upgradeEffectLabel } from '../i18n/faBattle.js';
 import { popScale, resolveFeelProfile, type FeelProfile } from '../feel/FeelProfile.js';
@@ -397,6 +397,8 @@ export class GameScene extends Phaser.Scene {
   private laneRuntime?: LaneRuntime;
   private laneGraphics?: Phaser.GameObjects.Graphics;
   private laneDotsGraphics?: Phaser.GameObjects.Graphics;
+  /** Pooled soldier sprites for lane battles: one Blender follower per soldier in flight. */
+  private laneSoldierSprites: Phaser.GameObjects.Image[] = [];
   /** First lane battle only: the three-step guide (drag, cut, conquer). */
   private laneTutorial?: LaneTutorial;
   private laneCaption?: Phaser.GameObjects.Text;
@@ -646,6 +648,7 @@ export class GameScene extends Phaser.Scene {
     this.laneRuntime = this.laneLevel ? new LaneRuntime(this.laneLevel.botDifficulty) : undefined;
     this.laneGraphics = undefined;
     this.laneDotsGraphics = undefined;
+    this.laneSoldierSprites = [];
     this.laneTutorial = this.laneLevel?.id === 1 && !laneTutorialDone() ? new LaneTutorial() : undefined;
     this.laneCaption = undefined;
     this.laneHintGraphics = undefined;
@@ -5154,12 +5157,46 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** Draws the lane beams and soldiers under the towers; a no-op outside lane battles. */
+  /**
+   * Draws each lane soldier as a small rendered follower walking its route (facing it like marching
+   * armies do). Returns false when the unit art is unavailable, so the plain dots stay as the fallback.
+   */
+  private drawLaneSoldiers(lanes: LaneState): boolean {
+    const hasArt = this.textures?.exists?.('unit_follower_player_front') === true && typeof this.add?.image === 'function';
+    if (!hasArt) return false;
+    const scale = this.boardLayout.scale;
+    const size = 0.2 * ARENA_PRESENTATION.unitScale * scale;
+    const now = typeof this.time?.now === 'number' ? this.time.now : 0;
+    lanes.soldiers.forEach((soldier, index) => {
+      let sprite = this.laneSoldierSprites[index];
+      if (!sprite) {
+        sprite = this.add.image(0, 0, 'unit_follower_player_front').setDepth(this.boardLayout.overlayDepth(13));
+        this.laneSoldierSprites[index] = sprite;
+      }
+      const at = soldierPosition(this.gameState, soldier);
+      const heading = soldierHeading(this.gameState, soldier);
+      const here = this.projectSocketPoint(at.x, at.y);
+      const ahead = this.projectSocketPoint(at.x + heading.x * 4, at.y + heading.y * 4);
+      const angle = Math.atan2(ahead.v - here.v, ahead.u - here.u);
+      const bob = this.reducedMotion ? 0 : Math.abs(Math.sin(now / 110 + index * 1.7)) * -1.6 * scale;
+      sprite
+        .setTexture(this.getMarchTexture(soldier.owner, 'follower', angle))
+        .setFlipX(Math.cos(angle) < -0.05)
+        .setScale(size)
+        .setPosition(here.u, here.v + bob)
+        .setVisible(true);
+    });
+    for (let i = lanes.soldiers.length; i < this.laneSoldierSprites.length; i++) this.laneSoldierSprites[i].setVisible(false);
+    return true;
+  }
+
   private drawLaneLayer(): void {
     const runtime = this.laneRuntime;
     if (!runtime) return;
     if (!this.laneGraphics) this.laneGraphics = this.add.graphics().setDepth(this.boardLayout.overlayDepth(12));
     this.laneGraphics.clear();
-    drawLanes(this.laneGraphics, this.gameState, runtime.lanes, (x, y) => this.projectSocketPoint(x, y), this.boardLayout.scale);
+    const spritesReady = this.drawLaneSoldiers(runtime.lanes);
+    drawLanes(this.laneGraphics, this.gameState, runtime.lanes, (x, y) => this.projectSocketPoint(x, y), this.boardLayout.scale, { soldierDots: !spritesReady });
 
     // Path slots under every held tower's count, above the tower art.
     if (!this.laneDotsGraphics) this.laneDotsGraphics = this.add.graphics().setDepth(this.boardLayout.overlayDepth(44));
