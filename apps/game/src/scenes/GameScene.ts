@@ -190,7 +190,7 @@ import {
   DustPuffSimulator,
 } from '../combat/SmoothnessHelpers.js';
 import { createText, FONT_FAMILY, MONO_FONT_FAMILY } from '../ui/TextStyles.js';
-import { createIcon, rankIcon, type IconKey } from '../ui/icons.js';
+import { createIcon, iconRasterScale, rankIcon, type IconKey } from '../ui/icons.js';
 import { createButton, drawPanel, fadeIn } from '../ui/kit/index.js';
 import { startScene } from './lazyScenes.js';
 import { faLevels } from '../i18n/faLevels.js';
@@ -268,7 +268,7 @@ interface TerritoryVisual {
   unitBadge: Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle;
   /**
    * The badge's resting scale. Texture pill badges render from a
-   * 2x-resolution canvas (retina sharpness), so their base scale is 0.5 —
+   * 2x-3x resolution canvas (sharp on high tier), so their base scale is 1/raster —
    * pulses must be relative to this base or the pill would permanently
    * double in size (the old absolute setScale(1) pulse bug).
    */
@@ -2014,7 +2014,7 @@ export class GameScene extends Phaser.Scene {
             .rectangle(0, badgeY, badgeWidth, 22, 0x070d1a, 0.96)
             .setStrokeStyle(1.5, teamStyle.primary, 1);
       // Resting badge scale, derived from the object itself: 1 for the
-      // Rectangle fallback, 0.5 for the 2x-canvas texture pills.
+      // Rectangle fallback, 1/raster for the canvas texture pills.
       const unitBadgeBaseScale = unitBadge.scaleX;
 
       // Unit Count Text with resolution: 2 and bold stroke for retina sharpness
@@ -4320,17 +4320,18 @@ export class GameScene extends Phaser.Scene {
     if (typeof document === 'undefined' || !document.createElement) return null;
 
     const colorHex = strokeColor.toString(16).padStart(6, '0');
-    const key = `cc_tbadge_${colorHex}_${width}`;
+    const raster = iconRasterScale(this.registry?.get?.('renderScale'));
+    const key = `cc_tbadge_${colorHex}_${width}_${raster}x`;
     if (textures.exists(key)) return key;
 
     try {
       const canvas = document.createElement('canvas');
-      canvas.width = width * 2;
-      canvas.height = 44;
+      canvas.width = width * raster;
+      canvas.height = 22 * raster;
       const ctx = canvas.getContext('2d');
       if (!ctx) return null;
 
-      ctx.scale(2, 2);
+      ctx.scale(raster, raster);
       const gradient = ctx.createLinearGradient(0, 0, 0, 22);
       gradient.addColorStop(0, 'rgba(17, 26, 43, 0.97)');
       gradient.addColorStop(0.45, 'rgba(9, 13, 22, 0.96)');
@@ -4373,17 +4374,18 @@ export class GameScene extends Phaser.Scene {
     if (typeof document === 'undefined' || !document.createElement) return null;
 
     const colorHex = strokeColor.toString(16).padStart(6, '0');
-    const key = `cc_badge_${colorHex}_${roleType}_${width}`;
+    const raster = iconRasterScale(this.registry?.get?.('renderScale'));
+    const key = `cc_badge_${colorHex}_${roleType}_${width}_${raster}x`;
     if (this.textures.exists(key)) return key;
 
     try {
       const canvas = document.createElement('canvas');
-      canvas.width = width * 2;
-      canvas.height = 36;
+      canvas.width = width * raster;
+      canvas.height = 18 * raster;
       const ctx = canvas.getContext('2d');
       if (!ctx) return null;
 
-      ctx.scale(2, 2);
+      ctx.scale(raster, raster);
       const strokeCss = `#${colorHex}`;
       const fillCss = 'rgba(9, 13, 22, 0.94)';
 
