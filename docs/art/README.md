@@ -334,3 +334,16 @@ sprite masters at a higher size with `tools/blender/render_battlefield.sh <pack>
 this Mac); `--look vivid` and `--look-json '{...}'` try another lighting look on one asset before it becomes a preset (`classic`
 is the shipped one).
 
+
+### Ground plates and the 128 KB budget
+
+The meadow v2 plates are busier than v1.7, so `tools/blender/optimize_outputs.sh` (q 90) produces 136-146 KB files, over the
+128 KB plate budget. Re-encode each SD plate after the optimizer run with the highest quality that fits:
+
+```
+for g in crown_cross twin_passes royal_ring quad_citadel; do
+  cwebp -quiet -q 86 -m 6 -resize 760 1668 art/blender/renders/grounds/ground_$g.png -o apps/game/public/assets/grounds/ground_$g.webp
+done   # q 86 gives about 113 KB; q 88 for quad_citadel (118 KB)
+```
+
+The HD plates (`assets/hd/grounds`, 1140 px) are exported by `scripts/export-hd-art.mjs` and are not part of that budget.
