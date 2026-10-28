@@ -93,3 +93,37 @@ here is the existing 50% bot reused for lanes (not tuned for streams), normal on
 unwinnable for the probes, difficulty is not monotonic, and nothing says a human finds it fun. The
 remaining work is the list above (Go port, `cut` action, replay, bot, client lane drawing and
 soldier file, re-tuning, parity), not tuning of this prototype.
+
+## Appendix: hub and levels 1-2 (first-hand, 2026-10-28)
+
+Seen on the same fresh install, levels 1 and 2 only. No shop, event, clan or settings screen
+was opened, so nothing below says how Tower War monetises or runs live events.
+
+- **The hub is the next level.** After level 1 the home screen shows the next level's map with
+  its towers, a large green PLAY button, a "LEVEL 2" banner, a gem counter (0) and a coin counter
+  (28) with "+" buttons, a profile chip, and a hamburger menu with a red notification dot.
+- **Bottom bar, 5 tabs, progressive unlock:** BATTLE (active, centre) and four locked tabs
+  labelled "UNLOCK AT LEVEL 6", "26" (left side) and "11", "51" (right side). Features are
+  introduced one at a time over the first 50 levels instead of all at once.
+- **Level 2 teaches tower tiers.** Caption: "Upgrade the building to level 10". Tapping a tower
+  adds troops to it; at 10 the tower upgrades (new look, glow) and the game says "You now have 2
+  paths available". So a tower's tier decides how many lanes can leave it at once. Tiers are
+  driven by the garrison count; the count itself shows "Max" at the cap.
+- **Level 2 has two blue towers, one red (enemy) and one grey (neutral).** The top bar is a
+  blue/red force bar under the "LEVEL N" label instead of a timer.
+- **The enemy plays lanes too.** The red tower opened a lane on my weakest blue tower (2 troops),
+  captured it, and then pointed its lane at the grey tower. A tower with a stream running does not
+  lose its own garrison quickly, so a lane is cheap to keep open.
+- **Taps and swipes must land on the tower.** A swipe starting a few pixels off a tower was
+  ignored (my first level-2 swipe did nothing while the garrison kept growing), so the hit
+  area is close to the tower body.
+- **Cadence:** level 1 took about 25 s; the level-1 victory screen is the first and only popup
+  before the hub. The OS notification prompt comes before level 1.
+
+## What this changes in the plan
+
+The lane mechanic is not a side feature: tiers (more paths per tower), the garrison cap, an enemy
+that streams, and a force bar all assume lanes. A faithful lane version therefore needs, besides
+the list above: a tier model (garrison thresholds give 1, 2, 3 simultaneous lanes), a force bar
+in the HUD, and bot logic that opens lanes on weak towers. Tower upgrades by tapping are an
+additional input that does not exist in Crown Clash today.
