@@ -11,6 +11,7 @@
 // units are only re-exported when the master dir has a units folder)
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -22,6 +23,16 @@ const publicRoot = path.join(root, 'apps/game/public');
 const hdRoot = path.join(publicRoot, 'assets/hd');
 const quality = process.env.HD_QUALITY ?? '88';
 const SIZE_FACTOR = 3;
+// The HD set carries the colour grade (a battle-camera filter cost ~14 fps on a fast phone, baked colour costs nothing):
+// saturation x1.25 and a gentle S-curve for contrast. Alpha is preserved. HD_GRADE=0 exports the masters ungraded.
+const GRADE = process.env.HD_GRADE === '0' ? null : "format=rgba,hue=s=1.25,curves=all='0/0 0.25/0.22 0.75/0.79 1/1'";
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-hd-'));
+const graded = (master) => {
+  if (!GRADE) return master;
+  const out = path.join(tmpDir, path.basename(master));
+  execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-i', master, '-vf', GRADE, out]);
+  return out;
+};
 const UNIT_SIZE = 256;
 const entries = {};
 
@@ -54,12 +65,12 @@ for (const [packId, pack] of Object.entries(manifest.packs)) {
     if (pack.spriteKind === 'ground') {
       // Ground plates keep the master's pixels; it is already the largest honest size.
       [width, height] = [masterSize.width, masterSize.height];
-      execFileSync('cwebp', ['-quiet', '-q', '82', master, '-o', dest]);
+      execFileSync('cwebp', ['-quiet', '-q', '82', graded(master), '-o', dest]);
     } else {
       const sd = sprite.targetWidth ?? sprite.targetSize;
       const target = Math.min(masterSize.width, sd * SIZE_FACTOR);
       [width, height] = [target, target];
-      execFileSync('cwebp', ['-quiet', '-q', quality, '-alpha_q', '100', '-resize', String(target), String(target), master, '-o', dest]);
+      execFileSync('cwebp', ['-quiet', '-q', quality, '-alpha_q', '100', '-resize', String(target), String(target), graded(master), '-o', dest]);
     }
     record(assetPath, width, height, dest);
   }
@@ -72,11 +83,12 @@ const unitDest = path.join(hdRoot, 'units');
 fs.mkdirSync(unitDest, { recursive: true });
 for (const file of fs.readdirSync(unitsDir).filter((f) => f.endsWith('.png')).sort()) {
   const dest = path.join(unitDest, file);
-  execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-i', path.join(unitsDir, file), '-vf', `scale=${UNIT_SIZE}:${UNIT_SIZE}:flags=lanczos`, dest]);
+  execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-i', path.join(unitsDir, file), '-vf', `${GRADE ? `${GRADE},` : ''}scale=${UNIT_SIZE}:${UNIT_SIZE}:flags=lanczos`, dest]);
   record(`assets/units/${file}`, UNIT_SIZE, UNIT_SIZE, dest);
 }
 
 const sorted = Object.fromEntries(Object.entries(entries).sort(([a], [b]) => (a < b ? -1 : 1)));
-fs.writeFileSync(path.join(root, 'apps/game/src/art/hd-art-manifest.json'), `${JSON.stringify({ version: 'hd-v1', files: sorted }, null, 2)}\n`);
+fs.writeFileSync(path.join(root, 'apps/game/src/art/hd-art-manifest.json'), `${JSON.stringify({ version: 'hd-v2', files: sorted }, null, 2)}\n`);
 const total = Object.values(sorted).reduce((n, e) => n + e.bytes, 0);
+fs.rmSync(tmpDir, { recursive: true, force: true });
 console.log(`${Object.keys(sorted).length} HD files, ${(total / 1024 / 1024).toFixed(2)} MB total`);

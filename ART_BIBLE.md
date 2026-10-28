@@ -32,9 +32,9 @@ fixed.
 **v1.8:** sharpness tiers and a battle colour grade. The canvas renders at the device pixel ratio up to 3x on capable phones
 (`apps/game/src/render/RenderProfile.ts`: `low` 1x, `mid` up to 2x, `high` up to 3x) and the `high` tier loads an HD art set
 mirrored under `assets/hd/` (buildings and props up to 3x their SD size, 256 px marching units, 1140x2502 ground plates; see
-`docs/art/README.md`). On `high`, the battle camera also gets one colour-matrix pass (`render/SceneGrade.ts`: saturation +0.25,
-contrast +0.08) for richer greens and blues. Camera, projection, layout, silhouettes and palette are unchanged, so gameplay,
-hit radii and replays are not affected. Tried and rejected: a navy vignette (dimmed the whole board and the HUD), a thin
+`docs/art/README.md`). The HD set is exported with a baked colour grade (saturation x1.25 plus a gentle S-curve) for
+richer greens and blues at zero runtime cost. Camera, projection, layout, silhouettes and palette are unchanged, so gameplay,
+hit radii and replays are not affected. Tried and rejected: a camera colour filter (the full-screen pass cost ~14 fps on a Poco X7 Pro), a navy vignette (dimmed the whole board and the HUD), a thin
 Freestyle toon outline (it also outlines the contact-shadow ellipse) and a brighter `vivid` Blender light preset (not visible at
 game size; it stays available as `--look vivid`).
 

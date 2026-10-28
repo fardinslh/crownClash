@@ -326,6 +326,7 @@ Export with `node scripts/export-hd-art.mjs` (needs `cwebp` and `ffmpeg` and the
 - ground plates: the 1140x2502 masters as they are (the SD plate is 760x1668);
 - marching units: 256 px PNG (SD is 128 px); `GameScene` scales unit sprites by `128 / sprite.width` so their on-screen size is
   the same on both tiers;
+- all HD files carry a baked colour grade (`hue=s=1.25` and a gentle S-curve via ffmpeg; `HD_GRADE=0` disables it);
 - the generic PNG pack is the fallback for battlefields without dedicated art and stays SD.
 
 HD files are cached like the SD ones: bump `version` in the generated manifest (`HD_ART_VERSION`) when they change. Render
