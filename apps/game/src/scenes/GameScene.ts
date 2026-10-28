@@ -2136,11 +2136,11 @@ export class GameScene extends Phaser.Scene {
       .setDepth(89);
 
     this.add
-      .rectangle(LOGICAL_WIDTH / 2, 35, visibleWidth, 70, 0x090f1d, 0.96)
+      .rectangle(LOGICAL_WIDTH / 2, 35, visibleWidth, 70, UI.surface.base, 0.97)
       .setDepth(90);
 
     this.add
-      .rectangle(LOGICAL_WIDTH / 2, 70, visibleWidth, 1.5, 0x1e293b, 1)
+      .rectangle(LOGICAL_WIDTH / 2, 70, visibleWidth, 1.5, UI.border, 1)
       .setDepth(91);
     this.add
       .rectangle(LOGICAL_WIDTH / 2 - visibleWidth / 4, 70, visibleWidth / 2, 1.5, THEME.teams.player.primary, 0.58)
@@ -2164,7 +2164,7 @@ export class GameScene extends Phaser.Scene {
     // may be rendered beneath it.
     if (!this.is2v2) {
       this.drawHudPill(hudLayout.playerPill.center.x, hudLayout.playerPill.center.y,
-        hudLayout.playerPill.visibleBounds.width, hudLayout.playerPill.visibleBounds.height, 0x0f172a, 0x3b82f6);
+        hudLayout.playerPill.visibleBounds.width, hudLayout.playerPill.visibleBounds.height, UI.surface.raised, 0x60a5fa);
 
       const playerMaxW = getPillMaxContentWidth(hudLayout.playerPill.visibleBounds.width);
       const playerLabel = this.computePlayerHudLabel(playerMaxW);
@@ -2184,7 +2184,7 @@ export class GameScene extends Phaser.Scene {
     // Trophies Pill (skipped in 2v2: casual matches never stake trophies)
     if (!this.is2v2) {
       this.drawHudPill(hudLayout.trophyPill.center.x, hudLayout.trophyPill.center.y,
-        hudLayout.trophyPill.visibleBounds.width, hudLayout.trophyPill.visibleBounds.height, 0x0f172a, 0x818cf8);
+        hudLayout.trophyPill.visibleBounds.width, hudLayout.trophyPill.visibleBounds.height, UI.surface.raised, 0xa5b4fc);
       const trophyMaxW = getPillMaxContentWidth(hudLayout.trophyPill.visibleBounds.width) - HUD_ICON_ROOM;
       createIcon(this, hudLayout.trophyPill.center.x + hudLayout.trophyPill.visibleBounds.width / 2 - 13,
         hudLayout.trophyPill.center.y, 'trophy', 16).setDepth(96);
@@ -2210,7 +2210,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.is2v2) {
       this.drawHudPill(hudLayout.coinPill.center.x, hudLayout.coinPill.center.y,
         hudLayout.coinPill.visibleBounds.width, hudLayout.coinPill.visibleBounds.height,
-        this.liveMode ? 0x1e1520 : 0x0f172a, this.liveMode ? 0xf87171 : 0xf59e0b);
+        this.liveMode ? 0x3a1d3a : UI.surface.raised, this.liveMode ? 0xf87171 : 0xf59e0b);
       const showCoinIcon = !this.liveMode && !this.realmTicket;
       const coinMaxW = getPillMaxContentWidth(hudLayout.coinPill.visibleBounds.width) - (showCoinIcon ? HUD_ICON_ROOM : 0);
       if (showCoinIcon) {
@@ -2270,7 +2270,7 @@ export class GameScene extends Phaser.Scene {
     const menuBg = this.add
       .rectangle(menuBtnX, menuBtnY, menuVisW, menuVisH, 0x0f172a, 0.001)
       .setDepth(95);
-    this.drawHudPill(menuBtnX, menuBtnY, menuVisW, menuVisH, 0x0f172a, 0x334155, 10);
+    this.drawHudPill(menuBtnX, menuBtnY, menuVisW, menuVisH, UI.surface.raised, UI.borderStrong, 10);
 
     const menuIcon = this.add.graphics().setDepth(96);
     menuIcon.setPosition(menuBtnX, menuBtnY);
@@ -2373,8 +2373,8 @@ export class GameScene extends Phaser.Scene {
 
     // Dominance Bar Track Background
     this.add
-      .rectangle(hudLayout.dominanceBar.center.x, barY, barTotalWidth, barHeight, 0x0b1120, 1)
-      .setStrokeStyle(1, 0x1e293b, 1)
+      .rectangle(hudLayout.dominanceBar.center.x, barY, barTotalWidth, barHeight, 0x0a1535, 1)
+      .setStrokeStyle(1, UI.border, 1)
       .setDepth(92);
 
     this.playerBar = this.add
@@ -2424,8 +2424,8 @@ export class GameScene extends Phaser.Scene {
       .rectangle(LOGICAL_WIDTH / 2, bottomBarY + 3, Math.min(364, visibleWidth - 36), 42, 0x000000, 0.34)
       .setDepth(94);
     this.bottomBarBg = this.add
-      .rectangle(LOGICAL_WIDTH / 2, bottomBarY, Math.min(360, visibleWidth - 40), 40, 0x090f1d, 0.94)
-      .setStrokeStyle(1.5, 0x334155, 0.92)
+      .rectangle(LOGICAL_WIDTH / 2, bottomBarY, Math.min(360, visibleWidth - 40), 40, UI.surface.base, 0.95)
+      .setStrokeStyle(1.5, UI.borderStrong, 0.92)
       .setDepth(95);
     for (const bar of [this.bottomBarShadow, this.bottomBarBg]) {
       if (typeof bar.setRounded === 'function') bar.setRounded(14);
