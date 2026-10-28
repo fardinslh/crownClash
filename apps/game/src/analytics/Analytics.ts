@@ -90,6 +90,9 @@ export type AnalyticsEventInput =
   | { name: 'weekly_challenge_completed'; slot: number; durationSeconds: number }
   | { name: 'weekly_challenge_failed'; slot: number; durationSeconds: number }
   | { name: 'weekly_reward_claimed'; claimId: string }
+  | { name: 'lane_battle_started'; levelId: number }
+  | { name: 'lane_battle_completed'; levelId: number; durationSeconds: number }
+  | { name: 'lane_battle_failed'; levelId: number; durationSeconds: number }
   | { name: 'tutorial_started' }
   | { name: 'tutorial_step_completed'; stepId: TutorialStepId }
   | { name: 'tutorial_completed' }
@@ -170,6 +173,9 @@ const EVENT_NAMES: ReadonlySet<AnalyticsEvent['name']> = new Set([
   'weekly_challenge_completed',
   'weekly_challenge_failed',
   'weekly_reward_claimed',
+  'lane_battle_started',
+  'lane_battle_completed',
+  'lane_battle_failed',
   'tutorial_started',
   'tutorial_step_completed',
   'tutorial_completed',

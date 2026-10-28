@@ -11,6 +11,8 @@
 
 export interface FeatureFlags {
   readonly enable2v2: boolean;
+  /** Lane battles (candidate rules v5): a client-local beta, off unless the build opts in. */
+  readonly enableLanes?: boolean;
 }
 
 export interface RemoteFeatureFlags {
@@ -21,6 +23,7 @@ export interface RemoteFeatureFlags {
 
 export type FeatureFlagEnvironment = {
   readonly VITE_ENABLE_2V2?: string;
+  readonly VITE_ENABLE_LANES?: string;
 };
 
 export function resolveFeatureFlags(env: FeatureFlagEnvironment | undefined = undefined): FeatureFlags {
@@ -33,6 +36,7 @@ export function resolveFeatureFlags(env: FeatureFlagEnvironment | undefined = un
     // Opt-in string, not truthy coercion: absent, empty, or any value other
     // than exactly 'true' keeps 2v2 disabled.
     enable2v2: source.VITE_ENABLE_2V2 === 'true',
+    enableLanes: source.VITE_ENABLE_LANES === 'true',
   };
 }
 

@@ -7,6 +7,9 @@ import { CareerManager } from '../career/CareerManager.js';
 import { battlefieldName } from '../i18n/faBattle.js';
 import { faLevels } from '../i18n/faLevels.js';
 import { faWeekly } from '../i18n/faWeekly.js';
+import { faLane } from '../i18n/faLane.js';
+import { featureFlags } from '../config/featureFlags.js';
+import { nextLaneLevelId } from '../lane/laneProgress.js';
 import { THEME, UI } from '../theme.js';
 import { computeLevelsLayout } from '../ui/LevelsLayout.js';
 import { createText } from '../ui/TextStyles.js';
@@ -108,6 +111,17 @@ export class LevelsScene extends Phaser.Scene {
         variant: 'gold',
         fontSize: 15,
         onPress: () => this.openWeekly(),
+      });
+    }
+    // Lane battles (candidate rules v5) are a client-local beta behind a build flag.
+    if (featureFlags.enableLanes === true) {
+      createButton(this, 76, 38, {
+        width: 124,
+        height: 44,
+        label: faLane.entry,
+        variant: 'secondary',
+        fontSize: 11,
+        onPress: () => this.openLaneBattle(),
       });
     }
     this.applyLayout(vp);
@@ -247,6 +261,16 @@ export class LevelsScene extends Phaser.Scene {
     this.platform.hapticSelection();
     this.tweens.add({ targets: card, scale: 0.96, duration: 80, yoyo: true });
     goToScene(this, 'GameScene', { source: 'menu', levelId: level.id }, () => {
+      this.isExiting = false;
+    });
+  }
+
+  private openLaneBattle(): void {
+    if (this.isExiting) return;
+    this.isExiting = true;
+    sounds.playReinforce();
+    this.platform.hapticSelection();
+    goToScene(this, 'GameScene', { source: 'menu', lanes: { levelId: nextLaneLevelId() } }, () => {
       this.isExiting = false;
     });
   }

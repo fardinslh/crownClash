@@ -425,6 +425,9 @@ func TestWeeklyAnalyticsAcceptOnlyClientFacts(t *testing.T) {
 		"weekly_challenge_started":   {"slot": float64(1)},
 		"weekly_challenge_completed": {"slot": float64(2), "durationSeconds": float64(40)},
 		"weekly_challenge_failed":    {"slot": float64(3), "durationSeconds": float64(25)},
+		"lane_battle_started":        {"levelId": float64(1)},
+		"lane_battle_completed":      {"levelId": float64(4), "durationSeconds": float64(40)},
+		"lane_battle_failed":         {"levelId": float64(9), "durationSeconds": float64(30)},
 	} {
 		if err := validateAnalyticsEvent(analyticsTestEvent(name, props), analyticsTestNow); err != nil {
 			t.Errorf("%s should be valid: %v", name, err)

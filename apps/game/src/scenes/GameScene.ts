@@ -194,6 +194,10 @@ import { createButton, drawPanel, fadeIn } from '../ui/kit/index.js';
 import { startScene } from './lazyScenes.js';
 import { faLevels } from '../i18n/faLevels.js';
 import { faWeekly } from '../i18n/faWeekly.js';
+import { faLane } from '../i18n/faLane.js';
+import { LaneRuntime, drawLanes } from '../lane/LaneRuntime.js';
+import { LANE_PROGRESS_KEY, bestLaneLevelWon } from '../lane/laneProgress.js';
+import { LANE_LEVELS, getLaneLevel, type LaneLevel } from '@crown-clash/game-core';
 import { loadHubTextures } from '../ui/kit/hubBackdrop.js';
 import { battlefieldName, faBattle, upgradeEffectLabel } from '../i18n/faBattle.js';
 import { popScale, resolveFeelProfile, type FeelProfile } from '../feel/FeelProfile.js';
@@ -386,6 +390,11 @@ export class GameScene extends Phaser.Scene {
   private introHolding = false;
   /** Set when this battle is a campaign level (see game-core levels.ts). */
   private levelDef?: LevelDefinition;
+  /** Set for a lane battle (candidate rules v5, client-local beta); levelDef then mirrors its battle. */
+  private laneLevel?: LaneLevel;
+  private laneRuntime?: LaneRuntime;
+  private laneGraphics?: Phaser.GameObjects.Graphics;
+  private laneSwipeFrom?: { x: number; y: number };
   /** Set for a Weekly Challenge battle (levelDef then mirrors its server-defined battle). */
   private weekly?: WeeklyLaunch;
   /** Why a won Weekly Challenge was not paid (shown on the result card). */
@@ -531,6 +540,7 @@ export class GameScene extends Phaser.Scene {
       botMatch?: BotMatchTicket;
       levelId?: number;
       weekly?: WeeklyLaunch;
+      lanes?: { levelId: number };
       realmTicket?: RealmTicket;
       realmGoal?: UpgradeType;
       liveMatch?: LiveMatchStarted;
@@ -600,6 +610,7 @@ export class GameScene extends Phaser.Scene {
       botMatch?: BotMatchTicket;
       levelId?: number;
       weekly?: WeeklyLaunch;
+      lanes?: { levelId: number };
       realmTicket?: RealmTicket;
       realmGoal?: UpgradeType;
       career?: PlayerCareer;
@@ -619,7 +630,13 @@ export class GameScene extends Phaser.Scene {
     // server defined its battlefield and enemy for the week (weekly/get), and
     // the win is replayed and paid by weekly/complete.
     this.weekly = !this.liveMode && !launchData?.botMatch ? launchData?.weekly : undefined;
-    this.levelDef = this.weekly
+    this.laneLevel = !this.liveMode && !launchData?.botMatch && !this.weekly && launchData?.lanes ? getLaneLevel(launchData.lanes.levelId) : undefined;
+    this.laneRuntime = this.laneLevel ? new LaneRuntime(this.laneLevel.botDifficulty) : undefined;
+    this.laneGraphics = undefined;
+    this.laneSwipeFrom = undefined;
+    this.levelDef = this.laneLevel
+      ? { id: this.laneLevel.id, battlefieldId: this.laneLevel.battlefieldId, botDifficulty: this.laneLevel.botDifficulty, enemy: this.laneLevel.enemy, coinReward: 0 }
+      : this.weekly
       ? {
           id: this.weekly.slot,
           battlefieldId: this.weekly.battlefieldId,
@@ -798,6 +815,8 @@ export class GameScene extends Phaser.Scene {
       // Training is not a real match: no match_start analytics, no match
       // settlement, no rewards. Only the stable tutorial_* events fire.
       trackEvent({ name: 'tutorial_started' });
+    } else if (this.laneLevel) {
+      trackEvent({ name: 'lane_battle_started', levelId: this.laneLevel.id });
     } else if (this.weekly) {
       trackEvent({ name: 'weekly_challenge_started', slot: this.weekly.slot });
     } else if (this.levelDef) {
@@ -2524,6 +2543,9 @@ export class GameScene extends Phaser.Scene {
       }
       if (territory) {
         this.startDragFromTerritory(territory.id, pointer);
+      } else if (this.laneRuntime) {
+        // Lane battles: a swipe that starts off any tower cuts the lanes it crosses.
+        this.laneSwipeFrom = this.pointerToWorld(pointer);
       }
     });
 
@@ -2535,6 +2557,7 @@ export class GameScene extends Phaser.Scene {
 
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
       const point = this.pointerCss(pointer); this.territoryTap.move(point.x, point.y);
+      if (this.laneRuntime && this.laneSwipeFrom && this.selectedSourceIds.length === 0) this.swipeCutLanes(pointer);
       if (this.isExiting || this.matchMenuController?.isOpen() || this.selectedSourceIds.length === 0) {
         return;
       }
@@ -2604,6 +2627,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
+      this.laneSwipeFrom = undefined;
       if (this.isExiting || this.matchMenuController?.isOpen()) {
         this.territoryTap.cancel();
         this.cancelDragSelection();
@@ -2752,6 +2776,11 @@ export class GameScene extends Phaser.Scene {
         { u: this.pointerWorldPoint.x, v: this.pointerWorldPoint.y },
         this.abilityTargeting ? ABILITY_CONFIG.chargeUnitMultiplier : 1);
       if (this.abilityTargeting) view.label = `⚡ ${faBattle.ability.chargeLabel}\n${view.label}`;
+      if (this.laneRuntime) {
+        // A lane streams until cut, so the send/stay forecast of a 50% dispatch does not apply.
+        view.label = target ? (target.owner === 'player' ? faLane.feed : faLane.attack) : faLane.towersSelected(this.selectedSourceIds.length);
+        view.hint = faLane.hint;
+      }
       this.dragBadgeText.setText(view.label).setColor(`#${view.color.toString(16).padStart(6, '0')}`);
       this.dragBadgeText.setWordWrapWidth(270);
       const width = Math.min(290, Math.ceil(this.dragBadgeText.width) + 20);
@@ -3008,7 +3037,9 @@ export class GameScene extends Phaser.Scene {
         .filter((t): t is Territory => Boolean(t));
 
       if (target && sources.length > 0) {
-        if (this.liveMode) {
+        if (this.laneRuntime) {
+          this.openLanes(sourceIds, targetId);
+        } else if (this.liveMode) {
           if (this.is2v2InputBlocked()) return;
           try {
             const multiDispatch = dispatchMultipleArmies(
@@ -3147,6 +3178,7 @@ export class GameScene extends Phaser.Scene {
     this.updateTerritoryInspection();
     if (!this.matchMenuController?.isPaused()) {
       this.updateArmyVisuals(deltaSeconds);
+      this.drawLaneLayer();
     }
 
     // 7. Ambient cloud shadows follow their Lissajous paths (two sines per
@@ -3183,12 +3215,16 @@ export class GameScene extends Phaser.Scene {
       this.markTerritoriesDirty();
     }
     for (let index = 0; index < ticks && this.gameState.status === 'playing'; index++) {
-      const result = stepSimulation(this.gameState, this.accumulators, PVP_SIMULATION_TICK_SECONDS);
+      // Lane battles run their own step and enemy planning; the classic path is untouched.
+      const result = this.laneRuntime
+        ? { ...this.laneRuntime.step(this.gameState, this.accumulators, PVP_SIMULATION_TICK_SECONDS), resolvedArrivals: [] }
+        : stepSimulation(this.gameState, this.accumulators, PVP_SIMULATION_TICK_SECONDS);
       this.gameState = result.state;
       this.accumulators = result.accumulators;
       if (this.trainingMode) holdTrainingEnemyBase(this.gameState.territories);
       result.resolvedArrivals.forEach((arrival) => this.onCombatArrival(arrival));
       if (
+        !this.laneRuntime &&
         this.gameState.status === 'playing' &&
         this.gameState.elapsedTimeSeconds >= this.aiNextTick - 1e-9
       ) {
@@ -4926,6 +4962,10 @@ export class GameScene extends Phaser.Scene {
     // Settlement starts now; the neutral end stamp plays meanwhile and the
     // syncing card appears only if the server is slower than the beat.
     this.endBeatDone = this.playEndBeat();
+    if (this.laneLevel) {
+      void this.finishLaneBattle(this.laneLevel);
+      return;
+    }
     if (this.weekly) {
       void this.finishWeekly(this.weekly);
       return;
@@ -5027,7 +5067,8 @@ export class GameScene extends Phaser.Scene {
     } else this.platform.hapticImpact('light');
 
     const weekly = this.weekly;
-    const hasNext = isWin && !weekly && level.id < LEVEL_COUNT;
+    const lane = this.laneLevel;
+    const hasNext = isWin && !weekly && (lane ? lane.id < LANE_LEVELS.length : level.id < LEVEL_COUNT);
     const accent = isWin ? 0xf59e0b : status === 'draw' ? 0x60a5fa : 0xef4444;
     const { visibleWidth, visibleHeight } = getSceneViewport(this);
     const modal = this.add.container(LOGICAL_WIDTH / 2, visibleHeight / 2).setDepth(200);
@@ -5047,7 +5088,9 @@ export class GameScene extends Phaser.Scene {
       stroke: '#000000',
       strokeThickness: 4,
     }).setOrigin(0.5);
-    const subtitleText = weekly
+    const subtitleText = lane
+      ? (isWin ? (lane.id >= LANE_LEVELS.length ? faLane.result.allDone : faLane.result.victorySub(lane.id)) : status === 'draw' ? faLevels.result.drawSub : faLevels.result.defeatSub)
+      : weekly
       ? (isWin ? faWeekly.result.victorySub(weekly.slot) : status === 'draw' ? faWeekly.result.drawSub : faWeekly.result.defeatSub)
       : isWin ? (level.id >= LEVEL_COUNT ? faLevels.result.allDone : faLevels.result.victorySub(level.id)) : status === 'draw' ? faLevels.result.drawSub : faLevels.result.defeatSub;
     const subtitle = createText(this, 0, top + 82, subtitleText, {
@@ -5081,14 +5124,92 @@ export class GameScene extends Phaser.Scene {
       items.push(button.container);
       buttonY += 56;
     };
-    if (hasNext) addButton(faLevels.result.next, 'gold', () => this.restartAsLevel(level.id + 1));
-    addButton(weekly ? faWeekly.result.retry : faLevels.result.retry, isWin ? 'secondary' : 'primary', () => (weekly ? this.restartAsWeekly(weekly) : this.restartAsLevel(level.id)));
+    if (hasNext) addButton(lane ? faLane.result.next : faLevels.result.next, 'gold', () => (lane ? this.restartAsLane(lane.id + 1) : this.restartAsLevel(level.id + 1)));
+    addButton(weekly ? faWeekly.result.retry : faLevels.result.retry, isWin ? 'secondary' : 'primary', () => (weekly ? this.restartAsWeekly(weekly) : lane ? this.restartAsLane(lane.id) : this.restartAsLevel(level.id)));
     addButton(weekly ? faWeekly.result.back : faLevels.result.back, 'secondary', () => this.returnToMenu());
     modal.add(items);
     if (this.feel.tier !== 'still') {
       modal.setScale(0.9).setAlpha(0);
       this.tweens.add({ targets: modal, scale: 1, alpha: 1, duration: 220, ease: 'Back.easeOut' });
     }
+  }
+
+  /** Draws the lane beams and soldiers under the towers; a no-op outside lane battles. */
+  private drawLaneLayer(): void {
+    const runtime = this.laneRuntime;
+    if (!runtime) return;
+    if (!this.laneGraphics) this.laneGraphics = this.add.graphics().setDepth(this.boardLayout.overlayDepth(12));
+    this.laneGraphics.clear();
+    drawLanes(this.laneGraphics, this.gameState, runtime.lanes, (x, y) => this.projectSocketPoint(x, y), this.boardLayout.scale);
+  }
+
+  /** The player drags onto a target: every selected tower with a free path opens a lane. */
+  private openLanes(sourceIds: readonly string[], targetId: string): void {
+    const runtime = this.laneRuntime;
+    if (!runtime) return;
+    const { opened, blocked } = runtime.openFor(this.gameState, sourceIds, targetId);
+    if (opened.length > 0) {
+      this.markTerritoriesDirty();
+      sounds.playDispatch(opened.length);
+      this.platform.hapticImpact(opened.length > 1 ? 'heavy' : 'medium');
+      // A lane streams, so there is no "-N" cost to show: just the recoil at each source.
+      if (this.feel.pops && this.feel.tier !== 'still') {
+        for (const id of opened) {
+          const vis = this.territoryVisuals.get(id);
+          if (!vis) continue;
+          this.tweens.killTweensOf(vis.container);
+          vis.container.setScale(0.94);
+          this.tweens.add({ targets: vis.container, scale: 1, duration: 160, ease: 'Back.easeOut' });
+        }
+      }
+    } else if (blocked.length > 0) {
+      this.spawnFloatingText(LOGICAL_WIDTH / 2, 96, faLane.noPath, '#fbbf24', 1400);
+    }
+  }
+
+  /** A finger swipe off the towers cuts every player lane the segment crosses. */
+  private swipeCutLanes(pointer: Phaser.Input.Pointer): void {
+    const runtime = this.laneRuntime;
+    const from = this.laneSwipeFrom;
+    if (!runtime || !from) return;
+    const to = this.pointerToWorld(pointer);
+    this.laneSwipeFrom = to;
+    if (runtime.cutBySwipe(this.gameState, from, to) > 0) {
+      sounds.playSelect();
+      this.platform.hapticImpact('light');
+      this.spawnFloatingText(LOGICAL_WIDTH / 2, 96, faLane.cut, '#93c5fd', 900);
+    }
+  }
+
+  /**
+   * Ends a lane battle (candidate rules v5). It is a client-local beta: no server
+   * verification and no reward, so the result only shows and remembers progress.
+   */
+  private async finishLaneBattle(lane: LaneLevel): Promise<void> {
+    const status = this.gameState.status as 'victory' | 'defeat' | 'draw';
+    const durationSeconds = wholeMatchSeconds(this.gameState.elapsedTimeSeconds);
+    trackEvent(status === 'victory'
+      ? { name: 'lane_battle_completed', levelId: lane.id, durationSeconds }
+      : { name: 'lane_battle_failed', levelId: lane.id, durationSeconds });
+    if (status === 'victory') {
+      try {
+        if (lane.id > bestLaneLevelWon()) window.localStorage.setItem(LANE_PROGRESS_KEY, String(lane.id));
+      } catch {
+        // Storage can be unavailable; progress then lasts for the session only.
+      }
+    }
+    await this.endBeatDone;
+    this.resultPending = false;
+    if (this.isExiting || this.resultModalContainer || !this.levelDef) return;
+    this.renderLevelResultModal(this.levelDef, status, true, 0);
+  }
+
+  private restartAsLane(levelId: number): void {
+    if (this.isExiting) return;
+    this.isExiting = true;
+    sounds.stopBattleMusic();
+    this.input.enabled = false;
+    this.scene.start('GameScene', { source: 'menu', lanes: { levelId } });
   }
 
   private restartAsWeekly(weekly: WeeklyLaunch): void {

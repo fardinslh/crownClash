@@ -1272,6 +1272,72 @@ describe('tactical main-game integration', () => {
     }
   });
 
+  it('plays a lane battle: drag opens a lane that streams, a swipe cuts it, and the win pays nothing', async () => {
+    const scene: any = new GameScene();
+    scene.registry.set('platform', new BrowserPlatformAdapter());
+    scene.scene.settings.data = { source: 'menu', lanes: { levelId: 1 } };
+    scene.create();
+    scene.introHolding = false;
+    scene.game = { canvas: { width: 400, height: 720, getBoundingClientRect: () => ({ width: 360, height: 640 }) } };
+    expect(scene.laneRuntime).toBeDefined();
+    expect(scene.levelDef).toMatchObject({ id: 1, battlefieldId: 'crown_cross', botDifficulty: 'easy', coinReward: 0 });
+    const names = () => (trackEvent as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([event]: any) => event.name);
+    expect(names()).toContain('lane_battle_started');
+    expect(names()).not.toContain('level_started');
+    expect(names()).not.toContain('match_start');
+
+    scene.gameState.territories.p_base.units = 30;
+    scene.selectedSourceIds = ['p_base'];
+    scene.hoveredTargetId = 'n_center';
+    scene.handlePointerRelease();
+    expect(scene.laneRuntime.lanes.lanes.some((l: any) => l.owner === 'player' && l.sourceId === 'p_base')).toBe(true);
+    expect(scene.matchActions).toEqual([]); // a lane battle is not replayed or settled
+
+    for (let i = 0; i < 15; i++) scene.stepBotMatch(0.1);
+    expect(scene.laneRuntime.lanes.soldiers.length).toBeGreaterThan(0);
+
+    // A swipe that starts off every tower and crosses the lane cuts it.
+    const lane = scene.laneRuntime.lanes.lanes.find((l: any) => l.owner === 'player');
+    const a = scene.gameState.territories[lane.sourceId], b = scene.gameState.territories[lane.targetId];
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const dx = (b.y - a.y) * 0.25, dy = -(b.x - a.x) * 0.25;
+    const pointerAt = (x: number, y: number) => {
+      const p = scene.projectSocketPoint(x, y);
+      return { x: p.u, y: p.v, positionToCamera: (_c: unknown, out: any) => out.set(p.u, p.v) };
+    };
+    const fire = (event: string, pointer: any) => { for (const [name, handler] of scene.input.on.mock.calls) if (name === event) handler(pointer); };
+    fire('pointerdown', pointerAt(mid.x + dx, mid.y + dy));
+    fire('pointermove', pointerAt(mid.x - dx, mid.y - dy));
+    fire('pointerup', pointerAt(mid.x - dx, mid.y - dy));
+    expect(scene.laneRuntime.lanes.lanes.some((l: any) => l.owner === 'player' && l.sourceId === lane.sourceId && l.targetId === lane.targetId)).toBe(false);
+
+    // Winning is local: no server call, no reward, progress is remembered, and a next battle is offered.
+    scene.gameState.status = 'victory';
+    scene.backendConnectPromise = Promise.resolve();
+    scene.endBeatDone = Promise.resolve();
+    scene.careerManager.completeLevel = vi.fn();
+    scene.careerManager.completeWeekly = vi.fn();
+    const render = vi.spyOn(scene, 'renderLevelResultModal');
+    await scene.finishLaneBattle(scene.laneLevel);
+    expect(scene.careerManager.completeLevel).not.toHaveBeenCalled();
+    expect(scene.careerManager.completeWeekly).not.toHaveBeenCalled();
+    expect(render).toHaveBeenCalledWith(scene.levelDef, 'victory', true, 0);
+    expect(names()).toContain('lane_battle_completed');
+    expect(names()).not.toContain('level_completed');
+    expect(storage.get('crown_clash_lane_progress')).toBe('1');
+    scene.cleanup();
+  });
+
+  it('keeps the classic 50% dispatch for every non-lane battle', () => {
+    const scene: any = new GameScene();
+    scene.registry.set('platform', new BrowserPlatformAdapter());
+    scene.scene.settings.data = { source: 'menu', levelId: 1 };
+    scene.create();
+    expect(scene.laneRuntime).toBeUndefined();
+    expect(scene.laneLevel).toBeUndefined();
+    scene.cleanup();
+  });
+
   it('records a versioned bot quit through the menu controller', () => {
     const scene:any=new GameScene();scene.registry.set('platform',new BrowserPlatformAdapter());
     scene.scene.settings.data={mode:'bot',botMatch:{matchId:'bot_quit_v3',battlefieldId:'crown_cross',gameplayRulesVersion:3}};

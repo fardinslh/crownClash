@@ -41,6 +41,9 @@ derives player identity from authentication and records receipt time separately.
 | `weekly_challenge_completed` | The local battle ended in a win (before the server pays) | `slot`, `durationSeconds` | Client | Weekly win rate by slot |
 | `weekly_challenge_failed` | The local battle ended in a loss or draw | `slot`, `durationSeconds` | Client | Weekly difficulty |
 | `weekly_reward_claimed` | Server confirms the coin reward for a weekly slot (only emitted when paid; a slot already paid this week pays 0 and emits nothing) | Client: `claimId`. Server: `slot`, `weekIndex`, `reward`, `resultingCoins` | Server-confirmed claim (replayed win) | Weekly reward conversion, coin inflow from the weekly challenge |
+| `lane_battle_started` | A lane battle (candidate rules v5, client-local beta behind `VITE_ENABLE_LANES`) starts | `levelId` (1-9, three per difficulty) | Client | Lane beta participation |
+| `lane_battle_completed` | The lane battle ended in a win (no reward, no server check) | `levelId`, `durationSeconds` | Client | Lane beta win rate and length |
+| `lane_battle_failed` | The lane battle ended in a loss or draw | `levelId`, `durationSeconds` | Client | Lane beta difficulty |
 | `tutorial_started` | First-time player enters the guided training battle | None | Client action | Onboarding start |
 | `tutorial_step_completed` | Each guided training action is performed with the real battle controls | `stepId` (`drag_to_attack`, `preview_result`, `tower_roles`, `multi_dispatch`, `destroy_base`) | Client action | Onboarding step progression |
 | `tutorial_completed` | Player captures the enemy base in training (all guided actions performed) and the server saves the account-wide flag | None | Client action | Onboarding completion |

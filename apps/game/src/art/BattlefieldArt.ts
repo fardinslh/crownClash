@@ -1,5 +1,5 @@
 import type { BattlefieldId, Territory } from '@crown-clash/game-core';
-import { getLevel, normalizeBattlefieldId } from '@crown-clash/game-core';
+import { getLaneLevel, getLevel, normalizeBattlefieldId } from '@crown-clash/game-core';
 import { THEME } from '../theme.js';
 import rawAssetManifest from '../../../../art/asset-manifest.json' with { type: 'json' };
 import arenaLayout from '../../../../art/arena-layout.json' with { type: 'json' };
@@ -327,6 +327,8 @@ export interface SceneLaunchData {
   levelId?: number;
   /** Weekly Challenge battle: the server picked its battlefield for the week. */
   weekly?: { battlefieldId?: BattlefieldId };
+  /** Lane battle (game-core lane-levels): its battlefield is the level's. */
+  lanes?: { levelId: number };
   liveMatch?: { state?: { battlefieldId?: BattlefieldId } };
   liveMatch2v2?: { state?: { battlefieldId?: BattlefieldId } };
 }
@@ -341,6 +343,7 @@ export function battlefieldIdFromLaunchData(launchData: SceneLaunchData | undefi
   return normalizeBattlefieldId(
     launchData?.botMatch?.battlefieldId ??
       launchData?.weekly?.battlefieldId ??
+      (launchData?.lanes ? getLaneLevel(launchData.lanes.levelId)?.battlefieldId : undefined) ??
       (launchData?.levelId === undefined ? undefined : getLevel(launchData.levelId)?.battlefieldId) ??
       launchData?.liveMatch2v2?.state?.battlefieldId ??
       launchData?.liveMatch?.state?.battlefieldId

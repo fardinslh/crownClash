@@ -35,7 +35,9 @@ export interface Lane {
 export interface Soldier {
   readonly owner: Team;
   readonly targetId: string;
-  /** Seconds of travel left. */
+  readonly routeIds: readonly string[];
+  /** Seconds of travel for the whole route, and how many are left. */
+  readonly total: number;
   readonly remaining: number;
 }
 
@@ -118,7 +120,8 @@ export function stepLaneSimulation(
     while (wait <= 1e-9) {
       if (source.units > 1) {
         source.units -= 1;
-        emitted.push({ owner: lane.owner, targetId: lane.targetId, remaining: routeSeconds(step.state, lane.routeIds, config) });
+        const total = routeSeconds(step.state, lane.routeIds, config);
+        emitted.push({ owner: lane.owner, targetId: lane.targetId, routeIds: lane.routeIds, total, remaining: total });
         if (lane.owner === 'player') stats.playerUnitsDispatched++; else stats.enemyUnitsDispatched++;
       }
       wait += config.emitSeconds;
@@ -139,4 +142,39 @@ export function stepLaneSimulation(
     accumulators: step.accumulators,
     lanes: { ...lanes, lanes: nextLanes, soldiers: [...flying, ...emitted] },
   };
+}
+
+/** Where a soldier is on the board (flat world coordinates), walking its route at constant speed. */
+export function soldierPosition(state: GameState, soldier: Soldier): { x: number; y: number } {
+  const points = soldier.routeIds.map((id) => state.territories[id]).filter(Boolean);
+  if (points.length === 0) return { x: 0, y: 0 };
+  if (points.length === 1 || soldier.total <= 0) return { x: points[0].x, y: points[0].y };
+  const lengths: number[] = [];
+  let sum = 0;
+  for (let i = 0; i < points.length - 1; i++) { const d = Math.hypot(points[i + 1].x - points[i].x, points[i + 1].y - points[i].y); lengths.push(d); sum += d; }
+  let travelled = sum * Math.min(1, Math.max(0, 1 - soldier.remaining / soldier.total));
+  for (let i = 0; i < lengths.length; i++) {
+    if (travelled <= lengths[i] || i === lengths.length - 1) {
+      const f = lengths[i] === 0 ? 1 : Math.min(1, travelled / lengths[i]);
+      return { x: points[i].x + (points[i + 1].x - points[i].x) * f, y: points[i].y + (points[i + 1].y - points[i].y) * f };
+    }
+    travelled -= lengths[i];
+  }
+  const last = points[points.length - 1];
+  return { x: last.x, y: last.y };
+}
+
+/** Lanes whose drawn route a swipe segment crosses (flat world coordinates), nearest to the swipe start first. */
+export function lanesCrossedBySegment(
+  state: GameState, lanes: LaneState, owner: Team, from: { x: number; y: number }, to: { x: number; y: number },
+): Lane[] {
+  const crosses = (a: { x: number; y: number }, b: { x: number; y: number }): boolean => {
+    const d = (p: { x: number; y: number }, q: { x: number; y: number }, r: { x: number; y: number }): number => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+    const d1 = d(from, to, a), d2 = d(from, to, b), d3 = d(a, b, from), d4 = d(a, b, to);
+    return d1 * d2 < 0 && d3 * d4 < 0;
+  };
+  return lanes.lanes.filter((lane) => lane.owner === owner && lane.routeIds.slice(0, -1).some((id, i) => {
+    const a = state.territories[id], b = state.territories[lane.routeIds[i + 1]];
+    return a && b && crosses(a, b);
+  }));
 }

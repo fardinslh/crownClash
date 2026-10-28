@@ -121,3 +121,31 @@ describe('lanes (candidate rules v5 prototype)', () => {
     expect(play()).toEqual(play());
   });
 });
+
+describe('lane geometry helpers', () => {
+  it('places a soldier along its route and clamps at the ends', async () => {
+    const { soldierPosition } = await import('../lanes.js');
+    const state = fresh();
+    const a = state.territories.p_base, b = state.territories.n_bot_left;
+    const soldier = { owner: 'player' as const, targetId: 'n_bot_left', routeIds: ['p_base', 'n_bot_left'], total: 4, remaining: 4 };
+    expect(soldierPosition(state, soldier)).toEqual({ x: a.x, y: a.y });
+    expect(soldierPosition(state, { ...soldier, remaining: 0 })).toEqual({ x: b.x, y: b.y });
+    const half = soldierPosition(state, { ...soldier, remaining: 2 });
+    expect(half.x).toBeCloseTo((a.x + b.x) / 2, 6);
+    expect(half.y).toBeCloseTo((a.y + b.y) / 2, 6);
+  });
+
+  it('finds the owner\'s lanes a swipe segment crosses', async () => {
+    const { lanesCrossedBySegment } = await import('../lanes.js');
+    const state = fresh();
+    state.territories.p_base.units = 30;
+    const lanes = openLane(state, emptyLaneState(), 'player', 'p_base', 'n_bot_left');
+    const a = state.territories.p_base, b = state.territories.n_bot_left;
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const across = { x: mid.x + (b.y - a.y) * 0.3, y: mid.y - (b.x - a.x) * 0.3 };
+    const other = { x: mid.x - (b.y - a.y) * 0.3, y: mid.y + (b.x - a.x) * 0.3 };
+    expect(lanesCrossedBySegment(state, lanes, 'player', across, other)).toHaveLength(1);
+    expect(lanesCrossedBySegment(state, lanes, 'enemy', across, other)).toHaveLength(0);
+    expect(lanesCrossedBySegment(state, lanes, 'player', { x: 0, y: 0 }, { x: 5, y: 5 })).toHaveLength(0);
+  });
+});

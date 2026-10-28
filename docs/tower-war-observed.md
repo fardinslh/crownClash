@@ -163,3 +163,31 @@ additional input that does not exist in Crown Clash today.
 - Next step before any more tuning: one lane-aware policy used by both the probe and the bot
   (open lanes on the weakest reachable tower within the tier cap, cut a lane once its target is
   captured and full or its flow cannot beat the target's regeneration), then 50+ games per cell.
+
+## Lane battles: playable client-local beta (2026-10-28)
+
+What exists now, behind the build flag `VITE_ENABLE_LANES=true` (off by default, so the shipped
+build is unchanged):
+
+- `packages/game-core`: `lanes.ts` (lane model, tier-capped paths, soldier positions, swipe-cut
+  geometry), `lane-ai.ts` (one deterministic policy for the bot and the probes, plus the tuned
+  difficulty ladder `LANE_BOT_TICK_SECONDS` / `LANE_ENEMY_MODIFIERS`), `lane-levels.ts` (nine
+  battles, three per difficulty).
+- Balance (`scripts/lanes-sim.mjs`, 15 games per cell, probe skill and reaction varied): mean win
+  rate 0.69 easy, 0.40 normal, 0.13 hard; wins take about 25-55 s.
+- `apps/game/src/lane/`: `LaneRuntime` (step, enemy planning, player open and cut, free paths,
+  drawing) and `laneProgress` (best battle won on this device).
+- `GameScene`: a launch with `lanes: { levelId }` runs the lane step instead of the classic one.
+  Dragging opens a lane from each selected tower onto the target (a tower with all its paths in use
+  says so); a swipe that starts off every tower cuts the lanes it crosses; lanes draw as beams
+  with soldiers in file. The result card offers the next battle. A lane battle pays nothing,
+  makes no server call and is not replayed. Analytics: `lane_battle_started|completed|failed`.
+- Entry: a small "lane battle (beta)" button in the Levels header when the flag is on.
+- Checked in headless Chrome at 360x640 and 390x844 (`scripts/ui-qa-lanes.mjs`: drag opens a lane,
+  soldiers stream, a swipe cuts it, result card). **Not yet checked on the real phone**: it
+  locked again before the run.
+
+Still missing for a faithful clone: tier dots and a tap-to-upgrade input, capture and arrival
+effects (a captured tower just changes colour), a force bar tied to lanes, the Go port with a
+`cut` action, server replay and rewards (so lane battles can pay), re-tuning the campaign and the
+weekly challenge for lanes, and human playtests. None of this is reachable from the shipped build.
