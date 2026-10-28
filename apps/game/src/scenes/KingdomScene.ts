@@ -1,3 +1,4 @@
+import { assetTierOf, resolveVersionedArtPath } from '../art/hdArt.js';
 import Phaser from 'phaser';
 import {
   getKingdomProgress,
@@ -105,7 +106,7 @@ export class KingdomScene extends Phaser.Scene {
   preload(): void {
     for (const art of KINGDOM_ART) {
       if (!this.textures.exists(art.key)) {
-        this.load.image(art.key, `assets/hub/${art.file}?v=${KINGDOM_ART_VERSION}`);
+        this.load.image(art.key, resolveVersionedArtPath(`assets/hub/${art.file}?v=${KINGDOM_ART_VERSION}`, assetTierOf(this)));
       }
     }
   }

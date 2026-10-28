@@ -1,5 +1,5 @@
 {
-  "version": "hd-v2",
+  "version": "hd-v3",
   "files": {
     "assets/environment/bush.webp": {
       "hd": "assets/hd/environment/bush.webp",
@@ -66,6 +66,54 @@
       "width": 1140,
       "height": 2502,
       "bytes": 150868
+    },
+    "assets/hub/hub_chest_closed.webp": {
+      "hd": "assets/hd/hub/hub_chest_closed.webp",
+      "width": 400,
+      "height": 400,
+      "bytes": 8994
+    },
+    "assets/hub/hub_chest_open.webp": {
+      "hd": "assets/hd/hub/hub_chest_open.webp",
+      "width": 400,
+      "height": 400,
+      "bytes": 15158
+    },
+    "assets/hub/hub_enemy_citadel.webp": {
+      "hd": "assets/hd/hub/hub_enemy_citadel.webp",
+      "width": 512,
+      "height": 512,
+      "bytes": 18352
+    },
+    "assets/hub/hub_meadow.webp": {
+      "hd": "assets/hd/hub/hub_meadow.webp",
+      "width": 740,
+      "height": 430,
+      "bytes": 17268
+    },
+    "assets/hub/kingdom_barracks.webp": {
+      "hd": "assets/hd/hub/kingdom_barracks.webp",
+      "width": 512,
+      "height": 512,
+      "bytes": 12996
+    },
+    "assets/hub/kingdom_citadel.webp": {
+      "hd": "assets/hd/hub/kingdom_citadel.webp",
+      "width": 512,
+      "height": 512,
+      "bytes": 19164
+    },
+    "assets/hub/kingdom_crown_keep.webp": {
+      "hd": "assets/hd/hub/kingdom_crown_keep.webp",
+      "width": 512,
+      "height": 512,
+      "bytes": 18106
+    },
+    "assets/hub/kingdom_outpost.webp": {
+      "hd": "assets/hd/hub/kingdom_outpost.webp",
+      "width": 512,
+      "height": 512,
+      "bytes": 13114
     },
     "assets/territories/crown_cross/barracks_enemy.webp": {
       "hd": "assets/hd/territories/crown_cross/barracks_enemy.webp",

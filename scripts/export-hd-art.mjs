@@ -87,8 +87,46 @@ for (const file of fs.readdirSync(unitsDir).filter((f) => f.endsWith('.png')).so
   record(`assets/units/${file}`, UNIT_SIZE, UNIT_SIZE, dest);
 }
 
+// Hub art (menu, kingdom, daily chest, result header, meadow backdrop). Paths mirror scripts/export-hub-art.mjs, which owns the SD set.
+const HUB_SPRITES = {
+  kingdom_outpost: 'tier1_watchtower_player_idle',
+  kingdom_barracks: 'tier1_barracks_player_idle',
+  kingdom_crown_keep: 'tier2_center_player_idle',
+  kingdom_citadel: 'tier3_player_hq',
+  hub_enemy_citadel: 'tier3_enemy_hq',
+};
+const HUB_SPRITE_SIZE = 512;
+const HUB_PROP_CROP = ['56', '16', '400', '400']; // the shared square crop of the chest renders, kept at its native 400 px
+const HUB_BACKDROP = { file: 'hub_meadow', master: 'ground_crown_cross', crop: [200, 1960, 740, 430] }; // native pixels, no resize
+const hubDest = (name) => {
+  const dest = path.join(hdRoot, 'hub', `${name}.webp`);
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  return dest;
+};
+const hubMaster = (dir, name) => {
+  const file = path.join(fs.existsSync(path.join(renders, dir, `${name}.png`)) ? renders : path.join(root, 'art/blender/renders'), dir, `${name}.png`);
+  if (!fs.existsSync(file)) throw new Error(`Missing master: ${file}`);
+  return file;
+};
+for (const [name, master] of Object.entries(HUB_SPRITES)) {
+  const dest = hubDest(name);
+  execFileSync('cwebp', ['-quiet', '-q', quality, '-alpha_q', '100', '-resize', String(HUB_SPRITE_SIZE), String(HUB_SPRITE_SIZE), graded(hubMaster('crown_cross', master)), '-o', dest]);
+  record(`assets/hub/${name}.webp`, HUB_SPRITE_SIZE, HUB_SPRITE_SIZE, dest);
+}
+for (const name of ['hub_chest_closed', 'hub_chest_open']) {
+  const dest = hubDest(name);
+  execFileSync('cwebp', ['-quiet', '-q', quality, '-alpha_q', '100', '-crop', ...HUB_PROP_CROP, graded(hubMaster('hub', name)), '-o', dest]);
+  record(`assets/hub/${name}.webp`, 400, 400, dest);
+}
+{
+  const dest = hubDest(HUB_BACKDROP.file);
+  const [x, y, w, h] = HUB_BACKDROP.crop.map(String);
+  execFileSync('cwebp', ['-quiet', '-q', '80', '-crop', x, y, w, h, graded(hubMaster('grounds', HUB_BACKDROP.master)), '-o', dest]);
+  record(`assets/hub/${HUB_BACKDROP.file}.webp`, Number(w), Number(h), dest);
+}
+
 const sorted = Object.fromEntries(Object.entries(entries).sort(([a], [b]) => (a < b ? -1 : 1)));
-fs.writeFileSync(path.join(root, 'apps/game/src/art/hd-art-manifest.json'), `${JSON.stringify({ version: 'hd-v2', files: sorted }, null, 2)}\n`);
+fs.writeFileSync(path.join(root, 'apps/game/src/art/hd-art-manifest.json'), `${JSON.stringify({ version: 'hd-v3', files: sorted }, null, 2)}\n`);
 const total = Object.values(sorted).reduce((n, e) => n + e.bytes, 0);
 fs.rmSync(tmpDir, { recursive: true, force: true });
 console.log(`${Object.keys(sorted).length} HD files, ${(total / 1024 / 1024).toFixed(2)} MB total`);

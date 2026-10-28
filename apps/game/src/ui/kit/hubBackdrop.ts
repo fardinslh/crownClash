@@ -3,6 +3,7 @@ import { LOGICAL_WIDTH } from '@crown-clash/game-core';
 import { getSceneViewport } from '../Viewport.js';
 import { computeBackdropTiles } from '../HubLayouts.js';
 import { UI } from '../../theme.js';
+import { assetTierOf, resolveVersionedArtPath } from '../../art/hdArt.js';
 
 /**
  * Hub screens used to sit on a flat near-black rectangle while the battlefield
@@ -92,7 +93,7 @@ export function createHubBackdrop(scene: Phaser.Scene, options: { reducedMotion?
       layout();
     } else {
       scene.load.once(`filecomplete-image-${HUB_BACKDROP_KEY}`, layout);
-      scene.load.image(HUB_BACKDROP_KEY, `${HUB_BACKDROP_PATH}?v=${HUB_BACKDROP_VERSION}`);
+      scene.load.image(HUB_BACKDROP_KEY, resolveVersionedArtPath(`${HUB_BACKDROP_PATH}?v=${HUB_BACKDROP_VERSION}`, assetTierOf(scene)));
       // A failed or slow request leaves the flat colour; never blocks the scene.
       if (!scene.load.isLoading?.()) scene.load.start();
     }
@@ -147,7 +148,7 @@ export function loadHubTextures(
       pending--;
       if (pending === 0 && isAlive() && textures.every((t) => scene.textures.exists(t.key))) onReady();
     });
-    scene.load.image(texture.key, texture.path);
+    scene.load.image(texture.key, resolveVersionedArtPath(texture.path, assetTierOf(scene)));
   }
   if (!scene.load.isLoading?.()) scene.load.start();
 }

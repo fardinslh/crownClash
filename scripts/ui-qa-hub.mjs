@@ -1,7 +1,7 @@
 // Screenshots every hub scene plus a lane battle at 360x640 and 390x844 into qa-artifacts/visual-audit (CC_QA_OUT to
 // change): the quick way to compare the look of all screens after a theme or kit change. Needs the dev
 // server with VITE_ENABLE_LANES=true (CC_QA_APP_URL, default http://127.0.0.1:3000/) and the compose stack
-// with ALLOW_GUEST_AUTH=true.
+// with ALLOW_GUEST_AUTH=true. CC_QA_DPR=3 renders the high tier (HD art), the default 2 the mid tier.
 // Visual and gesture check of lane battles (candidate rules v5) at 360x640 and 390x844:
 // drag from the base opens a lane, soldiers stream, a swipe cuts it, the result card shows.
 // Needs the dev server started with VITE_ENABLE_LANES=true (CC_QA_APP_URL, default
@@ -42,7 +42,7 @@ for (const [width, height] of [[360, 640], [390, 844]]) {
     await cdp.send('Page.enable'); await cdp.send('Runtime.enable');
     const errors = [];
     cdp.on('Runtime.exceptionThrown', (e) => errors.push(e.exceptionDetails?.exception?.description ?? e.exceptionDetails?.text));
-    await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 2, mobile: true });
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: Number(process.env.CC_QA_DPR ?? 2), mobile: true });
     await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
     const evaluate = async (expression) => {
       const r = await cdp.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });

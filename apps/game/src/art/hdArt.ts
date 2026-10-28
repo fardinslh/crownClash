@@ -32,3 +32,18 @@ export function hdArtSize(path: string): { readonly width: number; readonly heig
   const entry = HD_FILES[path];
   return entry ? { width: entry.width, height: entry.height } : undefined;
 }
+
+/**
+ * Like `resolveArtPath` for a request that already carries a `?v=` cache key: on the HD tier an exported file is
+ * returned with the HD version as its key (so cached SD copies are never reused), anything else is unchanged.
+ */
+export function resolveVersionedArtPath(pathWithQuery: string, tier: AssetTier): string {
+  if (tier !== 'hd') return pathWithQuery;
+  const base = pathWithQuery.split('?')[0];
+  return hasHdArt(base) ? `${resolveArtPath(base, tier)}?v=${HD_ART_VERSION}` : pathWithQuery;
+}
+
+/** The asset tier the game booted with (`registry.assetTier`, set from the render profile); SD when unknown. */
+export function assetTierOf(scene: { registry?: { get?: (key: string) => unknown } }): AssetTier {
+  return scene.registry?.get?.('assetTier') === 'hd' ? 'hd' : 'sd';
+}
