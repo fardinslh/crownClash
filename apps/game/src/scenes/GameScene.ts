@@ -546,7 +546,7 @@ export class GameScene extends Phaser.Scene {
     const mapArtPath = (path: string): string =>
       hasHdArt(path) && assetTier === 'hd'
         ? `${resolveArtPath(path, assetTier)}?v=${HD_ART_VERSION}`
-        : `${path}?v=cartoon-meadow-v1.7`;
+        : `${path}?v=cartoon-meadow-v1.8`;
     // Track texture files that fail to load so the scene can substitute
     // procedural fallbacks instead of rendering broken sprites (the game must
     // never depend on the Blender source pipeline being present).

@@ -38,6 +38,13 @@ hit radii and replays are not affected. Tried and rejected: a camera colour filt
 Freestyle toon outline (it also outlines the contact-shadow ellipse) and a brighter `vivid` Blender light preset (not visible at
 game size; it stays available as `--look vivid`).
 
+**Meadow v2 (v1.8):** the four ground plates are re-rendered with `GROUND_V2` in `art/blender/crown_cross_kit.py`
+(`CC_GROUND_V2=0` renders the v1.7 meadow): large sun/shade patches (overlay of a cool dark and a warm bright tint), faint
+mower stripes, a fine grain bump, about 50% more tufts and carpet, clustered white/yellow/pink/blue flowers all over the
+lawn (not only the fringe), darker earth shoulders that define each path, alternating light/dark path stones, warm limestone
+platforms and a brown earth skirt instead of grey and black. Layout, roads, sockets and the camera are untouched. Old masters:
+`art/blender/renders-v17/grounds` (git-ignored). Art cache keys: `cartoon-meadow-v1.8`, `hub-meadow-v2`, HD `hd-v4`.
+
 **v1.7:** hub screens sit on a Blender meadow backdrop and the menu hero is the rendered
 citadel with two knights (§17); battle feel tiers and match start/end beats (§7).
 

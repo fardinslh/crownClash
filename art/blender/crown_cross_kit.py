@@ -9,6 +9,7 @@ shared troop bases, three facings each), all rendered through the canonical Art 
 Requires Blender's bpy; the scene builder imports it lazily.
 """
 import math
+import os
 import random
 
 import bpy
@@ -898,8 +899,13 @@ def _distance_to_segment(px, py, ax, ay, bx, by):
     return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
 
 
+# Meadow v2 (Art Bible v1.8): patchy sun/shade tint, mower stripes, grain bump, denser flowers, darker path edges.
+# CC_GROUND_V2=0 renders the shipped v1.7 meadow for comparison.
+GROUND_V2 = os.environ.get('CC_GROUND_V2', '1') != '0'
+
+
 def _noise_material(name, make_material, low, high, scale, roughness=.95, detail=5.0,
-                    speckle=13.0, stripes=0.0, stripe_width=38.0):
+                    speckle=13.0, stripes=0.0, stripe_width=38.0, sun_patches=0.0, grain=0.0):
     """Flat material whose base colour is a multi-octave noise ramp low->high,
     darkened by a fine speckle noise, with optional mower stripes along the
     object X axis (manicured meadows only; amplitude `stripes`)."""
@@ -947,6 +953,35 @@ def _noise_material(name, make_material, low, high, scale, roughness=.95, detail
     links.new(ramp.outputs['Color'], speckle_mix.inputs['A'])
     links.new(speckle_ramp.outputs['Color'], speckle_mix.inputs['B'])
 
+    base_out = speckle_mix.outputs['Result']
+    if sun_patches > 0.0:
+        # Large sun/shade patches: an overlay of a cool dark and a warm bright tint, so the lawn stops reading
+        # as one flat green and light seems to fall across it in slow drifts.
+        patch_noise = nodes.new('ShaderNodeTexNoise')
+        patch_noise.inputs['Scale'].default_value = scale * .42
+        patch_noise.inputs['Detail'].default_value = 2.0
+        patch_noise.inputs['Roughness'].default_value = .5
+        links.new(coordinates.outputs['Object'], patch_noise.inputs['Vector'])
+        patch_ramp = nodes.new('ShaderNodeValToRGB')
+        patch_ramp.color_ramp.elements[0].position = .36
+        patch_ramp.color_ramp.elements[0].color = (.30, .46, .40, 1.0)
+        patch_ramp.color_ramp.elements[1].position = .64
+        patch_ramp.color_ramp.elements[1].color = (.78, .72, .36, 1.0)
+        links.new(patch_noise.outputs['Fac'], patch_ramp.inputs['Fac'])
+        patch_mix = nodes.new('ShaderNodeMix')
+        patch_mix.data_type = 'RGBA'
+        patch_mix.blend_type = 'OVERLAY'
+        patch_mix.inputs['Factor'].default_value = sun_patches
+        links.new(base_out, patch_mix.inputs['A'])
+        links.new(patch_ramp.outputs['Color'], patch_mix.inputs['B'])
+        base_out = patch_mix.outputs['Result']
+    if grain > 0.0:
+        # Fine relief from the speckle noise: catches the key light so the lawn has tooth at phone size.
+        bump = nodes.new('ShaderNodeBump')
+        bump.inputs['Strength'].default_value = grain
+        bump.inputs['Distance'].default_value = .4
+        links.new(speckle_noise.outputs['Fac'], bump.inputs['Height'])
+        links.new(bump.outputs['Normal'], bsdf.inputs['Normal'])
     if stripes > 0.0:
         # Mower stripes: object-space X through a sine -> soft ramp -> subtle
         # multiply. Amplitude is tiny so it reads as upkeep, not zebra paint.
@@ -971,11 +1006,11 @@ def _noise_material(name, make_material, low, high, scale, roughness=.95, detail
         stripe_mix.data_type = 'RGBA'
         stripe_mix.blend_type = 'MULTIPLY'
         stripe_mix.inputs['Factor'].default_value = 1.0
-        links.new(speckle_mix.outputs['Result'], stripe_mix.inputs['A'])
+        links.new(base_out, stripe_mix.inputs['A'])
         links.new(stripe_ramp.outputs['Color'], stripe_mix.inputs['B'])
         links.new(stripe_mix.outputs['Result'], bsdf.inputs['Base Color'])
     else:
-        links.new(speckle_mix.outputs['Result'], bsdf.inputs['Base Color'])
+        links.new(base_out, bsdf.inputs['Base Color'])
     return mat
 
 
@@ -1152,8 +1187,9 @@ def _ground_roads(bf, mats, make_material):
                 # (top at .19); a distinct lift keeps those tops from being
                 # coplanar, which renders black patches under Cycles.
                 stone_z = .13 + lift + (.004 if bf['id'] == 'royal_ring' else 0)
+                tone = mats['paving_dark'] if (GROUND_V2 and rng.random() < .4) else mats['paving']
                 box('worn path stone', (8.5, 13.0, .12), (px, py, stone_z),
-                    mats['paving'], .7, rot=(0, 0, angle + (rng.random() - .5) * .12))
+                    tone, .7, rot=(0, 0, angle + (rng.random() - .5) * .12))
 
 
 def _ground_sockets(bf, ao_mat, plinth_top_z=0.04, diorama=False):
@@ -1362,9 +1398,13 @@ def _ground_scatter(battlefield_id, bf, mats, terrain_z, roads):
             fx, fy = x + r * math.cos(a), y + r * math.sin(a)
             if in_identity_zone(fx, fy):
                 continue
-            white = rng.random() < .55
-            ico('meadow flower', .9, (fx, fy, terrain_z(fx, fy) + .8),
-                mats['flower_light'] if white else mats['flower_dark'], scale=(1.0, 1.0, .5))
+            pick = rng.random()
+            if GROUND_V2:
+                flower_mat = mats['flower_light'] if pick < .4 else mats['flower_dark'] if pick < .65 else mats['flower_pink'] if pick < .85 else mats['flower_blue']
+            else:
+                flower_mat = mats['flower_light'] if pick < .55 else mats['flower_dark']
+            ico('meadow flower', 1.15 if GROUND_V2 else .9, (fx, fy, terrain_z(fx, fy) + .8),
+                flower_mat, scale=(1.0, 1.0, .5))
 
     def clover_patch(x, y):
         # Low, overlapping leaf rosettes read as living ground cover after
@@ -1388,11 +1428,12 @@ def _ground_scatter(battlefield_id, bf, mats, terrain_z, roads):
 
     # Dense meadow carpet between the tactical lanes, with taller growth
     # concentrated in the fringe. All detail is baked into the one plate.
-    for kind, count in (('clover', 64), ('tuft', 190), ('patch', 70), ('flower', 18), ('pebble', 16)):
+    counts = (('clover', 90), ('tuft', 290), ('patch', 100), ('flower', 64), ('pebble', 24)) if GROUND_V2 else (('clover', 64), ('tuft', 190), ('patch', 70), ('flower', 18), ('pebble', 16))
+    for kind, count in counts:
         made = misses = 0
         while made < count and misses < 500:
             misses += 1
-            position = spot(edge_only=(kind in ('patch', 'flower')))
+            position = spot(edge_only=(kind == 'patch' or (kind == 'flower' and not GROUND_V2)))
             if position is None:
                 continue
             x, y = position
@@ -1534,8 +1575,8 @@ def _diorama_slab(make_material):
     lower mass is the visible diorama skirt the camera sees at the board's
     bottom edge. Both sit below the plate (no z-fighting with the relief,
     which dissolves to z=0 at the plate border)."""
-    base = make_material('rgx_slab_mass', (.14, .11, .085), 1.0, use_gradient=False)
-    course = make_material('rgx_slab_course', (.185, .15, .11), 1.0, use_gradient=False)
+    base = make_material('rgx_slab_mass', (.30, .20, .12) if GROUND_V2 else (.14, .11, .085), 1.0, use_gradient=False)
+    course = make_material('rgx_slab_course', (.42, .30, .18) if GROUND_V2 else (.185, .15, .11), 1.0, use_gradient=False)
     top_z = -DIORAMA_SLAB_TOP_DROP
     # Upper stone course: slightly inset so the grass overhangs it.
     box('slab upper course', (374.0, 610.0 + MEADOW_FRINGE * 2.0, 7.0), (0.0, 12.0, top_z - 3.5), course, .04)
@@ -1559,9 +1600,9 @@ def _diorama_plinths(bf, make_material):
     point (boardProjection PLINTH_TOP_LIFT) and traces its ownership ring
     exactly on the plinth rim, so the plinth radius must mirror the client
     socket radius 1:1."""
-    mat = make_material('rgx_plinth', (.38, .41, .30), .92, use_gradient=False)
-    rim_mat = make_material('rgx_plinth_rim', (.62, .63, .44), .88, use_gradient=False)
-    seam_mat = make_material('rgx_plinth_joint', (.15, .17, .14), .95, use_gradient=False)
+    mat = make_material('rgx_plinth', (.55, .47, .34) if GROUND_V2 else (.38, .41, .30), .92, use_gradient=False)
+    rim_mat = make_material('rgx_plinth_rim', (.82, .72, .52) if GROUND_V2 else (.62, .63, .44), .88, use_gradient=False)
+    seam_mat = make_material('rgx_plinth_joint', (.30, .22, .14) if GROUND_V2 else (.15, .17, .14), .95, use_gradient=False)
     for territory in bf['territories']:
         x, y = _to_plane(territory['x'], territory['y'])
         r = _socket_radius(bf, territory)
@@ -1638,14 +1679,18 @@ def ground_plate(battlefield_id, make_material):
     diorama = _is_diorama_ground(battlefield_id)
 
     low, high = GROUND_GRASS_PALETTES[battlefield_id]
-    grass = _noise_material('rgx_grass', make_material, low, high, .008, detail=2.0)
+    if GROUND_V2:
+        grass = _noise_material('rgx_grass', make_material, low, high, .008, detail=2.0,
+                                stripes=.07, stripe_width=34.0, sun_patches=.45, grain=.35)
+    else:
+        grass = _noise_material('rgx_grass', make_material, low, high, .008, detail=2.0)
     plate = _rounded_plate(grass, terrain_z)
 
     mats = {
         'road': _noise_material('rgx_road', make_material,
                                 (.56, .36, .13), (.77, .57, .27), .032, roughness=.9, detail=2),
         'shoulder': _flat_alpha('rgx_shoulder', make_material,
-                                (.37, .36, .095), .20),
+                                (.27, .22, .07) if GROUND_V2 else (.37, .36, .095), .36 if GROUND_V2 else .20),
         'paving': make_material('rgx_paving', (.76, .64, .38), .9, use_gradient=False),
         'ao': _flat_alpha('rgx_ao', make_material, (.03, .045, .025), .07),
         'leaf': make_material('rgx_leaf', (.31, .72, .035), .85, use_gradient=False),
@@ -1655,6 +1700,9 @@ def ground_plate(battlefield_id, make_material):
         'stone': make_material('rgx_stone', (.59, .59, .47), .9, use_gradient=False),
         'flower_light': make_material('rgx_flowerl', (1.0, .95, .69), .8, use_gradient=False),
         'flower_dark': make_material('rgx_flowerd', (1.0, .62, .035), .8, use_gradient=False),
+        'flower_pink': make_material('rgx_flowerp', (.96, .38, .55), .8, use_gradient=False),
+        'flower_blue': make_material('rgx_flowerb', (.5, .62, 1.0), .8, use_gradient=False),
+        'paving_dark': make_material('rgx_pavingd', (.62, .50, .29), .9, use_gradient=False),
     }
     if diorama:
         # Extruded slab skirt + raised stone plinths: the playfield itself

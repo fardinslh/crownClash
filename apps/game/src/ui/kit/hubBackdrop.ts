@@ -14,7 +14,7 @@ import { assetTierOf, resolveVersionedArtPath } from '../../art/hdArt.js';
  */
 export const HUB_BACKDROP_KEY = 'hub_meadow';
 export const HUB_BACKDROP_PATH = 'assets/hub/hub_meadow.webp';
-export const HUB_BACKDROP_VERSION = 'hub-meadow-v1';
+export const HUB_BACKDROP_VERSION = 'hub-meadow-v2';
 /** How much of the meadow the dark navy veil covers (higher = darker). */
 const VEIL_ALPHA = 0.34;
 /** Darker band behind the title/subtitle so light text keeps its contrast on the bright meadow. */
