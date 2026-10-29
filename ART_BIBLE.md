@@ -44,7 +44,14 @@ pale foam rim on the brook, blue/white blooms); royal_ring is a palace garden (c
 pale gravel paths, rose beds around the hedge); quad_citadel is a sun-dried war camp (golden grass, dark churned-earth roads
 and camps, timber stake fences, sparse flowers). The lighting rig, camera, road/socket geometry, texture sizes and prop counts
 are unchanged, so the runtime cost is zero (same plate sizes and decoded texture memory); SD plates are re-encoded at q86
-(quad q88) to stay under the 128 KiB plate budget. Art cache keys: `cartoon-meadow-v1.9`, `hub-meadow-v2`, HD `hd-v5`.
+(quad q88) to stay under the 128 KiB plate budget. Art cache keys: `cartoon-meadow-v1.10`, `hub-meadow-v3`, HD `hd-v6`.
+
+**Living board (v1.10):** crown_cross moves from the hot yellow-lime of v1.8 to a fresh natural green with softer sand paths
+(the hub meadow backdrop is cropped from this plate and follows it). At runtime `src/art/arenaAmbience.ts` adds biome motes:
+pollen and butterflies (crown_cross), seeds, butterflies and brook glints (twin_passes), rose petals and butterflies
+(royal_ring), warm dust and seeds (quad_citadel); trees lean about a degree and bushes breathe. One 96x16 canvas texture,
+normal blend, depth 11 (above props, below all gameplay); at most 14 motes on high, 8 on mid, none on low or under reduced
+motion. Measured: draw calls unchanged (~45/frame in `heavy_combat`) and FPS within benchmark noise.
 
 **Meadow v2 (v1.8):** the four ground plates are re-rendered with `GROUND_V2` in `art/blender/crown_cross_kit.py`
 (`CC_GROUND_V2=0` renders the v1.7 meadow): large sun/shade patches (overlay of a cool dark and a warm bright tint), faint

@@ -1,7 +1,7 @@
 # Battlefield Art Pipeline (Blender → Runtime)
 
 Production caches fixed sprite filenames for 30 days. `GameScene.preload()`
-adds `?v=cartoon-meadow-v1.9` to ground, building, shared prop **and all marching-unit** requests.
+adds `?v=cartoon-meadow-v1.10` to ground, building, shared prop **and all marching-unit** requests.
 Bump that revision whenever this baked map kit changes, and update the preload
 regression test, so returning players receive matching terrain, buildings and troops.
 

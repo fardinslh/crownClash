@@ -1,5 +1,5 @@
 {
-  "version": "hd-v5",
+  "version": "hd-v6",
   "files": {
     "assets/environment/bush.webp": {
       "hd": "assets/hd/environment/bush.webp",
@@ -47,7 +47,7 @@
       "hd": "assets/hd/grounds/ground_crown_cross.webp",
       "width": 1140,
       "height": 2502,
-      "bytes": 196100
+      "bytes": 188316
     },
     "assets/grounds/ground_quad_citadel.webp": {
       "hd": "assets/hd/grounds/ground_quad_citadel.webp",
@@ -89,7 +89,7 @@
       "hd": "assets/hd/hub/hub_meadow.webp",
       "width": 740,
       "height": 430,
-      "bytes": 23012
+      "bytes": 21938
     },
     "assets/hub/kingdom_barracks.webp": {
       "hd": "assets/hd/hub/kingdom_barracks.webp",

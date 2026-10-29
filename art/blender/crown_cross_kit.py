@@ -1531,7 +1531,7 @@ def _ground_bottom_fade(field, make_material):
 # cooler highland emerald, palace greens and golden camp grass give each map
 # an identity without changing the authoritative palette/fallback data.
 GROUND_GRASS_PALETTES = {
-    'crown_cross': ((.19, .48, .025), (.37, .72, .045)),
+    'crown_cross': ((.10, .43, .05), (.25, .64, .08)),
     'twin_passes': ((.05, .38, .17), (.14, .61, .30)),
     'royal_ring': ((.09, .50, .03), (.30, .78, .06)),
     'quad_citadel': ((.32, .44, .04), (.58, .66, .08)),
@@ -1539,7 +1539,7 @@ GROUND_GRASS_PALETTES = {
 
 # Per-map biome dressing, baked into the ground plate only: the lighting rig,
 # road/socket geometry and runtime prop counts stay shared. Every key is
-# optional; crown_cross is the reference biome and keeps the shared defaults.
+# optional; unset keys keep the shared defaults.
 #   grass:  noise_material overrides (stripes, stripe_width, sun_patches, grain)
 #   road:   (low, high) road noise colours
 #   blades: colours for the baked leaf/clover materials
@@ -1547,7 +1547,12 @@ GROUND_GRASS_PALETTES = {
 #   counts: scatter counts per kind (clover/tuft/patch/flower/pebble)
 _DEFAULT_FLOWER_MIX = (('flower_light', .4), ('flower_dark', .25), ('flower_pink', .2), ('flower_blue', .15))
 GROUND_BIOMES = {
-    'crown_cross': {},
+    # Royal meadow: fresh natural green (not the hot yellow-lime of v1.8), softer sand paths.
+    'crown_cross': {
+        'road': ((.52, .38, .20), (.74, .60, .38)),
+        'blades': {'leaf': (.20, .62, .08), 'leaf_dark': (.06, .40, .04),
+                   'leaf_tall': (.16, .56, .06), 'clover': (.10, .50, .07)},
+    },
     # Highland brook: cool mossy greens, pale blue/white blooms, grey stone paths.
     'twin_passes': {
         'grass': {'sun_patches': .4, 'stripes': .0},

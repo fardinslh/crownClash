@@ -117,6 +117,7 @@ import {
 import { sounds } from '../audio/SoundEffects.js';
 import { THEME, UI } from '../theme.js';
 import { HD_ART_VERSION, hasHdArt, resolveArtPath, type AssetTier } from '../art/hdArt.js';
+import { ArenaAmbience, ambienceBudget, planAmbience } from '../art/arenaAmbience.js';
 import { createPlatformAdapter, isHapticsEnabled, PlatformAdapter, setHapticsEnabled } from '@crown-clash/platform';
 import {
   LiveMatchClient,
@@ -381,6 +382,8 @@ export class GameScene extends Phaser.Scene {
     cx: number;
     cy: number;
   }> = [];
+  /** Biome motes and brook glints (mid/high tiers only); rebuilt with the arena dressing. */
+  private arenaAmbience?: ArenaAmbience;
   /** Reusable screen point for per-frame projections (zero allocation in march loops). */
   private boardPoint: BoardPoint = { u: 0, v: 0 };
   private dragGraphics!: Phaser.GameObjects.Graphics;
@@ -535,6 +538,12 @@ export class GameScene extends Phaser.Scene {
     super({ key: 'GameScene' });
   }
 
+  /** Ambient-life budget: none on the low tier or under reduced motion (unknown tier counts as low). */
+  private ambienceBudget(): number {
+    const tier = this.registry?.get?.('renderTier');
+    return ambienceBudget(tier === 'high' || tier === 'mid' ? tier : 'low', this.reducedMotion);
+  }
+
   private currentAssetTier(): AssetTier {
     return this.registry?.get?.('assetTier') === 'hd' ? 'hd' : 'sd';
   }
@@ -546,7 +555,7 @@ export class GameScene extends Phaser.Scene {
     const mapArtPath = (path: string): string =>
       hasHdArt(path) && assetTier === 'hd'
         ? `${resolveArtPath(path, assetTier)}?v=${HD_ART_VERSION}`
-        : `${path}?v=cartoon-meadow-v1.9`;
+        : `${path}?v=cartoon-meadow-v1.10`;
     // Track texture files that fail to load so the scene can substitute
     // procedural fallbacks instead of rendering broken sprites (the game must
     // never depend on the Blender source pipeline being present).
@@ -1719,6 +1728,12 @@ export class GameScene extends Phaser.Scene {
     // Never created under reduced motion; two images with two sines per
     // frame is the whole runtime cost.
     this.createAmbientCloudShadows(layout);
+    this.arenaAmbience = new ArenaAmbience(
+      this,
+      layout,
+      planAmbience(this.battlefieldId, this.ambienceBudget()),
+      (image) => this.trackArenaVisual(image),
+    );
 
     // Ground sockets visually anchor the rendered 2.5D buildings: a soft
     // plinth pool grounds each one, then the socket ring and key-light rim.
@@ -1909,7 +1924,9 @@ export class GameScene extends Phaser.Scene {
     const paths = listEnvironmentPropSpritePaths();
     if (Object.keys(paths).length === 0) return;
     const layout = this.boardLayout;
+    const foliageSway = this.ambienceBudget() > 0;
     let swayIndex = 0;
+    let foliageIndex = 0;
     for (const prop of getArenaPropPositions(this.battlefieldId)) {
       const display = ARENA_PROP_DISPLAY[prop.kind];
       const anchor = layout.project(prop.x, prop.y);
@@ -1933,6 +1950,20 @@ export class GameScene extends Phaser.Scene {
           ease: 'Sine.easeInOut',
         });
         swayIndex += 1;
+      } else if (foliageSway && (prop.kind.startsWith('tree_') || prop.kind === 'bush')) {
+        // Breeze: trees lean a degree around their roots, bushes breathe.
+        // Slow, staggered periods keep the canopy from moving in unison.
+        const tree = prop.kind !== 'bush';
+        this.tweens.add({
+          targets: image,
+          ...(tree ? { angle: { from: -1.1, to: 1.1 } } : { scaleY: image.scaleY * 1.035 }),
+          duration: (tree ? 3400 : 2600) + (foliageIndex % 4) * 430,
+          delay: (foliageIndex % 5) * 380,
+          yoyo: true,
+          repeat: -1,
+          ease: 'Sine.easeInOut',
+        });
+        foliageIndex += 1;
       }
     }
   }
@@ -3232,6 +3263,7 @@ export class GameScene extends Phaser.Scene {
         );
       }
     }
+    if (this.arenaAmbience && Number.isFinite(time)) this.arenaAmbience.update(time);
   }
 
   /**
@@ -7533,6 +7565,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.arenaVisuals = [];
     this.cloudShadows = [];
+    this.arenaAmbience = undefined;
     this.lastAppliedViewport = { width: 0, height: 0 };
     this.bottomBarShadow = undefined;
     this.bottomBarBg = undefined;
