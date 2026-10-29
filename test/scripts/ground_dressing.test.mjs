@@ -43,7 +43,8 @@ for battlefield_id in ('crown_cross', 'twin_passes', 'royal_ring', 'quad_citadel
     kit.ico = record_ico
     kit.cyl = record_cylinder
     materials = {name: name for name in ('leaf_tall', 'leaf', 'leaf_dark',
-                 'flower_light', 'flower_dark', 'clover', 'stone')}
+                 'flower_light', 'flower_dark', 'flower_pink', 'flower_blue', 'flower_red',
+                 'clover', 'stone')}
     kit._ground_scatter(battlefield_id, battlefield, materials, terrain, roads)
     first = list(emissions)
     emissions.clear()

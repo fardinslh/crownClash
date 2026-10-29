@@ -208,7 +208,7 @@ export class MenuScene extends Phaser.Scene {
       this,
       [
         { key: 'hub_kingdom_citadel', path: 'assets/hub/kingdom_citadel.webp?v=hub-384-v1' },
-        { key: 'unit_leader_player_front', path: 'assets/units/unit_leader_player_front.png?v=cartoon-meadow-v1.8' },
+        { key: 'unit_leader_player_front', path: 'assets/units/unit_leader_player_front.png?v=cartoon-meadow-v1.9' },
       ],
       () => {
         crest.setVisible(false);

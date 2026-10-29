@@ -1,7 +1,7 @@
 # Battlefield Art Pipeline (Blender → Runtime)
 
 Production caches fixed sprite filenames for 30 days. `GameScene.preload()`
-adds `?v=cartoon-meadow-v1.8` to ground, building, shared prop **and all marching-unit** requests.
+adds `?v=cartoon-meadow-v1.9` to ground, building, shared prop **and all marching-unit** requests.
 Bump that revision whenever this baked map kit changes, and update the preload
 regression test, so returning players receive matching terrain, buildings and troops.
 
@@ -102,6 +102,9 @@ reference an unloaded texture.
   alpha and ownership has one `2px` primary-colored ring with `0.06` fill; the extra
   dark base-plate stroke is hidden only on baked plinths. Capture updates preserve
   that treatment, while selection/drag feedback and fallback grounding remain.
+  Version 1.9 gives each map its own baked biome through `GROUND_BIOMES` (grass, road, blade and flower
+  palettes, scatter counts, plus per-map dressing: brook foam rim on twin_passes, rose beds on royal_ring, churned
+  camps and timber stake fences on quad_citadel). Lighting, geometry, texture sizes and prop counts stay fixed.
   Render/optimize: `tools/blender/render_battlefield.sh grounds`, then
   `tools/blender/optimize_outputs.sh art/blender/renders/grounds grounds`.
 

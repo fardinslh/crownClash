@@ -1,5 +1,5 @@
 {
-  "version": "hd-v4",
+  "version": "hd-v5",
   "files": {
     "assets/environment/bush.webp": {
       "hd": "assets/hd/environment/bush.webp",
@@ -53,19 +53,19 @@
       "hd": "assets/hd/grounds/ground_quad_citadel.webp",
       "width": 1140,
       "height": 2502,
-      "bytes": 184792
+      "bytes": 188946
     },
     "assets/grounds/ground_royal_ring.webp": {
       "hd": "assets/hd/grounds/ground_royal_ring.webp",
       "width": 1140,
       "height": 2502,
-      "bytes": 195466
+      "bytes": 193030
     },
     "assets/grounds/ground_twin_passes.webp": {
       "hd": "assets/hd/grounds/ground_twin_passes.webp",
       "width": 1140,
       "height": 2502,
-      "bytes": 188974
+      "bytes": 178652
     },
     "assets/hub/hub_chest_closed.webp": {
       "hd": "assets/hd/hub/hub_chest_closed.webp",

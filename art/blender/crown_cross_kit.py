@@ -1261,8 +1261,11 @@ def _ground_identity(battlefield_id, make_material, terrain_z):
                                 .022, roughness=.3, detail=2.0)
         _river_ribbon('organic brook bank', 49.0, .012, bank)
         _river_ribbon('brook shallows', 43.0, .025, shallows)
+        # A pale foam rim where the water meets the bank (baked: no runtime cost).
+        foam = _flat_alpha('rgx_foam', make_material, (.84, .96, .92), .55)
+        _river_ribbon('brook foam rim', 40.5, .033, foam)
         _river_ribbon('brook water', 37.0, .04, water)
-        stone = make_material('rgx_bridge', (.73, .65, .43), .8, use_gradient=False)
+        stone =make_material('rgx_bridge', (.73, .65, .43), .8, use_gradient=False)
         # Ground-level decking keeps marching sprites registered to the
         # canonical route; small stone parapets supply the diorama volume.
         for i in range(9):
@@ -1300,6 +1303,18 @@ def _ground_identity(battlefield_id, make_material, terrain_z):
             _organic_patch('trampled camp clearing', x, y, 81, 94, .018, camp, i + 16)
         for i, (x, y) in enumerate(((-152, 38), (152, 38))):
             _organic_patch('camp verge', x, y, 27, 18, .014, camp, i + 44)
+        # Churned earth inside each camp and a timber stake fence on the outer
+        # verge: the war-camp reads as lived-in, not as a second meadow.
+        churn = _flat_alpha('rgx_churn', make_material, (.30, .17, .06), .42)
+        for i, (x, y) in enumerate(((-104, 150), (104, 150), (-104, -78), (104, -78))):
+            _organic_patch('camp churned earth', x, y, 26, 21, .02, churn, i + 60)
+        timber = make_material('rgx_fence', (.46, .29, .12), .85, use_gradient=False)
+        for side in (-1, 1):
+            for run in ((130, 262), (-206, -74)):
+                lo, hi = run
+                for j in range(int((hi - lo) / 18) + 1):
+                    box('camp fence stake', (5.0, 5.0, 12.0), (side * 160.0, lo + j * 18.0, 6.0), timber, .8)
+                box('camp fence rail', (3.2, hi - lo, 3.0), (side * 160.0, (lo + hi) / 2.0, 8.5), timber, .5)
 
 
 def _ground_scatter(battlefield_id, bf, mats, terrain_z, roads):
@@ -1365,6 +1380,8 @@ def _ground_scatter(battlefield_id, bf, mats, terrain_z, roads):
             return x, y
         return None
 
+    biome = GROUND_BIOMES[battlefield_id]
+    flower_mix = biome.get('flowers', _DEFAULT_FLOWER_MIX)
     placed = []
 
     def reserve(x, y):
@@ -1400,7 +1417,13 @@ def _ground_scatter(battlefield_id, bf, mats, terrain_z, roads):
                 continue
             pick = rng.random()
             if GROUND_V2:
-                flower_mat = mats['flower_light'] if pick < .4 else mats['flower_dark'] if pick < .65 else mats['flower_pink'] if pick < .85 else mats['flower_blue']
+                flower_mat = mats[flower_mix[-1][0]]
+                cumulative = 0.0
+                for key, weight in flower_mix:
+                    cumulative += weight
+                    if pick < cumulative:
+                        flower_mat = mats[key]
+                        break
             else:
                 flower_mat = mats['flower_light'] if pick < .55 else mats['flower_dark']
             ico('meadow flower', 1.15 if GROUND_V2 else .9, (fx, fy, terrain_z(fx, fy) + .8),
@@ -1430,6 +1453,7 @@ def _ground_scatter(battlefield_id, bf, mats, terrain_z, roads):
     # concentrated in the fringe. All detail is baked into the one plate.
     counts = (('clover', 90), ('tuft', 290), ('patch', 100), ('flower', 64), ('pebble', 24)) if GROUND_V2 else (('clover', 64), ('tuft', 190), ('patch', 70), ('flower', 18), ('pebble', 16))
     for kind, count in counts:
+        count = biome.get('counts', {}).get(kind, count)
         made = misses = 0
         while made < count and misses < 500:
             misses += 1
@@ -1508,9 +1532,49 @@ def _ground_bottom_fade(field, make_material):
 # an identity without changing the authoritative palette/fallback data.
 GROUND_GRASS_PALETTES = {
     'crown_cross': ((.19, .48, .025), (.37, .72, .045)),
-    'twin_passes': ((.045, .38, .13), (.13, .62, .21)),
-    'royal_ring': ((.055, .43, .035), (.20, .69, .055)),
-    'quad_citadel': ((.26, .42, .035), (.48, .65, .075)),
+    'twin_passes': ((.05, .38, .17), (.14, .61, .30)),
+    'royal_ring': ((.09, .50, .03), (.30, .78, .06)),
+    'quad_citadel': ((.32, .44, .04), (.58, .66, .08)),
+}
+
+# Per-map biome dressing, baked into the ground plate only: the lighting rig,
+# road/socket geometry and runtime prop counts stay shared. Every key is
+# optional; crown_cross is the reference biome and keeps the shared defaults.
+#   grass:  noise_material overrides (stripes, stripe_width, sun_patches, grain)
+#   road:   (low, high) road noise colours
+#   blades: colours for the baked leaf/clover materials
+#   flowers: weighted flower materials (weights sum to 1)
+#   counts: scatter counts per kind (clover/tuft/patch/flower/pebble)
+_DEFAULT_FLOWER_MIX = (('flower_light', .4), ('flower_dark', .25), ('flower_pink', .2), ('flower_blue', .15))
+GROUND_BIOMES = {
+    'crown_cross': {},
+    # Highland brook: cool mossy greens, pale blue/white blooms, grey stone paths.
+    'twin_passes': {
+        'grass': {'sun_patches': .4, 'stripes': .0},
+        'road': ((.50, .40, .27), (.70, .60, .42)),
+        'blades': {'leaf': (.14, .56, .12), 'leaf_dark': (.03, .33, .11),
+                   'leaf_tall': (.09, .48, .15), 'clover': (.04, .44, .14)},
+        'flowers': (('flower_blue', .40), ('flower_light', .40), ('flower_pink', .10), ('flower_dark', .10)),
+        'counts': {'pebble': 56},
+    },
+    # Palace garden: clipped bright lawn, tight mower stripes, rose beds, pale gravel.
+    'royal_ring': {
+        'grass': {'stripes': .12, 'stripe_width': 28.0, 'sun_patches': .3, 'grain': .2},
+        'road': ((.72, .60, .37), (.88, .78, .53)),
+        'blades': {'leaf': (.38, .78, .05), 'leaf_dark': (.10, .52, .04),
+                   'leaf_tall': (.30, .70, .05), 'clover': (.17, .60, .06)},
+        'flowers': (('flower_pink', .35), ('flower_light', .35), ('flower_red', .20), ('flower_dark', .10)),
+        'counts': {'tuft': 210, 'flower': 104},
+    },
+    # War-camp grassland: sun-dried gold grass, churned dark earth, sparse flowers, stones.
+    'quad_citadel': {
+        'grass': {'stripes': .0, 'grain': .5},
+        'road': ((.42, .27, .11), (.60, .42, .20)),
+        'blades': {'leaf': (.66, .72, .08), 'leaf_dark': (.14, .30, .03),
+                   'leaf_tall': (.46, .60, .05), 'clover': (.26, .44, .05)},
+        'flowers': (('flower_dark', .55), ('flower_light', .45)),
+        'counts': {'clover': 40, 'tuft': 340, 'patch': 120, 'flower': 20, 'pebble': 64},
+    },
 }
 
 
@@ -1626,6 +1690,26 @@ def _diorama_plinths(bf, make_material):
                 rot=(0, 0, a))
 
 
+def _ground_royal_garden_dressing(bf, mats, make_material, terrain_z, roads):
+    """Rose beds ringing the clipped hedge (royal_ring).
+
+    Follows the same ellipse as the authored hedge (y spacing included) and
+    keeps clear of every road that crosses the court, so no lane is obscured.
+    """
+    rng = random.Random(7211)
+    bloom_mats = (mats['flower_red'], mats['flower_pink'], mats['flower_light'])
+    for i in range(54):
+        a = i * math.tau / 54.0
+        x = 90.0 * math.cos(a)
+        y = (38.0 + 90.0 * math.sin(a)) * GROUND_VERTICAL_SPACING
+        if any(_distance_to_segment(x, y, p[0], p[1], q[0], q[1]) < 15.0 for p, q in roads):
+            continue
+        bloom = bloom_mats[(i // 2) % 3]
+        for _ in range(4):
+            bx, by = x + (rng.random() - .5) * 6.0, y + (rng.random() - .5) * 6.0
+            ico('rose bed bloom', 1.9, (bx, by, terrain_z(bx, by) + 1.2), bloom, scale=(1.0, 1.0, .65))
+
+
 def _ground_edge_gardens(battlefield_id, bf, make_material, terrain_z, roads):
     """Static edge clusters fill the fringe with a composed miniature world.
 
@@ -1679,16 +1763,19 @@ def ground_plate(battlefield_id, make_material):
     diorama = _is_diorama_ground(battlefield_id)
 
     low, high = GROUND_GRASS_PALETTES[battlefield_id]
+    biome = GROUND_BIOMES[battlefield_id]
     if GROUND_V2:
-        grass = _noise_material('rgx_grass', make_material, low, high, .008, detail=2.0,
-                                stripes=.07, stripe_width=34.0, sun_patches=.45, grain=.35)
+        grass_params = {'stripes': .07, 'stripe_width': 34.0, 'sun_patches': .45, 'grain': .35}
+        grass_params.update(biome.get('grass', {}))
+        grass = _noise_material('rgx_grass', make_material, low, high, .008, detail=2.0, **grass_params)
     else:
         grass = _noise_material('rgx_grass', make_material, low, high, .008, detail=2.0)
     plate = _rounded_plate(grass, terrain_z)
 
     mats = {
         'road': _noise_material('rgx_road', make_material,
-                                (.56, .36, .13), (.77, .57, .27), .032, roughness=.9, detail=2),
+                                *biome.get('road', ((.56, .36, .13), (.77, .57, .27))),
+                                .032, roughness=.9, detail=2),
         'shoulder': _flat_alpha('rgx_shoulder', make_material,
                                 (.27, .22, .07) if GROUND_V2 else (.37, .36, .095), .36 if GROUND_V2 else .20),
         'paving': make_material('rgx_paving', (.76, .64, .38), .9, use_gradient=False),
@@ -1702,8 +1789,12 @@ def ground_plate(battlefield_id, make_material):
         'flower_dark': make_material('rgx_flowerd', (1.0, .62, .035), .8, use_gradient=False),
         'flower_pink': make_material('rgx_flowerp', (.96, .38, .55), .8, use_gradient=False),
         'flower_blue': make_material('rgx_flowerb', (.5, .62, 1.0), .8, use_gradient=False),
+        'flower_red': make_material('rgx_flowerr', (.90, .12, .16), .8, use_gradient=False),
         'paving_dark': make_material('rgx_pavingd', (.62, .50, .29), .9, use_gradient=False),
     }
+    for key, color in biome.get('blades', {}).items():
+        mats[key] = make_material(f'rgx_{key}_{battlefield_id}', color, .9 if key == 'clover' else .85,
+                                  use_gradient=False)
     if diorama:
         # Extruded slab skirt + raised stone plinths: the playfield itself
         # carries depth through the dimetric rig.
@@ -1731,6 +1822,8 @@ def ground_plate(battlefield_id, make_material):
     )
     _ground_scatter(battlefield_id, bf, mats, terrain_z, roads)
     _ground_edge_gardens(battlefield_id, bf, make_material, terrain_z, roads)
+    if battlefield_id == 'royal_ring':
+        _ground_royal_garden_dressing(bf, mats, make_material, terrain_z, roads)
     if not diorama:
         _ground_bottom_fade(field, make_material)
     return plate

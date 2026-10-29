@@ -126,7 +126,7 @@ for (const name of ['hub_chest_closed', 'hub_chest_open']) {
 }
 
 const sorted = Object.fromEntries(Object.entries(entries).sort(([a], [b]) => (a < b ? -1 : 1)));
-fs.writeFileSync(path.join(root, 'apps/game/src/art/hd-art-manifest.json'), `${JSON.stringify({ version: 'hd-v4', files: sorted }, null, 2)}\n`);
+fs.writeFileSync(path.join(root, 'apps/game/src/art/hd-art-manifest.json'), `${JSON.stringify({ version: 'hd-v5', files: sorted }, null, 2)}\n`);
 const total = Object.values(sorted).reduce((n, e) => n + e.bytes, 0);
 fs.rmSync(tmpDir, { recursive: true, force: true });
 console.log(`${Object.keys(sorted).length} HD files, ${(total / 1024 / 1024).toFixed(2)} MB total`);

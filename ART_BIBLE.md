@@ -38,6 +38,14 @@ hit radii and replays are not affected. Tried and rejected: a camera colour filt
 Freestyle toon outline (it also outlines the contact-shadow ellipse) and a brighter `vivid` Blender light preset (not visible at
 game size; it stays available as `--look vivid`).
 
+**Map identity (v1.9):** each battlefield now has its own baked biome in `GROUND_BIOMES` (`art/blender/crown_cross_kit.py`):
+crown_cross stays the reference lime royal lawn; twin_passes is a cool highland brook (blue-green grass, grey stone paths,
+pale foam rim on the brook, blue/white blooms); royal_ring is a palace garden (clipped bright lawn with tight mower stripes,
+pale gravel paths, rose beds around the hedge); quad_citadel is a sun-dried war camp (golden grass, dark churned-earth roads
+and camps, timber stake fences, sparse flowers). The lighting rig, camera, road/socket geometry, texture sizes and prop counts
+are unchanged, so the runtime cost is zero (same plate sizes and decoded texture memory); SD plates are re-encoded at q86
+(quad q88) to stay under the 128 KiB plate budget. Art cache keys: `cartoon-meadow-v1.9`, `hub-meadow-v2`, HD `hd-v5`.
+
 **Meadow v2 (v1.8):** the four ground plates are re-rendered with `GROUND_V2` in `art/blender/crown_cross_kit.py`
 (`CC_GROUND_V2=0` renders the v1.7 meadow): large sun/shade patches (overlay of a cool dark and a warm bright tint), faint
 mower stripes, a fine grain bump, about 50% more tufts and carpet, clustered white/yellow/pink/blue flowers all over the
